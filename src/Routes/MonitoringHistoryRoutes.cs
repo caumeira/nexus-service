@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -92,8 +93,9 @@ public static class MonitoringHistoryRoutes
                     var dbScalars = store.QueryScalarsDecimated(fromSec, toSec, stepSeconds);
                     var dbGpu = store.QueryGpuDecimated(fromSec, toSec, stepSeconds);
                     var dbFan = store.QueryFanDecimated(fromSec, toSec, stepSeconds);
+                    var dbComponentTemps = store.QueryComponentTempDecimated(fromSec, toSec, stepSeconds);
                     response = BuildDecimatedHistoryResponse(
-                        dbScalars, dbGpu, dbFan, tailSamples, fromSec, toSec, stepSeconds, seriesFilter, adapterLuids);
+                        dbScalars, dbGpu, dbFan, dbComponentTemps, tailSamples, fromSec, toSec, stepSeconds, seriesFilter, adapterLuids);
                 }
                 else
                 {
@@ -528,6 +530,7 @@ public static class MonitoringHistoryRoutes
         IReadOnlyList<ScalarDecimatedSlot> dbScalars,
         IReadOnlyList<GpuDecimatedSlot> dbGpu,
         IReadOnlyList<FanDecimatedSlot> dbFan,
+        IReadOnlyList<ComponentTempDecimatedSlot> dbComponentTemps,
         IReadOnlyList<MetricSample> tailSamples,
         long fromSec, long toSec, int stepSeconds,
         IReadOnlySet<string>? seriesFilter,
@@ -553,6 +556,7 @@ public static class MonitoringHistoryRoutes
 
         AddDecimatedGpuSeries(series, dbGpu, tailSamples, fromSec, toSec, stepSeconds, seriesFilter, gpuAdapterLuids);
         AddDecimatedFanSeries(series, dbFan, tailSamples, fromSec, toSec, stepSeconds, seriesFilter);
+        AddDecimatedComponentTempSeries(series, dbComponentTemps, tailSamples, fromSec, toSec, stepSeconds, seriesFilter);
 
         return new MetricsHistoryResponse
         {
@@ -683,6 +687,143 @@ public static class MonitoringHistoryRoutes
         }
     }
 
+    // mem-temp is one series averaging every kind=="ram" component at each
+    // slot (mean of avgs, max of maxes); drive-temp is one series per
+    // kind=="storage" component, id-scoped like gpu/fan. pointsForComponent
+    // abstracts over the raw-window path (decimating merged samples inline)
+    // and the wide-window path (db-slot + tail merge), so the aggregation
+    // logic below runs identically for both.
+    private static void AddComponentTempSeriesCore(
+        List<MetricSeriesWire> output,
+        IReadOnlyDictionary<string, (string Kind, string Name)> meta,
+        Func<string, IReadOnlyList<MetricPoint>> pointsForComponent,
+        IReadOnlySet<string>? filter)
+    {
+        if (MatchesFilter("mem-temp", "mem-temp", filter))
+        {
+            var ramPoints = meta.Where(kv => kv.Value.Kind == "ram").Select(kv => pointsForComponent(kv.Key));
+            var points = AverageAcrossComponents(ramPoints);
+            if (points.Count > 0)
+            {
+                output.Add(new MetricSeriesWire
+                {
+                    Id = "mem-temp",
+                    Kind = "mem-temp",
+                    Name = "Memory Temperature",
+                    Points = ToWirePoints(points, wholeNumbers: false),
+                });
+            }
+        }
+
+        var usedDriveIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (componentId, info) in meta.Where(kv => kv.Value.Kind == "storage").OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            var wireId = $"drive-temp:{ResolveUniqueSanitizedId(componentId, usedDriveIds)}";
+            if (!MatchesFilter(wireId, "drive-temp", filter))
+            {
+                continue;
+            }
+            output.Add(new MetricSeriesWire
+            {
+                Id = wireId,
+                Kind = "drive-temp",
+                Name = info.Name,
+                Points = ToWirePoints(pointsForComponent(componentId), wholeNumbers: false),
+            });
+        }
+    }
+
+    // SanitizeId is not injective (e.g. "storage:a/b" and "storage:a-b" both
+    // sanitize to "storage:a-b"), so two distinct raw component ids could
+    // otherwise collide on the same drive-temp:<id> wire id in one response.
+    // On collision, append a hash of the raw id so the disambiguated id is
+    // stable for that raw id regardless of iteration order or which sibling
+    // claimed the base candidate first.
+    private static string ResolveUniqueSanitizedId(string rawComponentId, HashSet<string> usedIds)
+    {
+        var candidate = MetricsHistory.SanitizeId(rawComponentId);
+        if (usedIds.Add(candidate))
+        {
+            return candidate;
+        }
+
+        var suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawComponentId)))[..6].ToLowerInvariant();
+        var disambiguated = $"{candidate}-{suffix}";
+        while (!usedIds.Add(disambiguated))
+        {
+            disambiguated += "x";
+        }
+        return disambiguated;
+    }
+
+    // Unions every ram component's slots, averaging whichever components
+    // have a reading at each slot (a component missing at a given slot does
+    // not drag the average down) and taking the max across components' own
+    // per-slot maxes.
+    private static List<MetricPoint> AverageAcrossComponents(IEnumerable<IReadOnlyList<MetricPoint>> perComponentPoints)
+    {
+        var bySlot = new SortedDictionary<long, List<MetricPoint>>();
+        foreach (var points in perComponentPoints)
+        {
+            foreach (var p in points)
+            {
+                if (!bySlot.TryGetValue(p.T, out var list))
+                {
+                    list = new List<MetricPoint>();
+                    bySlot[p.T] = list;
+                }
+                list.Add(p);
+            }
+        }
+        return bySlot.Select(kv => new MetricPoint(kv.Key, kv.Value.Average(p => p.Avg), kv.Value.Max(p => p.Max))).ToList();
+    }
+
+    private static void AddComponentTempSeries(
+        List<MetricSeriesWire> output, IReadOnlyList<MetricSample> merged,
+        long fromSec, long toSec, int stepSeconds, IReadOnlySet<string>? filter)
+    {
+        var meta = new Dictionary<string, (string Kind, string Name)>(StringComparer.Ordinal);
+        foreach (var s in merged)
+        {
+            foreach (var c in s.ComponentTemps)
+            {
+                meta[c.ComponentId] = (c.Kind, c.Name);
+            }
+        }
+
+        AddComponentTempSeriesCore(output, meta, componentId => MetricsDecimation.Decimate(
+            merged.Select(s => new MetricSamplePoint(s.TsSec, FindComponent(s, componentId)?.ValueC)),
+            fromSec, toSec, stepSeconds), filter);
+    }
+
+    private static void AddDecimatedComponentTempSeries(
+        List<MetricSeriesWire> output, IReadOnlyList<ComponentTempDecimatedSlot> dbComponentTemps,
+        IReadOnlyList<MetricSample> tailSamples, long fromSec, long toSec, int stepSeconds,
+        IReadOnlySet<string>? filter)
+    {
+        var meta = new Dictionary<string, (string Kind, string Name)>(StringComparer.Ordinal);
+        foreach (var s in dbComponentTemps)
+        {
+            meta[s.ComponentId] = (s.Kind, s.Name);
+        }
+        foreach (var s in tailSamples)
+        {
+            foreach (var c in s.ComponentTemps)
+            {
+                meta[c.ComponentId] = (c.Kind, c.Name);
+            }
+        }
+
+        AddComponentTempSeriesCore(output, meta, componentId =>
+        {
+            var dbForComponent = dbComponentTemps.Where(s => s.ComponentId == componentId).Select(s => (s.Slot, s.Avg, s.Max));
+            var tailPoints = MetricsDecimation.Decimate(
+                tailSamples.Select(s => new MetricSamplePoint(s.TsSec, FindComponent(s, componentId)?.ValueC)),
+                fromSec, toSec, stepSeconds);
+            return MergeDecimatedSlots(dbForComponent, tailPoints);
+        }, filter);
+    }
+
     // Db slots and the tail can overlap at the flush boundary; the tail wins
     // whole-slot (not per-second like MergeSamples) since it only ever spans
     // the buffered tail - at most the window's right edge or two, which is
@@ -749,6 +890,7 @@ public static class MonitoringHistoryRoutes
 
         AddGpuSeries(series, merged, fromSec, toSec, stepSeconds, seriesFilter, gpuAdapterLuids);
         AddFanSeries(series, merged, fromSec, toSec, stepSeconds, seriesFilter);
+        AddComponentTempSeries(series, merged, fromSec, toSec, stepSeconds, seriesFilter);
 
         return new MetricsHistoryResponse
         {
@@ -908,6 +1050,18 @@ public static class MonitoringHistoryRoutes
             if (f.FanId == fanId)
             {
                 return f;
+            }
+        }
+        return null;
+    }
+
+    private static ComponentTempReading? FindComponent(MetricSample sample, string componentId)
+    {
+        foreach (var c in sample.ComponentTemps)
+        {
+            if (c.ComponentId == componentId)
+            {
+                return c;
             }
         }
         return null;

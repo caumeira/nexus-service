@@ -14,6 +14,9 @@ public class MonitoringHistoryRouteResponseTests
     private static MetricSample Scalars(long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
         new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
 
+    private static MetricSample ComponentSample(long ts, params ComponentTempReading[] components) =>
+        new(ts, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { ComponentTemps = components };
+
     [Fact]
     public void BuildHistoryResponse_ReportsRetentionDaysAndStepSeconds()
     {
@@ -174,6 +177,159 @@ public class MonitoringHistoryRouteResponseTests
         var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, null, NoLuids);
 
         Assert.DoesNotContain(response.Series, s => s.Kind is "gpu" or "gpu-temp" or "fan" or "fan-duty");
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_MemTempSeries_AveragesAcrossRamComponents()
+    {
+        var db = new[]
+        {
+            ComponentSample(0,
+                new ComponentTempReading("ram:0", "ram", "DIMM A2", 40),
+                new ComponentTempReading("ram:1", "ram", "DIMM B2", 50)),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, new HashSet<string> { "mem-temp" }, NoLuids);
+
+        var memTemp = Assert.Single(response.Series);
+        Assert.Equal("mem-temp", memTemp.Id);
+        Assert.Equal("mem-temp", memTemp.Kind);
+        Assert.Equal("Memory Temperature", memTemp.Name);
+        Assert.Equal(45, memTemp.Points.Single().Avg);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_MemTempSeries_AveragesOnlyThePresentComponent_WhenOneIsMissingAtATimestamp()
+    {
+        var db = new[]
+        {
+            ComponentSample(0,
+                new ComponentTempReading("ram:0", "ram", "DIMM A2", 40),
+                new ComponentTempReading("ram:1", "ram", "DIMM B2", 50)),
+            ComponentSample(1, new ComponentTempReading("ram:0", "ram", "DIMM A2", 44)),
+        };
+
+        // fromSec=0, toSec=2 with maxPoints=1 forces stepSeconds=2, so ts=0
+        // and ts=1 land in the same slot: ram:0's own avg is (40+44)/2=42,
+        // ram:1's own avg stays 50 (its only reading); mem-temp then means
+        // those two per-component avgs, not a flat average of all 3 raw values.
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 2, maxPoints: 1, new HashSet<string> { "mem-temp" }, NoLuids);
+
+        var point = Assert.Single(Assert.Single(response.Series).Points);
+        Assert.Equal(46, point.Avg); // mean(42, 50)
+        Assert.Equal(50, point.Max); // max(44, 50)
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_DriveTempSeries_OnePerStorageComponent_WithCorrectNameAndId()
+    {
+        var db = new[]
+        {
+            ComponentSample(0,
+                new ComponentTempReading("storage:ABC123", "storage", "Samsung 990 Pro", 45),
+                new ComponentTempReading("storage:XYZ789", "storage", "WD Black SN850", 38)),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, new HashSet<string> { "drive-temp" }, NoLuids);
+
+        Assert.Equal(2, response.Series.Count);
+        var drive1 = response.Series.Single(s => s.Id == "drive-temp:storage:ABC123");
+        Assert.Equal("drive-temp", drive1.Kind);
+        Assert.Equal("Samsung 990 Pro", drive1.Name);
+        Assert.Equal(45, drive1.Points.Single().Avg);
+        var drive2 = response.Series.Single(s => s.Id == "drive-temp:storage:XYZ789");
+        Assert.Equal("WD Black SN850", drive2.Name);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_DriveTempSeries_SanitizesSlashesInTheComponentId()
+    {
+        var db = new[] { ComponentSample(0, new ComponentTempReading("storage:/nvme/0", "storage", "NVMe 0", 42)) };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, new HashSet<string> { "drive-temp" }, NoLuids);
+
+        Assert.Equal("drive-temp:storage:-nvme-0", Assert.Single(response.Series).Id);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_DriveTempSeries_DisambiguatesASanitizedIdCollision()
+    {
+        // "storage:a/b" and "storage:a-b" both sanitize to "storage:a-b".
+        var db = new[]
+        {
+            ComponentSample(0,
+                new ComponentTempReading("storage:a/b", "storage", "Drive One", 40),
+                new ComponentTempReading("storage:a-b", "storage", "Drive Two", 50)),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, new HashSet<string> { "drive-temp" }, NoLuids);
+
+        Assert.Equal(2, response.Series.Count);
+        var ids = response.Series.Select(s => s.Id).ToList();
+        Assert.Equal(ids.Count, ids.Distinct().Count());
+
+        var driveTwo = response.Series.Single(s => s.Name == "Drive Two");
+        Assert.Equal("drive-temp:storage:a-b", driveTwo.Id);
+
+        var driveOne = response.Series.Single(s => s.Name == "Drive One");
+        Assert.StartsWith("drive-temp:storage:a-b-", driveOne.Id);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_DriveTempKindFilter_MatchesAllDriveSeries()
+    {
+        var db = new[]
+        {
+            ComponentSample(0,
+                new ComponentTempReading("storage:ABC", "storage", "Drive A", 45),
+                new ComponentTempReading("storage:XYZ", "storage", "Drive B", 38)),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, new HashSet<string> { "drive-temp" }, NoLuids);
+
+        Assert.Equal(2, response.Series.Count);
+        Assert.All(response.Series, s => Assert.Equal("drive-temp", s.Kind));
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_ComponentTempSeries_TailOverridesDbAtTheSameTimestamp()
+    {
+        var db = new[] { ComponentSample(0, new ComponentTempReading("storage:ABC", "storage", "Drive", 30)) };
+        var tail = new[] { ComponentSample(0, new ComponentTempReading("storage:ABC", "storage", "Drive", 55)) };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, tail, 0, 0, 600, new HashSet<string> { "drive-temp" }, NoLuids);
+
+        Assert.Equal(55, Assert.Single(response.Series).Points.Single().Avg);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_ComponentTempSeries_DiscoversAComponentOnlySeenInTheTail()
+    {
+        var tail = new[] { ComponentSample(0, new ComponentTempReading("ram:0", "ram", "DIMM A2", 41)) };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(Array.Empty<MetricSample>(), tail, 0, 0, 600, new HashSet<string> { "mem-temp" }, NoLuids);
+
+        Assert.Equal(41, Assert.Single(response.Series).Points.Single().Avg);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_NoComponentTempSeries_WhenNoneEverAppeared()
+    {
+        var db = new[] { Scalars(0) };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, null, NoLuids);
+
+        Assert.DoesNotContain(response.Series, s => s.Kind is "mem-temp" or "drive-temp");
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_NoMemTempSeries_WhenNoRamComponentHasDataInWindow()
+    {
+        var db = new[] { ComponentSample(0, new ComponentTempReading("storage:ABC", "storage", "Drive", 45)) };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, null, NoLuids);
+
+        Assert.DoesNotContain(response.Series, s => s.Id == "mem-temp");
     }
 
     [Fact]

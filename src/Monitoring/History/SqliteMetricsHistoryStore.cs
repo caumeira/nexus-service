@@ -224,13 +224,36 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 }
             }
 
+            var componentByTs = new Dictionary<long, List<ComponentTempReading>>();
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.CommandText = """
+                    SELECT cs.ts, se.component_id, se.kind, se.name, cs.value_x10
+                    FROM temp_component_seconds cs
+                    JOIN temp_component_series se ON se.key = cs.component
+                    WHERE cs.ts BETWEEN $from AND $to
+                    ORDER BY cs.ts ASC;
+                """;
+                cmd.Parameters.AddWithValue("$from", fromSec);
+                cmd.Parameters.AddWithValue("$to", toSec);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    var ts = reader.GetInt64(0);
+                    var reading = new ComponentTempReading(
+                        reader.GetString(1), reader.GetString(2), reader.GetString(3), UnscaleX10(reader, 4));
+                    AddTo(componentByTs, ts, reading);
+                }
+            }
+
             var result = new List<MetricSample>(scalars.Count);
             foreach (var (ts, row) in scalars)
             {
                 result.Add(new MetricSample(
                     ts, row.Cpu, row.Mem, row.NetIn, row.NetOut, row.CpuTemp,
                     gpuByTs.TryGetValue(ts, out var gpus) ? gpus : Array.Empty<GpuReading>(),
-                    fanByTs.TryGetValue(ts, out var fans) ? fans : Array.Empty<FanReading>()));
+                    fanByTs.TryGetValue(ts, out var fans) ? fans : Array.Empty<FanReading>(),
+                    ComponentTemps: componentByTs.TryGetValue(ts, out var comps) ? comps : Array.Empty<ComponentTempReading>()));
             }
             return result;
         }
@@ -467,6 +490,39 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 NullableDouble(reader, 5), NullableDouble(reader, 6)));
         }
         return result;
+    }
+
+    // No temp_component_minutes rollup exists (see the class doc), so this
+    // always aggregates the raw table directly, unlike QueryGpuDecimated/
+    // QueryFanDecimated's rollup-eligible fast path.
+    public IReadOnlyList<ComponentTempDecimatedSlot> QueryComponentTempDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        lock (_writeLock)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT (cs.ts / $step) * $step AS slot, se.component_id, se.kind, se.name,
+                       AVG(cs.value_x10) / 10.0, MAX(cs.value_x10) / 10.0
+                FROM temp_component_seconds cs
+                JOIN temp_component_series se ON se.key = cs.component
+                WHERE cs.ts BETWEEN $from AND $to
+                GROUP BY slot, cs.component
+                ORDER BY se.component_id, slot;
+            """;
+            cmd.Parameters.AddWithValue("$step", stepSeconds);
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+
+            var result = new List<ComponentTempDecimatedSlot>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new ComponentTempDecimatedSlot(
+                    reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt64(0),
+                    NullableDouble(reader, 4), NullableDouble(reader, 5)));
+            }
+            return result;
+        }
     }
 
     // fromUtcMs/toUtcMs are milliseconds (the wire convention the temperature

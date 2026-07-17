@@ -20,7 +20,7 @@ public class BuildDecimatedHistoryResponseTests
         var dbScalars = new[] { ScalarSlot(1000, 42, 50) };
 
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            dbScalars, Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<MetricSample>(),
+            dbScalars, Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), Array.Empty<MetricSample>(),
             fromSec: 1000, toSec: 1000, stepSeconds: 600, seriesFilter: new HashSet<string> { "cpu" }, gpuAdapterLuids: NoLuids);
 
         var cpu = Assert.Single(response.Series);
@@ -34,7 +34,7 @@ public class BuildDecimatedHistoryResponseTests
     public void BuildDecimatedHistoryResponse_ReportsStepSecondsAndRetentionDays()
     {
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(),
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(),
             Array.Empty<MetricSample>(), 0, 0, stepSeconds: 1800, seriesFilter: null, gpuAdapterLuids: NoLuids);
 
         Assert.True(response.Supported);
@@ -49,7 +49,7 @@ public class BuildDecimatedHistoryResponseTests
         var tail = new[] { new MetricSample(5, 90, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>()) };
 
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            dbScalars, Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), tail,
+            dbScalars, Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), tail,
             fromSec: 0, toSec: 9, stepSeconds: 10, seriesFilter: new HashSet<string> { "cpu" }, gpuAdapterLuids: NoLuids);
 
         Assert.Equal(90, Assert.Single(Assert.Single(response.Series).Points).Avg);
@@ -62,7 +62,7 @@ public class BuildDecimatedHistoryResponseTests
         var tail = new[] { new MetricSample(15, 99, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>()) };
 
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            dbScalars, Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), tail,
+            dbScalars, Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), tail,
             fromSec: 0, toSec: 19, stepSeconds: 10, seriesFilter: new HashSet<string> { "cpu" }, gpuAdapterLuids: NoLuids);
 
         var points = Assert.Single(response.Series).Points;
@@ -75,7 +75,7 @@ public class BuildDecimatedHistoryResponseTests
     public void BuildDecimatedHistoryResponse_SkipsAFieldEntirely_WhenNoDbOrTailDataExists()
     {
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(),
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(),
             Array.Empty<MetricSample>(), 0, 9, stepSeconds: 10, seriesFilter: new HashSet<string> { "cpu" }, gpuAdapterLuids: NoLuids);
 
         Assert.Empty(Assert.Single(response.Series).Points);
@@ -87,7 +87,7 @@ public class BuildDecimatedHistoryResponseTests
         var dbGpu = new[] { new GpuDecimatedSlot("gpu-0", "RTX 5080", 0, 55, 60, 62, 65) };
 
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            Array.Empty<ScalarDecimatedSlot>(), dbGpu, Array.Empty<FanDecimatedSlot>(), Array.Empty<MetricSample>(),
+            Array.Empty<ScalarDecimatedSlot>(), dbGpu, Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), Array.Empty<MetricSample>(),
             0, 9, stepSeconds: 10, seriesFilter: null, gpuAdapterLuids: NoLuids);
 
         var load = response.Series.Single(s => s.Id == "gpu:gpu-0");
@@ -104,7 +104,7 @@ public class BuildDecimatedHistoryResponseTests
         var luids = new Dictionary<string, string> { ["gpu-0"] = "10:20" };
 
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            Array.Empty<ScalarDecimatedSlot>(), dbGpu, Array.Empty<FanDecimatedSlot>(), Array.Empty<MetricSample>(),
+            Array.Empty<ScalarDecimatedSlot>(), dbGpu, Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), Array.Empty<MetricSample>(),
             0, 9, stepSeconds: 10, seriesFilter: null, gpuAdapterLuids: luids);
 
         Assert.Equal("10:20", response.Series.Single(s => s.Id == "gpu:gpu-0").AdapterLuid);
@@ -116,7 +116,7 @@ public class BuildDecimatedHistoryResponseTests
         var dbFan = new[] { new FanDecimatedSlot("fan-0", "Fan 1", 0, 1200, 1300, 45, 50) };
 
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), dbFan, Array.Empty<MetricSample>(),
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), dbFan, Array.Empty<ComponentTempDecimatedSlot>(), Array.Empty<MetricSample>(),
             0, 9, stepSeconds: 10, seriesFilter: null, gpuAdapterLuids: NoLuids);
 
         var rpm = response.Series.Single(s => s.Id == "fan:fan-0");
@@ -135,7 +135,7 @@ public class BuildDecimatedHistoryResponseTests
         };
 
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), tail,
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), tail,
             0, 9, stepSeconds: 10, seriesFilter: null, gpuAdapterLuids: NoLuids);
 
         Assert.Contains(response.Series, s => s.Id == "gpu:gpu-hotplug");
@@ -151,10 +151,115 @@ public class BuildDecimatedHistoryResponseTests
         };
 
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
-            Array.Empty<ScalarDecimatedSlot>(), dbGpu, Array.Empty<FanDecimatedSlot>(), Array.Empty<MetricSample>(),
+            Array.Empty<ScalarDecimatedSlot>(), dbGpu, Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), Array.Empty<MetricSample>(),
             0, 9, stepSeconds: 10, seriesFilter: new HashSet<string> { "gpu" }, gpuAdapterLuids: NoLuids);
 
         Assert.Equal(2, response.Series.Count);
         Assert.All(response.Series, s => Assert.Equal("gpu", s.Kind));
+    }
+
+    [Fact]
+    public void BuildDecimatedHistoryResponse_MemTempSeries_AveragesAcrossRamComponents()
+    {
+        var dbComponents = new[]
+        {
+            new ComponentTempDecimatedSlot("ram:0", "ram", "DIMM A2", 0, 40, 44),
+            new ComponentTempDecimatedSlot("ram:1", "ram", "DIMM B2", 0, 50, 50),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), dbComponents, Array.Empty<MetricSample>(),
+            0, 9, stepSeconds: 10, seriesFilter: new HashSet<string> { "mem-temp" }, gpuAdapterLuids: NoLuids);
+
+        var memTemp = Assert.Single(response.Series);
+        Assert.Equal("mem-temp", memTemp.Id);
+        Assert.Equal("mem-temp", memTemp.Kind);
+        var point = Assert.Single(memTemp.Points);
+        Assert.Equal(45, point.Avg); // mean(40, 50)
+        Assert.Equal(50, point.Max); // max(44, 50)
+    }
+
+    [Fact]
+    public void BuildDecimatedHistoryResponse_DriveTempSeries_OnePerStorageComponent()
+    {
+        var dbComponents = new[]
+        {
+            new ComponentTempDecimatedSlot("storage:ABC", "storage", "Samsung 990 Pro", 0, 45, 48),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), dbComponents, Array.Empty<MetricSample>(),
+            0, 9, stepSeconds: 10, seriesFilter: null, gpuAdapterLuids: NoLuids);
+
+        var drive = response.Series.Single(s => s.Id == "drive-temp:storage:ABC");
+        Assert.Equal("drive-temp", drive.Kind);
+        Assert.Equal("Samsung 990 Pro", drive.Name);
+        Assert.Equal(45, drive.Points.Single().Avg);
+    }
+
+    [Fact]
+    public void BuildDecimatedHistoryResponse_DriveTempKindFilter_MatchesAllDriveSeries()
+    {
+        var dbComponents = new[]
+        {
+            new ComponentTempDecimatedSlot("storage:ABC", "storage", "Drive A", 0, 40, 45),
+            new ComponentTempDecimatedSlot("storage:XYZ", "storage", "Drive B", 0, 30, 35),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), dbComponents, Array.Empty<MetricSample>(),
+            0, 9, stepSeconds: 10, seriesFilter: new HashSet<string> { "drive-temp" }, gpuAdapterLuids: NoLuids);
+
+        Assert.Equal(2, response.Series.Count);
+        Assert.All(response.Series, s => Assert.Equal("drive-temp", s.Kind));
+    }
+
+    [Fact]
+    public void BuildDecimatedHistoryResponse_ComponentTempSeries_TailOverridesDbSlot()
+    {
+        var dbComponents = new[] { new ComponentTempDecimatedSlot("storage:ABC", "storage", "Drive", 0, 30, 30) };
+        var tail = new[]
+        {
+            new MetricSample(5, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>())
+            {
+                ComponentTemps = new[] { new ComponentTempReading("storage:ABC", "storage", "Drive", 55) },
+            },
+        };
+
+        var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), dbComponents, tail,
+            0, 9, stepSeconds: 10, seriesFilter: new HashSet<string> { "drive-temp" }, gpuAdapterLuids: NoLuids);
+
+        Assert.Equal(55, Assert.Single(Assert.Single(response.Series).Points).Avg);
+    }
+
+    [Fact]
+    public void BuildDecimatedHistoryResponse_DiscoversAComponentOnlySeenInTheTail()
+    {
+        var tail = new[]
+        {
+            new MetricSample(5, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>())
+            {
+                ComponentTemps = new[] { new ComponentTempReading("ram:0", "ram", "DIMM A2", 42) },
+            },
+        };
+
+        var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), tail,
+            0, 9, stepSeconds: 10, seriesFilter: null, gpuAdapterLuids: NoLuids);
+
+        Assert.Contains(response.Series, s => s.Id == "mem-temp");
+    }
+
+    [Fact]
+    public void BuildDecimatedHistoryResponse_NoMemTempSeries_WhenNoRamComponentHasDataInWindow()
+    {
+        var dbComponents = new[] { new ComponentTempDecimatedSlot("storage:ABC", "storage", "Drive", 0, 40, 45) };
+
+        var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
+            Array.Empty<ScalarDecimatedSlot>(), Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), dbComponents, Array.Empty<MetricSample>(),
+            0, 9, stepSeconds: 10, seriesFilter: null, gpuAdapterLuids: NoLuids);
+
+        Assert.DoesNotContain(response.Series, s => s.Id == "mem-temp");
     }
 }

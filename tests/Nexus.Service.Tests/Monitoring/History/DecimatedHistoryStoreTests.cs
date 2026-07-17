@@ -131,4 +131,54 @@ public class DecimatedHistoryStoreTests : IDisposable
 
         Assert.Empty(_store.QueryGpuDecimated(0, 0, stepSeconds: 10));
     }
+
+    private static MetricSample ComponentSample(long ts, params ComponentTempReading[] components) =>
+        new(ts, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { ComponentTemps = components };
+
+    [Fact]
+    public void QueryComponentTempDecimated_AveragesAndMaxesPerComponent_KeyedById()
+    {
+        var s1 = ComponentSample(0,
+            new ComponentTempReading("ram:0", "ram", "DIMM A2", 40),
+            new ComponentTempReading("storage:ABC", "storage", "Samsung 990 Pro", 35));
+        var s2 = ComponentSample(1, new ComponentTempReading("ram:0", "ram", "DIMM A2", 44));
+        _store.Append(new[] { s1, s2 }, null);
+
+        var slots = _store.QueryComponentTempDecimated(0, 1, stepSeconds: 10);
+
+        var ram = Assert.Single(slots, s => s.ComponentId == "ram:0");
+        Assert.Equal("ram", ram.Kind);
+        Assert.Equal("DIMM A2", ram.Name);
+        Assert.Equal(42, ram.Avg);
+        Assert.Equal(44, ram.Max);
+
+        var storage = Assert.Single(slots, s => s.ComponentId == "storage:ABC");
+        Assert.Equal("storage", storage.Kind);
+        Assert.Equal("Samsung 990 Pro", storage.Name);
+        Assert.Equal(35, storage.Avg);
+    }
+
+    [Fact]
+    public void QueryComponentTempDecimated_SplitsRowsAcrossSlotBoundaries()
+    {
+        var s1 = ComponentSample(0, new ComponentTempReading("ram:0", "ram", "DIMM A2", 40));
+        var s2 = ComponentSample(10, new ComponentTempReading("ram:0", "ram", "DIMM A2", 60));
+        _store.Append(new[] { s1, s2 }, null);
+
+        var slots = _store.QueryComponentTempDecimated(0, 19, stepSeconds: 10).OrderBy(s => s.Slot).ToList();
+
+        Assert.Equal(2, slots.Count);
+        Assert.Equal(0, slots[0].Slot);
+        Assert.Equal(40, slots[0].Avg);
+        Assert.Equal(10, slots[1].Slot);
+        Assert.Equal(60, slots[1].Avg);
+    }
+
+    [Fact]
+    public void QueryComponentTempDecimated_ReturnsEmpty_WhenNoComponentDataInWindow()
+    {
+        _store.Append(new[] { Scalars(0, cpu: 10) }, null);
+
+        Assert.Empty(_store.QueryComponentTempDecimated(0, 0, stepSeconds: 10));
+    }
 }
