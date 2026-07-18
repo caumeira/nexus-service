@@ -56,7 +56,7 @@ public sealed class LightingWriteToolsTests : IDisposable
     // ── set_static_color ────────────────────────────────────────────────────
 
     [Fact]
-    public async Task SetStaticColor_valid_hex_persists_and_drives_the_simple_shader()
+    public async Task SetStaticColor_selects_the_matching_preset_and_persists_the_color()
     {
         var store = NewStore();
         var lighting = new McpTestHarness.StubLightingProvider();
@@ -66,14 +66,35 @@ public sealed class LightingWriteToolsTests : IDisposable
         var result = await tool.ExecuteAsync(args, CancellationToken.None);
 
         Assert.False(result.IsError);
+        // Pure red must select the red preset, not the white one - selecting the
+        // real preset is what makes the change show in the lighting page.
         var call = Assert.Single(lighting.StartAnimateCalls);
-        Assert.StartsWith("simple", call.Effect, StringComparison.Ordinal);
-        Assert.Equal(1f, call.Saturation, precision: 3);
+        Assert.Equal("simplered", call.Effect);
+        Assert.True(call.Persist);
 
         var color = store.Load().Lighting.StaticColor;
         Assert.Equal((byte)255, color.R);
         Assert.Equal((byte)0, color.G);
         Assert.Equal((byte)0, color.B);
+    }
+
+    [Theory]
+    [InlineData("#ff0000", "simplered")]
+    [InlineData("#00ff00", "simplegreen")]
+    [InlineData("#0000ff", "simpleblue")]
+    [InlineData("#ffff00", "simpleyellow")]
+    [InlineData("#ff8800", "simpleorange")]
+    [InlineData("#ffffff", "simplewhite")]
+    [InlineData("#111111", "simplewhite")]
+    public async Task SetStaticColor_snaps_to_the_nearest_preset(string color, string expectedEffect)
+    {
+        var lighting = new McpTestHarness.StubLightingProvider();
+        var tool = new SetStaticColorTool(lighting, NewStore(), new MultiplexHub());
+
+        var result = await tool.ExecuteAsync(JsonSerializer.SerializeToElement(new { color }), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal(expectedEffect, Assert.Single(lighting.StartAnimateCalls).Effect);
     }
 
     [Theory]
