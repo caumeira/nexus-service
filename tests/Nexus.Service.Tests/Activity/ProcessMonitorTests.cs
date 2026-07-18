@@ -73,6 +73,40 @@ public class ProcessMonitorTests
     }
 
     [Fact]
+    public void AnchorFirstSeenMs_ReturnsTheSameValue_OnRepeatedCallsForTheSamePid()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        var first = monitor.AnchorFirstSeenMs(4242, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        var second = monitor.AnchorFirstSeenMs(4242, new DateTime(2026, 1, 1, 0, 5, 0, DateTimeKind.Utc));
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public void AnchorFirstSeenMs_AnchorsOnTheFirstObservedTimestamp()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        var observedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        var anchored = monitor.AnchorFirstSeenMs(4242, observedAt);
+
+        Assert.Equal(new DateTimeOffset(observedAt).ToUnixTimeMilliseconds(), anchored);
+    }
+
+    [Fact]
+    public void AnchorFirstSeenMs_TracksEachPidIndependently()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        var t1 = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var t2 = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc);
+
+        var a = monitor.AnchorFirstSeenMs(1, t1);
+        var b = monitor.AnchorFirstSeenMs(2, t2);
+
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
     public void SetDemand_KeepsHasSubscribersLogicIndependentOfHubTopics()
     {
         // No direct HasSubscribers accessor to assert on, but SetDemand must

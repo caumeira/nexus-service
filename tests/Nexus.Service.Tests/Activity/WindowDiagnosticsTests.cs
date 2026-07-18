@@ -35,7 +35,17 @@ public class WindowDiagnosticsTests
     }
 
     [Fact]
-    public void FormatLine_IncludesAllSixClassifierInputsAndTheResult()
+    public void HelperArgName_IsDistinctFromTheEnvVarName()
+    {
+        // UserHelperBootstrapper forwards this literal as an argv token and
+        // WindowsUserHelper.Run matches on the same constant to re-hydrate
+        // EnvVarName inside the helper process - the two must never collide.
+        Assert.NotEqual(WindowDiagnostics.EnvVarName, WindowDiagnostics.HelperArgName);
+        Assert.StartsWith("--", WindowDiagnostics.HelperArgName);
+    }
+
+    [Fact]
+    public void FormatLine_IncludesAllClassifierInputsAndTheResult()
     {
         var line = WindowDiagnostics.FormatLine(
             pid: 4242,
@@ -48,6 +58,7 @@ public class WindowDiagnosticsTests
             titleLength: 0,
             titleReadError: 5,
             hasOnScreenBounds: true,
+            coversMonitor: false,
             isCountable: false);
 
         Assert.Contains("[window-diag]", line);
@@ -61,6 +72,7 @@ public class WindowDiagnosticsTests
         Assert.Contains("titleLength=0", line);
         Assert.Contains("titleReadError=5", line);
         Assert.Contains("hasOnScreenBounds=True", line);
+        Assert.Contains("coversMonitor=False", line);
         Assert.Contains("isCountable=False", line);
         Assert.Contains("class=Background", line);
     }
@@ -79,9 +91,32 @@ public class WindowDiagnosticsTests
             titleLength: 8,
             titleReadError: 0,
             hasOnScreenBounds: true,
+            coversMonitor: false,
             isCountable: true);
 
         Assert.Contains("isCountable=True", line);
+        Assert.Contains("class=App", line);
+    }
+
+    [Fact]
+    public void FormatLine_ReportsAppForAFullscreenGame_CloakedButCoveringAMonitor()
+    {
+        var line = WindowDiagnostics.FormatLine(
+            pid: 200,
+            processName: "SystemShock",
+            isVisible: true,
+            hasOwner: false,
+            isToolWindow: false,
+            isCloaked: true,
+            hasTitle: false,
+            titleLength: 0,
+            titleReadError: 5,
+            hasOnScreenBounds: true,
+            coversMonitor: true,
+            isCountable: true);
+
+        Assert.Contains("isCloaked=True", line);
+        Assert.Contains("coversMonitor=True", line);
         Assert.Contains("class=App", line);
     }
 
@@ -94,11 +129,11 @@ public class WindowDiagnosticsTests
         var blocked = WindowDiagnostics.FormatLine(
             pid: 1, processName: "elevated", isVisible: true, hasOwner: false,
             isToolWindow: false, isCloaked: false, hasTitle: false, titleLength: 0,
-            titleReadError: 5, hasOnScreenBounds: true, isCountable: false);
+            titleReadError: 5, hasOnScreenBounds: true, coversMonitor: false, isCountable: false);
         var legitimatelyEmpty = WindowDiagnostics.FormatLine(
             pid: 2, processName: "other", isVisible: true, hasOwner: false,
             isToolWindow: false, isCloaked: false, hasTitle: false, titleLength: 0,
-            titleReadError: 0, hasOnScreenBounds: true, isCountable: false);
+            titleReadError: 0, hasOnScreenBounds: true, coversMonitor: false, isCountable: false);
 
         Assert.Contains("titleReadError=5", blocked);
         Assert.Contains("titleReadError=0", legitimatelyEmpty);

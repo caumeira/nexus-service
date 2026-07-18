@@ -12,11 +12,17 @@ public static class WindowDiagnostics
 {
     public const string EnvVarName = "NEXUS_WINDOW_DIAG";
 
+    /// <summary>Argv flag UserHelperBootstrapper forwards to the spawned
+    /// helper process in place of EnvVarName - a machine environment
+    /// variable change set on the LocalSystem service side does not reach a
+    /// process schtasks spawns in another session, but an argv value does.</summary>
+    public const string HelperArgName = "--window-diag";
+
     /// <summary>True only for the literal value "1" - null, empty, or any other value keeps diagnostics off.</summary>
     public static bool IsEnabled(string? envValue) => envValue == "1";
 
     /// <summary>
-    /// One [window-diag] line: process identity, the six IsCountableWindow
+    /// One [window-diag] line: process identity, the eight IsCountableWindow
     /// inputs, the raw title-read outcome, and the classification result.
     /// titleLength/titleReadError distinguish a legitimately empty title
     /// (GetWindowTextLength returns 0, Win32 error 0) from a blocked read
@@ -34,13 +40,14 @@ public static class WindowDiagnostics
         int titleLength,
         int titleReadError,
         bool hasOnScreenBounds,
+        bool coversMonitor,
         bool isCountable)
     {
         return "[window-diag] " +
             $"pid={pid} proc=\"{processName}\" " +
             $"isVisible={isVisible} hasOwner={hasOwner} isToolWindow={isToolWindow} isCloaked={isCloaked} " +
             $"hasTitle={hasTitle} titleLength={titleLength} titleReadError={titleReadError} " +
-            $"hasOnScreenBounds={hasOnScreenBounds} isCountable={isCountable} " +
+            $"hasOnScreenBounds={hasOnScreenBounds} coversMonitor={coversMonitor} isCountable={isCountable} " +
             $"class={(isCountable ? "App" : "Background")}";
     }
 }

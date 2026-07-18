@@ -42,7 +42,7 @@ internal static class UserHelperBootstrapper
                 {
                     if (!string.IsNullOrEmpty(ResolveActiveConsoleUsername()))
                     {
-                        SpawnInUserSession("--helper", "helper-bootstrap", "NexusHelperBootstrap");
+                        SpawnInUserSession(HelperSpawnArg(), "helper-bootstrap", "NexusHelperBootstrap");
                         return;
                     }
                 }
@@ -108,6 +108,17 @@ internal static class UserHelperBootstrapper
         try { return Schtasks("/Run", "/TN", taskName); }
         finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
     }
+
+    // Machine environment variable changes made after this service last
+    // started do not reach a process schtasks spawns in another session, so
+    // NEXUS_WINDOW_DIAG=1 set on the service side never carried into the
+    // helper. An argv value survives the schtasks hop; the helper turns it
+    // back into the env var WindowSetPoller already reads (WindowsUserHelper.Run).
+    private static string HelperSpawnArg() =>
+        Nexus.Service.Activity.WindowDiagnostics.IsEnabled(
+            Environment.GetEnvironmentVariable(Nexus.Service.Activity.WindowDiagnostics.EnvVarName))
+            ? $"--helper {Nexus.Service.Activity.WindowDiagnostics.HelperArgName}"
+            : "--helper";
 
     private static void SpawnInUserSession(string nexusArg, string logTag, string taskPrefix)
     {
