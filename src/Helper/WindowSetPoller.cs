@@ -1,6 +1,7 @@
 #if WINDOWS
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -21,12 +22,17 @@ namespace Nexus.Service.Helper;
 /// WindowsWindowSetProvider's in-memory snapshot, but this poller's own
 /// _lastSent survives the pipe reconnect that follows, so an unchanged
 /// window set would otherwise never get resent to repopulate it.
+///
+/// Set NEXUS_WINDOW_DIAG=1 to emit a [window-diag] ServiceLog line per
+/// enumerated window (process identity, the six IsCountableWindow inputs,
+/// and the classification result) - off by default, see WindowDiagnostics.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowSetPoller : IDisposable
 {
     private readonly HelperOutbound _outbound;
     private readonly JitteredPeriodicTimer _timer;
+    private readonly bool _diagEnabled;
     private HashSet<int> _lastSent = new();
     private bool _wasConnected;
 
@@ -39,6 +45,7 @@ public sealed class WindowSetPoller : IDisposable
     public WindowSetPoller(HelperOutbound outbound)
     {
         _outbound = outbound;
+        _diagEnabled = WindowDiagnostics.IsEnabled(Environment.GetEnvironmentVariable(WindowDiagnostics.EnvVarName));
         _timer = new JitteredPeriodicTimer(periodMs: 2000, jitterMs: 200, Poll);
     }
 
@@ -78,17 +85,36 @@ public sealed class WindowSetPoller : IDisposable
             var owner = GetWindow(hwnd, GwOwner);
             var isToolWindow = (GetWindowLong(hwnd, GwlExstyle) & WsExToolwindow) != 0;
             var isCloaked = IsCloaked(hwnd);
-            var hasTitle = GetWindowTextLength(hwnd) > 0;
+            var titleLength = GetWindowTextLength(hwnd);
+            var hasTitle = titleLength > 0;
+            // Must read immediately after GetWindowTextLength, before any other
+            // P/Invoke call, or the Win32 last-error value is clobbered.
+            var titleReadError = _diagEnabled && !hasTitle ? Marshal.GetLastWin32Error() : 0;
             var hasOnScreenBounds = GetWindowRect(hwnd, out var rect) &&
                 WindowClassification.HasOnScreenBounds(
                     rect.Left, rect.Top, rect.Right, rect.Bottom,
                     virtualLeft, virtualTop, virtualRight, virtualBottom);
+            // Evaluated last, same as the pre-diagnostic code (it was the
+            // inline first argument to IsCountableWindow below) - preserved
+            // so the six Win32 reads happen in the original order.
+            var isVisible = IsWindowVisible(hwnd);
 
-            if (WindowClassification.IsCountableWindow(
-                    IsWindowVisible(hwnd), owner, isToolWindow, isCloaked, hasTitle, hasOnScreenBounds))
+            var isCountable = WindowClassification.IsCountableWindow(
+                isVisible, owner, isToolWindow, isCloaked, hasTitle, hasOnScreenBounds);
+
+            if (isCountable || _diagEnabled)
             {
                 GetWindowThreadProcessId(hwnd, out var pid);
-                if (pid != 0) pids.Add((int)pid);
+                if (isCountable && pid != 0)
+                {
+                    pids.Add((int)pid);
+                }
+                if (_diagEnabled)
+                {
+                    LogDiagnostic(
+                        (int)pid, isVisible, owner, isToolWindow, isCloaked,
+                        hasTitle, titleLength, titleReadError, hasOnScreenBounds, isCountable);
+                }
             }
             return true;
         };
@@ -103,6 +129,34 @@ public sealed class WindowSetPoller : IDisposable
     {
         var hr = DwmGetWindowAttribute(hwnd, DwmwaCloaked, out var cloaked, sizeof(int));
         return hr == 0 && cloaked != 0;
+    }
+
+    private static void LogDiagnostic(
+        int pid,
+        bool isVisible,
+        IntPtr owner,
+        bool isToolWindow,
+        bool isCloaked,
+        bool hasTitle,
+        int titleLength,
+        int titleReadError,
+        bool hasOnScreenBounds,
+        bool isCountable)
+    {
+        var processName = "?";
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            processName = process.ProcessName;
+        }
+        catch
+        {
+            // Process exited, or its name is inaccessible, between
+            // GetWindowThreadProcessId and this lookup - keep the placeholder.
+        }
+        ServiceLog.Info(WindowDiagnostics.FormatLine(
+            pid, processName, isVisible, owner != IntPtr.Zero, isToolWindow, isCloaked,
+            hasTitle, titleLength, titleReadError, hasOnScreenBounds, isCountable));
     }
 
     public void Dispose() => _timer.Dispose();
@@ -136,7 +190,10 @@ public sealed class WindowSetPoller : IDisposable
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
-    [DllImport("user32.dll")]
+    // SetLastError so a diagnostic read (Marshal.GetLastWin32Error right after
+    // this call, when the result is 0) reflects this call's outcome and not
+    // some unrelated prior native call.
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetWindowTextLength(IntPtr hWnd);
 
     [DllImport("user32.dll")]

@@ -1,0 +1,46 @@
+namespace Nexus.Service.Activity;
+
+/// <summary>
+/// Opt-in diagnostic log line for the Windows helper's EnumWindows callback
+/// (WindowSetPoller), gated by the NEXUS_WINDOW_DIAG env var so it stays off
+/// by default. Kept platform-neutral (no P/Invoke) and testable, mirroring
+/// WindowClassification's split between Win32 extraction (in the poller) and
+/// pure decision/formatting logic (here). Does not change IsCountableWindow
+/// or any classification behavior - it only reports what the poller measured.
+/// </summary>
+public static class WindowDiagnostics
+{
+    public const string EnvVarName = "NEXUS_WINDOW_DIAG";
+
+    /// <summary>True only for the literal value "1" - null, empty, or any other value keeps diagnostics off.</summary>
+    public static bool IsEnabled(string? envValue) => envValue == "1";
+
+    /// <summary>
+    /// One [window-diag] line: process identity, the six IsCountableWindow
+    /// inputs, the raw title-read outcome, and the classification result.
+    /// titleLength/titleReadError distinguish a legitimately empty title
+    /// (GetWindowTextLength returns 0, Win32 error 0) from a blocked read
+    /// (e.g. UIPI denying a lower-integrity caller access to an elevated
+    /// window's title, which also returns 0 but with a nonzero Win32 error).
+    /// </summary>
+    public static string FormatLine(
+        int pid,
+        string processName,
+        bool isVisible,
+        bool hasOwner,
+        bool isToolWindow,
+        bool isCloaked,
+        bool hasTitle,
+        int titleLength,
+        int titleReadError,
+        bool hasOnScreenBounds,
+        bool isCountable)
+    {
+        return "[window-diag] " +
+            $"pid={pid} proc=\"{processName}\" " +
+            $"isVisible={isVisible} hasOwner={hasOwner} isToolWindow={isToolWindow} isCloaked={isCloaked} " +
+            $"hasTitle={hasTitle} titleLength={titleLength} titleReadError={titleReadError} " +
+            $"hasOnScreenBounds={hasOnScreenBounds} isCountable={isCountable} " +
+            $"class={(isCountable ? "App" : "Background")}";
+    }
+}
