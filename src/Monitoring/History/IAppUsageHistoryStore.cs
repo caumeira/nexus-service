@@ -18,7 +18,7 @@ public sealed record AppRawPoint(long TsSec, double? Value, double? VramMb);
 /// carrying every AppSampleBuffer tick since the last flush); GET
 /// /monitoring/history/apps is the reader.
 ///
-/// Metric ids match the scalar wire convention: "cpu", "memory",
+/// Metric ids match the scalar wire convention: "cpu", "memory", "storage",
 /// "gpu:&lt;gid&gt;", "vram:&lt;gid&gt;" ("net" is never written - see
 /// MonitoringHistoryRoutes for the per-app network attribution decision).
 /// </summary>

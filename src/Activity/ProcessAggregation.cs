@@ -9,7 +9,8 @@ namespace Nexus.Service.Activity;
 /// started even while an older instance of the same name lingers. HasWindow
 /// is true if any instance under the name owns a visible top-level window -
 /// Task-Manager-style App vs Background classification.</summary>
-public sealed record ProcessNameAggregate(string Name, double CpuPercent, double MemoryMb, long? StartedAtMs, bool HasWindow);
+public sealed record ProcessNameAggregate(
+    string Name, double CpuPercent, double MemoryMb, long? StartedAtMs, bool HasWindow, double StorageBytesPerSec);
 
 /// <summary>
 /// Groups ProcessMonitor's per-pid snapshot (Windows never aggregates by
@@ -36,11 +37,13 @@ public static class ProcessAggregation
                     MemoryMb = acc.MemoryMb + p.MemoryMb,
                     StartedAtMs = NewestOf(acc.StartedAtMs, p.StartedAtMs),
                     HasWindow = acc.HasWindow || p.HasWindow,
+                    StorageBytesPerSec = acc.StorageBytesPerSec + p.StorageBytesPerSec,
                 };
             }
             else
             {
-                map[p.Name] = new ProcessNameAggregate(p.Name, p.CpuPercent, p.MemoryMb, p.StartedAtMs, p.HasWindow);
+                map[p.Name] = new ProcessNameAggregate(
+                    p.Name, p.CpuPercent, p.MemoryMb, p.StartedAtMs, p.HasWindow, p.StorageBytesPerSec);
             }
         }
         return map;

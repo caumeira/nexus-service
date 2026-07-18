@@ -35,18 +35,21 @@ namespace Nexus.Service.Monitoring.History;
 /// more rows for the same query with no chart benefit - TierWidthMinutesFor
 /// never asks for a tier narrower than the native bucket width.
 ///
-/// app_cpu_seconds / app_mem_seconds / app_gpu_seconds / app_vram_seconds are
-/// per-app usage history, sampled on MetricsHistory.AppSampleIntervalSeconds's
-/// sub-cadence: four narrow tables, one per metric, instead of a single (ts,
-/// app, metric) table - avoids a repeated TEXT metric discriminator per row
-/// at the row counts this table reaches (MetricsHistory.TopAppsPerSample
-/// apps per metric per tick, retained for MetricsHistory.RetentionDays), and
-/// lets each metric's read query hit a purpose-built PK/index with no filter
-/// predicate on metric. app_gpu_seconds/app_vram_seconds reuse gpu_series'
-/// surrogate key rather than minting a duplicate GPU id mapping;
-/// app_vram_seconds is ranked independently by VRAM rather than piggybacking
-/// on app_gpu_seconds' own vram_mb column, since a process can hold
-/// significant VRAM while nearly idle on that adapter.
+/// app_cpu_seconds / app_mem_seconds / app_gpu_seconds / app_vram_seconds /
+/// app_storage_seconds are per-app usage history, sampled on
+/// MetricsHistory.AppSampleIntervalSeconds's sub-cadence: narrow tables, one
+/// per metric, instead of a single (ts, app, metric) table - avoids a
+/// repeated TEXT metric discriminator per row at the row counts this table
+/// reaches (MetricsHistory.TopAppsPerSample apps per metric per tick,
+/// retained for MetricsHistory.RetentionDays), and lets each metric's read
+/// query hit a purpose-built PK/index with no filter predicate on metric.
+/// app_gpu_seconds/app_vram_seconds reuse gpu_series' surrogate key rather
+/// than minting a duplicate GPU id mapping; app_vram_seconds is ranked
+/// independently by VRAM rather than piggybacking on app_gpu_seconds' own
+/// vram_mb column, since a process can hold significant VRAM while nearly
+/// idle on that adapter. app_storage_seconds carries no gpu dimension (disk
+/// I/O is not per-adapter) and stores raw bytes/sec like app_vram_seconds'
+/// value_mb, not app_cpu_seconds' x10 fixed-point percent encoding.
 /// </summary>
 public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySessionStore, IAppUsageHistoryStore
 {
@@ -1274,6 +1277,14 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS ix_app_vram_seconds_gpu_app_ts ON app_vram_seconds(gpu, app, ts);
 
+            CREATE TABLE IF NOT EXISTS app_storage_seconds (
+                ts        INTEGER NOT NULL,
+                app       INTEGER NOT NULL,
+                value_bps INTEGER,
+                PRIMARY KEY (ts, app)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS ix_app_storage_seconds_app_ts ON app_storage_seconds(app, ts);
+
             CREATE TABLE IF NOT EXISTS privacy_sessions (
                 app_id     TEXT NOT NULL,
                 capability TEXT NOT NULL,
@@ -1647,6 +1658,13 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         var vramGpu = AddParam(vramCmd, "$gpu");
         var vramValue = AddParam(vramCmd, "$value");
 
+        using var storageCmd = _connection.CreateCommand();
+        storageCmd.Transaction = tx;
+        storageCmd.CommandText = "INSERT OR REPLACE INTO app_storage_seconds (ts, app, value_bps) VALUES ($ts, $app, $value);";
+        var storageTs = AddParam(storageCmd, "$ts");
+        var storageApp = AddParam(storageCmd, "$app");
+        var storageValue = AddParam(storageCmd, "$value");
+
         foreach (var tick in ticks)
         {
             foreach (var metric in tick.Metrics)
@@ -1712,11 +1730,22 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                         vramCmd.ExecuteNonQuery();
                     }
                 }
+                else if (metric.Metric == "storage")
+                {
+                    foreach (var a in metric.Apps)
+                    {
+                        storageTs.Value = tick.TsSec;
+                        storageApp.Value = ResolveAppKey(tx, a.Name, pendingAppKeys);
+                        storageValue.Value = ScaleWhole(a.Value);
+                        storageCmd.ExecuteNonQuery();
+                    }
+                }
             }
         }
     }
 
-    private static readonly string[] AppSecondsTables = { "app_cpu_seconds", "app_mem_seconds", "app_gpu_seconds", "app_vram_seconds" };
+    private static readonly string[] AppSecondsTables =
+        { "app_cpu_seconds", "app_mem_seconds", "app_gpu_seconds", "app_vram_seconds", "app_storage_seconds" };
 
     private IReadOnlyList<long> PruneApps(SqliteTransaction tx, long cutoffSec)
     {
@@ -1738,7 +1767,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 WHERE key NOT IN (SELECT app FROM app_cpu_seconds)
                   AND key NOT IN (SELECT app FROM app_mem_seconds)
                   AND key NOT IN (SELECT app FROM app_gpu_seconds)
-                  AND key NOT IN (SELECT app FROM app_vram_seconds);
+                  AND key NOT IN (SELECT app FROM app_vram_seconds)
+                  AND key NOT IN (SELECT app FROM app_storage_seconds);
             """;
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -1832,12 +1862,19 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             // gpu:<id>/vram:<id> query already has at most one row per
             // (app, ts), so the pre-aggregation is a no-op there; cpu/memory
             // never have an adapter dimension and keep the direct query.
-            // value_mb (vram) stores whole MB, unlike value_x10's
-            // fixed-point percent encoding, so it needs no unscale divisor.
+            // value_mb (vram) and value_bps (storage) store raw whole units,
+            // unlike value_x10's fixed-point percent encoding, so neither
+            // needs an unscale divisor.
             var isMultiAdapter = table is "app_gpu_seconds" or "app_vram_seconds";
-            var valueColumn = table == "app_vram_seconds" ? "value_mb" : "value_x10";
-            var scaleSql = table == "app_vram_seconds" ? "1.0" : "10.0";
-            var scaleDivisor = table == "app_vram_seconds" ? 1.0 : 10.0;
+            var isRawValue = table is "app_vram_seconds" or "app_storage_seconds";
+            var valueColumn = table switch
+            {
+                "app_vram_seconds" => "value_mb",
+                "app_storage_seconds" => "value_bps",
+                _ => "value_x10",
+            };
+            var scaleSql = isRawValue ? "1.0" : "10.0";
+            var scaleDivisor = isRawValue ? 1.0 : 10.0;
 
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = isMultiAdapter
@@ -1924,7 +1961,9 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
             var isGpu = table == "app_gpu_seconds";
             var isVram = table == "app_vram_seconds";
+            var isStorage = table == "app_storage_seconds";
             var gpuFilter = gpuKey is not null ? "gpu = $gpu AND " : "";
+            var plainValueColumn = isStorage ? "value_bps" : "value_x10";
 
             using var cmd = _connection.CreateCommand();
             // See QueryTopApps: a bare-gpu/bare-vram query (gpuFilter empty)
@@ -1932,6 +1971,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             // ts sums them into the single point per tick the caller
             // expects. A specific gpu:<id>/vram:<id> query already has at
             // most one row per ts, so the grouping is a no-op there.
+            // storage has no adapter dimension and falls into the plain
+            // branch, reading value_bps instead of value_x10.
             cmd.CommandText = isGpu
                 ? $"""
                     SELECT ts, SUM(value_x10), SUM(vram_mb)
@@ -1949,7 +1990,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                     ORDER BY ts ASC;
                 """
                 : $"""
-                    SELECT ts, value_x10
+                    SELECT ts, {plainValueColumn}
                     FROM {table}
                     WHERE app = $app AND ts BETWEEN $from AND $to
                     ORDER BY ts ASC;
@@ -1970,6 +2011,12 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 {
                     double? mb = reader.IsDBNull(1) ? null : reader.GetInt64(1);
                     result.Add(new AppRawPoint(reader.GetInt64(0), mb, null));
+                    continue;
+                }
+                if (isStorage)
+                {
+                    double? bps = reader.IsDBNull(1) ? null : reader.GetInt64(1);
+                    result.Add(new AppRawPoint(reader.GetInt64(0), bps, null));
                     continue;
                 }
 
@@ -1993,7 +2040,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             using var cmd = _connection.CreateCommand();
             // MIN(ts) over a table with no rows for this app yields NULL, not
             // zero rows - the outer MIN(ts) ignores those and only comes back
-            // NULL itself when the app is in none of the four tables.
+            // NULL itself when the app is in none of the five tables.
             cmd.CommandText = """
                 SELECT MIN(ts) FROM (
                     SELECT MIN(ts) AS ts FROM app_cpu_seconds WHERE app = $app
@@ -2003,6 +2050,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                     SELECT MIN(ts) FROM app_gpu_seconds WHERE app = $app
                     UNION ALL
                     SELECT MIN(ts) FROM app_vram_seconds WHERE app = $app
+                    UNION ALL
+                    SELECT MIN(ts) FROM app_storage_seconds WHERE app = $app
                 );
             """;
             cmd.Parameters.AddWithValue("$app", appKey);
@@ -2028,6 +2077,10 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         if (metric == "memory")
         {
             return ("app_mem_seconds", null);
+        }
+        if (metric == "storage")
+        {
+            return ("app_storage_seconds", null);
         }
         if (metric == "gpu")
         {

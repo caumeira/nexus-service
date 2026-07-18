@@ -6,8 +6,9 @@ namespace Nexus.Service.Tests.Activity;
 
 public class ProcessAggregationTests
 {
-    private static ProcessInfo Proc(string name, double cpu, double mem, long? startedAtMs = null, bool hasWindow = false) =>
-        new() { Name = name, CpuPercent = cpu, MemoryMb = mem, StartedAtMs = startedAtMs, HasWindow = hasWindow };
+    private static ProcessInfo Proc(
+        string name, double cpu, double mem, long? startedAtMs = null, bool hasWindow = false, double storage = 0) =>
+        new() { Name = name, CpuPercent = cpu, MemoryMb = mem, StartedAtMs = startedAtMs, HasWindow = hasWindow, StorageBytesPerSec = storage };
 
     [Fact]
     public void GroupByName_SumsCpuAndMemory_AcrossPidsWithTheSameName()
@@ -93,6 +94,20 @@ public class ProcessAggregationTests
         var grouped = ProcessAggregation.GroupByName(System.Array.Empty<ProcessInfo>());
 
         Assert.Empty(grouped);
+    }
+
+    [Fact]
+    public void GroupByName_SumsStorageBytesPerSec_AcrossPidsWithTheSameName()
+    {
+        var procs = new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100, storage: 1000),
+            Proc("chrome", cpu: 7, mem: 150, storage: 2500),
+        };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.Equal(3500, grouped["chrome"].StorageBytesPerSec);
     }
 
     [Fact]

@@ -29,6 +29,9 @@ public class AppUsageHistoryStoreTests : IDisposable
     private static AppUsageTick CpuTick(long ts, params (string Name, double Value)[] apps) =>
         new(ts, new[] { new AppMetricSample("cpu", apps.Select(a => new AppUsagePoint(a.Name, a.Value, null)).ToList()) });
 
+    private static AppUsageTick StorageTick(long ts, params (string Name, double Value)[] apps) =>
+        new(ts, new[] { new AppMetricSample("storage", apps.Select(a => new AppUsagePoint(a.Name, a.Value, null)).ToList()) });
+
     private static MetricSample ScalarGpuSample(long ts, string gpuId, string name) =>
         new(ts, null, null, null, null, null,
             new[] { new GpuReading(gpuId, name, "", 50, 60) }, Array.Empty<FanReading>());
@@ -538,6 +541,100 @@ public class AppUsageHistoryStoreTests : IDisposable
         var points = _store.QueryAppSeries("vram:gpu-0", "app.exe", 0, 10_000);
         var point = Assert.Single(points);
         Assert.Equal(5000, point.TsSec);
+    }
+
+    [Fact]
+    public void Append_then_QueryTopApps_RoundTripsStorageValues()
+    {
+        _store.Append(new[] { StorageTick(1000, ("app.exe", 4_194_304)) }, null);
+
+        var top = _store.QueryTopApps("storage", 0, 10_000, 15);
+
+        var app = Assert.Single(top);
+        Assert.Equal("app.exe", app.Name);
+        Assert.Equal(4_194_304, app.Avg);
+        Assert.Equal(4_194_304, app.Max);
+    }
+
+    [Fact]
+    public void Append_then_QueryAppSeries_RoundTripsStorageRawPoints_AscendingByTs()
+    {
+        _store.Append(new[] { StorageTick(2000, ("app.exe", 2000)), StorageTick(1000, ("app.exe", 1000)) }, null);
+
+        var points = _store.QueryAppSeries("storage", "app.exe", 0, 10_000);
+
+        Assert.Equal(new long[] { 1000, 2000 }, points.Select(p => p.TsSec).ToArray());
+        Assert.Equal(1000, points[0].Value);
+        Assert.Equal(2000, points[1].Value);
+        Assert.Null(points[0].VramMb);
+    }
+
+    [Fact]
+    public void QueryTopApps_Storage_OrdersByAvgDescending_AndLimitsToMaxApps()
+    {
+        _store.Append(new[] { StorageTick(1000, ("low", 500), ("high", 90_000), ("mid", 40_000)) }, null);
+
+        var top = _store.QueryTopApps("storage", 0, 10_000, 2);
+
+        Assert.Equal(new[] { "high", "mid" }, top.Select(a => a.Name).ToArray());
+    }
+
+    [Fact]
+    public void ResolveAppKey_Storage_TreatsDifferentlyCasedNames_AsTheSameApp()
+    {
+        _store.Append(new[] { StorageTick(1000, ("Chrome.exe", 1000)), StorageTick(1005, ("chrome.exe", 3000)) }, null);
+
+        var top = _store.QueryTopApps("storage", 0, 10_000, 15);
+
+        var app = Assert.Single(top);
+        Assert.Equal(2000, app.Avg); // both ticks resolved to one app row
+    }
+
+    [Fact]
+    public void Append_WithPruneCutoff_DeletesOlderStorageRows()
+    {
+        _store.Append(new[] { StorageTick(1000, ("app.exe", 1000)), StorageTick(5000, ("app.exe", 2000)) }, null);
+
+        _store.Append(Array.Empty<AppUsageTick>(), pruneCutoffSec: 3000);
+
+        var points = _store.QueryAppSeries("storage", "app.exe", 0, 10_000);
+        var point = Assert.Single(points);
+        Assert.Equal(5000, point.TsSec);
+    }
+
+    [Fact]
+    public void Append_WithPruneCutoff_KeepsAnAppSeriesRow_ForAnAppSeenOnlyInStorage()
+    {
+        // "storage-only.exe" never appears in cpu/mem/gpu/vram, only in
+        // storage. The orphan check must treat app_storage_seconds as a
+        // "still has samples" table too, or this app's app_series row is
+        // deleted on the first prune regardless of its still-present
+        // storage row, orphaning that row and dropping the app from
+        // QueryTopApps' JOIN.
+        _store.Append(new[] { StorageTick(9000, ("storage-only.exe", 1000)) }, null);
+
+        _store.Append(Array.Empty<AppUsageTick>(), pruneCutoffSec: 5000);
+
+        var top = _store.QueryTopApps("storage", 0, 10_000, 15);
+        var app = Assert.Single(top);
+        Assert.Equal("storage-only.exe", app.Name);
+    }
+
+    [Fact]
+    public void QueryFirstSeen_TakesTheEarliestAcrossCpuAndStorageTables()
+    {
+        _store.Append(new[] { CpuTick(9000, ("app.exe", 10)) }, null);
+        _store.Append(new[] { StorageTick(2000, ("app.exe", 1000)) }, null);
+
+        Assert.Equal(2000, _store.QueryFirstSeen("app.exe"));
+    }
+
+    [Fact]
+    public void QueryTopApps_Storage_ReturnsEmpty_ForAnUnrecognizedMetric()
+    {
+        _store.Append(new[] { StorageTick(1000, ("app.exe", 1000)) }, null);
+
+        Assert.Empty(_store.QueryTopApps("net", 0, 10_000, 15));
     }
 
     [Fact]

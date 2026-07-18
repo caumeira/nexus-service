@@ -70,6 +70,14 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
                 .Select(a => new AppUsagePoint(a.Name, a.MemoryMb, null))
                 .ToList();
             result.Add(new AppMetricSample("memory", memTop));
+
+            var storageTop = grouped
+                .Where(a => a.StorageBytesPerSec > MetricsHistory.AppUsageEpsilon)
+                .OrderByDescending(a => a.StorageBytesPerSec)
+                .Take(MetricsHistory.TopAppsPerSample)
+                .Select(a => new AppUsagePoint(a.Name, a.StorageBytesPerSec, null))
+                .ToList();
+            result.Add(new AppMetricSample("storage", storageTop));
         }
 
         var gpuEntries = _gpuProcesses.GetSnapshot();
