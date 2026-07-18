@@ -159,9 +159,9 @@ public sealed class WindowSetPoller : IDisposable
         return hr == 0 && cloaked != 0;
     }
 
-    // Progman/WorkerW own the desktop; Shell_TrayWnd/Shell_SecondaryTrayWnd
-    // own the taskbar on each monitor - none of them are an app the user is
-    // running, even though any can become the OS foreground window.
+    // Delegates the class-name match to WindowClassification.IsShellChromeClassName
+    // (platform-neutral, unit tested) - this method only extracts the class
+    // name via Win32.
     private static bool IsShellChromeWindow(IntPtr hwnd)
     {
         if (hwnd == IntPtr.Zero)
@@ -173,7 +173,7 @@ public sealed class WindowSetPoller : IDisposable
         {
             return false;
         }
-        return sb.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
+        return WindowClassification.IsShellChromeClassName(sb.ToString());
     }
 
     // A cloaked window that fully covers its own monitor is an exclusive-

@@ -75,4 +75,15 @@ public static class WindowClassification
         }
         return left <= monitorLeft && top <= monitorTop && right >= monitorRight && bottom >= monitorBottom;
     }
+
+    /// <summary>True when className identifies desktop/taskbar chrome
+    /// (Progman/WorkerW own the desktop, Shell_TrayWnd/Shell_SecondaryTrayWnd
+    /// own the taskbar on each monitor) or a Task View / Alt-Tab switcher
+    /// surface (MultitaskingViewFrame is Task View; XamlExplorerHostIslandWindow
+    /// is the modern Alt-Tab/Win-Tab switcher, TaskSwitcherWnd the older one) -
+    /// none of these are an app the user is running, even though any can
+    /// briefly take OS foreground focus.</summary>
+    public static bool IsShellChromeClassName(string className) =>
+        className is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd"
+            or "MultitaskingViewFrame" or "XamlExplorerHostIslandWindow" or "TaskSwitcherWnd";
 }

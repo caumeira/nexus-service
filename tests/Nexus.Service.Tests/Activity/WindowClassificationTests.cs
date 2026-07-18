@@ -221,4 +221,23 @@ public class WindowClassificationTests
             left: 100, top: 100, right: 100, bottom: 400,
             monitorLeft: 0, monitorTop: 0, monitorRight: 1920, monitorBottom: 1080));
     }
+
+    [Theory]
+    [InlineData("Progman")]
+    [InlineData("WorkerW")]
+    [InlineData("Shell_TrayWnd")]
+    [InlineData("Shell_SecondaryTrayWnd")]
+    [InlineData("MultitaskingViewFrame")]
+    [InlineData("XamlExplorerHostIslandWindow")]
+    [InlineData("TaskSwitcherWnd")]
+    public void IsShellChromeClassName_True_ForEachKnownShellSurface(string className)
+    {
+        Assert.True(WindowClassification.IsShellChromeClassName(className));
+    }
+
+    [Fact]
+    public void IsShellChromeClassName_False_ForAnOrdinaryAppWindowClass()
+    {
+        Assert.False(WindowClassification.IsShellChromeClassName("Chrome_WidgetWin_1"));
+    }
 }
