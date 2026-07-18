@@ -22,7 +22,7 @@ public static class WindowDiagnostics
     public static bool IsEnabled(string? envValue) => envValue == "1";
 
     /// <summary>
-    /// One [window-diag] line: process identity, the eight IsCountableWindow
+    /// One [window-diag] line: process identity, the IsCountableWindow
     /// inputs, the raw title-read outcome, and the classification result.
     /// titleLength/titleReadError distinguish a legitimately empty title
     /// (GetWindowTextLength returns 0, Win32 error 0) from a blocked read
@@ -41,13 +41,14 @@ public static class WindowDiagnostics
         int titleReadError,
         bool hasOnScreenBounds,
         bool coversMonitor,
+        bool isForegroundWindow,
         bool isCountable)
     {
         return "[window-diag] " +
             $"pid={pid} proc=\"{processName}\" " +
             $"isVisible={isVisible} hasOwner={hasOwner} isToolWindow={isToolWindow} isCloaked={isCloaked} " +
             $"hasTitle={hasTitle} titleLength={titleLength} titleReadError={titleReadError} " +
-            $"hasOnScreenBounds={hasOnScreenBounds} coversMonitor={coversMonitor} isCountable={isCountable} " +
-            $"class={(isCountable ? "App" : "Background")}";
+            $"hasOnScreenBounds={hasOnScreenBounds} coversMonitor={coversMonitor} isForegroundWindow={isForegroundWindow} " +
+            $"isCountable={isCountable} class={(isCountable ? "App" : "Background")}";
     }
 }

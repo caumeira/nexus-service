@@ -1527,35 +1527,36 @@ public static class NexusServiceCollectionExtensions
     /// <summary>
     /// AI Integration: the read-only telemetry/history and cooling/lighting/profile
     /// write MCP tools, the consent-gated registry that dispatches them, the
-    /// binary-file-backed history store + recorder + audit sink, and McpServerHost -
-    /// the loopback-only MCP listener, off by default (AiIntegrationSettings
+    /// binary-file-backed audit event log + sink, and McpServerHost - the
+    /// loopback-only MCP listener, off by default (AiIntegrationSettings
     /// .Enabled). Depends on IConfigStore (AddNexusCore), ISensorProvider
     /// (AddNexusSensors), IFanControlProvider / ICurveProvider (AddNexusCooling),
     /// ILightingProvider / LightingEngine (AddNexusLighting), ProfileManager
-    /// (AddNexusLifecycle), and MultiplexHub (AddNexusCore) already being
-    /// registered. IAiHistoryStore falls back to a no-op store if the store
-    /// can't open, the same pattern as IMetricsHistoryStore in
-    /// AddNexusMonitoringHistory.
+    /// (AddNexusLifecycle), MultiplexHub (AddNexusCore), and IMetricsHistoryStore /
+    /// IAppUsageHistoryStore (AddNexusMonitoringHistory) already being registered -
+    /// the history/app-usage read tools serve straight from that always-on store,
+    /// there is no AI-specific sample collection. IAiEventLog falls back to a
+    /// no-op log if the file can't open, the same pattern as IMetricsHistoryStore
+    /// in AddNexusMonitoringHistory.
     /// </summary>
     public static IServiceCollection AddNexusMcp(this IServiceCollection services)
     {
-        services.AddSingleton<Nexus.Service.Mcp.History.IAiHistoryStore>(_ =>
+        services.AddSingleton<Nexus.Service.Mcp.History.IAiEventLog>(_ =>
         {
             try
             {
-                return new Nexus.Service.Mcp.History.Binary.BinaryAiHistoryStore(
+                return new Nexus.Service.Mcp.History.Binary.BinaryAiEventLog(
                     System.IO.Path.Combine(NexusDataPaths.DatabaseDir(), "ai-history"));
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[ai-history-store] binary store unavailable, history disabled: {ex.Message}");
-                return new Nexus.Service.Mcp.History.UnavailableAiHistoryStore();
+                Console.Error.WriteLine($"[ai-event-log] binary log unavailable, event audit disabled: {ex.Message}");
+                return new Nexus.Service.Mcp.History.UnavailableAiEventLog();
             }
         });
-        services.AddSingleton<Nexus.Service.Mcp.History.AiHistoryRecorder>();
-        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Mcp.History.AiHistoryRecorder>());
+        services.AddSingleton<Nexus.Service.Mcp.History.MonitoringSensorHistoryReader>();
 
-        services.AddSingleton<Nexus.Service.Mcp.IMcpAuditSink, Nexus.Service.Mcp.History.AiHistoryMcpAuditSink>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpAuditSink, Nexus.Service.Mcp.History.AiEventAuditSink>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetSystemOverviewTool>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetSensorsTool>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetCoolingStateTool>();
@@ -1572,6 +1573,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.QuerySensorHistoryTool>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetHistorySummaryTool>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.QueryEventsTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetTopAppsTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.QueryAppHistoryTool>();
         services.AddSingleton<Nexus.Service.Mcp.McpToolRegistry>();
         services.AddSingleton<Nexus.Service.Mcp.McpServerHost>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Mcp.McpServerHost>());

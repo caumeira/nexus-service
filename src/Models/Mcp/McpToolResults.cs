@@ -176,3 +176,37 @@ public sealed class McpQueryEventsResult
     public List<McpHistoryEvent> Events { get; set; } = new();
     public bool Truncated { get; set; }
 }
+
+/// <summary>One app's window-average/max for get_top_apps.</summary>
+public sealed class McpTopApp
+{
+    public string Name { get; set; } = "";
+    public double Avg { get; set; }
+    public double Max { get; set; }
+}
+
+/// <summary>Payload for the get_top_apps MCP tool.</summary>
+public sealed class McpTopAppsResult
+{
+    public string Metric { get; set; } = "";
+    public int Minutes { get; set; }
+    public List<McpTopApp> Apps { get; set; } = new();
+}
+
+/// <summary>One point on a query_app_history series.</summary>
+public sealed class McpAppHistoryPoint
+{
+    /// <summary>Unix milliseconds.</summary>
+    public long T { get; set; }
+    public double Value { get; set; }
+}
+
+/// <summary>Payload for the query_app_history MCP tool.</summary>
+public sealed class McpAppHistoryResult
+{
+    public string Metric { get; set; } = "";
+    public string App { get; set; } = "";
+    /// <summary>Window-average dedicated VRAM in MB; only populated for a gpu/vram metric.</summary>
+    public double? VramAvgMb { get; set; }
+    public List<McpAppHistoryPoint> Points { get; set; } = new();
+}

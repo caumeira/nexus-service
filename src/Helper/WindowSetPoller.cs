@@ -5,6 +5,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Text;
 using Nexus.Service.Activity;
 using Nexus.Service.Helper.Domains;
 using Nexus.Service.Platform;
@@ -80,8 +81,21 @@ public sealed class WindowSetPoller : IDisposable
         var virtualRight = virtualLeft + GetSystemMetrics(SmCxvirtualscreen);
         var virtualBottom = virtualTop + GetSystemMetrics(SmCyvirtualscreen);
 
+        // Also once per poll: whatever the user has focused right now is a
+        // real app window by definition, so it overrides the cloak/title
+        // heuristics below (see WindowClassification.IsCountableWindow) -
+        // unless it is the desktop or taskbar itself, which also take OS
+        // foreground focus (clicking the desktop, Win+D, an empty taskbar
+        // click) without being an app the user is running.
+        var foregroundHwnd = GetForegroundWindow();
+        if (IsShellChromeWindow(foregroundHwnd))
+        {
+            foregroundHwnd = IntPtr.Zero;
+        }
+
         _pinnedEnumProc = (hwnd, _) =>
         {
+            var isForegroundWindow = hwnd == foregroundHwnd;
             var owner = GetWindow(hwnd, GwOwner);
             var isToolWindow = (GetWindowLong(hwnd, GwlExstyle) & WsExToolwindow) != 0;
             var isCloaked = IsCloaked(hwnd);
@@ -113,7 +127,7 @@ public sealed class WindowSetPoller : IDisposable
 
             var isCountable = WindowClassification.IsCountableWindow(
                 isVisible, owner, isToolWindow, isCloaked, hasTitle, hasOnScreenBounds,
-                coversMonitor, titleBlockedByUipi);
+                coversMonitor, titleBlockedByUipi, isForegroundWindow);
 
             if (isCountable || _diagEnabled)
             {
@@ -127,7 +141,7 @@ public sealed class WindowSetPoller : IDisposable
                     LogDiagnostic(
                         (int)pid, isVisible, owner, isToolWindow, isCloaked,
                         hasTitle, titleLength, titleReadError, hasOnScreenBounds,
-                        coversMonitor, isCountable);
+                        coversMonitor, isForegroundWindow, isCountable);
                 }
             }
             return true;
@@ -143,6 +157,23 @@ public sealed class WindowSetPoller : IDisposable
     {
         var hr = DwmGetWindowAttribute(hwnd, DwmwaCloaked, out var cloaked, sizeof(int));
         return hr == 0 && cloaked != 0;
+    }
+
+    // Progman/WorkerW own the desktop; Shell_TrayWnd/Shell_SecondaryTrayWnd
+    // own the taskbar on each monitor - none of them are an app the user is
+    // running, even though any can become the OS foreground window.
+    private static bool IsShellChromeWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return false;
+        }
+        var sb = new StringBuilder(64);
+        if (GetClassNameW(hwnd, sb, sb.Capacity) <= 0)
+        {
+            return false;
+        }
+        return sb.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd";
     }
 
     // A cloaked window that fully covers its own monitor is an exclusive-
@@ -176,6 +207,7 @@ public sealed class WindowSetPoller : IDisposable
         int titleReadError,
         bool hasOnScreenBounds,
         bool coversMonitor,
+        bool isForegroundWindow,
         bool isCountable)
     {
         var processName = "?";
@@ -191,7 +223,7 @@ public sealed class WindowSetPoller : IDisposable
         }
         ServiceLog.Info(WindowDiagnostics.FormatLine(
             pid, processName, isVisible, owner != IntPtr.Zero, isToolWindow, isCloaked,
-            hasTitle, titleLength, titleReadError, hasOnScreenBounds, coversMonitor, isCountable));
+            hasTitle, titleLength, titleReadError, hasOnScreenBounds, coversMonitor, isForegroundWindow, isCountable));
     }
 
     public void Dispose() => _timer.Dispose();
@@ -223,6 +255,12 @@ public sealed class WindowSetPoller : IDisposable
 
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassNameW(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
