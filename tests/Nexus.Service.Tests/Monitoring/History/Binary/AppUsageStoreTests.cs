@@ -39,6 +39,28 @@ public class AppUsageStoreTests : IDisposable
     private static AppUsageTick CpuTick(long ts, params (string Name, double Value)[] apps) =>
         new(ts, new[] { new AppMetricSample("cpu", apps.Select(a => new AppUsagePoint(a.Name, a.Value, null)).ToList()) });
 
+    private static AppUsageTick NetTick(long ts, params (string Name, double Value)[] apps) =>
+        new(ts, new[] { new AppMetricSample("net", apps.Select(a => new AppUsagePoint(a.Name, a.Value, null)).ToList()) });
+
+    [Fact]
+    public void Append_then_Query_RoundTripsNetValues_ThroughItsOwnDaySegment()
+    {
+        using var store = new AppUsageStore(_dir, _ => null);
+
+        store.Append(new[] { NetTick(1000, ("app.exe", 4_194_304)) }, null);
+
+        Assert.True(File.Exists(Path.Combine(_dir, "net", "0.seg")));
+
+        var points = store.QueryAppSeries("net", "app.exe", 0, 10_000);
+        var point = Assert.Single(points);
+        Assert.Equal(4_194_304, point.Value);
+
+        var top = store.QueryTopApps("net", 0, 10_000, 15);
+        var app = Assert.Single(top);
+        Assert.Equal("app.exe", app.Name);
+        Assert.Equal(4_194_304, app.Avg);
+    }
+
     [Fact]
     public void Append_TicksOnDifferentUtcDays_WriteToSeparateDaySegmentFiles()
     {

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Activity;
 using Nexus.Service.Diagnostics.Storage;
+using Nexus.Service.Models.Activity;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Sensors;
@@ -54,13 +55,19 @@ public class ProcessAppUsageSourcePerformanceTests
         public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
+    private sealed class StubNetworkProvider : INetworkProvider
+    {
+        public IReadOnlyList<NetworkProcessInfo> GetSnapshot(bool allowOnDemandSample = true) => Array.Empty<NetworkProcessInfo>();
+        public void SetInterval(int ms) { }
+    }
+
     [Fact]
     public void Sample_StaysUnderBudget_AtARealisticWorstCaseProcessCount()
     {
         var hub = new MultiplexHub();
         var processes = new ProcessMonitor(hub);
         var gpuProcesses = new GpuProcessMonitor(hub);
-        var source = new ProcessAppUsageSource(processes, gpuProcesses, new StubSensorProvider());
+        var source = new ProcessAppUsageSource(processes, gpuProcesses, new StubSensorProvider(), new StubNetworkProvider());
 
         const int processCount = 400; // comfortably above a busy real box's live process count
         var random = new Random(1);

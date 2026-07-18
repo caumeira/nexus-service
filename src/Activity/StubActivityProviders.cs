@@ -43,7 +43,7 @@ public sealed class StubProcessIconProvider : IProcessIconProvider
 
 public sealed class StubNetworkProvider : INetworkProvider
 {
-    public IReadOnlyList<NetworkProcessInfo> GetSnapshot() => Array.Empty<NetworkProcessInfo>();
+    public IReadOnlyList<NetworkProcessInfo> GetSnapshot(bool allowOnDemandSample = true) => Array.Empty<NetworkProcessInfo>();
     public void SetInterval(int ms) { }
 }
 

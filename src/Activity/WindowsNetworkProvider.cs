@@ -27,7 +27,7 @@ public sealed class WindowsNetworkProvider : BackgroundService, INetworkProvider
 
     public WindowsNetworkProvider(MultiplexHub hub) { _hub = hub; }
 
-    public IReadOnlyList<NetworkProcessInfo> GetSnapshot() => _snapshot;
+    public IReadOnlyList<NetworkProcessInfo> GetSnapshot(bool allowOnDemandSample = true) => _snapshot;
     public void SetInterval(int ms) => _intervalMs = Math.Max(200, ms);
 
     private bool HasSubscribers =>

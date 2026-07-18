@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Activity;
+using Nexus.Service.Models.Activity;
 using Nexus.Service.Sensors;
 
 namespace Nexus.Service.Monitoring.History;
@@ -23,25 +24,54 @@ namespace Nexus.Service.Monitoring.History;
 /// adapter also contributes a "vram:&lt;gid&gt;" sample, ranked by
 /// DedicatedMb rather than GpuPercent - a process can hold significant
 /// VRAM while nearly idle, so the two rankings can select different apps.
+///
+/// "net" is different from every other metric here: INetworkProvider is
+/// deliberately NOT put on always-on demand the way ProcessMonitor/
+/// GpuProcessMonitor are (see the metrics-history plan's warning against
+/// churning process handles for network) - its own sampling loop stays
+/// gated on real WebSocket subscribers to "network"/"monitoring", so
+/// GetSnapshot() can legitimately be empty or stale for long stretches.
+/// "net" history only accumulates while that provider happens to already
+/// be sampling for the live topic. GetSnapshot(allowOnDemandSample: false)
+/// is load-bearing here: LinuxNetworkProvider otherwise runs a synchronous
+/// on-demand scan whenever its snapshot is empty, which this class's own
+/// 5-second polling cadence would turn into continuous scanning regardless
+/// of subscribers - exactly what the always-on-demand avoidance above is
+/// for.
 /// </summary>
 public sealed class ProcessAppUsageSource : IAppUsageSource
 {
     private readonly ProcessMonitor _processes;
     private readonly GpuProcessMonitor _gpuProcesses;
     private readonly ISensorProvider _sensors;
+    private readonly INetworkProvider _network;
 
     private const string DemandSource = "app-usage-history";
 
-    public ProcessAppUsageSource(ProcessMonitor processes, GpuProcessMonitor gpuProcesses, ISensorProvider sensors)
+    // Wider than a few sampling intervals, so a missed tick or a brief
+    // system suspend does not get reported as a rate spike/trough once
+    // sampling resumes - mirrors NetworkRateReader.ComputeRate's own gap
+    // rejection, scaled up for this class's slower per-app cadence.
+    private const long MaxNetElapsedMs = MetricsHistory.AppSampleIntervalSeconds * 1000 * 3;
+
+    private long _prevNetTicksMs = -1;
+    private Dictionary<string, (long BytesIn, long BytesOut)> _prevNetByName =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    public ProcessAppUsageSource(
+        ProcessMonitor processes, GpuProcessMonitor gpuProcesses, ISensorProvider sensors, INetworkProvider network)
     {
         _processes = processes;
         _gpuProcesses = gpuProcesses;
         _sensors = sensors;
+        _network = network;
 
         // Per-app usage recording is always-on regardless of WebSocket
         // subscribers - both monitors self-gate their own sampling loop on
         // demand, so this keeps them running for the lifetime of the
         // service without touching their existing subscription-gated path.
+        // INetworkProvider intentionally has no equivalent call here - see
+        // the class doc.
         _processes.SetDemand(DemandSource, true);
         _gpuProcesses.SetDemand(DemandSource, true);
     }
@@ -107,7 +137,77 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
             }
         }
 
+        var netEntries = _network.GetSnapshot(allowOnDemandSample: false);
+        if (netEntries.Count > 0)
+        {
+            var netTop = ComputeNetRates(netEntries)
+                .Where(a => a.Value > MetricsHistory.AppUsageEpsilon)
+                .OrderByDescending(a => a.Value)
+                .Take(MetricsHistory.TopAppsPerSample)
+                .ToList();
+            result.Add(new AppMetricSample("net", netTop));
+        }
+
         return result;
+    }
+
+    // The network provider only exposes cumulative per-app byte counters
+    // (see WindowsNetworkProvider's own doc: the frontend computes rates
+    // from deltas) - this diffs consecutive Sample() calls the same way,
+    // tracking its own previous-snapshot state independently of
+    // MonitoringBroadcaster's separate delta tracking for the live
+    // "network" topic (two independent consumers of one cumulative
+    // snapshot, at their own cadences).
+    private List<AppUsagePoint> ComputeNetRates(IReadOnlyList<NetworkProcessInfo> current)
+    {
+        var nowTicksMs = Environment.TickCount64;
+        var currentByName = new Dictionary<string, (long BytesIn, long BytesOut)>(current.Count, StringComparer.OrdinalIgnoreCase);
+        foreach (var info in current)
+        {
+            currentByName[info.Name] = (info.BytesIn, info.BytesOut);
+        }
+
+        var points = ComputeNetRatesCore(_prevNetByName, _prevNetTicksMs, currentByName, nowTicksMs);
+
+        _prevNetByName = currentByName;
+        _prevNetTicksMs = nowTicksMs;
+        return points;
+    }
+
+    /// <summary>Pure delta math extracted from ComputeNetRates, mirroring
+    /// NetworkRateReader.ComputeRate's shape for a per-app dictionary
+    /// instead of one pair of counters: no baseline yet, a non-positive or
+    /// over-threshold elapsed gap, or a negative byte delta (counter reset)
+    /// all drop that app rather than reporting a spike/trough. Internal and
+    /// static so a test can exercise the elapsed-time boundary
+    /// deterministically instead of racing the real wall clock.</summary>
+    internal static List<AppUsagePoint> ComputeNetRatesCore(
+        IReadOnlyDictionary<string, (long BytesIn, long BytesOut)> prevByName, long prevTicksMs,
+        IReadOnlyDictionary<string, (long BytesIn, long BytesOut)> currentByName, long nowTicksMs)
+    {
+        var points = new List<AppUsagePoint>();
+        var elapsedMs = nowTicksMs - prevTicksMs;
+        if (prevTicksMs < 0 || elapsedMs <= 0 || elapsedMs > MaxNetElapsedMs)
+        {
+            return points;
+        }
+
+        var seconds = elapsedMs / 1000.0;
+        foreach (var (name, bytes) in currentByName)
+        {
+            if (!prevByName.TryGetValue(name, out var prev))
+            {
+                continue;
+            }
+            var deltaIn = bytes.BytesIn - prev.BytesIn;
+            var deltaOut = bytes.BytesOut - prev.BytesOut;
+            if (deltaIn < 0 || deltaOut < 0)
+            {
+                continue;
+            }
+            points.Add(new AppUsagePoint(name, (deltaIn + deltaOut) / seconds, null));
+        }
+        return points;
     }
 
     private Dictionary<string, string> BuildLuidToGpuId()

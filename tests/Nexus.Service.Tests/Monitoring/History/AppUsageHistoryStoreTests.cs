@@ -184,7 +184,7 @@ public abstract class AppUsageHistorySpec : IDisposable
     {
         Store.Append(new[] { CpuTick(1000, ("a", 1)) }, null);
 
-        Assert.Empty(Store.QuerySampledTicks("net", 0, 10_000));
+        Assert.Empty(Store.QuerySampledTicks("bogus", 0, 10_000));
     }
 
     [Fact]
@@ -224,7 +224,7 @@ public abstract class AppUsageHistorySpec : IDisposable
     {
         Store.Append(new[] { CpuTick(1000, ("app.exe", 10)) }, null);
 
-        var result = Store.QueryTopApps("net", 0, 10_000, 15);
+        var result = Store.QueryTopApps("bogus", 0, 10_000, 15);
 
         Assert.Empty(result);
     }
@@ -666,7 +666,7 @@ public abstract class AppUsageHistorySpec : IDisposable
     {
         Store.Append(new[] { StorageTick(1000, ("app.exe", 1000)) }, null);
 
-        Assert.Empty(Store.QueryTopApps("net", 0, 10_000, 15));
+        Assert.Empty(Store.QueryTopApps("bogus", 0, 10_000, 15));
     }
 
     [Fact]

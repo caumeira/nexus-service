@@ -75,7 +75,13 @@ public interface IProcessActionsProvider
 
 public interface INetworkProvider
 {
-    IReadOnlyList<NetworkProcessInfo> GetSnapshot();
+    /// <summary>allowOnDemandSample false suppresses a provider's on-demand
+    /// synchronous scan when its background loop has not sampled yet
+    /// (LinuxNetworkProvider) - a caller that polls continuously regardless
+    /// of subscriber demand (ProcessAppUsageSource) must pass false, or the
+    /// fallback meant for an occasional caller turns into continuous
+    /// scanning every poll.</summary>
+    IReadOnlyList<NetworkProcessInfo> GetSnapshot(bool allowOnDemandSample = true);
     void SetInterval(int ms);
 }
 

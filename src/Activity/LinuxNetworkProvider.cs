@@ -33,11 +33,11 @@ public sealed class LinuxNetworkProvider : BackgroundService, INetworkProvider
 
     public LinuxNetworkProvider(MultiplexHub hub) { _hub = hub; }
 
-    public IReadOnlyList<NetworkProcessInfo> GetSnapshot()
+    public IReadOnlyList<NetworkProcessInfo> GetSnapshot(bool allowOnDemandSample = true)
     {
         // REST clients (/api/network/top) don't subscribe to WS topics, so the
         // background sampler never runs for them. Populate on-demand if empty.
-        if (_snapshot.Count == 0)
+        if (allowOnDemandSample && _snapshot.Count == 0)
         {
             try
             { Sample(); }
