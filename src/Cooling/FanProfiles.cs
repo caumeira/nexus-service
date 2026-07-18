@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Defaults;
@@ -55,6 +56,33 @@ public static class FanProfiles
             else
             {
                 s.Cooling.FanLockOverrides[ch.Id] = locked;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Write ch's display/monitoring-grouping role, collapsing to "no entry"
+    /// when the requested role is <see cref="FanRoleKind.None"/> so the dict only
+    /// holds real assignments. Display metadata only: never touches fan
+    /// control, locking, or preset logic.
+    /// </summary>
+    public static void SetFanRole(FanChannel ch, string role, IConfigStore store)
+    {
+        var normalized = role.ToLowerInvariant();
+        if (!FanRoleKind.Valid.Contains(normalized))
+        {
+            throw new ArgumentException($"Invalid fan role: {role}", nameof(role));
+        }
+
+        store.Update(s =>
+        {
+            if (normalized == FanRoleKind.None)
+            {
+                s.Cooling.FanRoles.Remove(ch.Id);
+            }
+            else
+            {
+                s.Cooling.FanRoles[ch.Id] = normalized;
             }
         });
     }

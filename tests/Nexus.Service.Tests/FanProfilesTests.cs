@@ -991,6 +991,48 @@ public class FanProfilesTests : IDisposable
         Assert.False(_store.Load().Cooling.FanLockOverrides.ContainsKey("fan1"));
     }
 
+    [Fact]
+    public void SetFanRole_SetsCpuAndGpu_AndRoundTripsThroughTheStore()
+    {
+        var fan = new FanChannel { Id = "fan1", Kind = FanKinds.Fan };
+
+        FanProfiles.SetFanRole(fan, "cpu", _store);
+        Assert.Equal("cpu", _store.Load().Cooling.FanRoles["fan1"]);
+
+        FanProfiles.SetFanRole(fan, "gpu", _store);
+        Assert.Equal("gpu", _store.Load().Cooling.FanRoles["fan1"]);
+    }
+
+    [Fact]
+    public void SetFanRole_None_CollapsesToDefault_RemovingTheEntry()
+    {
+        var fan = new FanChannel { Id = "fan1", Kind = FanKinds.Fan };
+        FanProfiles.SetFanRole(fan, "cpu", _store);
+
+        FanProfiles.SetFanRole(fan, "none", _store);
+
+        Assert.False(_store.Load().Cooling.FanRoles.ContainsKey("fan1"));
+    }
+
+    [Fact]
+    public void SetFanRole_NormalizesCase()
+    {
+        var fan = new FanChannel { Id = "fan1", Kind = FanKinds.Fan };
+
+        FanProfiles.SetFanRole(fan, "CPU", _store);
+
+        Assert.Equal("cpu", _store.Load().Cooling.FanRoles["fan1"]);
+    }
+
+    [Fact]
+    public void SetFanRole_InvalidRole_Throws()
+    {
+        var fan = new FanChannel { Id = "fan1", Kind = FanKinds.Fan };
+
+        Assert.Throws<ArgumentException>(() => FanProfiles.SetFanRole(fan, "motherboard", _store));
+        Assert.False(_store.Load().Cooling.FanRoles.ContainsKey("fan1"));
+    }
+
     private sealed class FakeFanProvider : IFanControlProvider
     {
         private readonly List<FanChannel> _channels;

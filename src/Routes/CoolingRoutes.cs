@@ -84,6 +84,8 @@ public static class CoolingRoutes
                     ch.Name = custom;
                 }
                 ch.Locked = FanProfiles.IsLocked(ch, cooling.FanLockOverrides);
+                ch.Role = cooling.FanRoles.TryGetValue(ch.Id, out var role) ? role : FanRoleKind.None;
+                ch.SeriesId = Nexus.Service.Monitoring.History.MetricsHistory.SanitizeId(ch.Id);
             }
             return new GetFanChannelsResponse { Channels = channels };
         }).AllowPanel();
@@ -162,6 +164,26 @@ public static class CoolingRoutes
             // preset label so it stays truthful for future applies.
             var derived = FanProfiles.DerivePresetFromCurves(store, f);
             store.Update(s => s.Cooling.ActivePreset = derived);
+            PanelTopics.BroadcastCooling(hub);
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
+
+        app.MapPost("/cooling/fan/{id}/role", (string id, SetFanRoleBody body, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        {
+            id = Uri.UnescapeDataString(id);
+            var ch = f.GetFanChannels().FirstOrDefault(c => c.Id == id);
+            if (ch is null)
+            {
+                return Results.BadRequest(new ApiResponse { Error = true, Msg = "Unknown fan channel" });
+            }
+
+            var role = body.Role?.ToLowerInvariant() ?? FanRoleKind.None;
+            if (!FanRoleKind.Valid.Contains(role))
+            {
+                return Results.BadRequest(new ApiResponse { Error = true, Msg = "Invalid fan role" });
+            }
+
+            FanProfiles.SetFanRole(ch, role, store);
             PanelTopics.BroadcastCooling(hub);
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();

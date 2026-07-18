@@ -961,6 +961,38 @@
         }
       }
     },
+    "/cooling/fan/{id}/role": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetFanRoleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/cooling/profiles": {
       "get": {
         "tags": [
@@ -13344,6 +13376,12 @@
           "locked": {
             "type": "boolean"
           },
+          "role": {
+            "type": "string"
+          },
+          "seriesId": {
+            "type": "string"
+          },
           "deviceId": {
             "type": [
               "null",
@@ -18192,6 +18230,14 @@
         "type": "object",
         "properties": {
           "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SetFanRoleBody": {
+        "type": "object",
+        "properties": {
+          "role": {
             "type": "string"
           }
         }

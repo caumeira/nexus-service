@@ -125,6 +125,10 @@ public sealed class FanChannel
     public bool Calibrated => MinRpm is not null;
     /// <summary>True when the channel is exempt from Silent/Balanced/Turbo/Off/Custom preset applies. Computed from settings; not read from hardware.</summary>
     public bool Locked { get; set; }
+    /// <summary>Display/monitoring-grouping role: one of <see cref="FanRoleKind.None"/> / <see cref="FanRoleKind.Cpu"/> / <see cref="FanRoleKind.Gpu"/>. Computed from settings; not read from hardware. Never affects fan control, locking, or preset logic.</summary>
+    public string Role { get; set; } = FanRoleKind.None;
+    /// <summary>Sanitized id matching the monitoring history series key ("fan:" + SeriesId), per <see cref="Nexus.Service.Monitoring.History.MetricsHistory.SanitizeId"/>. Computed from <see cref="Id"/>; the sanitize rule is lossy and one-way, so this is never reverse-mapped back to Id.</summary>
+    public string SeriesId { get; set; } = "";
 
     // External-device metadata. All null for motherboard/GPU fans; populated
     // only when the channel belongs to a USB hub like NP50. Drives
@@ -230,6 +234,11 @@ public sealed class SetFanNameBody
 public sealed class SetFanLockBody
 {
     public bool Locked { get; set; }
+}
+
+public sealed class SetFanRoleBody
+{
+    public string Role { get; set; } = FanRoleKind.None;
 }
 
 // ----- Curve engine WebSocket push -----
