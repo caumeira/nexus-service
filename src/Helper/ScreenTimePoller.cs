@@ -17,7 +17,7 @@ namespace Nexus.Service.Helper;
 ///
 ///   <c>screenTime.focus</c>  - current focus changed (or no focus).
 ///   <c>screenTime.session</c> - the prior focus session ended; the service
-///                               persists it to SQLite.
+///                               persists it via IScreenTimeStore.
 ///
 /// Runs in the user session: the LocalSystem service in Session 0 cannot see
 /// the foreground window. 3-minute idle clip, lock-free apply path; the sink

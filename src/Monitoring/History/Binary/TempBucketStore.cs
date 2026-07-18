@@ -7,8 +7,7 @@ using System.Threading;
 namespace Nexus.Service.Monitoring.History.Binary;
 
 /// <summary>
-/// The unified 90-day temperature bucket rollup (the binary equivalent of
-/// SqliteMetricsHistoryStore's temp_buckets table): a TempComponentRegistry
+/// The unified 90-day temperature bucket rollup: a TempComponentRegistry
 /// mapping a component key ("cpu", "gpu:&lt;id&gt;", or a storage/ram
 /// ComponentId as-is) to a ring index, plus one bucket-width RingFile per
 /// registered key holding sum/count/max - the same shape GpuRingStore's
@@ -17,22 +16,18 @@ namespace Nexus.Service.Monitoring.History.Binary;
 ///
 /// This store has no notion of cpu/gpu/temp-component rings itself - the
 /// facade (BinaryMetricsHistoryStore.RebuildTempBuckets) reads those on every
-/// Append and calls RebuildBucket per touched (key, bucket) pair, mirroring
-/// SqliteMetricsHistoryStore.UpsertTempBucketsRollup's cross-table rebuild
-/// and its source-retention guard (a bucket whose raw data has aged past
+/// Append and calls RebuildBucket per touched (key, bucket) pair, honoring a
+/// source-retention guard (a bucket whose raw data has aged past
 /// _sourceFloorSec is never passed to RebuildBucket at all). RebuildBucket
 /// itself silently skips a zero-reading rebuild rather than writing an empty
-/// bucket, matching UpsertTempBucketsRollup's HAVING COUNT(...) &gt; 0 guard -
-/// a bucket already written by an earlier, more complete rebuild is never
-/// overwritten by a later one that finds nothing.
+/// bucket - a bucket already written by an earlier, more complete rebuild is
+/// never overwritten by a later one that finds nothing.
 ///
-/// Unlike SqliteMetricsHistoryStore's cpu bucket row (whose name column is
-/// overwritten on every rebuild with that batch's live CpuName),
-/// TempComponentRegistry fixes a key's name at first registration - the same
-/// first-seen-wins simplification EntityRegistry/TempComponentRegistry
-/// already make elsewhere. No pinned test exercises a CPU rename mid-session
-/// (it doesn't, in practice), so this only differs from SQLite in a scenario
-/// nothing here relies on.
+/// TempComponentRegistry fixes a key's name at first registration rather
+/// than overwriting it on every rebuild - the same first-seen-wins
+/// simplification EntityRegistry/TempComponentRegistry already make
+/// elsewhere. No pinned test exercises a CPU rename mid-session: the CPU
+/// name does not change while the service runs.
 /// </summary>
 internal sealed class TempBucketStore : IDisposable
 {
@@ -124,9 +119,8 @@ internal sealed class TempBucketStore : IDisposable
     }
 
     /// <summary>Every bucket whose start falls in [fromSec, toSec] - a strict
-    /// containment test, unlike the minute rollup's overlap-inclusive window
-    /// (matches SqliteMetricsHistoryStore.QueryTemperatureBuckets' bucket_ts
-    /// BETWEEN from AND to exactly), across every registered key.</summary>
+    /// containment test, unlike the minute rollup's overlap-inclusive window -
+    /// across every registered key.</summary>
     public IReadOnlyList<TemperatureBucketRow> Query(long fromSec, long toSec)
     {
         var result = new List<TemperatureBucketRow>();

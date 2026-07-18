@@ -85,12 +85,11 @@ public static class MetricsHistory
         return trimmed.Replace('/', '-');
     }
 
-    /// <summary>Sums two nullable readings the way SQL SUM() does: null only
-    /// when both are null, otherwise the non-null side(s) added (a null
-    /// side contributes zero). Shared by InMemoryMetricsHistoryStore and
-    /// MonitoringHistoryRoutes' tail-side bare-gpu aggregation so both
-    /// agree with SqliteMetricsHistoryStore's SUM(vram_mb) on the
-    /// persisted side.</summary>
+    /// <summary>Sums two nullable readings: null only when both are null,
+    /// otherwise the non-null side(s) added (a null side contributes zero).
+    /// Shared by InMemoryMetricsHistoryStore and MonitoringHistoryRoutes'
+    /// tail-side bare-gpu aggregation so both agree with AppUsageStore's
+    /// persisted-side vram summation.</summary>
     public static double? SumNullable(double? a, double? b) =>
         a is null && b is null ? null : (a ?? 0) + (b ?? 0);
 }

@@ -12,16 +12,13 @@ internal readonly record struct ScalarMinuteAgg(
     FieldAgg Cpu, FieldAgg Mem, FieldAgg NetIn, FieldAgg NetOut, FieldAgg CpuTemp, FieldAgg DiskRead, FieldAgg DiskWrite);
 
 /// <summary>
-/// The scalar minute-rollup tier (the binary equivalent of
-/// SqliteMetricsHistoryStore's metric_minutes table): a RingFile keyed by
-/// minute-index (see MinuteTier), one slot per minute holding sum/count/max
-/// for cpu/mem/net-in/net-out/cpu-temp/disk-read/disk-write.
+/// The scalar minute-rollup tier: a RingFile keyed by minute-index (see
+/// MinuteTier), one slot per minute holding sum/count/max for
+/// cpu/mem/net-in/net-out/cpu-temp/disk-read/disk-write.
 /// BinaryMetricsHistoryStore rebuilds a touched minute's slot from
 /// ScalarRingStore's raw per-second data on every Append - never
 /// accumulates - so a replayed second (a backward clock step re-flushing a ts
-/// already committed) is naturally deduped exactly the way
-/// SqliteMetricsHistoryStore.UpsertScalarRollup's own INSERT OR REPLACE
-/// rebuild is.
+/// already committed) is deduped by the rebuild rather than double-counted.
 ///
 /// A rebuild's raw data comes from ScalarRingStore.Query, which is itself
 /// floor-filtered (see RingFile.PruneFloorSec) - so a minute rebuilt after
@@ -30,9 +27,8 @@ internal readonly record struct ScalarMinuteAgg(
 /// performed earlier would have shown. This can only happen for a minute
 /// backdated below the current floor (a backward-clock replay into
 /// already-pruned territory), which none of the pinned rollup specs
-/// exercise; SqliteMetricsHistoryStore does not have this asymmetry since it
-/// physically deletes pruned rows rather than hiding them behind a read-time
-/// floor.
+/// exercise. This asymmetry exists because RingFile hides pruned data behind
+/// a read-time floor rather than physically deleting it.
 ///
 /// Net/disk sum/max stay whole int64 (matching ScalarRingStore's own
 /// net/disk fields); cpu/mem/cpu-temp sum stays a plain i32 (a
@@ -89,9 +85,7 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
     /// <summary>Rewrites minuteFloorSec's slot from scratch. Always writes,
     /// even when every field's Cnt is zero - the slot's existence (this
     /// minute was touched by at least one Append) is itself the signal
-    /// QueryDecimated's rollup-eligible path reads, matching
-    /// SqliteMetricsHistoryStore's own unconditional per-touched-minute
-    /// upsert.</summary>
+    /// QueryDecimated's rollup-eligible path reads.</summary>
     public void RebuildMinute(long minuteFloorSec, ScalarMinuteAgg agg)
     {
         Span<byte> body = stackalloc byte[BodyLength];
@@ -104,8 +98,7 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
     /// <summary>Folds every minute slot overlapping [fromSec, toSec] into
     /// stepSeconds-wide output slots (SUM-of-sums / SUM-of-counts /
     /// MAX-of-maxes across however many minutes land in the same output
-    /// slot), matching QueryScalarsDecimatedFromRollup's SQL aggregation.
-    /// stepSeconds is assumed rollup-eligible (a whole multiple of 60) -
+    /// slot). stepSeconds is assumed rollup-eligible (a whole multiple of 60) -
     /// BinaryMetricsHistoryStore only calls this once IsRollupEligible has
     /// already routed here.</summary>
     public IReadOnlyList<ScalarDecimatedSlot> QueryDecimated(long fromSec, long toSec, int stepSeconds)

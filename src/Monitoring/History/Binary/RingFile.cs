@@ -23,17 +23,33 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// currently belongs to; Crc covers exactly the body bytes.</para>
 ///
 /// <para><b>Crash-safe write protocol.</b> A writer publishes a slot in this
-/// order: body, then Crc, then TrailStamp, then - last - LeadStamp via
-/// <see cref="Volatile.Write(ref long, long)"/> (a release fence). A reader
-/// checks LeadStamp first via <see cref="Volatile.Read(ref long)"/> (an
-/// acquire fence) and only trusts the rest of the slot if LeadStamp matches
-/// the timestamp it asked for. Because LeadStamp is both physically first in
-/// the slot and temporally LAST to be written, an acquire read of it that
-/// matches is a guarantee (per the .NET memory model) that the body/Crc/
-/// TrailStamp writes that preceded it in program order are also visible -
-/// so a reader never needs its own lock to see a fully-written slot, and a
-/// process that crashes mid-write leaves LeadStamp holding its old value,
-/// which fails the match and reads as absent rather than as a torn record.
+/// order: body, then Crc, then TrailStamp, then - last - LeadStamp, guarded
+/// by a <see cref="Thread.MemoryBarrier"/> (a release fence) immediately
+/// before the LeadStamp write. A reader checks LeadStamp first, followed by
+/// its own <see cref="Thread.MemoryBarrier"/> (an acquire fence), and only
+/// trusts the rest of the slot if LeadStamp matches the timestamp it asked
+/// for. LeadStamp is read/written with <see cref="Unsafe.ReadUnaligned{T}(void*)"/>/
+/// <see cref="Unsafe.WriteUnaligned{T}(void*, T)"/> rather than
+/// <c>Volatile.Read</c>/<c>Volatile.Write</c>: Stride is not guaranteed a
+/// multiple of 8 (it depends on the caller's BodyLength), so most slots'
+/// LeadStamp field is not 8-byte aligned within the mapped view, and a
+/// hardware-atomic long access to an unaligned address faults with
+/// DataMisalignedException on ARM64 (x64 tolerates it). The explicit
+/// barriers reproduce the ordering Volatile.Read/Write would have given,
+/// but not Volatile's single-copy atomicity for the 8-byte value itself: an
+/// unaligned load/store is not guaranteed atomic on every platform, so a
+/// reader could in principle observe a torn LeadStamp mid-write. A torn
+/// value practically never equals the exact timestamp a reader asks for,
+/// and TryReadSlotAtIndex's speculative read of an arbitrary LeadStamp is
+/// re-validated by TryValidateAndCopy's own independent read before any
+/// data is trusted.
+/// Because LeadStamp is both physically first in the slot and temporally
+/// LAST to be written, an acquire read of it that matches is a guarantee
+/// (per the .NET memory model) that the body/Crc/TrailStamp writes that
+/// preceded it in program order are also visible - so a reader never needs
+/// its own lock to see a fully-written slot, and a process that crashes
+/// mid-write leaves LeadStamp holding its old value, which fails the match
+/// and reads as absent rather than as a torn record.
 ///
 /// The Crc exists for a narrower case the stamps alone cannot catch: a
 /// crash during the OS's flush of a dirty page can tear a write to disk
@@ -41,8 +57,8 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// old and new LeadStamp/TrailStamp values are identical), which would
 /// otherwise pass the stamp check with a body that is a mix of old and new
 /// bytes. TrailStamp itself does not need its own release fence: everything
-/// before the final Volatile.Write is already ordered by that one release,
-/// per the same argument above.</para>
+/// before the final LeadStamp write is already ordered by that write's own
+/// barrier, per the same argument above.</para>
 ///
 /// <para><b>Absent vs corrupt.</b> TryReadSlot/TryReadSlotAtIndex return
 /// false for every case where the slot cannot be trusted for the requested
@@ -221,7 +237,14 @@ internal sealed unsafe class RingFile : IDisposable
         var crc = Crc32.Compute(body);
         Unsafe.WriteUnaligned(slot + _crcOffset, crc);
         Unsafe.WriteUnaligned(slot + _trailOffset, ts);
-        Volatile.Write(ref *(long*)(slot + _leadOffset), ts);
+        // LeadStamp is not guaranteed 8-byte aligned (Stride depends on the
+        // caller's BodyLength, which is not always a multiple of 8), so a
+        // long-typed Volatile.Write here faults with DataMisalignedException
+        // on ARM64. Thread.MemoryBarrier() before the unaligned write gives
+        // the same release semantics: every write above is visible to any
+        // reader that observes this one.
+        Thread.MemoryBarrier();
+        Unsafe.WriteUnaligned(slot + _leadOffset, ts);
     }
 
     /// <summary>Reads the slot for <paramref name="ts"/> into
@@ -263,7 +286,8 @@ internal sealed unsafe class RingFile : IDisposable
         }
 
         var slot = _basePointer + index * Stride;
-        var lead = Volatile.Read(ref *(long*)(slot + _leadOffset));
+        var lead = Unsafe.ReadUnaligned<long>(slot + _leadOffset);
+        Thread.MemoryBarrier();
         ts = lead;
         if (lead < PruneFloorSec)
         {
@@ -287,7 +311,8 @@ internal sealed unsafe class RingFile : IDisposable
             return false;
         }
 
-        var lead = Volatile.Read(ref *(long*)(slot + _leadOffset));
+        var lead = Unsafe.ReadUnaligned<long>(slot + _leadOffset);
+        Thread.MemoryBarrier();
         if (lead != expectedTs)
         {
             return false;

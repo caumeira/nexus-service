@@ -14,7 +14,7 @@ namespace Nexus.Service.Activity;
 /// Windows screen-time provider. Foreground-window polling lives in the
 /// user-session helper (LocalSystem in Session 0 can't see the interactive
 /// desktop), and the helper sends envelopes here:
-///   - <c>screenTime.session</c> -> append to SQLite via IScreenTimeStore.
+///   - <c>screenTime.session</c> -> append via IScreenTimeStore.
 ///   - <c>screenTime.focus</c>   -> update the in-memory current session.
 /// Queries (GetCurrentSession / GetTodayUsage) read from the in-memory
 /// focus snapshot and the store; they are unaffected by helper connectivity

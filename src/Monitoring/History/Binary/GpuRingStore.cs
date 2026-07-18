@@ -8,9 +8,8 @@ using System.Threading;
 namespace Nexus.Service.Monitoring.History.Binary;
 
 /// <summary>
-/// Per-GPU load/temperature history (the binary equivalent of
-/// SqliteMetricsHistoryStore's gpu_series/gpu_seconds/gpu_minutes): an
-/// EntityRegistry mapping gpu id -> ring index, plus one RingFile pair
+/// Per-GPU load/temperature history: an EntityRegistry mapping gpu id ->
+/// ring index, plus one RingFile pair
 /// (raw per-second, minute rollup) per registered GPU, grown one pair at a
 /// time as new GPUs are first seen and capped at entityCapacity - a real
 /// desktop never comes close to that cap, so the bound exists only to keep
@@ -193,8 +192,7 @@ internal sealed class GpuRingStore : IDisposable
 
     /// <summary>Every GPU reading in [fromSec, toSec], keyed by ts - a
     /// GpuReading appears for a ts iff that GPU had ANY entry (even an
-    /// all-null one) at that ts, matching SqliteMetricsHistoryStore.Query's
-    /// row-existence-driven reconstruction.</summary>
+    /// all-null one) at that ts.</summary>
     public Dictionary<long, List<GpuReading>> Query(long fromSec, long toSec)
     {
         var result = new Dictionary<long, List<GpuReading>>();

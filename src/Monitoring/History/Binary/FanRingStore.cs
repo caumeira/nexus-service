@@ -8,9 +8,8 @@ using System.Threading;
 namespace Nexus.Service.Monitoring.History.Binary;
 
 /// <summary>
-/// Per-fan RPM/duty history (the binary equivalent of
-/// SqliteMetricsHistoryStore's fan_series/fan_seconds/fan_minutes) - the same
-/// shape as GpuRingStore (an EntityRegistry plus a grown-on-demand,
+/// Per-fan RPM/duty history - the same shape as GpuRingStore (an
+/// EntityRegistry plus a grown-on-demand,
 /// capped-at-entityCapacity per-entity RingFile pair, published through
 /// Volatile-swapped arrays so a concurrent reader never bounds its loop by a
 /// count a ring array hasn't caught up to yet - see GpuRingStore's class

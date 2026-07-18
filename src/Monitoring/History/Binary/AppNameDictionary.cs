@@ -9,8 +9,7 @@ namespace Nexus.Service.Monitoring.History.Binary;
 
 /// <summary>
 /// Global, append-only process-name -&gt; id dictionary shared by every app
-/// metric kind (cpu/memory/gpu/vram) and every day segment - the binary
-/// equivalent of SqliteMetricsHistoryStore's app_series table. Structurally
+/// metric kind (cpu/memory/gpu/vram) and every day segment. Structurally
 /// identical to EntityRegistry (append-order-is-index, Volatile-published
 /// array, truncate-on-torn-tail recovery), and there is no capacity cap - a
 /// real system accumulates at most a few thousand distinct process names
@@ -19,12 +18,11 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// indexed by a per-entity ring file.
 ///
 /// Name comparison is caller-supplied (see Open's comparer parameter): the
-/// metrics app-usage tier dedupes case-insensitively, matching app_series'
-/// COLLATE NOCASE, so "Chrome.exe" and "chrome.exe" resolve to the same id
-/// with the first-seen casing kept - BinaryScreenTimeStore instead opens its
-/// own dedicated instance with StringComparer.Ordinal, matching
-/// SqliteScreenTimeStore's sessions.app_name column, which carries no
-/// COLLATE NOCASE and so treats differently-cased names as distinct apps.
+/// metrics app-usage tier dedupes case-insensitively, so "Chrome.exe" and
+/// "chrome.exe" resolve to the same id with the first-seen casing kept -
+/// BinaryScreenTimeStore instead opens its own dedicated instance with
+/// StringComparer.Ordinal, treating differently-cased names as distinct
+/// apps.
 ///
 /// AppUsageStore is the only writer (RegisterOrGet), matching the
 /// single-writer assumption the whole binary store is built on; a concurrent

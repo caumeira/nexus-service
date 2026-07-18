@@ -23,10 +23,11 @@ public interface IMetricsHistoryStore : IDisposable
 
     /// <summary>Slot-aggregated (avg/max) scalar fields, one row per slot
     /// that has data (slot = ts/step*step, matching MetricsDecimation).
-    /// Aggregation runs in the store (SQL GROUP BY for the SQLite
-    /// implementation), avoiding materializing every raw row into C# for a
-    /// wide window - see MonitoringHistoryRoutes' route-level use for when
-    /// this is worth it over Query + MetricsDecimation.Decimate.</summary>
+    /// Aggregation runs in the store (pre-aggregated minute-rollup rings for
+    /// step widths of a minute or more, MetricsDecimation over raw rows
+    /// below that), avoiding materializing every raw row into C# for a wide
+    /// window - see MonitoringHistoryRoutes' route-level use for when this
+    /// is worth it over Query + MetricsDecimation.Decimate.</summary>
     IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimated(long fromSec, long toSec, int stepSeconds);
 
     /// <summary>Slot-aggregated per-GPU load/temperature, one row per

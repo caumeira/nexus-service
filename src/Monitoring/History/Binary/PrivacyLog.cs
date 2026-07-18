@@ -8,25 +8,21 @@ using System.Text;
 namespace Nexus.Service.Monitoring.History.Binary;
 
 /// <summary>
-/// Binary-file-backed IPrivacySessionStore (Phase 5 of the metrics-store
-/// design): a single append-only log file plus an in-RAM dictionary keyed by
-/// (appId, capability, startUtcSec), the same key order as
-/// SqliteMetricsHistoryStore's privacy_sessions UNIQUE constraint. Every
-/// Upsert both assigns the RAM dictionary entry for that key (an insert or a
-/// close-in-place are the same assignment) and appends one record capturing
-/// the session's new state, so reconstructing the dictionary on open is
-/// nothing more than replaying every record in file order and repeating that
-/// same assignment - the last record for a key always wins, whether that
-/// replay happens live or during recovery.
+/// Binary-file-backed IPrivacySessionStore: a single append-only log file
+/// plus an in-RAM dictionary keyed by (appId, capability, startUtcSec), the
+/// key a session is uniquely identified by. Every Upsert both assigns the RAM
+/// dictionary entry for that key (an insert or a close-in-place are the same
+/// assignment) and appends one record capturing the session's new state, so
+/// reconstructing the dictionary on open is nothing more than replaying every
+/// record in file order and repeating that same assignment - the last record
+/// for a key always wins, whether that replay happens live or during
+/// recovery.
 ///
 /// Privacy sessions are transition-driven and low-volume (PrivacyAccessWatcher
 /// polls every few seconds but only Upserts on an actual open/close or its
 /// hourly prune - see its class doc), unlike the 1Hz scalar/entity rings.
 /// That call volume is why this store uses one plain lock around every
-/// public method instead of RingFile's lock-free Volatile-swap discipline -
-/// SqliteMetricsHistoryStore takes the same approach, serializing its own
-/// privacy_sessions methods under its single _writeLock rather than giving
-/// them any special concurrency treatment.
+/// public method instead of RingFile's lock-free Volatile-swap discipline.
 ///
 /// PruneOlderThan is the one operation that touches more than the RAM
 /// dictionary: after removing every session IsStale flags, it rewrites the
@@ -105,10 +101,9 @@ internal sealed class PrivacyLog
         }
     }
 
-    // Matches SqliteMetricsHistoryStore.PruneOlderThan exactly: a closed
-    // session is judged by its end, an open one (no end recorded yet) by its
-    // start - a backstop for a session that never got a proper close
-    // recorded (PrivacyAccessTransitions handles the reachable cases
+    // A closed session is judged by its end, an open one (no end recorded
+    // yet) by its start - a backstop for a session that never got a proper
+    // close recorded (PrivacyAccessTransitions handles the reachable cases
     // directly; this is the fallback for any it doesn't).
     private static bool IsStale(PrivacySession session, long cutoffSec) =>
         session.EndUtcSec is { } end ? end < cutoffSec : session.StartUtcSec < cutoffSec;

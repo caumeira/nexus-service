@@ -249,6 +249,37 @@ public class RingFileTests : IDisposable
         Assert.Equal(20, reopened.Capacity);
     }
 
+    // BodyLength=6 makes Stride=26 (envelope 20 + body 6), not a multiple of
+    // 8, so most slot indices place LeadStamp at a byte offset that is not
+    // 8-byte aligned within the mapped view. An 8-byte atomic access to an
+    // unaligned address faults with DataMisalignedException on ARM64 (not
+    // on x64) - this pins WriteSlot/TryReadSlot/TryReadSlotAtIndex against
+    // reintroducing Volatile.Read/Write on that pointer.
+    [Fact]
+    public void WriteSlot_WithAnUnalignedLeadStampOffset_StillRoundTrips()
+    {
+        const int oddBodyLength = 6;
+        var path = Path.Combine(_dir, "unaligned.ring");
+        using var ring = RingFile.CreateOrOpen(path, capacity: 8, oddBodyLength);
+
+        for (long ts = 0; ts < 8; ts++)
+        {
+            var body = new byte[oddBodyLength];
+            BitConverter.TryWriteBytes(body, (int)(ts * 1000));
+            ring.WriteSlot(ts, body);
+        }
+
+        Span<byte> read = stackalloc byte[oddBodyLength];
+        for (long ts = 0; ts < 8; ts++)
+        {
+            Assert.True(ring.TryReadSlot(ts, read));
+            Assert.Equal((int)(ts * 1000), BitConverter.ToInt32(read));
+
+            Assert.True(ring.TryReadSlotAtIndex(ts, read, out var storedTs));
+            Assert.Equal(ts, storedTs);
+        }
+    }
+
     private static int SlotFileOffset(RingFile ring, long ts, long capacity)
     {
         var index = ((ts % capacity) + capacity) % capacity;
