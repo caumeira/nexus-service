@@ -27,8 +27,11 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private static MetricSample Scalars(long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
-        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
+    private static MetricSample Scalars(
+        long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55,
+        double? diskRead = 800, double? diskWrite = 400) =>
+        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
+            DiskReadBytesPerSec: diskRead, DiskWriteBytesPerSec: diskWrite);
 
     // Scalar-only Append/Query behavior (round trip, null-vs-zero, same-ts
     // replace, ascending order, empty no-op, prune cutoff) is pinned once in
@@ -36,7 +39,58 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
     // PrivacySessionHistorySpec, both run against this store and
     // BinaryMetricsHistoryStore - see those files. What remains here is
     // everything specific to SQLite: GPU/fan entity tables, surrogate-key
-    // rollback, and key stability across reopen.
+    // rollback, key stability across reopen, and disk read/write fields
+    // (BinaryMetricsHistoryStore's scalar ring has no slot for them yet).
+
+    [Fact]
+    public void Append_then_Query_RoundTripsDiskFields()
+    {
+        _store.Append(new[] { Scalars(1000, diskRead: 22222, diskWrite: 11111) }, null);
+
+        var row = Assert.Single(_store.Query(0, 10_000));
+        Assert.Equal(22222, row.DiskReadBytesPerSec);
+        Assert.Equal(11111, row.DiskWriteBytesPerSec);
+    }
+
+    [Fact]
+    public void Append_preserves_null_disk_fields_as_source_failed_not_zero()
+    {
+        _store.Append(new[] { Scalars(1000, diskRead: null, diskWrite: null) }, null);
+
+        var row = Assert.Single(_store.Query(0, 10_000));
+        Assert.Null(row.DiskReadBytesPerSec);
+        Assert.Null(row.DiskWriteBytesPerSec);
+    }
+
+    [Fact]
+    public void QueryScalarsDecimated_AveragesAndMaxesDiskFieldsWithinASlot()
+    {
+        _store.Append(new[]
+        {
+            Scalars(0, cpu: 10, diskRead: 1000, diskWrite: 200),
+            Scalars(1, cpu: 10, diskRead: 3000, diskWrite: 600),
+        }, null);
+
+        var slot = Assert.Single(_store.QueryScalarsDecimated(0, 1, stepSeconds: 10));
+
+        Assert.Equal(2000, slot.DiskReadAvg);
+        Assert.Equal(3000, slot.DiskReadMax);
+        Assert.Equal(400, slot.DiskWriteAvg);
+        Assert.Equal(600, slot.DiskWriteMax);
+    }
+
+    [Fact]
+    public void QueryScalarsDecimated_LeavesDiskFieldsNull_WhenEveryReadingInTheSlotWasNull()
+    {
+        _store.Append(new[] { Scalars(0, cpu: 10, diskRead: null, diskWrite: null) }, null);
+
+        var slot = Assert.Single(_store.QueryScalarsDecimated(0, 0, stepSeconds: 10));
+
+        Assert.Null(slot.DiskReadAvg);
+        Assert.Null(slot.DiskReadMax);
+        Assert.Null(slot.DiskWriteAvg);
+        Assert.Null(slot.DiskWriteMax);
+    }
 
     [Fact]
     public void Append_RoundTripsGpuReadings_KeyedByEntity()

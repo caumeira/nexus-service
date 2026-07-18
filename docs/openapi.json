@@ -961,6 +961,38 @@
         }
       }
     },
+    "/cooling/fan/{id}/role": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetFanRoleBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/cooling/profiles": {
       "get": {
         "tags": [
@@ -1225,6 +1257,28 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/lighting/pause": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LightingPauseBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -7327,6 +7381,13 @@
             }
           },
           {
+            "name": "process",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "maxApps",
             "in": "query",
             "schema": {
@@ -11801,6 +11862,9 @@
           "sync": {
             "type": "string"
           },
+          "paused": {
+            "type": "boolean"
+          },
           "error": {
             "type": "boolean"
           },
@@ -13311,6 +13375,12 @@
           },
           "locked": {
             "type": "boolean"
+          },
+          "role": {
+            "type": "string"
+          },
+          "seriesId": {
+            "type": "string"
           },
           "deviceId": {
             "type": [
@@ -14989,6 +15059,14 @@
               "string"
             ],
             "format": "float"
+          }
+        }
+      },
+      "LightingPauseBody": {
+        "type": "object",
+        "properties": {
+          "paused": {
+            "type": "boolean"
           }
         }
       },
@@ -18152,6 +18230,14 @@
         "type": "object",
         "properties": {
           "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SetFanRoleBody": {
+        "type": "object",
+        "properties": {
+          "role": {
             "type": "string"
           }
         }

@@ -12,10 +12,10 @@ namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
 /// Drives MetricsSampler through its internal Tick(DateTime, CancellationToken)
-/// seam - the BackgroundService loop itself (PeriodicTimer, ReadyAsync wait)
-/// is not under test here. A RecordingMetricsHistoryStore stands in for the
-/// real SQLite store so flush cadence and prune cutoffs are assertable
-/// without touching disk.
+/// seam - the dedicated-thread loop itself (Run, ReadyAsync wait) is only
+/// covered by the StartAsync/StopAsync lifecycle test below. A
+/// RecordingMetricsHistoryStore stands in for the real SQLite store so flush
+/// cadence and prune cutoffs are assertable without touching disk.
 /// </summary>
 public class MetricsSamplerTests
 {
@@ -343,6 +343,41 @@ public class MetricsSamplerTests
         }
 
         Assert.Equal(new[] { "scalar", "app" }, callOrder);
+    }
+
+    [Fact]
+    public async Task StartStop_RunsTheLoopOnADedicatedThread_AndFlushesOnStop()
+    {
+        var source = new StubMetricsSource();
+        var buffer = new MetricsSampleBuffer();
+        var store = new RecordingMetricsHistoryStore();
+        var sampler = CreateSampler(source, store, buffer);
+
+        await sampler.StartAsync(CancellationToken.None);
+        try
+        {
+            // Poll for the first tick rather than assuming timing: the tick
+            // interval is a fixed 1s in production, so this is bounded well
+            // above that instead of racing it.
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            while (source.Calls == 0 && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(25);
+            }
+
+            Assert.True(source.Calls > 0);
+            Assert.Equal("metrics-sampler", sampler.RunningThreadName);
+            Assert.False(sampler.RunningThreadIsPoolThread);
+        }
+        finally
+        {
+            await sampler.StopAsync(CancellationToken.None);
+        }
+
+        // StopAsync joined the thread after its graceful final flush ran, so
+        // whatever the buffer held at stop time landed in the store already.
+        Assert.NotEmpty(store.AppendCalls);
+        Assert.Empty(buffer.PendingSnapshot());
     }
 
     private sealed class ThrowingMetricsSource : IMetricsSource

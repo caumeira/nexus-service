@@ -550,6 +550,12 @@ public static class MonitoringHistoryRoutes
         AddDecimatedScalarSeries(series, "net-out", "net", "Network Out",
             dbScalars.Select(s => (s.Slot, s.NetOutAvg, s.NetOutMax)), s => s.NetOutBytesPerSec,
             tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
+        AddDecimatedScalarSeries(series, "disk-read", "disk", "Disk Read",
+            dbScalars.Select(s => (s.Slot, s.DiskReadAvg, s.DiskReadMax)), s => s.DiskReadBytesPerSec,
+            tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
+        AddDecimatedScalarSeries(series, "disk-write", "disk", "Disk Write",
+            dbScalars.Select(s => (s.Slot, s.DiskWriteAvg, s.DiskWriteMax)), s => s.DiskWriteBytesPerSec,
+            tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
         AddDecimatedScalarSeries(series, "cpu-temp", "cpu-temp", "CPU Temperature",
             dbScalars.Select(s => (s.Slot, s.CpuTempAvg, s.CpuTempMax)), s => s.CpuTempC,
             tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: false);
@@ -886,6 +892,8 @@ public static class MonitoringHistoryRoutes
         AddScalarSeries(series, merged, "memory", "memory", "Memory", s => s.MemoryPercent, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: false);
         AddScalarSeries(series, merged, "net-in", "net", "Network In", s => s.NetInBytesPerSec, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
         AddScalarSeries(series, merged, "net-out", "net", "Network Out", s => s.NetOutBytesPerSec, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
+        AddScalarSeries(series, merged, "disk-read", "disk", "Disk Read", s => s.DiskReadBytesPerSec, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
+        AddScalarSeries(series, merged, "disk-write", "disk", "Disk Write", s => s.DiskWriteBytesPerSec, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
         AddScalarSeries(series, merged, "cpu-temp", "cpu-temp", "CPU Temperature", s => s.CpuTempC, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: false);
 
         AddGpuSeries(series, merged, fromSec, toSec, stepSeconds, seriesFilter, gpuAdapterLuids);

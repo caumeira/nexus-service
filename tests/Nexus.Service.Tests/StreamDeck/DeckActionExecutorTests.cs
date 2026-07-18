@@ -102,6 +102,8 @@ internal sealed class FakeLightingProvider : ILightingProvider
     public string GetSync() => "none";
     public void SetSync(string sync) { }
     public void StopAll() { }
+    public bool IsPaused => false;
+    public void SetPaused(bool paused) { }
     public void SetBrightness(BrightnessScale scale) { }
     public void SetSpeed(SpeedScale scale) { }
     public AnimateOptions GetAnimateOptions() => new();

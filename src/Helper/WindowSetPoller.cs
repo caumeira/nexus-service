@@ -1,6 +1,7 @@
 #if WINDOWS
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -21,12 +22,17 @@ namespace Nexus.Service.Helper;
 /// WindowsWindowSetProvider's in-memory snapshot, but this poller's own
 /// _lastSent survives the pipe reconnect that follows, so an unchanged
 /// window set would otherwise never get resent to repopulate it.
+///
+/// Set NEXUS_WINDOW_DIAG=1 to emit a [window-diag] ServiceLog line per
+/// enumerated window (process identity, the IsCountableWindow inputs, and
+/// the classification result) - off by default, see WindowDiagnostics.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowSetPoller : IDisposable
 {
     private readonly HelperOutbound _outbound;
     private readonly JitteredPeriodicTimer _timer;
+    private readonly bool _diagEnabled;
     private HashSet<int> _lastSent = new();
     private bool _wasConnected;
 
@@ -39,6 +45,7 @@ public sealed class WindowSetPoller : IDisposable
     public WindowSetPoller(HelperOutbound outbound)
     {
         _outbound = outbound;
+        _diagEnabled = WindowDiagnostics.IsEnabled(Environment.GetEnvironmentVariable(WindowDiagnostics.EnvVarName));
         _timer = new JitteredPeriodicTimer(periodMs: 2000, jitterMs: 200, Poll);
     }
 
@@ -78,17 +85,50 @@ public sealed class WindowSetPoller : IDisposable
             var owner = GetWindow(hwnd, GwOwner);
             var isToolWindow = (GetWindowLong(hwnd, GwlExstyle) & WsExToolwindow) != 0;
             var isCloaked = IsCloaked(hwnd);
-            var hasTitle = GetWindowTextLength(hwnd) > 0;
+            var titleLength = GetWindowTextLength(hwnd);
+            var hasTitle = titleLength > 0;
+            // Must read immediately after GetWindowTextLength, before any other
+            // P/Invoke call, or the Win32 last-error value is clobbered. Read
+            // unconditionally (not diag-only): IsCountableWindow below needs
+            // titleBlockedByUipi for every window, not just logged ones.
+            var titleReadError = !hasTitle ? Marshal.GetLastWin32Error() : 0;
+            var titleBlockedByUipi = titleReadError == ErrorAccessDenied;
             var hasOnScreenBounds = GetWindowRect(hwnd, out var rect) &&
                 WindowClassification.HasOnScreenBounds(
                     rect.Left, rect.Top, rect.Right, rect.Bottom,
                     virtualLeft, virtualTop, virtualRight, virtualBottom);
+            // Only load-bearing through IsCountableWindow's (!isCloaked ||
+            // coversMonitor) check - skip the extra monitor lookup for the
+            // vast majority of windows where isCloaked is already false and
+            // the value can never change the outcome.
+            var coversMonitor = isCloaked &&
+                TryGetMonitorBounds(hwnd, out var monitorRect) &&
+                WindowClassification.CoversMonitor(
+                    rect.Left, rect.Top, rect.Right, rect.Bottom,
+                    monitorRect.Left, monitorRect.Top, monitorRect.Right, monitorRect.Bottom);
+            // Evaluated last, same as the pre-diagnostic code (it was the
+            // inline first argument to IsCountableWindow below) - preserved
+            // so the Win32 reads happen in the original order.
+            var isVisible = IsWindowVisible(hwnd);
 
-            if (WindowClassification.IsCountableWindow(
-                    IsWindowVisible(hwnd), owner, isToolWindow, isCloaked, hasTitle, hasOnScreenBounds))
+            var isCountable = WindowClassification.IsCountableWindow(
+                isVisible, owner, isToolWindow, isCloaked, hasTitle, hasOnScreenBounds,
+                coversMonitor, titleBlockedByUipi);
+
+            if (isCountable || _diagEnabled)
             {
                 GetWindowThreadProcessId(hwnd, out var pid);
-                if (pid != 0) pids.Add((int)pid);
+                if (isCountable && pid != 0)
+                {
+                    pids.Add((int)pid);
+                }
+                if (_diagEnabled)
+                {
+                    LogDiagnostic(
+                        (int)pid, isVisible, owner, isToolWindow, isCloaked,
+                        hasTitle, titleLength, titleReadError, hasOnScreenBounds,
+                        coversMonitor, isCountable);
+                }
             }
             return true;
         };
@@ -105,6 +145,55 @@ public sealed class WindowSetPoller : IDisposable
         return hr == 0 && cloaked != 0;
     }
 
+    // A cloaked window that fully covers its own monitor is an exclusive-
+    // fullscreen app (DWM cloaks those too), not a hidden background window.
+    private static bool TryGetMonitorBounds(IntPtr hwnd, out Rect monitorRect)
+    {
+        var hMonitor = MonitorFromWindow(hwnd, MonitorDefaulttonearest);
+        if (hMonitor == IntPtr.Zero)
+        {
+            monitorRect = default;
+            return false;
+        }
+        var info = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
+        if (!GetMonitorInfoW(hMonitor, ref info))
+        {
+            monitorRect = default;
+            return false;
+        }
+        monitorRect = info.Monitor;
+        return true;
+    }
+
+    private static void LogDiagnostic(
+        int pid,
+        bool isVisible,
+        IntPtr owner,
+        bool isToolWindow,
+        bool isCloaked,
+        bool hasTitle,
+        int titleLength,
+        int titleReadError,
+        bool hasOnScreenBounds,
+        bool coversMonitor,
+        bool isCountable)
+    {
+        var processName = "?";
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            processName = process.ProcessName;
+        }
+        catch
+        {
+            // Process exited, or its name is inaccessible, between
+            // GetWindowThreadProcessId and this lookup - keep the placeholder.
+        }
+        ServiceLog.Info(WindowDiagnostics.FormatLine(
+            pid, processName, isVisible, owner != IntPtr.Zero, isToolWindow, isCloaked,
+            hasTitle, titleLength, titleReadError, hasOnScreenBounds, coversMonitor, isCountable));
+    }
+
     public void Dispose() => _timer.Dispose();
 
     private const uint GwOwner = 4;
@@ -115,11 +204,22 @@ public sealed class WindowSetPoller : IDisposable
     private const int SmYvirtualscreen = 77;
     private const int SmCxvirtualscreen = 78;
     private const int SmCyvirtualscreen = 79;
+    private const int ErrorAccessDenied = 5;
+    private const uint MonitorDefaulttonearest = 2;
 
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public uint Size;
+        public Rect Monitor;
+        public Rect WorkArea;
+        public uint Flags;
+    }
 
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -136,7 +236,10 @@ public sealed class WindowSetPoller : IDisposable
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
-    [DllImport("user32.dll")]
+    // SetLastError so a diagnostic read (Marshal.GetLastWin32Error right after
+    // this call, when the result is 0) reflects this call's outcome and not
+    // some unrelated prior native call.
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetWindowTextLength(IntPtr hWnd);
 
     [DllImport("user32.dll")]
@@ -147,5 +250,11 @@ public sealed class WindowSetPoller : IDisposable
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MonitorInfo lpmi);
 }
 #endif

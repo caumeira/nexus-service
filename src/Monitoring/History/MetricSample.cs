@@ -29,8 +29,8 @@ public sealed record ComponentTempReading(string ComponentId, string Kind, strin
 /// plus nullable scalars (null = that source failed this tick) and the
 /// per-GPU / per-fan / per-temp-component reading lists. The unit
 /// MetricsSampleBuffer buffers, IMetricsHistoryStore persists, and GET
-/// /monitoring/history serves. CpuName and ComponentTemps default so every
-/// pre-existing 8-arg construction site keeps compiling.
+/// /monitoring/history serves. CpuName, ComponentTemps, and the disk fields
+/// default so every pre-existing construction site keeps compiling.
 /// </summary>
 public sealed record MetricSample(
     long TsSec,
@@ -42,7 +42,9 @@ public sealed record MetricSample(
     IReadOnlyList<GpuReading> Gpus,
     IReadOnlyList<FanReading> Fans,
     string? CpuName = null,
-    IReadOnlyList<ComponentTempReading>? ComponentTemps = null)
+    IReadOnlyList<ComponentTempReading>? ComponentTemps = null,
+    double? DiskReadBytesPerSec = null,
+    double? DiskWriteBytesPerSec = null)
 {
     public IReadOnlyList<ComponentTempReading> ComponentTemps { get; init; } = ComponentTemps ?? Array.Empty<ComponentTempReading>();
 }

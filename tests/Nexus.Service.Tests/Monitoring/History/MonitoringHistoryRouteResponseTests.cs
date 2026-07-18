@@ -11,8 +11,11 @@ public class MonitoringHistoryRouteResponseTests
 {
     private static readonly IReadOnlyDictionary<string, string> NoLuids = new Dictionary<string, string>();
 
-    private static MetricSample Scalars(long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
-        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
+    private static MetricSample Scalars(
+        long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55,
+        double? diskRead = 800, double? diskWrite = 400) =>
+        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
+            DiskReadBytesPerSec: diskRead, DiskWriteBytesPerSec: diskWrite);
 
     private static MetricSample ComponentSample(long ts, params ComponentTempReading[] components) =>
         new(ts, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { ComponentTemps = components };
@@ -29,7 +32,7 @@ public class MonitoringHistoryRouteResponseTests
     }
 
     [Fact]
-    public void BuildHistoryResponse_AlwaysIncludesTheFiveFixedScalarSeries_WhenUnfiltered()
+    public void BuildHistoryResponse_AlwaysIncludesTheSevenFixedScalarSeries_WhenUnfiltered()
     {
         var db = new[] { Scalars(0) };
 
@@ -40,6 +43,8 @@ public class MonitoringHistoryRouteResponseTests
         Assert.Contains("memory", ids);
         Assert.Contains("net-in", ids);
         Assert.Contains("net-out", ids);
+        Assert.Contains("disk-read", ids);
+        Assert.Contains("disk-write", ids);
         Assert.Contains("cpu-temp", ids);
     }
 
@@ -73,6 +78,29 @@ public class MonitoringHistoryRouteResponseTests
         var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, new HashSet<string> { "net-in" }, NoLuids);
 
         Assert.Equal(1235, Assert.Single(response.Series).Points.Single().Avg);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_RoundsDiskSeriesToWholeNumbers()
+    {
+        var db = new[] { Scalars(0, diskRead: 4321.4) };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, new HashSet<string> { "disk-read" }, NoLuids);
+
+        Assert.Equal(4321, Assert.Single(response.Series).Points.Single().Avg);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_DiskKindFilter_MatchesBothReadAndWrite()
+    {
+        var db = new[] { Scalars(0) };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, new HashSet<string> { "disk" }, NoLuids);
+
+        Assert.Equal(2, response.Series.Count);
+        Assert.All(response.Series, s => Assert.Equal("disk", s.Kind));
+        Assert.Contains(response.Series, s => s.Id == "disk-read");
+        Assert.Contains(response.Series, s => s.Id == "disk-write");
     }
 
     [Fact]

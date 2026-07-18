@@ -12,13 +12,14 @@ namespace Nexus.Service.Monitoring.History;
 
 /// <summary>
 /// Production IMetricsSource: CPU/memory from IPerformanceProvider, network
-/// byte rates from NetworkRateReader, CPU temperature via SummarySensors,
-/// per-GPU load/temperature from ISensorProvider.GetGpus, per-channel fan
-/// RPM/duty from IFanControlProvider.GetFanChannels, and per-drive/per-DIMM
-/// temperature from ISmartHealthSource / ISensorProvider.GetMemorySensors -
-/// the same always-on channel state CurveEngine reads at its own 1Hz tick
-/// (fans) or that diagnostics already polls on its own cache (SMART), so
-/// this adds no new hardware polling cadence.
+/// byte rates from NetworkRateReader, disk byte rates from DiskRateReader,
+/// CPU temperature via SummarySensors, per-GPU load/temperature from
+/// ISensorProvider.GetGpus, per-channel fan RPM/duty from
+/// IFanControlProvider.GetFanChannels, and per-drive/per-DIMM temperature
+/// from ISmartHealthSource / ISensorProvider.GetMemorySensors - the same
+/// always-on channel state CurveEngine reads at its own 1Hz tick (fans) or
+/// that diagnostics already polls on its own cache (SMART), so this adds no
+/// new hardware polling cadence.
 ///
 /// Each source below is independently try/caught so one failing read (e.g.
 /// a GPU driver hiccup) nulls only its own MetricSample fields rather than
@@ -30,18 +31,20 @@ public sealed class SystemMetricsSource : IMetricsSource
     private readonly ISensorProvider _sensors;
     private readonly IFanControlProvider _fans;
     private readonly NetworkRateReader _network;
+    private readonly DiskRateReader _disk;
     private readonly ISmartHealthSource _smart;
 
     private string? _cpuName;
 
     public SystemMetricsSource(
         IPerformanceProvider performance, ISensorProvider sensors, IFanControlProvider fans,
-        NetworkRateReader network, ISmartHealthSource smart)
+        NetworkRateReader network, DiskRateReader disk, ISmartHealthSource smart)
     {
         _performance = performance;
         _sensors = sensors;
         _fans = fans;
         _network = network;
+        _disk = disk;
         _smart = smart;
     }
 
@@ -71,6 +74,19 @@ public sealed class SystemMetricsSource : IMetricsSource
         catch (Exception ex)
         {
             ServiceLog.Warn($"[metrics-source] network read failed: {ex.Message}");
+        }
+
+        double? diskRead = null;
+        double? diskWrite = null;
+        try
+        {
+            var diskRate = _disk.Read();
+            diskRead = diskRate.ReadBytesPerSec;
+            diskWrite = diskRate.WriteBytesPerSec;
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[metrics-source] disk read failed: {ex.Message}");
         }
 
         double? cpuTemp = null;
@@ -113,7 +129,9 @@ public sealed class SystemMetricsSource : IMetricsSource
             ServiceLog.Warn($"[metrics-source] component temp read failed: {ex.Message}");
         }
 
-        return new MetricSample(tsSec, cpu, memory, netIn, netOut, cpuTemp, gpus, fans, ResolveCpuName(), componentTemps);
+        return new MetricSample(
+            tsSec, cpu, memory, netIn, netOut, cpuTemp, gpus, fans, ResolveCpuName(), componentTemps,
+            diskRead, diskWrite);
     }
 
     // Resolved once and kept for the process lifetime: the CPU model never

@@ -38,8 +38,11 @@ public abstract class RollupHistorySpec : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private static MetricSample Scalars(long ts, double? cpu, double? mem = 10, double? netIn = 100, double? netOut = 50, double? cpuTemp = 40) =>
-        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
+    private static MetricSample Scalars(
+        long ts, double? cpu, double? mem = 10, double? netIn = 100, double? netOut = 50, double? cpuTemp = 40,
+        double? diskRead = null, double? diskWrite = null) =>
+        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
+            DiskReadBytesPerSec: diskRead, DiskWriteBytesPerSec: diskWrite);
 
     [Fact]
     public void QueryScalarsDecimated_AtStep60_MatchesTheRawPathForTheSameWindow()
@@ -86,6 +89,20 @@ public abstract class RollupHistorySpec : IDisposable
 
         Assert.Null(slot.CpuAvg);
         Assert.Null(slot.CpuMax);
+    }
+
+    [Fact]
+    public void DiskRollup_AccumulatesAcrossTwoFlushesLandingInTheSameMinute()
+    {
+        _store.Append(new[] { Scalars(0, cpu: 10, diskRead: 1000, diskWrite: 200), Scalars(1, cpu: 20, diskRead: 3000, diskWrite: 600) }, null);
+        _store.Append(new[] { Scalars(2, cpu: 90, diskRead: 2000, diskWrite: 400), Scalars(3, cpu: 30, diskRead: 2000, diskWrite: 400) }, null);
+
+        var slot = Assert.Single(_store.QueryScalarsDecimated(0, 59, stepSeconds: 60));
+
+        Assert.Equal((1000 + 3000 + 2000 + 2000) / 4.0, slot.DiskReadAvg!.Value, precision: 3);
+        Assert.Equal(3000, slot.DiskReadMax);
+        Assert.Equal((200 + 600 + 400 + 400) / 4.0, slot.DiskWriteAvg!.Value, precision: 3);
+        Assert.Equal(600, slot.DiskWriteMax);
     }
 
     [Fact]

@@ -14,7 +14,15 @@ public static class LightingRoutes
     public static void MapLightingEndpoints(this WebApplication app)
     {
         app.MapPost("/lighting/stop", (ILightingProvider l, MultiplexHub hub) => { l.StopAll(); PanelTopics.BroadcastLighting(hub); return ApiResponse.Ok(); }).AllowPanel();
-        app.MapGet("/lighting/current", (ILightingProvider l) => new CurrentSyncResponse { Sync = l.GetSync() }).AllowPanel();
+        app.MapGet("/lighting/current", (ILightingProvider l) => new CurrentSyncResponse { Sync = l.GetSync(), Paused = l.IsPaused }).AllowPanel();
+        // Freeze/resume the active effect's rendered frame. No-op with no active
+        // effect (engine not running); returns the resulting paused state either way.
+        app.MapPost("/lighting/pause", (Models.Lighting.LightingPauseBody body, ILightingProvider l, MultiplexHub hub) =>
+        {
+            l.SetPaused(body.Paused);
+            PanelTopics.BroadcastLighting(hub);
+            return Results.Json(new Models.Lighting.LightingPauseResponse { Paused = l.IsPaused }, AppJsonContext.Default.LightingPauseResponse);
+        }).AllowPanel();
         app.MapGet("/lighting/animate/settings", (Nexus.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.Animate).AllowPanel();
         // Canonical default template bundles. The web keeps no copy of these

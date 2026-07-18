@@ -1,0 +1,132 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Nexus.Service.Auth;
+using Nexus.Service.Cooling;
+using Nexus.Service.Models.Cooling;
+
+namespace Nexus.Service.Tests.Integration;
+
+/// <summary>
+/// GET /cooling/fans (Role/SeriesId exposure) and POST /cooling/fan/{id}/role
+/// over the real request pipeline, with the fan control provider swapped for
+/// a fake at the DI seam (mirrors DisplayTopologyRoutesTests).
+/// </summary>
+[Collection("NexusHost")]
+public sealed class CoolingRoutesIntegrationTests
+{
+    private sealed class FakeFanProvider : IFanControlProvider
+    {
+        public List<FanChannel> Channels = new()
+        {
+            new() { Id = "fan1", Name = "Fan 1" },
+            new() { Id = "fan2", Name = "Fan 2" },
+            new() { Id = "/np50/port-1", Name = "Port 1" },
+        };
+
+        public IReadOnlyList<FanChannel> GetFanChannels() => Channels;
+        public IReadOnlyList<TemperatureSource> GetTemperatureSources() => new List<TemperatureSource>();
+        public float? ReadTemperature(string sensorId) => null;
+        public int SetFanSpeed(string channelId, int dutyPercent) => dutyPercent;
+        public void DriveFanSpeed(string channelId, int dutyPercent) { }
+        public void ReleaseFan(string channelId) { }
+        public void ReleaseAll() { }
+        public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
+            IReadOnlyList<string> fanIds,
+            IProgress<FanCalibrationProgress> progress,
+            CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<FanCalibration>>(Array.Empty<FanCalibration>());
+    }
+
+    private (WebApplicationFactory<Program> factory, HttpClient client) Boot()
+    {
+        var factory = new NexusAppFactory().WithWebHostBuilder(b =>
+            b.ConfigureTestServices(s =>
+            {
+                s.RemoveAll<IFanControlProvider>();
+                s.AddSingleton<IFanControlProvider>(new FakeFanProvider());
+            }));
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", factory.Services.GetRequiredService<TokenService>().Token);
+        return (factory, client);
+    }
+
+    [Fact]
+    public async Task GetFans_DefaultsRoleToNone_AndExposesSanitizedSeriesId()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.GetAsync("/cooling/fans");
+            Assert.True(res.IsSuccessStatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var channels = doc.RootElement.GetProperty("channels");
+
+            var fan1 = channels.EnumerateArray().First(c => c.GetProperty("id").GetString() == "fan1");
+            Assert.Equal("none", fan1.GetProperty("role").GetString());
+            Assert.Equal("fan1", fan1.GetProperty("seriesId").GetString());
+
+            // Leading slash stripped, embedded slash becomes a hyphen -
+            // matches MetricsHistory.SanitizeId exactly (proves the route
+            // never reimplements the sanitize rule independently).
+            var hubPort = channels.EnumerateArray().First(c => c.GetProperty("id").GetString() == "/np50/port-1");
+            Assert.Equal("np50-port-1", hubPort.GetProperty("seriesId").GetString());
+            Assert.Equal(
+                Nexus.Service.Monitoring.History.MetricsHistory.SanitizeId("/np50/port-1"),
+                hubPort.GetProperty("seriesId").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task SetRole_PersistsAndReflectsOnTheNextGet()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var setRes = await client.PostAsJsonAsync("/cooling/fan/fan1/role", new { role = "cpu" });
+            Assert.True(setRes.IsSuccessStatusCode);
+
+            var getRes = await client.GetAsync("/cooling/fans");
+            using var doc = JsonDocument.Parse(await getRes.Content.ReadAsStringAsync());
+            var fan1 = doc.RootElement.GetProperty("channels").EnumerateArray()
+                .First(c => c.GetProperty("id").GetString() == "fan1");
+            Assert.Equal("cpu", fan1.GetProperty("role").GetString());
+
+            // "none" clears the assignment back to the default.
+            var clearRes = await client.PostAsJsonAsync("/cooling/fan/fan1/role", new { role = "none" });
+            Assert.True(clearRes.IsSuccessStatusCode);
+            var afterClear = JsonDocument.Parse(await (await client.GetAsync("/cooling/fans")).Content.ReadAsStringAsync())
+                .RootElement.GetProperty("channels").EnumerateArray()
+                .First(c => c.GetProperty("id").GetString() == "fan1");
+            Assert.Equal("none", afterClear.GetProperty("role").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task SetRole_UnknownChannel_Returns400()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsJsonAsync("/cooling/fan/nope/role", new { role = "cpu" });
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task SetRole_InvalidRole_Returns400()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsJsonAsync("/cooling/fan/fan1/role", new { role = "motherboard" });
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        }
+    }
+}
