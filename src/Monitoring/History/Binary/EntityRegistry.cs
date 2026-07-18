@@ -74,6 +74,29 @@ internal sealed class EntityRegistry : IDisposable
     /// RegisterOrGet is concurrently publishing a longer one.</summary>
     public IReadOnlyList<(string Id, string Name)> Entries => Volatile.Read(ref _entries);
 
+    /// <summary>Ring index for <paramref name="id"/> if already registered, or
+    /// null otherwise - a read-only lookup safe to call concurrently with
+    /// RegisterOrGet. Scans the same Volatile-published array Entries/Count
+    /// already expose rather than the private id-&gt;index dictionary
+    /// RegisterOrGet itself uses (that dictionary is mutated with no Volatile
+    /// discipline, since only the single writer ever touches it), so a
+    /// concurrent registration is either fully visible here or not observed
+    /// yet, never partially. Entity counts this registry ever holds are
+    /// capacity-bounded and small, so the linear scan costs nothing worth
+    /// avoiding.</summary>
+    public int? TryGetIndex(string id)
+    {
+        var entries = Volatile.Read(ref _entries);
+        for (var i = 0; i < entries.Length; i++)
+        {
+            if (entries[i].Id == id)
+            {
+                return i;
+            }
+        }
+        return null;
+    }
+
     /// <summary>Registers <paramref name="id"/>/<paramref name="name"/> if
     /// unseen and returns its ring index, or returns the existing index if
     /// already registered. Returns null - registering nothing - once the

@@ -23,8 +23,14 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// lock-free against a concurrent writer, on the same single-writer
 /// assumption the whole store is built on (MetricsSampler is the only
 /// Append caller).
+///
+/// Phase 4 adds IAppUsageHistoryStore via AppUsageStore, the per-app usage
+/// tier - see that class's doc for the day-segment format and the
+/// AppMetricSample "gpu:&lt;gid&gt;"/"vram:&lt;gid&gt;" dependency on
+/// GpuRingStore.TryGetIndex, the app-store equivalent of the scalar
+/// gpu_series lookup SqliteMetricsHistoryStore's own app-usage path uses.
 /// </summary>
-public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore
+public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageHistoryStore
 {
     private const string SuperBlockFileName = "super";
     private const string ScalarsFileName = "scalars.ring";
@@ -48,6 +54,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore
     private readonly FanRingStore _fans;
     private readonly TempComponentRingStore _tempComponents;
     private readonly TempBucketStore _tempBuckets;
+    private readonly AppUsageStore _apps;
 
     // Oldest ts a temp-bucket rebuild may trust the scalar/gpu/temp-component
     // rings to still hold in full - the binary equivalent of
@@ -74,6 +81,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore
         _tempComponents = new TempComponentRingStore(Path.Combine(dbDir, "tempcomponent"), secondCapacity, EntityCapacity, _superBlock.PruneFloorSec);
         _tempBuckets = new TempBucketStore(
             Path.Combine(dbDir, "tempbucket"), tempBucketCapacity, TempBucketEntityCapacity, ComputeTempBucketFloorSec(_superBlock.PruneFloorSec));
+        _apps = new AppUsageStore(Path.Combine(dbDir, "apps"), gpuId => _gpus.TryGetIndex(gpuId));
         _sourceFloorSec = _superBlock.SourceFloorSec;
     }
 
@@ -315,6 +323,21 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore
     public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs) =>
         _tempBuckets.Query(fromUtcMs / 1000, toUtcMs / 1000);
 
+    // ----- IAppUsageHistoryStore -----
+
+    public void Append(IReadOnlyList<AppUsageTick> ticks, long? pruneCutoffSec) => _apps.Append(ticks, pruneCutoffSec);
+
+    public IReadOnlyList<AppWindowStat> QueryTopApps(string metric, long fromSec, long toSec, int maxApps) =>
+        _apps.QueryTopApps(metric, fromSec, toSec, maxApps);
+
+    public IReadOnlyList<AppRawPoint> QueryAppSeries(string metric, string appName, long fromSec, long toSec) =>
+        _apps.QueryAppSeries(metric, appName, fromSec, toSec);
+
+    public IReadOnlyList<long> QuerySampledTicks(string metric, long fromSec, long toSec) =>
+        _apps.QuerySampledTicks(metric, fromSec, toSec);
+
+    public long? QueryFirstSeen(string appName) => _apps.QueryFirstSeen(appName);
+
     public void Dispose()
     {
         _scalars.Dispose();
@@ -323,6 +346,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore
         _fans.Dispose();
         _tempComponents.Dispose();
         _tempBuckets.Dispose();
+        _apps.Dispose();
         _superBlock.Dispose();
     }
 }

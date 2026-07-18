@@ -99,6 +99,13 @@ internal sealed class GpuRingStore : IDisposable
         Volatile.Write(ref _secondRings, second);
     }
 
+    /// <summary>The registered ring index for <paramref name="gpuId"/>, or
+    /// null if no scalar sample has ever registered it - the per-app usage
+    /// store uses this to resolve a "gpu:&lt;gid&gt;"/"vram:&lt;gid&gt;" metric id
+    /// to the same identity the scalar side already tracks, and to skip
+    /// recording app rows for a gpu id it has never seen scalar data for.</summary>
+    public int? TryGetIndex(string gpuId) => _registry.TryGetIndex(gpuId);
+
     public void Append(IReadOnlyList<MetricSample> samples)
     {
         var touchedMinutesByIndex = new Dictionary<int, HashSet<long>>();
