@@ -82,7 +82,7 @@ public class SystemMetricsSourceTests
     };
 
     private static SystemMetricsSource CreateSource(StubSensors sensors, StubSmartHealthSource? smart = null) =>
-        new(new StubPerformanceProvider(), sensors, new StubFanControlProvider(), new NetworkRateReader(),
+        new(new StubPerformanceProvider(), sensors, new StubFanControlProvider(), new NetworkRateReader(), new DiskRateReader(),
             smart ?? new StubSmartHealthSource());
 
     [Fact]

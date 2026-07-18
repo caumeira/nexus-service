@@ -69,8 +69,11 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
             var netIn = Slots(rows, s => s.NetInBytesPerSec, fromSec, toSec, stepSeconds);
             var netOut = Slots(rows, s => s.NetOutBytesPerSec, fromSec, toSec, stepSeconds);
             var temp = Slots(rows, s => s.CpuTempC, fromSec, toSec, stepSeconds);
+            var diskRead = Slots(rows, s => s.DiskReadBytesPerSec, fromSec, toSec, stepSeconds);
+            var diskWrite = Slots(rows, s => s.DiskWriteBytesPerSec, fromSec, toSec, stepSeconds);
 
-            var allSlots = new SortedSet<long>(cpu.Keys.Concat(mem.Keys).Concat(netIn.Keys).Concat(netOut.Keys).Concat(temp.Keys));
+            var allSlots = new SortedSet<long>(cpu.Keys.Concat(mem.Keys).Concat(netIn.Keys).Concat(netOut.Keys)
+                .Concat(temp.Keys).Concat(diskRead.Keys).Concat(diskWrite.Keys));
             var result = new List<ScalarDecimatedSlot>(allSlots.Count);
             foreach (var slot in allSlots)
             {
@@ -80,7 +83,9 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
                     mem.GetValueOrDefault(slot)?.Avg, mem.GetValueOrDefault(slot)?.Max,
                     netIn.GetValueOrDefault(slot)?.Avg, netIn.GetValueOrDefault(slot)?.Max,
                     netOut.GetValueOrDefault(slot)?.Avg, netOut.GetValueOrDefault(slot)?.Max,
-                    temp.GetValueOrDefault(slot)?.Avg, temp.GetValueOrDefault(slot)?.Max));
+                    temp.GetValueOrDefault(slot)?.Avg, temp.GetValueOrDefault(slot)?.Max,
+                    diskRead.GetValueOrDefault(slot)?.Avg, diskRead.GetValueOrDefault(slot)?.Max,
+                    diskWrite.GetValueOrDefault(slot)?.Avg, diskWrite.GetValueOrDefault(slot)?.Max));
             }
             return result;
         }

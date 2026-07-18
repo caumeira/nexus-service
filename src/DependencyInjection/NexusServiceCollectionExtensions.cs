@@ -314,6 +314,7 @@ public static class NexusServiceCollectionExtensions
     public static IServiceCollection AddNexusMonitoringHistory(this IServiceCollection services)
     {
         services.AddSingleton<Nexus.Service.Monitoring.History.NetworkRateReader>();
+        services.AddSingleton<Nexus.Service.Monitoring.History.DiskRateReader>();
         services.AddSingleton<Nexus.Service.Monitoring.History.IMetricsSource, Nexus.Service.Monitoring.History.SystemMetricsSource>();
         services.AddSingleton<Nexus.Service.Monitoring.History.MetricsSampleBuffer>();
         services.AddSingleton<Nexus.Service.Monitoring.History.IMetricsHistoryStore>(_ =>

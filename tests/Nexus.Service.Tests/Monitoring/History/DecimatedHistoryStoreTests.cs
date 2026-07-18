@@ -24,8 +24,11 @@ public class DecimatedHistoryStoreTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private static MetricSample Scalars(long ts, double? cpu, double? mem = 10, double? netIn = 100, double? netOut = 50, double? cpuTemp = 40) =>
-        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
+    private static MetricSample Scalars(
+        long ts, double? cpu, double? mem = 10, double? netIn = 100, double? netOut = 50, double? cpuTemp = 40,
+        double? diskRead = null, double? diskWrite = null) =>
+        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
+            DiskReadBytesPerSec: diskRead, DiskWriteBytesPerSec: diskWrite);
 
     [Fact]
     public void QueryScalarsDecimated_AveragesAndMaxesEachFieldWithinASlot()
@@ -63,6 +66,36 @@ public class DecimatedHistoryStoreTests : IDisposable
 
         Assert.Null(slot.CpuAvg);
         Assert.Null(slot.CpuMax);
+    }
+
+    [Fact]
+    public void QueryScalarsDecimated_AveragesAndMaxesDiskFieldsWithinASlot()
+    {
+        _store.Append(new[]
+        {
+            Scalars(0, cpu: 10, diskRead: 1000, diskWrite: 200),
+            Scalars(1, cpu: 10, diskRead: 3000, diskWrite: 600),
+        }, null);
+
+        var slot = Assert.Single(_store.QueryScalarsDecimated(0, 1, stepSeconds: 10));
+
+        Assert.Equal(2000, slot.DiskReadAvg);
+        Assert.Equal(3000, slot.DiskReadMax);
+        Assert.Equal(400, slot.DiskWriteAvg);
+        Assert.Equal(600, slot.DiskWriteMax);
+    }
+
+    [Fact]
+    public void QueryScalarsDecimated_LeavesDiskFieldsNull_WhenEveryReadingInTheSlotWasNull()
+    {
+        _store.Append(new[] { Scalars(0, cpu: 10, diskRead: null, diskWrite: null) }, null);
+
+        var slot = Assert.Single(_store.QueryScalarsDecimated(0, 0, stepSeconds: 10));
+
+        Assert.Null(slot.DiskReadAvg);
+        Assert.Null(slot.DiskReadMax);
+        Assert.Null(slot.DiskWriteAvg);
+        Assert.Null(slot.DiskWriteMax);
     }
 
     [Fact]
