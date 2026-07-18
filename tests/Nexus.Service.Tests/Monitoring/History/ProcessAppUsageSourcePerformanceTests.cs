@@ -96,7 +96,7 @@ public class ProcessAppUsageSourcePerformanceTests
         _output.WriteLine($"before (warm-up tick): {before.ElapsedMilliseconds}ms, {warmup.Count} metric samples");
         _output.WriteLine($"after (measured tick): {after.ElapsedMilliseconds}ms, {result.Count} metric samples, {processCount} processes");
 
-        Assert.Equal(3, result.Count); // cpu, memory, storage
+        Assert.Equal(5, result.Count); // cpu, memory, storage, storage-read, storage-write
         Assert.True(after.ElapsedMilliseconds < 100,
             $"Sample() took {after.ElapsedMilliseconds}ms for {processCount} processes, exceeding the budget");
     }
