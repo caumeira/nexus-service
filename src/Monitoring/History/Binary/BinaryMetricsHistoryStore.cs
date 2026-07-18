@@ -29,8 +29,14 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// AppMetricSample "gpu:&lt;gid&gt;"/"vram:&lt;gid&gt;" dependency on
 /// GpuRingStore.TryGetIndex, the app-store equivalent of the scalar
 /// gpu_series lookup SqliteMetricsHistoryStore's own app-usage path uses.
+///
+/// Phase 5 adds IPrivacySessionStore via PrivacyLog, an append-only log with
+/// an in-RAM index rather than a fixed-slot ring or day segments - see that
+/// class's doc for why privacy sessions get their own format (low-volume,
+/// transition-driven, keyed by (appId, capability, startUtcSec) instead of a
+/// timestamp).
 /// </summary>
-public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageHistoryStore
+public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageHistoryStore, IPrivacySessionStore
 {
     private const string SuperBlockFileName = "super";
     private const string ScalarsFileName = "scalars.ring";
@@ -55,6 +61,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
     private readonly TempComponentRingStore _tempComponents;
     private readonly TempBucketStore _tempBuckets;
     private readonly AppUsageStore _apps;
+    private readonly PrivacyLog _privacy;
 
     // Oldest ts a temp-bucket rebuild may trust the scalar/gpu/temp-component
     // rings to still hold in full - the binary equivalent of
@@ -82,6 +89,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
         _tempBuckets = new TempBucketStore(
             Path.Combine(dbDir, "tempbucket"), tempBucketCapacity, TempBucketEntityCapacity, ComputeTempBucketFloorSec(_superBlock.PruneFloorSec));
         _apps = new AppUsageStore(Path.Combine(dbDir, "apps"), gpuId => _gpus.TryGetIndex(gpuId));
+        _privacy = new PrivacyLog(Path.Combine(dbDir, "privacy.log"));
         _sourceFloorSec = _superBlock.SourceFloorSec;
     }
 
@@ -337,6 +345,15 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
         _apps.QuerySampledTicks(metric, fromSec, toSec);
 
     public long? QueryFirstSeen(string appName) => _apps.QueryFirstSeen(appName);
+
+    // ----- IPrivacySessionStore -----
+
+    public void Upsert(string capability, string appId, long startUtcSec, long? endUtcSec) =>
+        _privacy.Upsert(capability, appId, startUtcSec, endUtcSec);
+
+    IReadOnlyList<PrivacySession> IPrivacySessionStore.Query(long fromSec, long toSec) => _privacy.Query(fromSec, toSec);
+
+    void IPrivacySessionStore.PruneOlderThan(long cutoffSec) => _privacy.PruneOlderThan(cutoffSec);
 
     public void Dispose()
     {

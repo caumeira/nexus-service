@@ -14,9 +14,10 @@ namespace Nexus.Service.Tests.Monitoring.History;
 /// both SqliteMetricsHistoryStore (SqliteScalarHistorySpecTests) and
 /// BinaryMetricsHistoryStore (BinaryScalarHistorySpecTests) so a behavior
 /// change to either store's scalar path is pinned once, not twice. GPU/fan/
-/// privacy/reopen-key-stability cases stay in SqliteMetricsHistoryStoreTests
-/// - BinaryMetricsHistoryStore does not implement that surface yet (see its
-/// class doc).
+/// reopen-key-stability cases stay in SqliteMetricsHistoryStoreTests -
+/// BinaryMetricsHistoryStore does not implement that surface yet (see its
+/// class doc). Privacy-session behavior has its own shared spec,
+/// PrivacySessionHistorySpec, since both stores implement it.
 /// </summary>
 public abstract class MetricsHistoryScalarSpec : IDisposable
 {

@@ -32,10 +32,11 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
 
     // Scalar-only Append/Query behavior (round trip, null-vs-zero, same-ts
     // replace, ascending order, empty no-op, prune cutoff) is pinned once in
-    // MetricsHistoryScalarSpec and run against both this store and
-    // BinaryMetricsHistoryStore - see that file. What remains here is
+    // MetricsHistoryScalarSpec, and privacy-session behavior once in
+    // PrivacySessionHistorySpec, both run against this store and
+    // BinaryMetricsHistoryStore - see those files. What remains here is
     // everything specific to SQLite: GPU/fan entity tables, surrogate-key
-    // rollback, key stability across reopen, and privacy sessions.
+    // rollback, and key stability across reopen.
 
     [Fact]
     public void Append_RoundTripsGpuReadings_KeyedByEntity()
@@ -170,124 +171,5 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
         var fan = Assert.Single(row.Fans);
         Assert.Equal("fan-a", fan.FanId);
         Assert.Equal(1200, fan.Rpm);
-    }
-
-    private IPrivacySessionStore PrivacyStore => _store;
-
-    [Fact]
-    public void PrivacyUpsert_ThenQuery_RoundTripsAnOpenSession()
-    {
-        _store.Upsert("microphone", "app.exe", 1000, null);
-
-        var row = Assert.Single(PrivacyStore.Query(0, 10_000));
-        Assert.Equal("app.exe", row.AppId);
-        Assert.Equal("microphone", row.Capability);
-        Assert.Equal(1000, row.StartUtcSec);
-        Assert.Null(row.EndUtcSec);
-    }
-
-    [Fact]
-    public void PrivacyUpsert_SameAppCapabilityStart_ClosesTheOpenSessionInPlace()
-    {
-        _store.Upsert("microphone", "app.exe", 1000, null);
-
-        _store.Upsert("microphone", "app.exe", 1000, 1080);
-
-        var row = Assert.Single(PrivacyStore.Query(0, 10_000));
-        Assert.Equal(1000, row.StartUtcSec);
-        Assert.Equal(1080, row.EndUtcSec);
-    }
-
-    [Fact]
-    public void PrivacyUpsert_DifferentStart_IsASeparateSession()
-    {
-        _store.Upsert("microphone", "app.exe", 1000, 1080);
-        _store.Upsert("microphone", "app.exe", 2000, null);
-
-        var rows = PrivacyStore.Query(0, 10_000);
-        Assert.Equal(2, rows.Count);
-    }
-
-    [Fact]
-    public void PrivacyQuery_ExcludesSessionsOutsideTheWindow()
-    {
-        _store.Upsert("microphone", "app.exe", 1000, 1080);
-        _store.Upsert("microphone", "app.exe", 5000, 5080);
-
-        var rows = PrivacyStore.Query(2000, 4000);
-
-        Assert.Empty(rows);
-    }
-
-    [Fact]
-    public void PrivacyQuery_IncludesAnOpenSession_EvenWhenItStartedBeforeTheWindow()
-    {
-        _store.Upsert("microphone", "app.exe", 100, null);
-
-        var rows = PrivacyStore.Query(5000, 10_000);
-
-        var row = Assert.Single(rows);
-        Assert.Null(row.EndUtcSec);
-    }
-
-    [Fact]
-    public void PrivacyQuery_ExcludesAnOpenSession_WhenItStartsAfterTheWindow()
-    {
-        _store.Upsert("microphone", "app.exe", 20_000, null);
-
-        var rows = PrivacyStore.Query(0, 10_000);
-
-        Assert.Empty(rows);
-    }
-
-    [Fact]
-    public void PrivacyPrune_DeletesClosedSessionsEndingBeforeTheCutoff()
-    {
-        _store.Upsert("microphone", "app.exe", 1000, 1080);   // closed, old -> pruned
-        _store.Upsert("microphone", "app2.exe", 5000, 5080);  // closed, recent -> kept
-
-        PrivacyStore.PruneOlderThan(2000);
-
-        var rows = PrivacyStore.Query(0, long.MaxValue);
-        var row = Assert.Single(rows);
-        Assert.Equal("app2.exe", row.AppId);
-    }
-
-    // A backstop for a session that never got a proper close recorded
-    // (PrivacyAccessTransitions handles the reachable orphan cases
-    // directly - this test targets rows that predate that fix, or any
-    // future path it doesn't cover).
-    [Fact]
-    public void PrivacyPrune_DeletesAnOpenSessionWhoseStartPredatesTheCutoff()
-    {
-        _store.Upsert("microphone", "app.exe", 500, null);
-
-        PrivacyStore.PruneOlderThan(2000);
-
-        Assert.Empty(PrivacyStore.Query(0, long.MaxValue));
-    }
-
-    [Fact]
-    public void PrivacyPrune_KeepsAnOpenSessionWhoseStartIsWithinRetention()
-    {
-        _store.Upsert("microphone", "app.exe", 5000, null);
-
-        PrivacyStore.PruneOlderThan(2000);
-
-        var row = Assert.Single(PrivacyStore.Query(0, long.MaxValue));
-        Assert.Null(row.EndUtcSec);
-    }
-
-    [Fact]
-    public void PrivacySessions_SurviveReopen()
-    {
-        _store.Upsert("webcam", "app.exe", 1000, 1080);
-        _store.Dispose();
-
-        _store = new SqliteMetricsHistoryStore(_dbPath);
-
-        var row = Assert.Single(PrivacyStore.Query(0, 10_000));
-        Assert.Equal("webcam", row.Capability);
-        Assert.Equal(1080, row.EndUtcSec);
     }
 }

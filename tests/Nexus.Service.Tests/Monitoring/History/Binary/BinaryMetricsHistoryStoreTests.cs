@@ -17,7 +17,8 @@ namespace Nexus.Service.Tests.Monitoring.History.Binary;
 /// TempBucketStore/RingFile level and by the shared specs parameterized over
 /// both stores (MetricsHistoryScalarSpec, ScalarDecimatedRawSpec,
 /// GpuFanDecimatedRawSpec, ComponentTempDecimatedRawSpec, RollupHistorySpec,
-/// TemperatureBucketSpec) - this file only checks the facade wiring.
+/// TemperatureBucketSpec, PrivacySessionHistorySpec) - this file only checks
+/// the facade wiring.
 /// </summary>
 public class BinaryMetricsHistoryStoreTests : IDisposable
 {
@@ -44,6 +45,14 @@ public class BinaryMetricsHistoryStoreTests : IDisposable
 
         Assert.True(File.Exists(Path.Combine(_dir, "super")));
         Assert.True(File.Exists(Path.Combine(_dir, "scalars.ring")));
+    }
+
+    [Fact]
+    public void Constructor_CreatesThePrivacyLogFile()
+    {
+        using var store = new BinaryMetricsHistoryStore(_dir);
+
+        Assert.True(File.Exists(Path.Combine(_dir, "privacy.log")));
     }
 
     [Fact]
