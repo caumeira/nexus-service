@@ -73,6 +73,46 @@ public class ProcessMonitorTests
     }
 
     [Fact]
+    public void ResolveExecutablePath_RefreshesPath_WhenTheCachedPidDiesAndANewProcessReusesTheName()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+
+        // Seed the cache as if an earlier tick resolved "app.exe" to some
+        // pid that has since exited.
+        const int stalePid = 999_999;
+        monitor.SeedResolvedPathForTest("app.exe", "/some/old/path/app.exe", stalePid);
+
+        // The next sampling tick's live-pid set no longer contains that
+        // pid - the same sweep SampleWindows/SampleMacOs run every tick.
+        monitor.PruneDeadPathCacheEntries(new HashSet<int>());
+
+        // A different real process now carries the same aggregate name.
+        monitor.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = Environment.ProcessId, Name = "app.exe" },
+        });
+
+        var path = monitor.ResolveExecutablePath("app.exe");
+
+        Assert.Equal(Process.GetCurrentProcess().MainModule?.FileName, path);
+        Assert.NotEqual("/some/old/path/app.exe", path);
+    }
+
+    [Fact]
+    public void PruneDeadPathCacheEntries_LeavesAnEntryAlone_WhileItsPidIsStillLive()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        monitor.SeedResolvedPathForTest("app.exe", "/some/path/app.exe", Environment.ProcessId);
+
+        monitor.PruneDeadPathCacheEntries(new HashSet<int> { Environment.ProcessId });
+
+        monitor.SetProcessesForTest(Array.Empty<ProcessInfo>());
+        var path = monitor.ResolveExecutablePath("app.exe");
+
+        Assert.Equal("/some/path/app.exe", path);
+    }
+
+    [Fact]
     public void AnchorFirstSeenMs_ReturnsTheSameValue_OnRepeatedCallsForTheSamePid()
     {
         var monitor = new ProcessMonitor(new MultiplexHub());

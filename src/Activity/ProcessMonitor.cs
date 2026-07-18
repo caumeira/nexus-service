@@ -46,9 +46,17 @@ public sealed class ProcessMonitor : BackgroundService
     // order for eviction - Dictionary enumeration order is not reliable
     // insertion order once removals have happened (a freed slot is reused
     // by the next insert and can enumerate first, evicting on every insert).
+    //
+    // Each entry also carries the pid its path was resolved from. A name is
+    // an aggregate key, not a stable identity - the pid it once resolved to
+    // can exit and an unrelated process can later reuse the same name, which
+    // must not keep serving the exited process's path. PruneDeadPathCacheEntries
+    // evicts an entry once its pid is no longer among the live set a sampling
+    // tick observed, so the next lookup re-resolves against whichever process
+    // (if any) currently owns the name.
     private const int PathCacheMaxEntries = 500;
     private readonly object _pathCacheLock = new();
-    private readonly Dictionary<string, string> _pathCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string Path, int Pid)> _pathCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Queue<string> _pathCacheOrder = new();
 
     // Delta tracking for CPU time (Windows uses TimeSpan, macOS uses nanoseconds).
@@ -120,7 +128,7 @@ public sealed class ProcessMonitor : BackgroundService
         {
             if (_pathCache.TryGetValue(name, out var cached))
             {
-                return cached;
+                return cached.Path;
             }
         }
 
@@ -143,12 +151,12 @@ public sealed class ProcessMonitor : BackgroundService
 
         if (!string.IsNullOrEmpty(path))
         {
-            InsertPathCache(name, path);
+            InsertPathCache(name, path, match.Pid);
         }
         return path;
     }
 
-    private void InsertPathCache(string name, string path)
+    private void InsertPathCache(string name, string path, int pid)
     {
         lock (_pathCacheLock)
         {
@@ -156,7 +164,7 @@ public sealed class ProcessMonitor : BackgroundService
             {
                 _pathCacheOrder.Enqueue(name);
             }
-            _pathCache[name] = path;
+            _pathCache[name] = (path, pid);
             if (_pathCache.Count > PathCacheMaxEntries)
             {
                 _pathCache.Remove(_pathCacheOrder.Dequeue());
@@ -164,9 +172,47 @@ public sealed class ProcessMonitor : BackgroundService
         }
     }
 
+    /// <summary>Evicts every path-cache entry whose resolved pid is not in
+    /// livePids - called once per sampling tick with that tick's live pid
+    /// set (SampleWindows/SampleMacOs), the same pass that already prunes
+    /// _winPrev/_macPrev, so a name a since-exited process resolved stops
+    /// answering with that process's path the moment it is gone, rather than
+    /// only when a fresh resolve happens to be triggered some other way.
+    /// Internal so a test can drive it directly without depending on the
+    /// real OS process enumeration those methods perform.</summary>
+    internal void PruneDeadPathCacheEntries(HashSet<int> livePids)
+    {
+        lock (_pathCacheLock)
+        {
+            if (_pathCache.Count == 0)
+            {
+                return;
+            }
+            List<string>? stale = null;
+            foreach (var kv in _pathCache)
+            {
+                if (!livePids.Contains(kv.Value.Pid))
+                {
+                    (stale ??= new List<string>()).Add(kv.Key);
+                }
+            }
+            if (stale is null)
+            {
+                return;
+            }
+            foreach (var name in stale)
+            {
+                _pathCache.Remove(name);
+            }
+        }
+    }
+
     /// <summary>Test-only seam: seeds the name-&gt;path cache directly,
-    /// bypassing real MainModule resolution.</summary>
-    internal void SeedResolvedPathForTest(string name, string path) => InsertPathCache(name, path);
+    /// bypassing real MainModule resolution. pid defaults to 0 (never a
+    /// live pid in these tests) for callers that only exercise cache
+    /// consumption, not the pid-based eviction PruneDeadPathCacheEntries
+    /// drives.</summary>
+    internal void SeedResolvedPathForTest(string name, string path, int pid = 0) => InsertPathCache(name, path, pid);
 
     /// <summary>Returns a stable epoch-ms anchor for pid, set to observedAt
     /// the first time this pid is seen and unchanged on every later call -
@@ -230,7 +276,7 @@ public sealed class ProcessMonitor : BackgroundService
         string? path;
         lock (_pathCacheLock)
         {
-            _pathCache.TryGetValue(name, out path);
+            path = _pathCache.TryGetValue(name, out var cached) ? cached.Path : null;
         }
 
         if (path is not null)
@@ -555,6 +601,7 @@ public sealed class ProcessMonitor : BackgroundService
                 _macStoragePrev.Remove(k);
             }
         }
+        PruneDeadPathCacheEntries(seen);
 
         // Group by name: the first instance per name accumulates the rest.
         var grouped = new Dictionary<string, ProcessInfo>(result.Count);
@@ -739,6 +786,7 @@ public sealed class ProcessMonitor : BackgroundService
                 _firstSeenAtMs.Remove(k);
             }
         }
+        PruneDeadPathCacheEntries(seen);
 
         result.Sort(static (a, b) =>
         {
