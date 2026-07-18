@@ -23,8 +23,8 @@ internal readonly record struct ScalarReading(
 /// The 1Hz scalar ring (cpu/mem/net-in/net-out/cpu-temp/disk-read/disk-write):
 /// a RingFile whose body layout and scale/unscale rules this class owns, so
 /// RingFile itself never needs to know what a "scalar" is. Percent/temperature
-/// fields are stored x10 fixed-point in an i16 (matching
-/// SqliteMetricsHistoryStore's existing on-wire precision); net/disk bps
+/// fields are stored x10 fixed-point in an i16 (one decimal place of
+/// precision, the wire contract's granularity for these fields); net/disk bps
 /// fields are i64, not the i32 the original binary-store design sketched, so
 /// a link or drive at or above roughly 17 Gbps stays representable instead of
 /// wrapping. Each field type has its own reserved "null" sentinel (the type's
@@ -63,10 +63,9 @@ internal sealed class ScalarRingStore : IDisposable
     public long PruneFloorSec => _ring.PruneFloorSec;
 
     /// <summary>Raises the prune floor to <paramref name="cutoffSec"/> if it
-    /// is higher than the current floor, and reports whether it changed -
-    /// mirrors SqliteMetricsHistoryStore's floor, which is "raised, never
-    /// lowered" so a backward clock step can never reopen a window this
-    /// store already told a caller was gone.</summary>
+    /// is higher than the current floor, and reports whether it changed. The
+    /// floor is raised, never lowered, so a backward clock step can never
+    /// reopen a window this store already told a caller was gone.</summary>
     public bool RaisePruneFloor(long cutoffSec)
     {
         if (cutoffSec <= _ring.PruneFloorSec)
@@ -154,11 +153,10 @@ internal sealed class ScalarRingStore : IDisposable
     /// <summary>The raw (step &lt; 60) decimation path: reads every matching
     /// second via Query, then folds each field through MetricsDecimation
     /// independently and unions the slot keys, matching
-    /// InMemoryMetricsHistoryStore.QueryScalarsDecimated and
-    /// SqliteMetricsHistoryStore's raw-path SQL byte for byte in behavior -
-    /// a slot appears iff at least one field had a non-null reading in it,
-    /// and a field within an appearing slot is null iff every reading of
-    /// that field in the slot was null.</summary>
+    /// InMemoryMetricsHistoryStore.QueryScalarsDecimated byte for byte in
+    /// behavior - a slot appears iff at least one field had a non-null
+    /// reading in it, and a field within an appearing slot is null iff every
+    /// reading of that field in the slot was null.</summary>
     public IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimatedRaw(long fromSec, long toSec, int stepSeconds)
     {
         var rows = Query(fromSec, toSec);

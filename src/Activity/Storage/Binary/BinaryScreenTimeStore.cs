@@ -13,8 +13,8 @@ namespace Nexus.Service.Activity.Storage.Binary;
 /// design): one append-only day-segment file per LOCAL calendar date under
 /// its own directory, plus a dedicated AppNameDictionary instance (opened
 /// with StringComparer.Ordinal, not the metrics tier's case-insensitive one -
-/// see that class's doc - since SqliteScreenTimeStore's sessions.app_name has
-/// no COLLATE NOCASE and treats differently-cased names as distinct apps).
+/// see that class's doc - since screen-time session app names are
+/// case-sensitive: differently-cased names are distinct apps).
 ///
 /// Sessions are one-record-per-focus-session (not one-record-per-tick like
 /// AppUsageStore's ticks, which each carry several apps), so there is no

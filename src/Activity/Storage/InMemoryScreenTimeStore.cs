@@ -7,9 +7,9 @@ namespace Nexus.Service.Activity.Storage;
 
 /// <summary>
 /// Non-persistent fallback used in unit tests and as a last-resort stub when the
-/// SQLite file can't be opened (e.g. read-only filesystem). Behaviour matches
-/// SqliteScreenTimeStore for the same inputs - sessions are bucketed by local
-/// start date.
+/// binary screen-time store can't be opened (e.g. read-only filesystem).
+/// Behaviour matches <see cref="Nexus.Service.Activity.Storage.Binary.BinaryScreenTimeStore"/>
+/// for the same inputs - sessions are bucketed by local start date.
 /// </summary>
 public sealed class InMemoryScreenTimeStore : IScreenTimeStore
 {

@@ -2,8 +2,9 @@ using System;
 
 namespace Nexus.Service.Mcp;
 
-/// <summary>Kind values for <see cref="McpAuditEntry.Kind"/>, matching the
-/// ai-history.db events table's type column.</summary>
+/// <summary>Kind values for <see cref="McpAuditEntry.Kind"/>, matching
+/// <see cref="Nexus.Service.Mcp.History.AiHistoryEventRow.Kind"/> (the field
+/// <c>IAiHistoryStore.QueryEvents</c> filters by type).</summary>
 public static class AuditEntryKinds
 {
     public const string AiWrite = "ai_write";
@@ -25,8 +26,8 @@ public readonly record struct McpAuditEntry(
 /// <summary>
 /// Records every non-read-only <see cref="IMcpTool"/> call - success, tool-level
 /// error, and consent-refused attempts alike - plus lifecycle events recorded
-/// directly by AiRoutes. <see cref="Nexus.Service.Mcp.History.SqliteMcpAuditSink"/>
-/// is the registered sink (query_events reads the same table);
+/// directly by AiRoutes. <see cref="Nexus.Service.Mcp.History.AiHistoryMcpAuditSink"/>
+/// is the registered sink (query_events reads the same store);
 /// <see cref="LoggingMcpAuditSink"/> is a log-only fallback used where a real
 /// history store is not wired up, such as tests.
 /// </summary>

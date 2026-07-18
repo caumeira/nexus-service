@@ -4,15 +4,15 @@ namespace Nexus.Service.Mcp.History;
 
 /// <summary>
 /// Persists every audited MCP event (write-tool calls and lifecycle events)
-/// into the shared ai-history.db events table via <see cref="IAiHistoryStore"/>,
-/// replacing the phase-1 <see cref="LoggingMcpAuditSink"/> in DI. Still logs to
-/// the service log so a live tail shows AI activity without querying the DB.
+/// via <see cref="IAiHistoryStore.RecordEvent"/>, replacing
+/// <see cref="LoggingMcpAuditSink"/> in DI. Still logs to the service log so
+/// a live tail shows AI activity without querying the store.
 /// </summary>
-public sealed class SqliteMcpAuditSink : IMcpAuditSink
+public sealed class AiHistoryMcpAuditSink : IMcpAuditSink
 {
     private readonly IAiHistoryStore _history;
 
-    public SqliteMcpAuditSink(IAiHistoryStore history) => _history = history;
+    public AiHistoryMcpAuditSink(IAiHistoryStore history) => _history = history;
 
     public void Record(McpAuditEntry entry)
     {

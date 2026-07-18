@@ -8,10 +8,9 @@ using System.Threading;
 namespace Nexus.Service.Monitoring.History.Binary;
 
 /// <summary>
-/// Per-storage-drive/RAM-DIMM temperature history (the binary equivalent of
-/// SqliteMetricsHistoryStore's temp_component_series/temp_component_seconds):
-/// a TempComponentRegistry mapping component id -&gt; ring index (see that
-/// class's doc for why storage/RAM need a Kind-carrying registry rather than
+/// Per-storage-drive/RAM-DIMM temperature history: a TempComponentRegistry
+/// mapping component id -&gt; ring index (see that class's doc for why
+/// storage/RAM need a Kind-carrying registry rather than
 /// EntityRegistry), plus one per-entity RingFile pair (raw per-second, minute
 /// rollup) per registered component, grown on demand and capped at
 /// entityCapacity - the same shape GpuRingStore/FanRingStore use for their

@@ -36,11 +36,11 @@ public static class MonitoringHistoryRoutes
     private const int MaxMaxPoints = 2000;
     private const int DefaultMaxPoints = 600;
 
-    // Aligned with the metric_minutes/gpu_minutes/fan_minutes rollup's own
-    // eligibility (SqliteMetricsHistoryStore.IsRollupEligible): below this,
-    // QueryScalarsDecimated would fall back to a raw per-second GROUP BY,
-    // which scans more rows than the raw-pull path at a narrow window, so
-    // narrower requests stay on the untouched BuildHistoryResponse path;
+    // Aligned with the minute-rollup rings' own eligibility
+    // (BinaryMetricsHistoryStore.IsRollupEligible): below this,
+    // QueryScalarsDecimated would fall back to the raw per-second decimation
+    // path, which scans more rows than the raw-pull path at a narrow window,
+    // so narrower requests stay on the untouched BuildHistoryResponse path;
     // at and above it every request is served from the rollup tier, which
     // scans a bounded number of pre-aggregated minute rows instead of
     // every raw second in the window.
@@ -353,11 +353,10 @@ public static class MonitoringHistoryRoutes
     }
 
     // "cpu"/"memory" (and a specific "gpu:<id>"/"vram:<id>") match the
-    // tick's one sample with that exact metric id, same as before this
-    // helper existed. Bare "gpu"/"vram" instead aggregate every matching
-    // "gpu:<id>"/"vram:<id>" sample in the tick, mirroring
-    // SqliteMetricsHistoryStore/InMemoryMetricsHistoryStore's unfiltered
-    // app_gpu_seconds/app_vram_seconds query on the persisted side.
+    // tick's one sample with that exact metric id. Bare "gpu"/"vram" instead
+    // aggregate every matching "gpu:<id>"/"vram:<id>" sample in the tick,
+    // mirroring AppUsageStore/InMemoryMetricsHistoryStore's unfiltered
+    // gpu/vram resolution on the persisted side.
     internal static AppMetricSample? ResolveTailMetric(AppUsageTick tick, string series) =>
         series switch
         {

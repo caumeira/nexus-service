@@ -10,10 +10,9 @@ namespace Nexus.Service.Mcp.History.Binary;
 
 /// <summary>
 /// Per-sensor identity and mutable snapshot (name/kind/unit/last value/last
-/// seen) for BinaryAiHistoryStore - the binary equivalent of
-/// SqliteAiHistoryStore's sensor_meta table. Unlike AppNameDictionary/
-/// EntityRegistry (append-only, immutable once written), every field here
-/// can change on every RecordSamples call, so this is not an append log: the
+/// seen) for BinaryAiHistoryStore. Unlike AppNameDictionary/EntityRegistry
+/// (append-only, immutable once written), every field here can change on
+/// every RecordSamples call, so this is not an append log: the
 /// whole snapshot is rewritten (temp file, flush, atomic rename) each time
 /// any entry changes, the same crash-safety shape as
 /// AppUsageStore.PersistPruneFloor. A full rewrite can only ever leave the

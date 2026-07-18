@@ -64,13 +64,11 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
     private readonly PrivacyLog _privacy;
 
     // Oldest ts a temp-bucket rebuild may trust the scalar/gpu/temp-component
-    // rings to still hold in full - the binary equivalent of
-    // SqliteMetricsHistoryStore's own _sourceFloorSec field, which it
-    // recomputes from a live MIN(ts) query at every open. This field instead
-    // recovers from SuperBlock.SourceFloorSec, the same cutoff value every
-    // ring's own PruneFloorSec recovers from (both are raised together, from
-    // the same Append prune cutoff, every time) - so on reopen it is exactly
-    // as current as what the rings themselves already hide, never behind it.
+    // rings to still hold in full. This field recovers from
+    // SuperBlock.SourceFloorSec, the same cutoff value every ring's own
+    // PruneFloorSec recovers from (both are raised together, from the same
+    // Append prune cutoff, every time) - so on reopen it is exactly as
+    // current as what the rings themselves already hide, never behind it.
     private long? _sourceFloorSec;
 
     public BinaryMetricsHistoryStore() : this(ResolveDefaultDataDir()) { }
@@ -95,12 +93,11 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
         _sourceFloorSec = _superBlock.SourceFloorSec;
     }
 
-    // temp_buckets keeps MetricsHistory.TempRetentionDays instead of the
-    // RetentionDays scalarPruneFloorSec encodes, so shift it back by the gap
-    // between the two retention windows - mirrors
-    // SqliteMetricsHistoryStore.Prune's inline tempCutoffSec computation
-    // exactly. The RingFile.UnwrittenStamp sentinel (meaning "never pruned")
-    // passes through unchanged rather than underflowing.
+    // The temp-bucket tier keeps MetricsHistory.TempRetentionDays instead of
+    // the RetentionDays scalarPruneFloorSec encodes, so shift it back by the
+    // gap between the two retention windows. The RingFile.UnwrittenStamp
+    // sentinel (meaning "never pruned") passes through unchanged rather than
+    // underflowing.
     private static long ComputeTempBucketFloorSec(long scalarPruneFloorSec) =>
         scalarPruneFloorSec == RingFile.UnwrittenStamp
             ? RingFile.UnwrittenStamp
@@ -157,11 +154,10 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
     }
 
     // Rebuilds every (key, bucket) pair this batch touched in the unified
-    // cpu/gpu/storage/ram temperature bucket rollup, mirroring
-    // SqliteMetricsHistoryStore.UpsertTempBucketsRollup: a bucket whose
-    // start has aged past _sourceFloorSec is excluded from the touched sets
+    // cpu/gpu/storage/ram temperature bucket rollup. A bucket whose start
+    // has aged past _sourceFloorSec is excluded from the touched sets
     // entirely (never rebuilt, never clobbered by a partial or empty
-    // rebuild), matching that method's WithinSourceRetention guard.
+    // rebuild) via the WithinSourceRetention guard below.
     private void RebuildTempBuckets(IReadOnlyList<MetricSample> samples)
     {
         var width = TempBucketTier.SecondsPerBucket;
@@ -304,9 +300,9 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
         return result;
     }
 
-    // Mirrors SqliteMetricsHistoryStore.IsRollupEligible exactly: the real
-    // ladder never routes a sub-minute step here, but ScalarDecimatedRawSpec
-    // calls this directly with arbitrary steps, so the same threshold applies.
+    // The real ladder never routes a sub-minute step here, but
+    // ScalarDecimatedRawSpec calls this directly with arbitrary steps, so
+    // the same threshold applies.
     private static bool IsRollupEligible(int stepSeconds) => stepSeconds >= 60 && stepSeconds % 60 == 0;
 
     public IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimated(long fromSec, long toSec, int stepSeconds) =>
@@ -332,7 +328,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
     // fromUtcMs/toUtcMs are milliseconds; TempBucketStore's own keys are
     // seconds, so both bounds are floor-divided rather than rounded - a
     // window boundary landing mid-second still includes that second's
-    // bucket, matching SqliteMetricsHistoryStore.QueryTemperatureBuckets.
+    // bucket.
     public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs) =>
         _tempBuckets.Query(fromUtcMs / 1000, toUtcMs / 1000);
 
@@ -372,9 +368,8 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
         _superBlock.Dispose();
     }
 
-    // Sibling directory to SqliteMetricsHistoryStore's own metrics.db, under
-    // the same shared config root - see the design notes' on-disk layout
-    // (db/metrics/).
+    // Under the shared config root's database directory
+    // (NexusDataPaths.DatabaseDir()), in its own metrics/ subdirectory.
     private static string ResolveDefaultDataDir() =>
         Path.Combine(Nexus.Service.Persistence.NexusDataPaths.DatabaseDir(), "metrics");
 }

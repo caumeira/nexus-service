@@ -6,12 +6,12 @@ using Xunit;
 
 namespace Nexus.Service.Tests.Mcp;
 
-public class SqliteMcpAuditSinkTests
+public class AiHistoryMcpAuditSinkTests
 {
     [Fact]
     public void Record_swallows_store_failures_so_callers_never_see_them()
     {
-        var sink = new SqliteMcpAuditSink(new ThrowingHistoryStore());
+        var sink = new AiHistoryMcpAuditSink(new ThrowingHistoryStore());
 
         var entry = new McpAuditEntry(
             "set_brightness", "{}", true, null, DateTimeOffset.UtcNow);

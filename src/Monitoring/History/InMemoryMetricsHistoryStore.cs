@@ -4,11 +4,11 @@ using System.Linq;
 namespace Nexus.Service.Monitoring.History;
 
 /// <summary>
-/// Non-persistent fallback used when the SQLite file can't be opened, and in
-/// unit tests. Self-bounds to a rolling RingWindowSeconds window on every
-/// Append rather than relying on the hourly pruneCutoffSec cadence
-/// SqliteMetricsHistoryStore needs to avoid a write burst every tick - an
-/// in-memory ring always keeps its window regardless of that cadence. Also
+/// Non-persistent fallback used when the binary metrics history store can't
+/// be opened, and in unit tests. Self-bounds to a rolling RingWindowSeconds
+/// window on every Append rather than relying on the hourly pruneCutoffSec
+/// cadence BinaryMetricsHistoryStore needs to avoid a write burst every tick -
+/// an in-memory ring always keeps its window regardless of that cadence. Also
 /// backs privacy sessions and per-app usage history for the same fallback
 /// reason.
 /// </summary>
@@ -56,9 +56,9 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
     }
 
     // The ring holds at most RingWindowSeconds of raw MetricSample rows, so
-    // decimating in C# here (reusing the same MetricsDecimation the SQLite
-    // store's callers use for the RAM tail) costs nothing worth avoiding -
-    // no SQL-side aggregation to fall back to on this fallback store.
+    // decimating in C# here (reusing the same MetricsDecimation
+    // ScalarRingStore's raw-path callers use) costs nothing worth avoiding -
+    // there is no separate aggregation path to fall back to on this store.
     public IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimated(long fromSec, long toSec, int stepSeconds)
     {
         lock (_lock)
@@ -187,9 +187,9 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
     // aggregating cpu/gpu/storage/ram temp readings into buckets here
     // (rather than maintaining a separate rollup table) costs nothing worth
     // avoiding, mirroring QueryScalarsDecimated's fallback approach. Bucketed
-    // at TempBucketSeconds width to match SqliteMetricsHistoryStore's
-    // temp_buckets rollup, so DetectEpisodes' bucket-adjacency check behaves
-    // the same regardless of which store backs it.
+    // at TempBucketSeconds width to match TempBucketStore's rollup, so
+    // DetectEpisodes' bucket-adjacency check behaves the same regardless of
+    // which store backs it.
     public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs)
     {
         var fromSec = fromUtcMs / 1000;
@@ -276,7 +276,7 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         lock (_lock)
         {
             // An open session (EndUtcSec null) past retention by its start is
-            // pruned too - see SqliteMetricsHistoryStore's PruneOlderThan.
+            // pruned too - see PrivacyLog's PruneOlderThan.
             var stale = _privacySessions.Where(kv =>
                     kv.Value.EndUtcSec is { } end ? end < cutoffSec : kv.Value.StartUtcSec < cutoffSec)
                 .Select(kv => kv.Key).ToList();
@@ -313,12 +313,11 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         }
     }
 
-    // "cpu"/"memory" match the single sample with that exact metric id, same
-    // as before. Bare "gpu"/"vram" (no adapter id) instead matches every
-    // "gpu:<id>"/"vram:<id>" sample in the tick, so a process using two
-    // adapters is summed across them - the in-memory mirror of
-    // SqliteMetricsHistoryStore's unfiltered app_gpu_seconds/app_vram_seconds
-    // query.
+    // "cpu"/"memory" match the single sample with that exact metric id. Bare
+    // "gpu"/"vram" (no adapter id) instead matches every "gpu:<id>"/"vram:<id>"
+    // sample in the tick, so a process using two adapters is summed across
+    // them - the in-memory mirror of AppUsageStore.QueryTopApps' unfiltered
+    // gpu/vram resolution.
     private static IEnumerable<AppMetricSample> ResolveMetricSamples(AppUsageTick tick, string metric)
     {
         if (metric == "gpu")
@@ -338,8 +337,9 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         lock (_lock)
         {
             // Divides by the ticks the metric was actually sampled in the
-            // window (expectedTicks), not by an app's own row count - see
-            // SqliteMetricsHistoryStore.QueryTopApps for why.
+            // window (expectedTicks), not by an app's own row count, so a
+            // multi-adapter GPU tick's combined value doesn't inflate the
+            // tick count - mirrors AppUsageStore.QueryTopApps' expectedTicks.
             var sums = new Dictionary<string, (double Sum, double Max)>(StringComparer.OrdinalIgnoreCase);
             var expectedTicks = 0;
             foreach (var tick in _appTicks.Values)

@@ -8,20 +8,18 @@ using System.Threading;
 namespace Nexus.Service.Monitoring.History.Binary;
 
 /// <summary>
-/// Append-only id -> ring-index registry shared by every entity kind (gpu,
-/// fan; a temperature-component kind follows in a later phase) - the binary
-/// equivalent of SqliteMetricsHistoryStore's gpu_series/fan_series tables.
-/// Ring index is implicit: the Nth record ever appended is index N-1, so
-/// GpuRingStore/FanRingStore can address their per-entity RingFile pair by
-/// plain array position with no separate index column to keep in sync.
+/// Append-only id -> ring-index registry shared by the gpu and fan entity
+/// kinds (temperature components use the Kind-carrying TempComponentRegistry
+/// instead - see that class's doc). Ring index is implicit: the Nth record
+/// ever appended is index N-1, so GpuRingStore/FanRingStore can address
+/// their per-entity RingFile pair by plain array position with no separate
+/// index column to keep in sync.
 ///
-/// Unlike gpu_series/fan_series (whose name column updates on every
-/// re-registration), a name is fixed at first registration and never
-/// revised - first-seen wins, the same convention MetricsHistory's app
-/// dictionary already uses for a process name observed with differing case.
-/// No pinned test exercises a hardware id renaming itself (it doesn't, in
-/// practice), so this only differs from SQLite in a scenario nothing here
-/// relies on.
+/// A name is fixed at first registration and never revised - first-seen
+/// wins, the same convention MetricsHistory's app dictionary already uses
+/// for a process name observed with differing case. No pinned test
+/// exercises a hardware id renaming itself: real hardware ids do not
+/// rename.
 ///
 /// Record format is a flat, unindexed append log (idLen:i32 | id:utf8 |
 /// nameLen:i32 | name:utf8), read entirely into RAM on open - registration is

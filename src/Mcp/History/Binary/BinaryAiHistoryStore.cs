@@ -8,8 +8,8 @@ using Nexus.Service.Monitoring.History.Binary;
 namespace Nexus.Service.Mcp.History.Binary;
 
 /// <summary>
-/// Binary-file-backed IAiHistoryStore (Phase 7b of the metrics-store
-/// design): per-sensor tiered sample history plus an audit event log,
+/// Binary-file-backed IAiHistoryStore: per-sensor tiered sample history plus
+/// an audit event log,
 /// generalizing the metrics store's ScalarMinuteRollupRing pattern
 /// (RingFile keyed by bucket index) from a fixed set of scalar fields to an
 /// arbitrary, dynamically registered set of sensors - the same "array of
@@ -30,12 +30,10 @@ namespace Nexus.Service.Mcp.History.Binary;
 ///
 /// Rollup is watermark-based: a 1-minute (or 5-minute) bucket only becomes
 /// visible once a LATER RecordSamples call's nowUtc has moved past that
-/// bucket's own end, matching SqliteAiHistoryStore's own
-/// RollupRawToOneMinute/RollupOneMinuteToFiveMinute exactly - never the
-/// eager "rebuild the touched bucket every write" pattern
-/// ScalarMinuteRollupRing/GpuRingStore use elsewhere in this store family,
-/// which would surface a still-forming bucket on every "up to now" query
-/// that SqliteAiHistoryStore never shows. RollupOneMinuteIfDue/
+/// bucket's own end - never the eager "rebuild the touched bucket every
+/// write" pattern ScalarMinuteRollupRing/GpuRingStore use elsewhere in this
+/// store family, which would surface a still-forming bucket on every "up to
+/// now" query. RollupOneMinuteIfDue/
 /// RollupFiveMinuteIfDue track a persisted watermark (in floors.dat) and,
 /// when it advances, rebuild every newly-closed bucket for every registered
 /// sensor - the same set-based rollup SQL performs in one statement across
@@ -275,15 +273,13 @@ public sealed class BinaryAiHistoryStore : IAiHistoryStore
 
     // Rolls up every 1-minute bucket that has newly closed (its end is at or
     // before nowUtcMs's own minute floor) since the last call, for every
-    // registered sensor - matching SqliteAiHistoryStore.RollupRawToOneMinute
-    // running once across every sensor's raw rows in the same closing
-    // range, rather than only the sensor(s) present in this call's rows.
+    // registered sensor in one pass, rather than only the sensor(s) present
+    // in this call's rows.
     // The scan's lower bound is the PREVIOUS watermark (or unbounded on the
     // very first-ever rollup, when nothing has been closed yet), not
-    // nowUtcMs minus a fixed retention width: SqliteAiHistoryStore's own
-    // RollupRawToOneMinute is bounded the same way (its own lastRollup1m
-    // watermark, never a wall-clock cap), so this tolerates an arbitrarily
-    // wide gap between calls without missing a bucket. Bounding below by
+    // nowUtcMs minus a fixed retention width, so this tolerates an
+    // arbitrarily wide gap between calls without missing a bucket. Bounding
+    // below by
     // nowUtcMs minus a fixed retention instead - tried first and wrong -
     // would rescan and rebuild already-closed buckets on every ordinary
     // ring wraparound (once every RawRetentionMinutes of continuous
@@ -436,8 +432,7 @@ public sealed class BinaryAiHistoryStore : IAiHistoryStore
         return result;
     }
 
-    // fromIndex uses ceiling, not floor: matching SqliteAiHistoryStore's
-    // exact "bucket_utc >= from" filter, a bucket whose own start (its key)
+    // fromIndex uses ceiling, not floor: a bucket whose own start (its key)
     // sits strictly before fromUtcMs is excluded even when fromUtcMs falls
     // inside that bucket's span - a bucket is a point (its start), not an
     // interval, for this comparison. toIndex stays floor: the largest
@@ -491,9 +486,9 @@ public sealed class BinaryAiHistoryStore : IAiHistoryStore
         return (min ?? 0, max ?? 0, sum, count);
     }
 
-    // Byte-for-byte the same stride-thinning algorithm as
-    // SqliteAiHistoryStore.Thin: a pure function over an already-materialized
-    // point list, no store-specific behavior to diverge on.
+    // A stride-thinning algorithm: a pure function over an
+    // already-materialized point list, no store-specific behavior to
+    // diverge on.
     private static IReadOnlyList<AiHistoryPointRow> Thin(List<AiHistoryPointRow> points, int maxPoints)
     {
         if (maxPoints <= 0 || points.Count <= maxPoints)

@@ -4,10 +4,11 @@ using System.Collections.Generic;
 namespace Nexus.Service.Mcp.History;
 
 /// <summary>
-/// Fallback used when the SQLite file can't be opened. Every write is a no-op
-/// and every query returns empty; IsAvailable is false so the history tools and
-/// SqliteMcpAuditSink can report unavailability instead of silently returning
-/// empty data that reads as "no history recorded yet".
+/// Fallback used when the binary history store can't be opened. Every write
+/// is a no-op and every query returns empty; IsAvailable is false so the
+/// history tools and <see cref="AiHistoryMcpAuditSink"/> can report
+/// unavailability instead of silently returning empty data that reads as
+/// "no history recorded yet".
 /// </summary>
 public sealed class UnavailableAiHistoryStore : IAiHistoryStore
 {

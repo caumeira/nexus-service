@@ -1555,7 +1555,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Mcp.History.AiHistoryRecorder>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Mcp.History.AiHistoryRecorder>());
 
-        services.AddSingleton<Nexus.Service.Mcp.IMcpAuditSink, Nexus.Service.Mcp.History.SqliteMcpAuditSink>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpAuditSink, Nexus.Service.Mcp.History.AiHistoryMcpAuditSink>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetSystemOverviewTool>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetSensorsTool>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetCoolingStateTool>();

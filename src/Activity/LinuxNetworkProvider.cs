@@ -77,7 +77,7 @@ public sealed class LinuxNetworkProvider : BackgroundService, INetworkProvider
         // Only attribute processes that actually own a non-loopback network
         // socket; /proc/[pid]/io counts ALL syscall I/O (disk + pipe + socket),
         // so without this gate the list is dominated by compilers, browsers
-        // writing cache, and our own SQLite - not network talkers.
+        // writing cache, and our own history-store writes - not network talkers.
         var active = ActiveNetworkPids();
         active.Remove(OwnPid);
         if (active.Count == 0)

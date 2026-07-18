@@ -8,11 +8,11 @@ using System.Threading;
 namespace Nexus.Service.Monitoring.History.Binary;
 
 /// <summary>
-/// Binary-file-backed IAppUsageHistoryStore (Phase 4 of the metrics-store
-/// design's per-app tier - the storage-dominant, hardest tier): a global
-/// AppNameDictionary shared by every metric, plus independent metric kinds
-/// (cpu, memory, gpu, vram, storage, net, storage-read, storage-write,
-/// net-down, net-up) each stored as append-only per-UTC-day segment files
+/// Binary-file-backed IAppUsageHistoryStore, the storage-dominant per-app
+/// tier: a global AppNameDictionary shared by every metric, plus independent
+/// metric kinds (cpu, memory, gpu, vram, storage, net, storage-read,
+/// storage-write, net-down, net-up) each stored as append-only per-UTC-day
+/// segment files
 /// under their own directory. storage/net and their read-write/down-up
 /// splits carry no gpu dimension and share one wire format: raw bytes/sec
 /// stored as an int64 (StorageRecordWidth), wider than the x10 fixed-point
@@ -24,17 +24,15 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// time, so a query never sees a pruned tick even though the day itself is
 /// still on disk.
 ///
-/// Chose the simpler of the design's two app-data options: no day-seal
-/// sorted-block table. A day segment is a flat append log of tick records
-/// (see WriteSimpleTick/WriteGpuTick/WriteVramTick/WriteStorageTick), and
-/// every query does a linear scan over the days it touches, translating
+/// No day-seal sorted-block table: a day segment is a flat append log of
+/// tick records (see WriteSimpleTick/WriteGpuTick/WriteVramTick/WriteStorageTick),
+/// and every query does a linear scan over the days it touches, translating
 /// each record's per-day local app id back to the global id via that day's
 /// AppLocalIdMap. Query windows are bounded by MetricsHistory.RetentionDays
 /// (7 days), and even a fully-saturated day segment is a few MB, so this
 /// trades a small amount of read-side CPU for a format an order of
 /// magnitude simpler than a sorted per-app block table - see
-/// AppUsageStorageEstimateTests for the measured footprint this still
-/// achieves against the SQLite baseline.
+/// AppUsageStorageEstimateTests for the measured footprint.
 ///
 /// AppUsageStore is the sole writer (Append), the same single-writer
 /// assumption the rest of the binary store is built on; day segment reads
@@ -75,11 +73,11 @@ internal sealed class AppUsageStore : IDisposable
     private const int GpuRecordWidth = 10;
     private const int VramRecordWidth = 8;
     // Storage/net and their read-write/down-up splits all carry raw
-    // bytes/sec (an int64, matching SqliteMetricsHistoryStore's value_bps
-    // column) rather than the x10 fixed-point percent SimpleRecordWidth's
-    // int32 slot holds - disk/network throughput on a fast NVMe drive or NIC
-    // exceeds int32 range. Shared by WriteStorageDay/ReadStorageDay below,
-    // parameterized over which of the six kinds is being written/read.
+    // bytes/sec as an int64, rather than the x10 fixed-point percent
+    // SimpleRecordWidth's int32 slot holds - disk/network throughput on a
+    // fast NVMe drive or NIC exceeds int32 range. Shared by
+    // WriteStorageDay/ReadStorageDay below, parameterized over which of the
+    // six kinds is being written/read.
     private const int StorageRecordWidth = 10;
 
     private readonly record struct AppEntry(int GlobalId, int GpuIndex, double Value, double? VramMb);
@@ -95,9 +93,8 @@ internal sealed class AppUsageStore : IDisposable
     /// convention).</param>
     /// <param name="resolveGpuIndex">Resolves a sanitized gpu id to the
     /// scalar side's GpuRingStore ring index, or null if the scalar store has
-    /// never registered it - mirrors SqliteMetricsHistoryStore.ResolveAppKey's
-    /// dependency on gpu_series: an app-usage gpu/vram sample for a gid with
-    /// no scalar registration is dropped rather than minting an orphaned
+    /// never registered it: an app-usage gpu/vram sample for a gid with no
+    /// scalar registration is dropped rather than minting an orphaned
     /// identity for it.</param>
     public AppUsageStore(string dir, Func<string, int?> resolveGpuIndex)
     {
@@ -153,9 +150,9 @@ internal sealed class AppUsageStore : IDisposable
             var netUpByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, long ValueBps)> Apps)>>();
 
             // Name resolution happens here, in tick-array order (not sorted
-            // by ts), matching SqliteMetricsHistoryStore.InsertAppRows -
-            // first-seen casing depends on iteration order, not chronological
-            // order, when a batch itself carries out-of-order ticks.
+            // by ts) - first-seen casing depends on iteration order, not
+            // chronological order, when a batch itself carries out-of-order
+            // ticks.
             foreach (var tick in ticks)
             {
                 var day = FloorToDay(tick.TsSec);
@@ -270,10 +267,9 @@ internal sealed class AppUsageStore : IDisposable
                     }
                     else if (metric.Metric.StartsWith("gpu:", StringComparison.Ordinal))
                     {
-                        // Same dependency as SqliteMetricsHistoryStore: a gid
-                        // with no scalar-side registration this flush has no
-                        // app rows either, since both come from the same
-                        // sensors.GetGpus() read.
+                        // A gid with no scalar-side registration this flush
+                        // has no app rows either, since both come from the
+                        // same sensors.GetGpus() read.
                         if (metric.Apps.Count == 0 || _resolveGpuIndex(metric.Metric[4..]) is not { } gpuIndex)
                         {
                             continue;
@@ -951,9 +947,8 @@ internal sealed class AppUsageStore : IDisposable
     // "cpu"/"memory" resolve directly; "gpu"/"vram" (bare, no adapter id)
     // resolve with a null filter so the caller aggregates across every
     // adapter instead of one; "gpu:<gid>"/"vram:<gid>" resolve through
-    // resolveGpuIndex the same way the scalar side's gpu_series cache
-    // resolves SqliteMetricsHistoryStore.ResolveMetricTable - a gid it has
-    // never seen yields no kind at all, not an error.
+    // resolveGpuIndex - a gid it has never seen yields no kind at all, not
+    // an error.
     private (AppMetricKind? Kind, int? GpuIndexFilter) ResolveMetric(string metric)
     {
         if (metric == "cpu")

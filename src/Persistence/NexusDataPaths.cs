@@ -5,14 +5,12 @@ using System.Runtime.InteropServices;
 namespace Nexus.Service.Persistence;
 
 /// <summary>
-/// Single resolver for the machine-scope config root the service's ADO.NET
-/// stores (screen time, metrics/temperature history) live under. Extracted
-/// from the byte-identical resolvers each SQLite-backed store carried before
-/// this shared root existed.
+/// Single resolver for the machine-scope config root the service's history
+/// stores (screen time, metrics/temperature history) live under.
 ///
 /// Distinct from MediaLibrary.NexusDataDir(): that resolver targets the DATA
 /// root (XDG_DATA_HOME on Linux) for device media; this one targets the
-/// CONFIG root (XDG_CONFIG_HOME on Linux) these SQLite stores have always
+/// CONFIG root (XDG_CONFIG_HOME on Linux) these history stores have always
 /// used. Windows and macOS resolve to the same directory either way, so the
 /// two roots only diverge on Linux.
 /// </summary>
@@ -42,7 +40,7 @@ internal static class NexusDataPaths
         return Path.Combine(xdg, "Nexus");
     }
 
-    /// <summary>Shared SQLite database directory every ADO.NET store's file lives
+    /// <summary>Shared database directory every history store's files live
     /// under: <c>&lt;NexusRoot&gt;/db</c>.</summary>
     public static string DatabaseDir() => Path.Combine(NexusRoot(), "db");
 }

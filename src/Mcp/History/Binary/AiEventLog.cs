@@ -9,15 +9,13 @@ using Nexus.Service.Monitoring.History.Binary;
 namespace Nexus.Service.Mcp.History.Binary;
 
 /// <summary>
-/// Append-only audit log for BinaryAiHistoryStore's RecordEvent/QueryEvents -
-/// the binary equivalent of SqliteAiHistoryStore's events table. Unlike
-/// PrivacyLog, there is no key to upsert on and so no compaction pass: an
-/// event is immutable once recorded (matching the SQL table, which has no
-/// UPDATE path either) and SqliteAiHistoryStore itself never prunes this
-/// table, so neither does this. Every record is kept in RAM (a plain list,
-/// replayed from the log on open) - event volume is bounded by how often an
-/// MCP tool call happens, not by a sampling tick, the same low-volume
-/// reasoning PrivacyLog's own class doc gives for its single lock.
+/// Append-only audit log for BinaryAiHistoryStore's RecordEvent/QueryEvents.
+/// Unlike PrivacyLog, there is no key to upsert on and so no compaction
+/// pass: an event is immutable once recorded and never pruned. Every record
+/// is kept in RAM (a plain list, replayed from the log on open) - event
+/// volume is bounded by how often an MCP tool call happens, not by a
+/// sampling tick, the same low-volume reasoning PrivacyLog's own class doc
+/// gives for its single lock.
 /// </summary>
 internal sealed class AiEventLog
 {
