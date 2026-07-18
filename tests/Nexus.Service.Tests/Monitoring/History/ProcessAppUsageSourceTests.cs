@@ -55,8 +55,14 @@ public class ProcessAppUsageSourceTests
         public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
-    private static ProcessInfo Proc(string name, double cpu, double mem, int pid = 0, double storage = 0) =>
-        new() { Pid = pid, Name = name, CpuPercent = cpu, MemoryMb = mem, StorageBytesPerSec = storage };
+    private static ProcessInfo Proc(
+        string name, double cpu, double mem, int pid = 0, double storage = 0,
+        double storageRead = 0, double storageWrite = 0) =>
+        new()
+        {
+            Pid = pid, Name = name, CpuPercent = cpu, MemoryMb = mem,
+            StorageBytesPerSec = storage, StorageReadBytesPerSec = storageRead, StorageWriteBytesPerSec = storageWrite,
+        };
 
     private static (ProcessAppUsageSource Source, ProcessMonitor Processes, GpuProcessMonitor GpuProcesses, StubSensorProvider Sensors, FakeNetworkProvider Network) Build()
     {
@@ -160,6 +166,63 @@ public class ProcessAppUsageSourceTests
     }
 
     [Fact]
+    public void Sample_AggregatesMultiplePidsWithTheSameName_ForStorageReadAndWrite()
+    {
+        var (source, processes, _, _, _) = Build();
+        processes.SetProcessesForTest(new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100, pid: 1, storageRead: 1000, storageWrite: 200),
+            Proc("chrome", cpu: 7, mem: 150, pid: 2, storageRead: 2500, storageWrite: 400),
+            Proc("notepad", cpu: 1, mem: 20, pid: 3, storageRead: 10, storageWrite: 5),
+        });
+
+        var result = source.Sample();
+        var storageRead = result.Single(m => m.Metric == "storage-read");
+        var storageWrite = result.Single(m => m.Metric == "storage-write");
+
+        Assert.Equal(3500, storageRead.Apps.Single(a => a.Name == "chrome").Value);
+        Assert.Equal(600, storageWrite.Apps.Single(a => a.Name == "chrome").Value);
+    }
+
+    [Fact]
+    public void Sample_RanksStorageReadAndWrite_IndependentlyOfEachOtherAndOfCombinedStorage()
+    {
+        var (source, processes, _, _, _) = Build();
+        processes.SetProcessesForTest(new[]
+        {
+            Proc("reader.exe", cpu: 1, mem: 10, storageRead: 5_000_000, storageWrite: 10),
+            Proc("writer.exe", cpu: 1, mem: 10, storageRead: 10, storageWrite: 5_000_000),
+        });
+
+        var result = source.Sample();
+        var storageRead = result.Single(m => m.Metric == "storage-read");
+        var storageWrite = result.Single(m => m.Metric == "storage-write");
+
+        Assert.Equal("reader.exe", storageRead.Apps.First().Name);
+        Assert.Equal("writer.exe", storageWrite.Apps.First().Name);
+    }
+
+    [Fact]
+    public void Sample_ExcludesAnAppWithExactlyZeroStorageReadOrWrite_EvenWithRoomUnderTheCap()
+    {
+        var (source, processes, _, _, _) = Build();
+        processes.SetProcessesForTest(new[]
+        {
+            Proc("idle.exe", cpu: 1, mem: 10, storageRead: 0, storageWrite: 0),
+            Proc("active.exe", cpu: 1, mem: 10, storageRead: 4096, storageWrite: 2048),
+        });
+
+        var result = source.Sample();
+        var storageRead = result.Single(m => m.Metric == "storage-read");
+        var storageWrite = result.Single(m => m.Metric == "storage-write");
+
+        Assert.DoesNotContain(storageRead.Apps, a => a.Name == "idle.exe");
+        Assert.DoesNotContain(storageWrite.Apps, a => a.Name == "idle.exe");
+        Assert.Contains(storageRead.Apps, a => a.Name == "active.exe");
+        Assert.Contains(storageWrite.Apps, a => a.Name == "active.exe");
+    }
+
+    [Fact]
     public void Sample_LimitsEachMetricToTopAppsPerSample()
     {
         var (source, processes, _, _, _) = Build();
@@ -260,6 +323,35 @@ public class ProcessAppUsageSourceTests
     }
 
     [Fact]
+    public void Sample_ReportsNetDownAndUpSeparately_OnceABaselineExists()
+    {
+        // Two real-clock Sample() calls a moment apart can land with zero
+        // elapsed ticks (ComputeNetSplitRatesCore then reports no baseline,
+        // same as ComputeNetRatesCore) - this only checks that whenever a
+        // rate IS reported, down and up came from independent deltas rather
+        // than both being empty or both being the combined value.
+        // ComputeNetSplitRatesCore's own tests above cover the exact
+        // elapsed-time math deterministically.
+        var (source, _, _, _, network) = Build();
+        network.Snapshot.Add(new NetworkProcessInfo { Name = "chrome", BytesIn = 1000, BytesOut = 500 });
+        source.Sample();
+
+        network.Snapshot = new List<NetworkProcessInfo> { new() { Name = "chrome", BytesIn = 3000, BytesOut = 1500 } };
+        var result = source.Sample();
+
+        var netDown = result.SingleOrDefault(m => m.Metric == "net-down");
+        var netUp = result.SingleOrDefault(m => m.Metric == "net-up");
+        Assert.True(netDown is null || netDown.Apps.All(a => a.Value >= 0));
+        Assert.True(netUp is null || netUp.Apps.All(a => a.Value >= 0));
+        if (netDown is { Apps.Count: > 0 } && netUp is { Apps.Count: > 0 })
+        {
+            var chromeDown = netDown.Apps.Single(a => a.Name == "chrome").Value;
+            var chromeUp = netUp.Apps.Single(a => a.Name == "chrome").Value;
+            Assert.True(chromeDown > chromeUp);
+        }
+    }
+
+    [Fact]
     public void Sample_ThenSampleAgain_NeverReportsANegativeNetRate()
     {
         // Sample() has no fixed cadence in a test, so two calls a moment
@@ -339,6 +431,70 @@ public class ProcessAppUsageSourceTests
         var tooWide = MetricsHistory.AppSampleIntervalSeconds * 1000 * 3 + 1;
 
         var points = ProcessAppUsageSource.ComputeNetRatesCore(prev, prevTicksMs: 0, current, nowTicksMs: tooWide);
+
+        Assert.Empty(points);
+    }
+
+    [Fact]
+    public void ComputeNetSplitRatesCore_ReturnsEmpty_OnTheFirstCall_WithNoBaseline()
+    {
+        var current = new Dictionary<string, (long BytesIn, long BytesOut)> { ["chrome"] = (1000, 500) };
+
+        var points = ProcessAppUsageSource.ComputeNetSplitRatesCore(
+            new Dictionary<string, (long, long)>(), prevTicksMs: -1, current, nowTicksMs: 1000);
+
+        Assert.Empty(points);
+    }
+
+    [Fact]
+    public void ComputeNetSplitRatesCore_DividesEachDirectionsDelta_ByElapsedSeconds_Separately()
+    {
+        var prev = new Dictionary<string, (long, long)> { ["chrome"] = (1000, 500) };
+        var current = new Dictionary<string, (long BytesIn, long BytesOut)> { ["chrome"] = (3000, 1500) };
+
+        var points = ProcessAppUsageSource.ComputeNetSplitRatesCore(prev, prevTicksMs: 0, current, nowTicksMs: 1000);
+
+        var chrome = Assert.Single(points);
+        Assert.Equal("chrome", chrome.Name);
+        Assert.Equal(2000, chrome.DownBytesPerSec); // 3000-1000 bytes over 1 second
+        Assert.Equal(1000, chrome.UpBytesPerSec); // 1500-500 bytes over 1 second
+    }
+
+    [Fact]
+    public void ComputeNetSplitRatesCore_DropsAnApp_OnANegativeDeltaInEitherDirection()
+    {
+        var prev = new Dictionary<string, (long, long)> { ["chrome"] = (5000, 2000) };
+        var current = new Dictionary<string, (long BytesIn, long BytesOut)> { ["chrome"] = (100, 50) };
+
+        var points = ProcessAppUsageSource.ComputeNetSplitRatesCore(prev, prevTicksMs: 0, current, nowTicksMs: 1000);
+
+        Assert.Empty(points);
+    }
+
+    [Fact]
+    public void ComputeNetSplitRatesCore_DropsAnAppWithNoBaselineEntry_ButKeepsOthers()
+    {
+        var prev = new Dictionary<string, (long, long)> { ["chrome"] = (1000, 500) };
+        var current = new Dictionary<string, (long BytesIn, long BytesOut)>
+        {
+            ["chrome"] = (3000, 1500),
+            ["new-app"] = (200, 100), // first seen this tick, no baseline yet
+        };
+
+        var points = ProcessAppUsageSource.ComputeNetSplitRatesCore(prev, prevTicksMs: 0, current, nowTicksMs: 1000);
+
+        var app = Assert.Single(points);
+        Assert.Equal("chrome", app.Name);
+    }
+
+    [Fact]
+    public void ComputeNetSplitRatesCore_ReturnsEmpty_WhenTheElapsedGapExceedsTheThreshold()
+    {
+        var prev = new Dictionary<string, (long, long)> { ["chrome"] = (1000, 500) };
+        var current = new Dictionary<string, (long BytesIn, long BytesOut)> { ["chrome"] = (3000, 1500) };
+        var tooWide = MetricsHistory.AppSampleIntervalSeconds * 1000 * 3 + 1;
+
+        var points = ProcessAppUsageSource.ComputeNetSplitRatesCore(prev, prevTicksMs: 0, current, nowTicksMs: tooWide);
 
         Assert.Empty(points);
     }

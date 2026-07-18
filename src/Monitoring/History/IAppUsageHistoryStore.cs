@@ -19,8 +19,9 @@ public sealed record AppRawPoint(long TsSec, double? Value, double? VramMb);
 /// /monitoring/history/apps is the reader.
 ///
 /// Metric ids match the scalar wire convention: "cpu", "memory", "storage",
-/// "net", "gpu:&lt;gid&gt;", "vram:&lt;gid&gt;" - see ProcessAppUsageSource
-/// for why "net" is not always-on the way the others are.
+/// "net", "storage-read", "storage-write", "net-down", "net-up",
+/// "gpu:&lt;gid&gt;", "vram:&lt;gid&gt;" - see ProcessAppUsageSource for why
+/// "net" (and its down/up split) is not always-on the way the others are.
 /// </summary>
 public interface IAppUsageHistoryStore
 {

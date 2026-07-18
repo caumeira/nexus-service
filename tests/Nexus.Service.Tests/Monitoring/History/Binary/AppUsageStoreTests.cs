@@ -42,6 +42,9 @@ public class AppUsageStoreTests : IDisposable
     private static AppUsageTick NetTick(long ts, params (string Name, double Value)[] apps) =>
         new(ts, new[] { new AppMetricSample("net", apps.Select(a => new AppUsagePoint(a.Name, a.Value, null)).ToList()) });
 
+    private static AppUsageTick MetricTick(string metric, long ts, params (string Name, double Value)[] apps) =>
+        new(ts, new[] { new AppMetricSample(metric, apps.Select(a => new AppUsagePoint(a.Name, a.Value, null)).ToList()) });
+
     [Fact]
     public void Append_then_Query_RoundTripsNetValues_ThroughItsOwnDaySegment()
     {
@@ -59,6 +62,29 @@ public class AppUsageStoreTests : IDisposable
         var app = Assert.Single(top);
         Assert.Equal("app.exe", app.Name);
         Assert.Equal(4_194_304, app.Avg);
+    }
+
+    [Theory]
+    [InlineData("storage-read")]
+    [InlineData("storage-write")]
+    [InlineData("net-down")]
+    [InlineData("net-up")]
+    public void Append_then_Query_RoundTripsSplitStorageAndNetValues_ThroughTheirOwnDaySegments(string metric)
+    {
+        using var store = new AppUsageStore(_dir, _ => null);
+
+        store.Append(new[] { MetricTick(metric, 1000, ("app.exe", 2_097_152)) }, null);
+
+        Assert.True(File.Exists(Path.Combine(_dir, metric, "0.seg")));
+
+        var points = store.QueryAppSeries(metric, "app.exe", 0, 10_000);
+        var point = Assert.Single(points);
+        Assert.Equal(2_097_152, point.Value);
+
+        var top = store.QueryTopApps(metric, 0, 10_000, 15);
+        var app = Assert.Single(top);
+        Assert.Equal("app.exe", app.Name);
+        Assert.Equal(2_097_152, app.Avg);
     }
 
     [Fact]

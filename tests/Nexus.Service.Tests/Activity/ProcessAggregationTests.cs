@@ -7,8 +7,13 @@ namespace Nexus.Service.Tests.Activity;
 public class ProcessAggregationTests
 {
     private static ProcessInfo Proc(
-        string name, double cpu, double mem, long? startedAtMs = null, bool hasWindow = false, double storage = 0) =>
-        new() { Name = name, CpuPercent = cpu, MemoryMb = mem, StartedAtMs = startedAtMs, HasWindow = hasWindow, StorageBytesPerSec = storage };
+        string name, double cpu, double mem, long? startedAtMs = null, bool hasWindow = false, double storage = 0,
+        double storageRead = 0, double storageWrite = 0) =>
+        new()
+        {
+            Name = name, CpuPercent = cpu, MemoryMb = mem, StartedAtMs = startedAtMs, HasWindow = hasWindow,
+            StorageBytesPerSec = storage, StorageReadBytesPerSec = storageRead, StorageWriteBytesPerSec = storageWrite,
+        };
 
     [Fact]
     public void GroupByName_SumsCpuAndMemory_AcrossPidsWithTheSameName()
@@ -108,6 +113,21 @@ public class ProcessAggregationTests
         var grouped = ProcessAggregation.GroupByName(procs);
 
         Assert.Equal(3500, grouped["chrome"].StorageBytesPerSec);
+    }
+
+    [Fact]
+    public void GroupByName_SumsStorageReadAndWriteBytesPerSec_AcrossPidsWithTheSameName()
+    {
+        var procs = new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100, storageRead: 1000, storageWrite: 200),
+            Proc("chrome", cpu: 7, mem: 150, storageRead: 2500, storageWrite: 400),
+        };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.Equal(3500, grouped["chrome"].StorageReadBytesPerSec);
+        Assert.Equal(600, grouped["chrome"].StorageWriteBytesPerSec);
     }
 
     [Fact]

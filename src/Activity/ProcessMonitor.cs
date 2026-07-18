@@ -63,10 +63,12 @@ public sealed class ProcessMonitor : BackgroundService
     private readonly Dictionary<int, (TimeSpan cpuTime, DateTime when)> _winPrev = new();
     private readonly Dictionary<int, (ulong cpuNs, DateTime when)> _macPrev = new();
 
-    // Delta tracking for cumulative storage I/O bytes (read+write combined),
+    // Delta tracking for cumulative storage I/O bytes, read and write kept
+    // separate so a reset in one direction does not suppress the other;
+    // the combined rate is still derived from both at read time below,
     // pruned on the same seen-pid pass as _winPrev/_macPrev.
-    private readonly Dictionary<int, (long bytes, DateTime when)> _winStoragePrev = new();
-    private readonly Dictionary<int, (ulong bytes, DateTime when)> _macStoragePrev = new();
+    private readonly Dictionary<int, (long readBytes, long writeBytes, DateTime when)> _winStoragePrev = new();
+    private readonly Dictionary<int, (ulong readBytes, ulong writeBytes, DateTime when)> _macStoragePrev = new();
 
     // Anchors a stable fallback timestamp per pid for when the real process
     // start time is unreadable (elevated/protected process under
@@ -544,19 +546,32 @@ public sealed class ProcessMonitor : BackgroundService
             _macPrev[pid] = (cpuNs, now);
 
             double storageBytesPerSec = 0;
+            double storageReadBytesPerSec = 0;
+            double storageWriteBytesPerSec = 0;
             if (Platform.Mac.MacProcInfo.TryGetDiskIoBytes(pid, out var readBytes, out var writeBytes))
             {
-                var storageBytes = readBytes + writeBytes;
                 if (_macStoragePrev.TryGetValue(pid, out var prevStorage))
                 {
                     var elapsedMs = (now - prevStorage.when).TotalMilliseconds;
-                    if (elapsedMs > 50 && storageBytes >= prevStorage.bytes)
+                    if (elapsedMs > 50)
                     {
-                        var deltaBytes = storageBytes - prevStorage.bytes;
-                        storageBytesPerSec = deltaBytes / (elapsedMs / 1000.0);
+                        var storageBytes = readBytes + writeBytes;
+                        var prevStorageBytes = prevStorage.readBytes + prevStorage.writeBytes;
+                        if (storageBytes >= prevStorageBytes)
+                        {
+                            storageBytesPerSec = (storageBytes - prevStorageBytes) / (elapsedMs / 1000.0);
+                        }
+                        if (readBytes >= prevStorage.readBytes)
+                        {
+                            storageReadBytesPerSec = (readBytes - prevStorage.readBytes) / (elapsedMs / 1000.0);
+                        }
+                        if (writeBytes >= prevStorage.writeBytes)
+                        {
+                            storageWriteBytesPerSec = (writeBytes - prevStorage.writeBytes) / (elapsedMs / 1000.0);
+                        }
                     }
                 }
-                _macStoragePrev[pid] = (storageBytes, now);
+                _macStoragePrev[pid] = (readBytes, writeBytes, now);
             }
 
             result.Add(new ProcessInfo
@@ -567,6 +582,8 @@ public sealed class ProcessMonitor : BackgroundService
                 MemoryMb = Math.Round(ti.ResidentSize / (1024.0 * 1024.0), 1),
                 CpuTimeSeconds = Math.Round((ti.TotalUser + ti.TotalSystem) / 1_000_000_000.0, 1),
                 StorageBytesPerSec = Math.Round(storageBytesPerSec, 1),
+                StorageReadBytesPerSec = Math.Round(storageReadBytesPerSec, 1),
+                StorageWriteBytesPerSec = Math.Round(storageWriteBytesPerSec, 1),
             });
         }
 
@@ -613,6 +630,8 @@ public sealed class ProcessMonitor : BackgroundService
                 acc.MemoryMb = Math.Round(acc.MemoryMb + p.MemoryMb, 1);
                 acc.CpuTimeSeconds = Math.Round(acc.CpuTimeSeconds + p.CpuTimeSeconds, 1);
                 acc.StorageBytesPerSec = Math.Round(acc.StorageBytesPerSec + p.StorageBytesPerSec, 1);
+                acc.StorageReadBytesPerSec = Math.Round(acc.StorageReadBytesPerSec + p.StorageReadBytesPerSec, 1);
+                acc.StorageWriteBytesPerSec = Math.Round(acc.StorageWriteBytesPerSec + p.StorageWriteBytesPerSec, 1);
             }
             else
             {
@@ -682,23 +701,38 @@ public sealed class ProcessMonitor : BackgroundService
                 // the reads above already succeeded) simply reports 0 this tick,
                 // not an exception.
                 double storageBytesPerSec = 0;
+                double storageReadBytesPerSec = 0;
+                double storageWriteBytesPerSec = 0;
                 if (OperatingSystem.IsWindows())
                 {
                     try
                     {
                         if (GetProcessIoCounters(proc.Handle, out var io))
                         {
-                            var storageBytes = (long)(io.ReadTransferCount + io.WriteTransferCount);
+                            var readBytes = (long)io.ReadTransferCount;
+                            var writeBytes = (long)io.WriteTransferCount;
                             if (_winStoragePrev.TryGetValue(pid, out var prevStorage))
                             {
                                 var elapsedStorage = (now - prevStorage.when).TotalMilliseconds;
-                                if (elapsedStorage > 50 && storageBytes >= prevStorage.bytes)
+                                if (elapsedStorage > 50)
                                 {
-                                    var deltaBytes = storageBytes - prevStorage.bytes;
-                                    storageBytesPerSec = deltaBytes / (elapsedStorage / 1000.0);
+                                    var storageBytes = readBytes + writeBytes;
+                                    var prevStorageBytes = prevStorage.readBytes + prevStorage.writeBytes;
+                                    if (storageBytes >= prevStorageBytes)
+                                    {
+                                        storageBytesPerSec = (storageBytes - prevStorageBytes) / (elapsedStorage / 1000.0);
+                                    }
+                                    if (readBytes >= prevStorage.readBytes)
+                                    {
+                                        storageReadBytesPerSec = (readBytes - prevStorage.readBytes) / (elapsedStorage / 1000.0);
+                                    }
+                                    if (writeBytes >= prevStorage.writeBytes)
+                                    {
+                                        storageWriteBytesPerSec = (writeBytes - prevStorage.writeBytes) / (elapsedStorage / 1000.0);
+                                    }
                                 }
                             }
-                            _winStoragePrev[pid] = (storageBytes, now);
+                            _winStoragePrev[pid] = (readBytes, writeBytes, now);
                         }
                     }
                     catch { }
@@ -728,6 +762,8 @@ public sealed class ProcessMonitor : BackgroundService
                     StartedAtMs = startedAtMs,
                     HasWindow = _windowSet?.IsWindowed(pid) ?? false,
                     StorageBytesPerSec = Math.Round(storageBytesPerSec, 1),
+                    StorageReadBytesPerSec = Math.Round(storageReadBytesPerSec, 1),
+                    StorageWriteBytesPerSec = Math.Round(storageWriteBytesPerSec, 1),
                 });
             }
             catch { }
@@ -836,6 +872,13 @@ public class ProcessInfo
     /// same way as CpuPercent. Zero when the platform call fails for this
     /// pid or on the process's first observed tick.</summary>
     public double StorageBytesPerSec { get; set; }
+    /// <summary>Disk read rate, bytes/sec, delta-computed independently of
+    /// StorageWriteBytesPerSec so a counter reset in one direction does not
+    /// suppress the other. Zero under the same conditions as
+    /// StorageBytesPerSec.</summary>
+    public double StorageReadBytesPerSec { get; set; }
+    /// <summary>Disk write rate, bytes/sec - see StorageReadBytesPerSec.</summary>
+    public double StorageWriteBytesPerSec { get; set; }
 }
 
 /// <summary>Lazily resolved publisher and signature status for one exe path,

@@ -7,6 +7,12 @@ using Nexus.Service.Sensors;
 
 namespace Nexus.Service.Monitoring.History;
 
+/// <summary>One app's download/upload rate pair from ComputeNetSplitRatesCore,
+/// kept apart from the combined ComputeNetRatesCore result so "net-down" and
+/// "net-up" can each rank and cap independently of "net" and of each
+/// other.</summary>
+internal readonly record struct AppNetSplitPoint(string Name, double DownBytesPerSec, double UpBytesPerSec);
+
 /// <summary>
 /// Production IAppUsageSource: reduces the already-live ProcessMonitor /
 /// GpuProcessMonitor snapshots to every app above
@@ -108,6 +114,22 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
                 .Select(a => new AppUsagePoint(a.Name, a.StorageBytesPerSec, null))
                 .ToList();
             result.Add(new AppMetricSample("storage", storageTop));
+
+            var storageReadTop = grouped
+                .Where(a => a.StorageReadBytesPerSec > MetricsHistory.AppUsageEpsilon)
+                .OrderByDescending(a => a.StorageReadBytesPerSec)
+                .Take(MetricsHistory.TopAppsPerSample)
+                .Select(a => new AppUsagePoint(a.Name, a.StorageReadBytesPerSec, null))
+                .ToList();
+            result.Add(new AppMetricSample("storage-read", storageReadTop));
+
+            var storageWriteTop = grouped
+                .Where(a => a.StorageWriteBytesPerSec > MetricsHistory.AppUsageEpsilon)
+                .OrderByDescending(a => a.StorageWriteBytesPerSec)
+                .Take(MetricsHistory.TopAppsPerSample)
+                .Select(a => new AppUsagePoint(a.Name, a.StorageWriteBytesPerSec, null))
+                .ToList();
+            result.Add(new AppMetricSample("storage-write", storageWriteTop));
         }
 
         var gpuEntries = _gpuProcesses.GetSnapshot();
@@ -140,12 +162,30 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
         var netEntries = _network.GetSnapshot(allowOnDemandSample: false);
         if (netEntries.Count > 0)
         {
-            var netTop = ComputeNetRates(netEntries)
+            var (netRates, netSplitRates) = ComputeNetRates(netEntries);
+
+            var netTop = netRates
                 .Where(a => a.Value > MetricsHistory.AppUsageEpsilon)
                 .OrderByDescending(a => a.Value)
                 .Take(MetricsHistory.TopAppsPerSample)
                 .ToList();
             result.Add(new AppMetricSample("net", netTop));
+
+            var netDownTop = netSplitRates
+                .Where(a => a.DownBytesPerSec > MetricsHistory.AppUsageEpsilon)
+                .OrderByDescending(a => a.DownBytesPerSec)
+                .Take(MetricsHistory.TopAppsPerSample)
+                .Select(a => new AppUsagePoint(a.Name, a.DownBytesPerSec, null))
+                .ToList();
+            result.Add(new AppMetricSample("net-down", netDownTop));
+
+            var netUpTop = netSplitRates
+                .Where(a => a.UpBytesPerSec > MetricsHistory.AppUsageEpsilon)
+                .OrderByDescending(a => a.UpBytesPerSec)
+                .Take(MetricsHistory.TopAppsPerSample)
+                .Select(a => new AppUsagePoint(a.Name, a.UpBytesPerSec, null))
+                .ToList();
+            result.Add(new AppMetricSample("net-up", netUpTop));
         }
 
         return result;
@@ -158,7 +198,7 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
     // MonitoringBroadcaster's separate delta tracking for the live
     // "network" topic (two independent consumers of one cumulative
     // snapshot, at their own cadences).
-    private List<AppUsagePoint> ComputeNetRates(IReadOnlyList<NetworkProcessInfo> current)
+    private (List<AppUsagePoint> Combined, List<AppNetSplitPoint> Split) ComputeNetRates(IReadOnlyList<NetworkProcessInfo> current)
     {
         var nowTicksMs = Environment.TickCount64;
         var currentByName = new Dictionary<string, (long BytesIn, long BytesOut)>(current.Count, StringComparer.OrdinalIgnoreCase);
@@ -167,11 +207,12 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
             currentByName[info.Name] = (info.BytesIn, info.BytesOut);
         }
 
-        var points = ComputeNetRatesCore(_prevNetByName, _prevNetTicksMs, currentByName, nowTicksMs);
+        var combined = ComputeNetRatesCore(_prevNetByName, _prevNetTicksMs, currentByName, nowTicksMs);
+        var split = ComputeNetSplitRatesCore(_prevNetByName, _prevNetTicksMs, currentByName, nowTicksMs);
 
         _prevNetByName = currentByName;
         _prevNetTicksMs = nowTicksMs;
-        return points;
+        return (combined, split);
     }
 
     /// <summary>Pure delta math extracted from ComputeNetRates, mirroring
@@ -206,6 +247,42 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
                 continue;
             }
             points.Add(new AppUsagePoint(name, (deltaIn + deltaOut) / seconds, null));
+        }
+        return points;
+    }
+
+    /// <summary>Per-app download/upload rates, matching the same drop rules
+    /// as ComputeNetRatesCore (no baseline, over-threshold gap, or a
+    /// negative delta in either direction all drop the app) but keeping the
+    /// two directions apart instead of summing them - powers the
+    /// "net-down"/"net-up" metrics alongside ComputeNetRatesCore's combined
+    /// "net". Internal and static for the same deterministic-test seam as
+    /// ComputeNetRatesCore.</summary>
+    internal static List<AppNetSplitPoint> ComputeNetSplitRatesCore(
+        IReadOnlyDictionary<string, (long BytesIn, long BytesOut)> prevByName, long prevTicksMs,
+        IReadOnlyDictionary<string, (long BytesIn, long BytesOut)> currentByName, long nowTicksMs)
+    {
+        var points = new List<AppNetSplitPoint>();
+        var elapsedMs = nowTicksMs - prevTicksMs;
+        if (prevTicksMs < 0 || elapsedMs <= 0 || elapsedMs > MaxNetElapsedMs)
+        {
+            return points;
+        }
+
+        var seconds = elapsedMs / 1000.0;
+        foreach (var (name, bytes) in currentByName)
+        {
+            if (!prevByName.TryGetValue(name, out var prev))
+            {
+                continue;
+            }
+            var deltaIn = bytes.BytesIn - prev.BytesIn;
+            var deltaOut = bytes.BytesOut - prev.BytesOut;
+            if (deltaIn < 0 || deltaOut < 0)
+            {
+                continue;
+            }
+            points.Add(new AppNetSplitPoint(name, deltaIn / seconds, deltaOut / seconds));
         }
         return points;
     }

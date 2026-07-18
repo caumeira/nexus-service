@@ -11,11 +11,12 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// Binary-file-backed IAppUsageHistoryStore (Phase 4 of the metrics-store
 /// design's per-app tier - the storage-dominant, hardest tier): a global
 /// AppNameDictionary shared by every metric, plus independent metric kinds
-/// (cpu, memory, gpu, vram, storage, net) each stored as append-only
-/// per-UTC-day segment files under their own directory. storage and net
-/// carry no gpu dimension and share one wire format: raw bytes/sec stored
-/// as an int64 (StorageRecordWidth), wider than the x10 fixed-point int32
-/// SimpleRecordWidth uses for cpu/mem, so a disk or network throughput
+/// (cpu, memory, gpu, vram, storage, net, storage-read, storage-write,
+/// net-down, net-up) each stored as append-only per-UTC-day segment files
+/// under their own directory. storage/net and their read-write/down-up
+/// splits carry no gpu dimension and share one wire format: raw bytes/sec
+/// stored as an int64 (StorageRecordWidth), wider than the x10 fixed-point
+/// int32 SimpleRecordWidth uses for cpu/mem, so a disk or network throughput
 /// reading past roughly 2 GB/s stays representable instead of overflowing.
 /// Retention drops whole day files once
 /// every tick they hold is older than the prune cutoff; PruneFloorSec then
@@ -52,11 +53,19 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// </summary>
 internal sealed class AppUsageStore : IDisposable
 {
-    private enum AppMetricKind { Cpu = 0, Mem = 1, Gpu = 2, Vram = 3, Storage = 4, Net = 5 }
+    private enum AppMetricKind
+    {
+        Cpu = 0, Mem = 1, Gpu = 2, Vram = 3, Storage = 4, Net = 5,
+        StorageRead = 6, StorageWrite = 7, NetDown = 8, NetUp = 9,
+    }
 
-    private static readonly string[] KindDirNames = { "cpu", "mem", "gpu", "vram", "storage", "net" };
+    private static readonly string[] KindDirNames =
+        { "cpu", "mem", "gpu", "vram", "storage", "net", "storage-read", "storage-write", "net-down", "net-up" };
     private static readonly AppMetricKind[] AllKinds =
-        { AppMetricKind.Cpu, AppMetricKind.Mem, AppMetricKind.Gpu, AppMetricKind.Vram, AppMetricKind.Storage, AppMetricKind.Net };
+    {
+        AppMetricKind.Cpu, AppMetricKind.Mem, AppMetricKind.Gpu, AppMetricKind.Vram, AppMetricKind.Storage, AppMetricKind.Net,
+        AppMetricKind.StorageRead, AppMetricKind.StorageWrite, AppMetricKind.NetDown, AppMetricKind.NetUp,
+    };
 
     private const int SecondsPerDay = 86_400;
 
@@ -65,12 +74,12 @@ internal sealed class AppUsageStore : IDisposable
     private const int SimpleRecordWidth = 6;
     private const int GpuRecordWidth = 10;
     private const int VramRecordWidth = 8;
-    // Storage and net both carry raw bytes/sec (an int64, matching
-    // SqliteMetricsHistoryStore's value_bps column) rather than the x10
-    // fixed-point percent SimpleRecordWidth's int32 slot holds - disk/network
-    // throughput on a fast NVMe drive or NIC exceeds int32 range. Shared by
-    // WriteStorageDay/ReadStorageDay below, parameterized over which of the
-    // two kinds is being written/read.
+    // Storage/net and their read-write/down-up splits all carry raw
+    // bytes/sec (an int64, matching SqliteMetricsHistoryStore's value_bps
+    // column) rather than the x10 fixed-point percent SimpleRecordWidth's
+    // int32 slot holds - disk/network throughput on a fast NVMe drive or NIC
+    // exceeds int32 range. Shared by WriteStorageDay/ReadStorageDay below,
+    // parameterized over which of the six kinds is being written/read.
     private const int StorageRecordWidth = 10;
 
     private readonly record struct AppEntry(int GlobalId, int GpuIndex, double Value, double? VramMb);
@@ -138,6 +147,10 @@ internal sealed class AppUsageStore : IDisposable
             var vramByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, int GpuIndex, int ValueMb)> Apps)>>();
             var storageByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, long ValueBps)> Apps)>>();
             var netByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, long ValueBps)> Apps)>>();
+            var storageReadByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, long ValueBps)> Apps)>>();
+            var storageWriteByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, long ValueBps)> Apps)>>();
+            var netDownByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, long ValueBps)> Apps)>>();
+            var netUpByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, long ValueBps)> Apps)>>();
 
             // Name resolution happens here, in tick-array order (not sorted
             // by ts), matching SqliteMetricsHistoryStore.InsertAppRows -
@@ -152,6 +165,10 @@ internal sealed class AppUsageStore : IDisposable
                 List<(int, int, int)>? vramEntries = null;
                 List<(int, long)>? storageEntries = null;
                 List<(int, long)>? netEntries = null;
+                List<(int, long)>? storageReadEntries = null;
+                List<(int, long)>? storageWriteEntries = null;
+                List<(int, long)>? netDownEntries = null;
+                List<(int, long)>? netUpEntries = null;
 
                 foreach (var metric in tick.Metrics)
                 {
@@ -201,6 +218,54 @@ internal sealed class AppUsageStore : IDisposable
                         foreach (var a in metric.Apps)
                         {
                             netEntries.Add((_names.RegisterOrGet(a.Name), ScaleWholeToInt64(a.Value)));
+                        }
+                    }
+                    else if (metric.Metric == "storage-read")
+                    {
+                        if (metric.Apps.Count == 0)
+                        {
+                            continue;
+                        }
+                        storageReadEntries = new List<(int, long)>(metric.Apps.Count);
+                        foreach (var a in metric.Apps)
+                        {
+                            storageReadEntries.Add((_names.RegisterOrGet(a.Name), ScaleWholeToInt64(a.Value)));
+                        }
+                    }
+                    else if (metric.Metric == "storage-write")
+                    {
+                        if (metric.Apps.Count == 0)
+                        {
+                            continue;
+                        }
+                        storageWriteEntries = new List<(int, long)>(metric.Apps.Count);
+                        foreach (var a in metric.Apps)
+                        {
+                            storageWriteEntries.Add((_names.RegisterOrGet(a.Name), ScaleWholeToInt64(a.Value)));
+                        }
+                    }
+                    else if (metric.Metric == "net-down")
+                    {
+                        if (metric.Apps.Count == 0)
+                        {
+                            continue;
+                        }
+                        netDownEntries = new List<(int, long)>(metric.Apps.Count);
+                        foreach (var a in metric.Apps)
+                        {
+                            netDownEntries.Add((_names.RegisterOrGet(a.Name), ScaleWholeToInt64(a.Value)));
+                        }
+                    }
+                    else if (metric.Metric == "net-up")
+                    {
+                        if (metric.Apps.Count == 0)
+                        {
+                            continue;
+                        }
+                        netUpEntries = new List<(int, long)>(metric.Apps.Count);
+                        foreach (var a in metric.Apps)
+                        {
+                            netUpEntries.Add((_names.RegisterOrGet(a.Name), ScaleWholeToInt64(a.Value)));
                         }
                     }
                     else if (metric.Metric.StartsWith("gpu:", StringComparison.Ordinal))
@@ -257,6 +322,22 @@ internal sealed class AppUsageStore : IDisposable
                 {
                     AddPending(netByDay, day, tick.TsSec, netEntries);
                 }
+                if (storageReadEntries is { Count: > 0 })
+                {
+                    AddPending(storageReadByDay, day, tick.TsSec, storageReadEntries);
+                }
+                if (storageWriteEntries is { Count: > 0 })
+                {
+                    AddPending(storageWriteByDay, day, tick.TsSec, storageWriteEntries);
+                }
+                if (netDownEntries is { Count: > 0 })
+                {
+                    AddPending(netDownByDay, day, tick.TsSec, netDownEntries);
+                }
+                if (netUpEntries is { Count: > 0 })
+                {
+                    AddPending(netUpByDay, day, tick.TsSec, netUpEntries);
+                }
             }
 
             foreach (var (day, dayTicks) in cpuByDay)
@@ -282,6 +363,22 @@ internal sealed class AppUsageStore : IDisposable
             foreach (var (day, dayTicks) in netByDay)
             {
                 WriteStorageDay(AppMetricKind.Net, day, dayTicks);
+            }
+            foreach (var (day, dayTicks) in storageReadByDay)
+            {
+                WriteStorageDay(AppMetricKind.StorageRead, day, dayTicks);
+            }
+            foreach (var (day, dayTicks) in storageWriteByDay)
+            {
+                WriteStorageDay(AppMetricKind.StorageWrite, day, dayTicks);
+            }
+            foreach (var (day, dayTicks) in netDownByDay)
+            {
+                WriteStorageDay(AppMetricKind.NetDown, day, dayTicks);
+            }
+            foreach (var (day, dayTicks) in netUpByDay)
+            {
+                WriteStorageDay(AppMetricKind.NetUp, day, dayTicks);
             }
         }
 
@@ -806,7 +903,8 @@ internal sealed class AppUsageStore : IDisposable
                 AppMetricKind.Cpu or AppMetricKind.Mem => ReadSimpleDay(segPath, idMap),
                 AppMetricKind.Gpu => ReadGpuDay(segPath, idMap),
                 AppMetricKind.Vram => ReadVramDay(segPath, idMap),
-                AppMetricKind.Storage or AppMetricKind.Net => ReadStorageDay(segPath, idMap),
+                AppMetricKind.Storage or AppMetricKind.Net or AppMetricKind.StorageRead or AppMetricKind.StorageWrite
+                    or AppMetricKind.NetDown or AppMetricKind.NetUp => ReadStorageDay(segPath, idMap),
                 _ => new List<(long, List<AppEntry>)>(),
             };
         }
@@ -873,6 +971,22 @@ internal sealed class AppUsageStore : IDisposable
         if (metric == "net")
         {
             return (AppMetricKind.Net, null);
+        }
+        if (metric == "storage-read")
+        {
+            return (AppMetricKind.StorageRead, null);
+        }
+        if (metric == "storage-write")
+        {
+            return (AppMetricKind.StorageWrite, null);
+        }
+        if (metric == "net-down")
+        {
+            return (AppMetricKind.NetDown, null);
+        }
+        if (metric == "net-up")
+        {
+            return (AppMetricKind.NetUp, null);
         }
         if (metric == "gpu")
         {
