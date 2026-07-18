@@ -35,6 +35,12 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// class's doc for why privacy sessions get their own format (low-volume,
 /// transition-driven, keyed by (appId, capability, startUtcSec) instead of a
 /// timestamp).
+///
+/// Phase 6 wires this store into NexusServiceCollectionExtensions behind the
+/// NEXUS_BINARY_METRICS_STORE env flag, an A/B alternative to
+/// SqliteMetricsHistoryStore (the default when the flag is unset); the
+/// parameterless constructor resolves the same shared config root
+/// SqliteMetricsHistoryStore's own default path uses.
 /// </summary>
 public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageHistoryStore, IPrivacySessionStore
 {
@@ -72,6 +78,8 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
     // the same Append prune cutoff, every time) - so on reopen it is exactly
     // as current as what the rings themselves already hide, never behind it.
     private long? _sourceFloorSec;
+
+    public BinaryMetricsHistoryStore() : this(ResolveDefaultDataDir()) { }
 
     public BinaryMetricsHistoryStore(string dbDir)
     {
@@ -366,4 +374,10 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
         _apps.Dispose();
         _superBlock.Dispose();
     }
+
+    // Sibling directory to SqliteMetricsHistoryStore's own metrics.db, under
+    // the same shared config root - see the design notes' on-disk layout
+    // (db/metrics/).
+    private static string ResolveDefaultDataDir() =>
+        Path.Combine(Nexus.Service.Persistence.NexusDataPaths.DatabaseDir(), "metrics");
 }

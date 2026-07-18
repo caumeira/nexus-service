@@ -310,6 +310,13 @@ public static class NexusServiceCollectionExtensions
     /// (AddNexusCore), ISensorProvider (AddNexusSensors), IFanControlProvider
     /// (AddNexusCooling), and ISmartHealthSource (AddNexusDiagnostics) having
     /// already been registered.
+    ///
+    /// The store itself is an A/B choice behind NEXUS_BINARY_METRICS_STORE=1
+    /// (Nexus.Service.Monitoring.History.Binary.BinaryMetricsHistoryStore,
+    /// see its class doc); unset or any other value keeps
+    /// SqliteMetricsHistoryStore, the default. Either one failing to
+    /// construct falls back to InMemoryMetricsHistoryStore, same as before
+    /// this flag existed.
     /// </summary>
     public static IServiceCollection AddNexusMonitoringHistory(this IServiceCollection services)
     {
@@ -318,13 +325,17 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Monitoring.History.MetricsSampleBuffer>();
         services.AddSingleton<Nexus.Service.Monitoring.History.IMetricsHistoryStore>(_ =>
         {
+            var useBinaryStore = Environment.GetEnvironmentVariable("NEXUS_BINARY_METRICS_STORE") == "1";
             try
             {
-                return new Nexus.Service.Monitoring.History.SqliteMetricsHistoryStore();
+                return useBinaryStore
+                    ? new Nexus.Service.Monitoring.History.Binary.BinaryMetricsHistoryStore()
+                    : new Nexus.Service.Monitoring.History.SqliteMetricsHistoryStore();
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[metrics-history-store] sqlite unavailable, using in-memory: {ex.Message}");
+                var storeName = useBinaryStore ? "binary" : "sqlite";
+                Console.Error.WriteLine($"[metrics-history-store] {storeName} unavailable, using in-memory: {ex.Message}");
                 return new Nexus.Service.Monitoring.History.InMemoryMetricsHistoryStore();
             }
         });

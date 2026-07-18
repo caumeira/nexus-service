@@ -16,8 +16,10 @@ namespace Nexus.Service.Tests.Monitoring.History.Binary;
 /// whole-day-file retention (a day strictly before the prune cutoff is
 /// deleted from disk, not just hidden), the boundary day (astride the
 /// cutoff) staying on disk while its pre-cutoff ticks are hidden at read
-/// time, and a reader never observing a torn value while a writer is
-/// concurrently appending.
+/// time, a torn trailing tick record (a crash mid-append) getting truncated
+/// away before a later append so the new record stays reachable, and a
+/// reader never observing a torn value while a writer is concurrently
+/// appending.
 /// </summary>
 public class AppUsageStoreTests : IDisposable
 {
@@ -96,6 +98,32 @@ public class AppUsageStoreTests : IDisposable
         var points = store.QueryAppSeries("cpu", "app.exe", 0, 10_000);
         var point = Assert.Single(points);
         Assert.Equal(3000, point.TsSec);
+    }
+
+    [Fact]
+    public void Append_WithATornTrailingTickRecord_TruncatesIt_SoALaterAppendLandsCleanly()
+    {
+        using var store = new AppUsageStore(_dir, _ => null);
+        store.Append(new[] { CpuTick(1000, ("app.exe", 10)) }, null); // day 0
+
+        // Simulate a crash mid-append: a trailing tick record whose declared
+        // app count claims more entries than actually follow it.
+        var segPath = Path.Combine(_dir, "cpu", "0.seg");
+        using (var fs = new FileStream(segPath, FileMode.Open, FileAccess.ReadWrite))
+        {
+            fs.Seek(0, SeekOrigin.End);
+            fs.Write(BitConverter.GetBytes(2000L));
+            fs.Write(BitConverter.GetBytes((ushort)50)); // count: claims 50 app entries
+            fs.Write(new byte[] { 1, 2, 3 });             // far short of that many entries
+        }
+
+        // A later append to the same day must land right after the last
+        // good record, not behind the unreachable garbage - otherwise this
+        // new tick would never be reachable again.
+        store.Append(new[] { CpuTick(3000, ("app.exe", 30)) }, null);
+
+        var points = store.QueryAppSeries("cpu", "app.exe", 0, 10_000);
+        Assert.Equal(new long[] { 1000, 3000 }, points.Select(p => p.TsSec).ToArray());
     }
 
     [Fact]

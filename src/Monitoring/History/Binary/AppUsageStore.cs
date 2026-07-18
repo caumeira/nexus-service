@@ -36,6 +36,13 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// minute, not per tick - simpler lifetime management than the per-entity
 /// ring files GpuRingStore/FanRingStore/TempComponentRingStore keep open for
 /// the store's whole lifetime, at a cost this call rate never notices.
+///
+/// Because there is no long-lived writer handle, a torn trailing tick record
+/// from a crash mid-append is not caught at store-open time the way
+/// AppNameDictionary/AppLocalIdMap/EntityRegistry catch theirs - instead
+/// TruncateTornTail runs at the start of every Write*Day call, immediately
+/// before it appends, so a day segment is always clean before new records
+/// land after it.
 /// </summary>
 internal sealed class AppUsageStore : IDisposable
 {
@@ -45,6 +52,12 @@ internal sealed class AppUsageStore : IDisposable
     private static readonly AppMetricKind[] AllKinds = { AppMetricKind.Cpu, AppMetricKind.Mem, AppMetricKind.Gpu, AppMetricKind.Vram };
 
     private const int SecondsPerDay = 86_400;
+
+    // Per-record byte width for each day-segment format, shared between each
+    // kind's Write*Tick/Read*Day pair and TruncateTornTail below.
+    private const int SimpleRecordWidth = 6;
+    private const int GpuRecordWidth = 10;
+    private const int VramRecordWidth = 8;
 
     private readonly record struct AppEntry(int GlobalId, int GpuIndex, double Value, double? VramMb);
 
@@ -312,7 +325,9 @@ internal sealed class AppUsageStore : IDisposable
         // segment record pointing past the map).
         idMap.Flush();
 
-        using var fs = new FileStream(SegPath(kind, day), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+        var segPath = SegPath(kind, day);
+        TruncateTornTail(segPath, SimpleRecordWidth);
+        using var fs = new FileStream(segPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
         fs.Seek(0, SeekOrigin.End);
         foreach (var (ts, apps) in resolvedTicks)
         {
@@ -323,7 +338,7 @@ internal sealed class AppUsageStore : IDisposable
 
     private static void WriteSimpleTick(FileStream fs, long ts, List<(ushort LocalId, int ValueX10)> apps)
     {
-        const int RecordWidth = 6;
+        const int RecordWidth = SimpleRecordWidth;
         var bodyLength = 10 + apps.Count * RecordWidth;
         var buf = new byte[bodyLength + 4];
         BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(0, 8), ts);
@@ -343,7 +358,7 @@ internal sealed class AppUsageStore : IDisposable
 
     private static List<(long Ts, List<AppEntry> Apps)> ReadSimpleDay(string path, int[] idMap)
     {
-        const int RecordWidth = 6;
+        const int RecordWidth = SimpleRecordWidth;
         var result = new List<(long, List<AppEntry>)>();
         var bytes = File.ReadAllBytes(path);
         var pos = 0;
@@ -405,7 +420,9 @@ internal sealed class AppUsageStore : IDisposable
 
         idMap.Flush();
 
-        using var fs = new FileStream(SegPath(AppMetricKind.Gpu, day), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+        var segPath = SegPath(AppMetricKind.Gpu, day);
+        TruncateTornTail(segPath, GpuRecordWidth);
+        using var fs = new FileStream(segPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
         fs.Seek(0, SeekOrigin.End);
         foreach (var (ts, apps) in resolvedTicks)
         {
@@ -416,7 +433,7 @@ internal sealed class AppUsageStore : IDisposable
 
     private static void WriteGpuTick(FileStream fs, long ts, List<(ushort LocalId, int GpuIndex, short LoadX10, int VramMbOrSentinel)> apps)
     {
-        const int RecordWidth = 10;
+        const int RecordWidth = GpuRecordWidth;
         var bodyLength = 10 + apps.Count * RecordWidth;
         var buf = new byte[bodyLength + 4];
         BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(0, 8), ts);
@@ -438,7 +455,7 @@ internal sealed class AppUsageStore : IDisposable
 
     private static List<(long Ts, List<AppEntry> Apps)> ReadGpuDay(string path, int[] idMap)
     {
-        const int RecordWidth = 10;
+        const int RecordWidth = GpuRecordWidth;
         var result = new List<(long, List<AppEntry>)>();
         var bytes = File.ReadAllBytes(path);
         var pos = 0;
@@ -502,7 +519,9 @@ internal sealed class AppUsageStore : IDisposable
 
         idMap.Flush();
 
-        using var fs = new FileStream(SegPath(AppMetricKind.Vram, day), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+        var segPath = SegPath(AppMetricKind.Vram, day);
+        TruncateTornTail(segPath, VramRecordWidth);
+        using var fs = new FileStream(segPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
         fs.Seek(0, SeekOrigin.End);
         foreach (var (ts, apps) in resolvedTicks)
         {
@@ -513,7 +532,7 @@ internal sealed class AppUsageStore : IDisposable
 
     private static void WriteVramTick(FileStream fs, long ts, List<(ushort LocalId, int GpuIndex, int ValueMb)> apps)
     {
-        const int RecordWidth = 8;
+        const int RecordWidth = VramRecordWidth;
         var bodyLength = 10 + apps.Count * RecordWidth;
         var buf = new byte[bodyLength + 4];
         BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(0, 8), ts);
@@ -534,7 +553,7 @@ internal sealed class AppUsageStore : IDisposable
 
     private static List<(long Ts, List<AppEntry> Apps)> ReadVramDay(string path, int[] idMap)
     {
-        const int RecordWidth = 8;
+        const int RecordWidth = VramRecordWidth;
         var result = new List<(long, List<AppEntry>)>();
         var bytes = File.ReadAllBytes(path);
         var pos = 0;
@@ -571,6 +590,52 @@ internal sealed class AppUsageStore : IDisposable
             pos += bodyLength + 4;
         }
         return result;
+    }
+
+    // A crash mid-append can leave a torn trailing tick record in a day
+    // segment; unlike AppNameDictionary/AppLocalIdMap/EntityRegistry, this
+    // format has no long-lived writer handle to truncate the file at load
+    // time, so each Write*Day call truncates immediately before it appends -
+    // otherwise the new records would land after unreachable garbage and
+    // every future ReadKindDay would stop at that garbage, never reaching
+    // them (see ComputeCleanLength for the shared bounds/Crc walk every
+    // Read*Day method above already performs).
+    private static void TruncateTornTail(string segPath, int recordWidth)
+    {
+        if (!File.Exists(segPath))
+        {
+            return;
+        }
+
+        var bytes = File.ReadAllBytes(segPath);
+        var cleanLength = ComputeCleanLength(bytes, recordWidth);
+        if (cleanLength != bytes.Length)
+        {
+            using var fs = new FileStream(segPath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            fs.SetLength(cleanLength);
+        }
+    }
+
+    private static long ComputeCleanLength(byte[] bytes, int recordWidth)
+    {
+        var pos = 0;
+        while (pos + 10 <= bytes.Length)
+        {
+            var count = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(pos + 8, 2));
+            var bodyLength = 10 + count * recordWidth;
+            if (pos + bodyLength + 4 > bytes.Length)
+            {
+                break;
+            }
+
+            var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(pos + bodyLength, 4));
+            if (Crc32.Compute(bytes.AsSpan(pos, bodyLength)) != expectedCrc)
+            {
+                break;
+            }
+            pos += bodyLength + 4;
+        }
+        return pos;
     }
 
     private List<(long Ts, List<AppEntry> Apps)> ReadKindDay(AppMetricKind kind, long day)
