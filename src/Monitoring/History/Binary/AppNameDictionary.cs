@@ -12,13 +12,19 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// metric kind (cpu/memory/gpu/vram) and every day segment - the binary
 /// equivalent of SqliteMetricsHistoryStore's app_series table. Structurally
 /// identical to EntityRegistry (append-order-is-index, Volatile-published
-/// array, truncate-on-torn-tail recovery) with two differences: names dedupe
-/// case-insensitively (matching app_series' COLLATE NOCASE, so "Chrome.exe"
-/// and "chrome.exe" resolve to the same id with the first-seen casing kept),
-/// and there is no capacity cap - a real system accumulates at most a few
-/// thousand distinct process names over any realistic retention window,
-/// trivial to hold in RAM, unlike gpu/fan/temperature-component counts which
-/// are capped because they are indexed by a per-entity ring file.
+/// array, truncate-on-torn-tail recovery), and there is no capacity cap - a
+/// real system accumulates at most a few thousand distinct process names
+/// over any realistic retention window, trivial to hold in RAM, unlike
+/// gpu/fan/temperature-component counts which are capped because they are
+/// indexed by a per-entity ring file.
+///
+/// Name comparison is caller-supplied (see Open's comparer parameter): the
+/// metrics app-usage tier dedupes case-insensitively, matching app_series'
+/// COLLATE NOCASE, so "Chrome.exe" and "chrome.exe" resolve to the same id
+/// with the first-seen casing kept - BinaryScreenTimeStore instead opens its
+/// own dedicated instance with StringComparer.Ordinal, matching
+/// SqliteScreenTimeStore's sessions.app_name column, which carries no
+/// COLLATE NOCASE and so treats differently-cased names as distinct apps.
 ///
 /// AppUsageStore is the only writer (RegisterOrGet), matching the
 /// single-writer assumption the whole binary store is built on; a concurrent
@@ -35,19 +41,25 @@ namespace Nexus.Service.Monitoring.History.Binary;
 internal sealed class AppNameDictionary : IDisposable
 {
     private readonly FileStream _file;
+    private readonly StringComparer _comparer;
     private string[] _names = Array.Empty<string>();
-    private readonly Dictionary<string, int> _idByName = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, int> _idByName;
 
-    private AppNameDictionary(FileStream file)
+    private AppNameDictionary(FileStream file, StringComparer comparer)
     {
         _file = file;
+        _comparer = comparer;
+        _idByName = new Dictionary<string, int>(comparer);
         Load();
     }
 
-    public static AppNameDictionary Open(string path)
+    /// <param name="comparer">How names dedupe; defaults to
+    /// case-insensitive, matching every caller before this parameter
+    /// existed.</param>
+    public static AppNameDictionary Open(string path, StringComparer? comparer = null)
     {
         var file = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
-        return new AppNameDictionary(file);
+        return new AppNameDictionary(file, comparer ?? StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Every registered name, in id order (index == id) - a
@@ -55,9 +67,9 @@ internal sealed class AppNameDictionary : IDisposable
     /// publishing a longer one.</summary>
     public IReadOnlyList<string> Names => Volatile.Read(ref _names);
 
-    /// <summary>Registers name if unseen (case-insensitively) and returns its
-    /// id, or returns the existing id - with the first-seen casing - if
-    /// already registered.</summary>
+    /// <summary>Registers name if unseen (per this instance's comparer) and
+    /// returns its id, or returns the existing id - with the first-seen
+    /// casing - if already registered.</summary>
     public int RegisterOrGet(string name)
     {
         if (_idByName.TryGetValue(name, out var existing))
@@ -76,13 +88,13 @@ internal sealed class AppNameDictionary : IDisposable
         return id;
     }
 
-    /// <summary>The id for name (case-insensitive), or null if never
-    /// registered - a pure lookup that never registers a new name, unlike
-    /// RegisterOrGet. Scans the Volatile-published Names array rather than
-    /// the private _idByName dictionary RegisterOrGet uses: _idByName has no
-    /// Volatile discipline (only the single writer ever touches it), so a
-    /// concurrent query reading it while RegisterOrGet inserts could see a
-    /// torn dictionary. Names is bounded by how many distinct process names
+    /// <summary>The id for name (per this instance's comparer), or null if
+    /// never registered - a pure lookup that never registers a new name,
+    /// unlike RegisterOrGet. Scans the Volatile-published Names array rather
+    /// than the private _idByName dictionary RegisterOrGet uses: _idByName
+    /// has no Volatile discipline (only the single writer ever touches it),
+    /// so a concurrent query reading it while RegisterOrGet inserts could see
+    /// a torn dictionary. Names is bounded by how many distinct process names
     /// this box has ever seen (at most a few thousand - see the class doc),
     /// so the scan costs nothing worth avoiding.</summary>
     public int? TryGetId(string name)
@@ -90,7 +102,7 @@ internal sealed class AppNameDictionary : IDisposable
         var names = Volatile.Read(ref _names);
         for (var i = 0; i < names.Length; i++)
         {
-            if (string.Equals(names[i], name, StringComparison.OrdinalIgnoreCase))
+            if (_comparer.Equals(names[i], name))
             {
                 return i;
             }

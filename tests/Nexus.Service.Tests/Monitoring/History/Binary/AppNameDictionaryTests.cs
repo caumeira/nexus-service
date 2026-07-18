@@ -54,6 +54,19 @@ public class AppNameDictionaryTests : IDisposable
     }
 
     [Fact]
+    public void RegisterOrGet_WithAnOrdinalComparer_TreatsDifferentCasingAsDistinctNames()
+    {
+        using var dict = AppNameDictionary.Open(_path, StringComparer.Ordinal);
+
+        var first = dict.RegisterOrGet("Slack");
+        var second = dict.RegisterOrGet("slack");
+
+        Assert.NotEqual(first, second);
+        Assert.Equal(2, dict.Names.Count);
+        Assert.Null(dict.TryGetId("SLACK"));
+    }
+
+    [Fact]
     public void RegisterOrGet_KeepsTheFirstSeenCasing()
     {
         using var dict = AppNameDictionary.Open(_path);
