@@ -103,6 +103,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void SetSync(string sync) => _store.Update(s => s.Lighting.Sync = sync);
 
+    public bool IsPaused => _engine.Paused;
+
+    public void SetPaused(bool paused) => _engine.SetPaused(paused);
+
     // Audio capture runs only while Music Reactive is on and the live engine
     // effect is audio-reactive. The effect is read inside the lock (not from a
     // captured argument) so concurrent transitions resolve to the last committed

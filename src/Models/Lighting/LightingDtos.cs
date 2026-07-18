@@ -23,6 +23,21 @@ public class CurrentSyncResponse : ApiResponse
 {
     /// <summary>One of: none, animate, music, screen, gif.</summary>
     public string Sync { get; set; } = "none";
+    public bool Paused { get; set; }
+}
+
+/// <summary>POST body for /lighting/pause. Freezes the active effect's rendered
+/// frame in place; transient, never persisted to settings.</summary>
+public sealed class LightingPauseBody
+{
+    public bool Paused { get; set; }
+}
+
+/// <summary>Response for /lighting/pause: the paused state after the request,
+/// which may differ from the requested value when there was no active effect.</summary>
+public sealed class LightingPauseResponse
+{
+    public bool Paused { get; set; }
 }
 
 public class BrightnessScale

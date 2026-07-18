@@ -59,6 +59,66 @@ public class LightingEngineTests
     }
 
     [Fact]
+    public async Task Paused_StopsRenderingButKeepsBroadcasting()
+    {
+        using var engine = new LightingEngine();
+        engine.UpdateDevices(MakeDevices());
+        engine.FrameIntervalMs = 10;
+
+        var effect = new CountingEffect("counter");
+        engine.SetEffect(effect);
+
+        var firstFrame = new TaskCompletionSource<bool>();
+        engine.OnFrame += _ => firstFrame.TrySetResult(true);
+        await Task.WhenAny(firstFrame.Task, Task.Delay(2000));
+        Assert.True(firstFrame.Task.IsCompletedSuccessfully, "effect renders before pause");
+
+        engine.SetPaused(true);
+        Assert.True(engine.Paused);
+        var renderCountAtPause = effect.RenderCount;
+
+        var broadcastCount = 0;
+        var gotBroadcastWhilePaused = new TaskCompletionSource<bool>();
+        engine.OnFrame += _ =>
+        {
+            if (System.Threading.Interlocked.Increment(ref broadcastCount) >= 3)
+            {
+                gotBroadcastWhilePaused.TrySetResult(true);
+            }
+        };
+        await Task.WhenAny(gotBroadcastWhilePaused.Task, Task.Delay(2000));
+        Assert.True(gotBroadcastWhilePaused.Task.IsCompletedSuccessfully, "frames keep broadcasting while paused");
+        Assert.Equal(renderCountAtPause, effect.RenderCount);
+
+        engine.SetPaused(false);
+        Assert.False(engine.Paused);
+    }
+
+    [Fact]
+    public void SetEffect_ResetsPaused()
+    {
+        using var engine = new LightingEngine();
+        engine.UpdateDevices(MakeDevices());
+        engine.SetEffect(new TestEffect("first"));
+        engine.SetPaused(true);
+        Assert.True(engine.Paused);
+        engine.SetEffect(new TestEffect("second"));
+        Assert.False(engine.Paused);
+    }
+
+    [Fact]
+    public void Stop_ResetsPaused()
+    {
+        using var engine = new LightingEngine();
+        engine.UpdateDevices(MakeDevices());
+        engine.SetEffect(new TestEffect("stopping"));
+        engine.SetPaused(true);
+        Assert.True(engine.Paused);
+        engine.Stop();
+        Assert.False(engine.Paused);
+    }
+
+    [Fact]
     public void Stop_ClearsEffect()
     {
         using var engine = new LightingEngine();
@@ -109,5 +169,17 @@ public class LightingEngineTests
         {
         }
         public void Dispose() { Disposed = true; }
+    }
+
+    private sealed class CountingEffect : IEffect
+    {
+        public string Name { get; }
+        public int RenderCount;
+        public CountingEffect(string name) { Name = name; }
+        public void RenderFrame(CanvasBuffer canvas, double tickMs)
+        {
+            System.Threading.Interlocked.Increment(ref RenderCount);
+        }
+        public void Dispose() { }
     }
 }

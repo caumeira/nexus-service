@@ -12,6 +12,15 @@ public interface ILightingProvider
     string GetSync();
     void SetSync(string sync);
     void StopAll();
+
+    /// <summary>True when the active effect's rendered frame is frozen.</summary>
+    bool IsPaused { get; }
+
+    /// <summary>
+    /// Freezes or resumes the active effect's rendered frame. A no-op when no
+    /// effect is running. Transient - cleared by SetEffect/Stop, never persisted.
+    /// </summary>
+    void SetPaused(bool paused);
     void SetBrightness(BrightnessScale scale);
     void SetSpeed(SpeedScale scale);
 

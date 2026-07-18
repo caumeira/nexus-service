@@ -425,6 +425,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AudioStateSnapshot))]
 [JsonSerializable(typeof(ShaderSourceResponse))]
 [JsonSerializable(typeof(CurrentSyncResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.LightingPauseBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.LightingPauseResponse))]
 [JsonSerializable(typeof(BrightnessScale))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GlobalBrightnessBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.RenderGpuBody))]

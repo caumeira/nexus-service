@@ -13,6 +13,7 @@ public sealed class LightingEngine : IDisposable
     private Task? _loopTask;
     private volatile IEffect? _currentEffect;
     private volatile DeviceFrame[] _devices = Array.Empty<DeviceFrame>();
+    private volatile bool _paused;
     private byte[] _frameBuffer = Array.Empty<byte>();
 
     public LightingEngine() { _canvas = new CanvasBuffer(160, 90); }
@@ -34,7 +35,26 @@ public sealed class LightingEngine : IDisposable
     public string CurrentEffectName => _currentEffect?.Name ?? "none";
     public IEffect? CurrentEffect => _currentEffect;
     public DeviceFrame[] Devices => _devices;
+    public bool Paused => _paused;
     public void UpdateDevices(DeviceFrame[] devices) { _devices = devices; }
+
+    /// <summary>
+    /// Freezes or resumes the render loop for the current effect; a no-op with
+    /// no active effect. Shares _lock with SetEffect/Stop so a pause request
+    /// racing an effect transition cannot set the flag after that transition
+    /// already cleared it.
+    /// </summary>
+    public void SetPaused(bool paused)
+    {
+        lock (_lock)
+        {
+            if (_currentEffect is null)
+            {
+                return;
+            }
+            _paused = paused;
+        }
+    }
 
     public void SetEffect(IEffect effect)
     {
@@ -42,6 +62,7 @@ public sealed class LightingEngine : IDisposable
         {
             var old = _currentEffect;
             _currentEffect = effect;
+            _paused = false;
             try
             { old?.Dispose(); }
             catch { }
@@ -58,6 +79,7 @@ public sealed class LightingEngine : IDisposable
         {
             var old = _currentEffect;
             _currentEffect = null;
+            _paused = false;
             try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
             try
             { old?.Dispose(); }
@@ -95,11 +117,17 @@ public sealed class LightingEngine : IDisposable
 
                 try
                 {
-                    effect.RenderFrame(_canvas, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                    SampleDevicesFromCanvas();
-                    if (effect is GameSyncEffect gs)
+                    // Paused holds the last rendered canvas/device buffers untouched
+                    // and still broadcasts them every tick, so hardware and preview
+                    // keep receiving frames without the effect clock advancing.
+                    if (!_paused)
                     {
-                        gs.WriteToDevices(_devices);
+                        effect.RenderFrame(_canvas, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                        SampleDevicesFromCanvas();
+                        if (effect is GameSyncEffect gs)
+                        {
+                            gs.WriteToDevices(_devices);
+                        }
                     }
                     SerializeAndBroadcast();
                 }
