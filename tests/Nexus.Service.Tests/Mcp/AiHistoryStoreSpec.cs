@@ -7,17 +7,14 @@ using Xunit;
 namespace Nexus.Service.Tests.Mcp;
 
 /// <summary>
-/// The AI/MCP history behavior IAiHistoryStore's methods must have
-/// regardless of which store implements it: raw sample round-trip, tier
-/// selection by window width, minute/5-minute rollup, per-tier retention
-/// pruning, sensor summary math (including Latest/LatestAtUtcMs coming from
-/// the sensor's own last-recorded state, not the queried window), point
-/// thinning, and the event audit log. Run against both SqliteAiHistoryStore
-/// (SqliteAiHistoryStoreSpecTests) and BinaryAiHistoryStore
-/// (BinaryAiHistoryStoreSpecTests) so a behavior change to either store's
-/// history path is pinned once, not twice. Timestamps are synthetic (a fixed
-/// epoch stepped by hand) so the tiering/rollup math is deterministic and
-/// does not depend on wall-clock time.
+/// The AI/MCP history behavior IAiHistoryStore's methods must have: raw
+/// sample round-trip, tier selection by window width, minute/5-minute
+/// rollup, per-tier retention pruning, sensor summary math (including
+/// Latest/LatestAtUtcMs coming from the sensor's own last-recorded state,
+/// not the queried window), point thinning, and the event audit log. Runs
+/// against BinaryAiHistoryStore (BinaryAiHistoryStoreSpecTests). Timestamps
+/// are synthetic (a fixed epoch stepped by hand) so the tiering/rollup math
+/// is deterministic and does not depend on wall-clock time.
 /// </summary>
 public abstract class AiHistoryStoreSpec : IDisposable
 {
@@ -329,12 +326,6 @@ public abstract class AiHistoryStoreSpec : IDisposable
         var e = Assert.Single(events.Events);
         Assert.Equal("apply_cooling_preset", e.Name);
     }
-}
-
-public sealed class SqliteAiHistoryStoreSpecTests : AiHistoryStoreSpec
-{
-    protected override IAiHistoryStore CreateStore(string dir) =>
-        new SqliteAiHistoryStore(Path.Combine(dir, "ai-history.db"));
 }
 
 public sealed class BinaryAiHistoryStoreSpecTests : AiHistoryStoreSpec

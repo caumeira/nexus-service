@@ -8,14 +8,11 @@ namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
 /// The privacy-session behavior IPrivacySessionStore.Upsert/Query/
-/// PruneOlderThan must have regardless of which store implements it - the
-/// upsert-keyed-by-(appId,capability,start) open/close semantics, the
-/// query window that includes an open session with no upper bound yet, and
-/// the closed-by-end/open-by-start prune floor. Run against both
-/// SqliteMetricsHistoryStore (SqlitePrivacySessionHistorySpecTests) and
-/// BinaryMetricsHistoryStore (BinaryPrivacySessionHistorySpecTests) so a
-/// behavior change to either store's privacy path is pinned once, not
-/// twice.
+/// PruneOlderThan must have - the upsert-keyed-by-(appId,capability,start)
+/// open/close semantics, the query window that includes an open session
+/// with no upper bound yet, and the closed-by-end/open-by-start prune
+/// floor. Runs against BinaryMetricsHistoryStore
+/// (BinaryPrivacySessionHistorySpecTests).
 /// </summary>
 public abstract class PrivacySessionHistorySpec : IDisposable
 {
@@ -160,12 +157,6 @@ public abstract class PrivacySessionHistorySpec : IDisposable
         Assert.Equal("webcam", row.Capability);
         Assert.Equal(1080, row.EndUtcSec);
     }
-}
-
-public sealed class SqlitePrivacySessionHistorySpecTests : PrivacySessionHistorySpec
-{
-    protected override IPrivacySessionStore CreateStore(string dir) =>
-        new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
 }
 
 public sealed class BinaryPrivacySessionHistorySpecTests : PrivacySessionHistorySpec

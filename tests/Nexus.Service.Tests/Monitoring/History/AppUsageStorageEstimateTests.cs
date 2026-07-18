@@ -15,13 +15,9 @@ namespace Nexus.Service.Tests.Monitoring.History;
 /// nonzero reading, so the epsilon filter alone rarely shrinks that table),
 /// then projects it to a full MetricsHistory.RetentionDays window. This is
 /// the evidence behind the cap chosen on TopAppsPerSample's doc comment.
-/// Run against both SqliteMetricsHistoryStore (SqliteAppUsageStorageEstimateTests,
-/// the pre-binary-store baseline) and BinaryMetricsHistoryStore
-/// (BinaryAppUsageStorageEstimateTests, the day-segment replacement) so the
-/// reduction the binary store's per-day 16-bit local app id encoding buys
-/// over the SQLite (ts, app) row format is measured, not assumed - the
-/// binary variant's budget is tightened accordingly instead of reusing
-/// SQLite's generous ceiling.
+/// Runs against BinaryMetricsHistoryStore (BinaryAppUsageStorageEstimateTests,
+/// the day-segment format), measuring the reduction its per-day 16-bit local
+/// app id encoding buys.
 ///
 /// The gpu table is not included in this cpu+memory projection: concurrent
 /// GPU-active processes are bounded by how many actually use the GPU at
@@ -50,9 +46,8 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
     // AppUsageHistorySpec's gpu:<gid>/vram:<gid> tests have.
     private void AppendScalar(MetricSample sample) => ((IMetricsHistoryStore)Store).Append(new[] { sample }, null);
 
-    /// <summary>Total bytes this store has written to disk so far - a single
-    /// db file for SQLite, the recursive sum of the app-data directory for
-    /// the binary store.</summary>
+    /// <summary>Total bytes this store has written to disk so far - the
+    /// recursive sum of the app-data directory.</summary>
     protected abstract long MeasureStorageBytes();
 
     /// <summary>Ceiling for the projected 7-day cpu+memory footprint - a
@@ -227,23 +222,6 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
     }
 }
 
-public sealed class SqliteAppUsageStorageEstimateTests : AppUsageStorageEstimateSpec
-{
-    public SqliteAppUsageStorageEstimateTests(ITestOutputHelper output) : base(output) { }
-
-    protected override IAppUsageHistoryStore CreateStore(string dir) =>
-        new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
-
-    protected override long MeasureStorageBytes() => new FileInfo(Path.Combine(Dir, "metrics.db")).Length;
-
-    // Pre-existing SQLite ceilings, kept generous rather than tight - this
-    // class is the pre-binary-store baseline being compared against, not
-    // the target being tuned.
-    protected override long CpuMemBudgetBytes => 800_000_000;
-    protected override long VramWorstCaseBudgetBytes => 800_000_000;
-    protected override long StorageBudgetBytes => 800_000_000;
-}
-
 public sealed class BinaryAppUsageStorageEstimateTests : AppUsageStorageEstimateSpec
 {
     public BinaryAppUsageStorageEstimateTests(ITestOutputHelper output) : base(output) { }
@@ -253,11 +231,10 @@ public sealed class BinaryAppUsageStorageEstimateTests : AppUsageStorageEstimate
     protected override long MeasureStorageBytes() =>
         new DirectoryInfo(Path.Combine(Dir, "apps")).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
 
-    // Tight relative to the Sqlite ceiling above - this is the assertion
-    // that actually pins the binary store's reduction, not just an upper
-    // bound; a regression back toward SQLite-sized per-row storage fails
-    // this long before it would ever approach the Sqlite ceiling.
+    // A regression back toward a wider per-row encoding fails this long
+    // before it would approach these ceilings - tight relative to the
+    // measured footprint, not a loose upper bound.
     protected override long CpuMemBudgetBytes => 150_000_000;
     protected override long VramWorstCaseBudgetBytes => 100_000_000;
-    protected override long StorageBudgetBytes => 150_000_000;
+    protected override long StorageBudgetBytes => 120_000_000;
 }

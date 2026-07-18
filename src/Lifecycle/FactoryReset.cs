@@ -52,7 +52,7 @@ internal static class FactoryReset
 
     /// Every directory tree Nexus writes user data into, per OS. Mirrors the
     /// path resolvers in JsonConfigStore / MediaLibrary / AppInstallPaths /
-    /// ServiceLog / FirmwareStore / SqliteScreenTimeStore / LocalHttpsCertificate.
+    /// ServiceLog / FirmwareStore / NexusDataPaths / LocalHttpsCertificate.
     private static List<Root> Roots()
     {
         var roots = new List<Root>();
@@ -60,8 +60,9 @@ internal static class FactoryReset
         if (OperatingSystem.IsWindows())
         {
             var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            // %ProgramData%\Nexus: settings, profiles, screentime.db, devices/
-            // (device media + records), media/ (lighting content), drivers/, firmware,
+            // %ProgramData%\Nexus: settings, profiles, db/ (metrics/screentime/
+            // ai-history binary stores), devices/ (device media + records),
+            // media/ (lighting content), drivers/, firmware,
             // logs (nexus-service/overlay/tray/helper/volume/gpu/pawnio),
             // https cert, ffmpeg-pids, DesktopWebView2, openrgb-config. Whole-tree
             // wipe, so the grouped subdirs need no per-name upkeep here.
@@ -92,7 +93,7 @@ internal static class FactoryReset
         else
         {
             // Linux splits user data across the XDG base dirs.
-            roots.Add(new Root(XdgRoot("XDG_CONFIG_HOME", ".config"), Array.Empty<string>()));    // settings, screentime, cert, ffmpeg-pids
+            roots.Add(new Root(XdgRoot("XDG_CONFIG_HOME", ".config"), Array.Empty<string>()));    // settings, db/ (metrics/screentime/ai-history), cert, ffmpeg-pids
             roots.Add(new Root(XdgRoot("XDG_DATA_HOME", ".local", "share"), Array.Empty<string>())); // devices, media, widgets
             roots.Add(new Root(XdgRoot("XDG_CACHE_HOME", ".cache"), Array.Empty<string>()));      // firmware, drivers
             // logs: ~/.local/state/nexus/logs (lowercase, no XDG override in ServiceLog).

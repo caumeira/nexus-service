@@ -9,16 +9,17 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// and QueryDecimated folds several of together into a wider decimation
 /// step.</summary>
 internal readonly record struct ScalarMinuteAgg(
-    FieldAgg Cpu, FieldAgg Mem, FieldAgg NetIn, FieldAgg NetOut, FieldAgg CpuTemp);
+    FieldAgg Cpu, FieldAgg Mem, FieldAgg NetIn, FieldAgg NetOut, FieldAgg CpuTemp, FieldAgg DiskRead, FieldAgg DiskWrite);
 
 /// <summary>
 /// The scalar minute-rollup tier (the binary equivalent of
 /// SqliteMetricsHistoryStore's metric_minutes table): a RingFile keyed by
 /// minute-index (see MinuteTier), one slot per minute holding sum/count/max
-/// for cpu/mem/net-in/net-out/cpu-temp. BinaryMetricsHistoryStore rebuilds a
-/// touched minute's slot from ScalarRingStore's raw per-second data on every
-/// Append - never accumulates - so a replayed second (a backward clock step
-/// re-flushing a ts already committed) is naturally deduped exactly the way
+/// for cpu/mem/net-in/net-out/cpu-temp/disk-read/disk-write.
+/// BinaryMetricsHistoryStore rebuilds a touched minute's slot from
+/// ScalarRingStore's raw per-second data on every Append - never
+/// accumulates - so a replayed second (a backward clock step re-flushing a ts
+/// already committed) is naturally deduped exactly the way
 /// SqliteMetricsHistoryStore.UpsertScalarRollup's own INSERT OR REPLACE
 /// rebuild is.
 ///
@@ -33,13 +34,14 @@ internal readonly record struct ScalarMinuteAgg(
 /// physically deletes pruned rows rather than hiding them behind a read-time
 /// floor.
 ///
-/// Net sum/max stay whole int64 (matching ScalarRingStore's own net fields);
-/// cpu/mem/cpu-temp sum stays a plain i32 (a 60-reading-per-minute x10 sum
-/// tops out at 60000, nowhere near overflowing i32) and their max reuses
-/// FixedPointCodec's x10 i16 codec, the same one a single second's own
-/// reading uses. Sum/max fields carry no null sentinel of their own: Cnt==0
-/// already means "no reading this minute" (FieldAgg's own convention), so a
-/// sum/max value stored alongside a zero count is never read back.
+/// Net/disk sum/max stay whole int64 (matching ScalarRingStore's own
+/// net/disk fields); cpu/mem/cpu-temp sum stays a plain i32 (a
+/// 60-reading-per-minute x10 sum tops out at 60000, nowhere near overflowing
+/// i32) and their max reuses FixedPointCodec's x10 i16 codec, the same one a
+/// single second's own reading uses. Sum/max fields carry no null sentinel of
+/// their own: Cnt==0 already means "no reading this minute" (FieldAgg's own
+/// convention), so a sum/max value stored alongside a zero count is never
+/// read back.
 /// </summary>
 internal sealed class ScalarMinuteRollupRing : IDisposable
 {
@@ -58,7 +60,13 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
     private const int CpuTempSumOffset = NetOutMaxOffset + sizeof(long);
     private const int CpuTempCntOffset = CpuTempSumOffset + sizeof(int);
     private const int CpuTempMaxOffset = CpuTempCntOffset + sizeof(int);
-    private const int BodyLength = CpuTempMaxOffset + sizeof(short);
+    private const int DiskReadSumOffset = CpuTempMaxOffset + sizeof(short);
+    private const int DiskReadCntOffset = DiskReadSumOffset + sizeof(long);
+    private const int DiskReadMaxOffset = DiskReadCntOffset + sizeof(int);
+    private const int DiskWriteSumOffset = DiskReadMaxOffset + sizeof(long);
+    private const int DiskWriteCntOffset = DiskWriteSumOffset + sizeof(long);
+    private const int DiskWriteMaxOffset = DiskWriteCntOffset + sizeof(int);
+    private const int BodyLength = DiskWriteMaxOffset + sizeof(long);
 
     private readonly RingFile _ring;
 
@@ -128,13 +136,16 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
                 agg.Mem.Avg, agg.Mem.MaxOrNull,
                 agg.NetIn.Avg, agg.NetIn.MaxOrNull,
                 agg.NetOut.Avg, agg.NetOut.MaxOrNull,
-                agg.CpuTemp.Avg, agg.CpuTemp.MaxOrNull));
+                agg.CpuTemp.Avg, agg.CpuTemp.MaxOrNull,
+                agg.DiskRead.Avg, agg.DiskRead.MaxOrNull,
+                agg.DiskWrite.Avg, agg.DiskWrite.MaxOrNull));
         }
         return result;
     }
 
     private static ScalarMinuteAgg Combine(ScalarMinuteAgg a, ScalarMinuteAgg b) => new(
-        a.Cpu.Combine(b.Cpu), a.Mem.Combine(b.Mem), a.NetIn.Combine(b.NetIn), a.NetOut.Combine(b.NetOut), a.CpuTemp.Combine(b.CpuTemp));
+        a.Cpu.Combine(b.Cpu), a.Mem.Combine(b.Mem), a.NetIn.Combine(b.NetIn), a.NetOut.Combine(b.NetOut), a.CpuTemp.Combine(b.CpuTemp),
+        a.DiskRead.Combine(b.DiskRead), a.DiskWrite.Combine(b.DiskWrite));
 
     private static void Encode(ScalarMinuteAgg agg, Span<byte> body)
     {
@@ -157,6 +168,14 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
         BinaryPrimitives.WriteInt32LittleEndian(body[CpuTempSumOffset..], ScaleSumX10(agg.CpuTemp.Sum));
         BinaryPrimitives.WriteInt32LittleEndian(body[CpuTempCntOffset..], agg.CpuTemp.Cnt);
         BinaryPrimitives.WriteInt16LittleEndian(body[CpuTempMaxOffset..], FixedPointCodec.ScaleX10(agg.CpuTemp.MaxOrNull));
+
+        BinaryPrimitives.WriteInt64LittleEndian(body[DiskReadSumOffset..], ScaleSumWhole(agg.DiskRead.Sum));
+        BinaryPrimitives.WriteInt32LittleEndian(body[DiskReadCntOffset..], agg.DiskRead.Cnt);
+        BinaryPrimitives.WriteInt64LittleEndian(body[DiskReadMaxOffset..], ScaleSumWhole(agg.DiskRead.MaxOrNull ?? 0));
+
+        BinaryPrimitives.WriteInt64LittleEndian(body[DiskWriteSumOffset..], ScaleSumWhole(agg.DiskWrite.Sum));
+        BinaryPrimitives.WriteInt32LittleEndian(body[DiskWriteCntOffset..], agg.DiskWrite.Cnt);
+        BinaryPrimitives.WriteInt64LittleEndian(body[DiskWriteMaxOffset..], ScaleSumWhole(agg.DiskWrite.MaxOrNull ?? 0));
     }
 
     private static ScalarMinuteAgg Decode(ReadOnlySpan<byte> body)
@@ -181,7 +200,15 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
             BinaryPrimitives.ReadInt32LittleEndian(body[CpuTempSumOffset..]) / 10.0,
             BinaryPrimitives.ReadInt32LittleEndian(body[CpuTempCntOffset..]),
             FixedPointCodec.UnscaleX10(BinaryPrimitives.ReadInt16LittleEndian(body[CpuTempMaxOffset..])) ?? 0);
-        return new ScalarMinuteAgg(cpu, mem, netIn, netOut, cpuTemp);
+        var diskRead = new FieldAgg(
+            BinaryPrimitives.ReadInt64LittleEndian(body[DiskReadSumOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(body[DiskReadCntOffset..]),
+            BinaryPrimitives.ReadInt64LittleEndian(body[DiskReadMaxOffset..]));
+        var diskWrite = new FieldAgg(
+            BinaryPrimitives.ReadInt64LittleEndian(body[DiskWriteSumOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(body[DiskWriteCntOffset..]),
+            BinaryPrimitives.ReadInt64LittleEndian(body[DiskWriteMaxOffset..]));
+        return new ScalarMinuteAgg(cpu, mem, netIn, netOut, cpuTemp, diskRead, diskWrite);
     }
 
     // Mirrors ScalarRingStore's own whole-int clamp (a single second's net

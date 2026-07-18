@@ -8,15 +8,12 @@ using Xunit;
 namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
-/// The minute-rollup tier (metric_minutes/gpu_minutes/fan_minutes in SQLite,
-/// ScalarMinuteRollupRing/GpuRingStore/FanRingStore's minute rings in the
-/// binary store): incremental upsert/rebuild at flush time, and the
+/// The minute-rollup tier - ScalarMinuteRollupRing/GpuRingStore/FanRingStore's
+/// minute rings: incremental upsert/rebuild at flush time, and the
 /// QueryXDecimated dispatch that serves step&gt;=60 (rollup-eligible, per
 /// MetricsHistory.StepLadderSeconds) from it instead of aggregating the raw
-/// per-second data directly. Run against both SqliteMetricsHistoryStore
-/// (SqliteRollupHistorySpecTests) and BinaryMetricsHistoryStore
-/// (BinaryRollupHistorySpecTests) so a behavior change to either store's
-/// rollup path is pinned once, not twice.
+/// per-second data directly. Runs against BinaryMetricsHistoryStore
+/// (BinaryRollupHistorySpecTests).
 /// </summary>
 public abstract class RollupHistorySpec : IDisposable
 {
@@ -43,6 +40,20 @@ public abstract class RollupHistorySpec : IDisposable
         double? diskRead = null, double? diskWrite = null) =>
         new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
             DiskReadBytesPerSec: diskRead, DiskWriteBytesPerSec: diskWrite);
+
+    [Fact]
+    public void DiskRollup_AccumulatesAcrossTwoFlushesLandingInTheSameMinute()
+    {
+        Store.Append(new[] { Scalars(0, cpu: 10, diskRead: 1000, diskWrite: 200), Scalars(1, cpu: 20, diskRead: 3000, diskWrite: 600) }, null);
+        Store.Append(new[] { Scalars(2, cpu: 90, diskRead: 2000, diskWrite: 400), Scalars(3, cpu: 30, diskRead: 2000, diskWrite: 400) }, null);
+
+        var slot = Assert.Single(Store.QueryScalarsDecimated(0, 59, stepSeconds: 60));
+
+        Assert.Equal((1000 + 3000 + 2000 + 2000) / 4.0, slot.DiskReadAvg!.Value, precision: 3);
+        Assert.Equal(3000, slot.DiskReadMax);
+        Assert.Equal((200 + 600 + 400 + 400) / 4.0, slot.DiskWriteAvg!.Value, precision: 3);
+        Assert.Equal(600, slot.DiskWriteMax);
+    }
 
     [Fact]
     public void QueryScalarsDecimated_AtStep60_MatchesTheRawPathForTheSameWindow()
@@ -266,29 +277,6 @@ public abstract class RollupHistorySpec : IDisposable
 
         Assert.Equal(30, slot.LoadAvg);
         Assert.Equal(50, slot.LoadMax);
-    }
-}
-
-public sealed class SqliteRollupHistorySpecTests : RollupHistorySpec
-{
-    protected override IMetricsHistoryStore CreateStore(string dir) =>
-        new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
-
-    // Disk read/write rollup accumulation is SQLite-only for now -
-    // BinaryMetricsHistoryStore's minute rollup ring has no slot for these
-    // fields yet (see SqliteMetricsHistoryStoreTests' own disk-field tests).
-    [Fact]
-    public void DiskRollup_AccumulatesAcrossTwoFlushesLandingInTheSameMinute()
-    {
-        Store.Append(new[] { Scalars(0, cpu: 10, diskRead: 1000, diskWrite: 200), Scalars(1, cpu: 20, diskRead: 3000, diskWrite: 600) }, null);
-        Store.Append(new[] { Scalars(2, cpu: 90, diskRead: 2000, diskWrite: 400), Scalars(3, cpu: 30, diskRead: 2000, diskWrite: 400) }, null);
-
-        var slot = Assert.Single(Store.QueryScalarsDecimated(0, 59, stepSeconds: 60));
-
-        Assert.Equal((1000 + 3000 + 2000 + 2000) / 4.0, slot.DiskReadAvg!.Value, precision: 3);
-        Assert.Equal(3000, slot.DiskReadMax);
-        Assert.Equal((200 + 600 + 400 + 400) / 4.0, slot.DiskWriteAvg!.Value, precision: 3);
-        Assert.Equal(600, slot.DiskWriteMax);
     }
 }
 

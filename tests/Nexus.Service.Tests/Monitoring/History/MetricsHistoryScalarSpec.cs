@@ -8,16 +8,12 @@ using Xunit;
 namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
-/// The scalar-field behavior IMetricsHistoryStore.Append/Query must have
-/// regardless of which store implements it - x10 scaling, whole-int net,
-/// null-vs-absent, same-ts-replace, and the prune-cutoff floor. Run against
-/// both SqliteMetricsHistoryStore (SqliteScalarHistorySpecTests) and
-/// BinaryMetricsHistoryStore (BinaryScalarHistorySpecTests) so a behavior
-/// change to either store's scalar path is pinned once, not twice. GPU/fan/
-/// reopen-key-stability cases stay in SqliteMetricsHistoryStoreTests -
-/// BinaryMetricsHistoryStore does not implement that surface yet (see its
-/// class doc). Privacy-session behavior has its own shared spec,
-/// PrivacySessionHistorySpec, since both stores implement it.
+/// The scalar-field behavior IMetricsHistoryStore.Append/Query must have -
+/// x10 scaling, whole-int net/disk, null-vs-absent, same-ts-replace, and the
+/// prune-cutoff floor. Runs against BinaryMetricsHistoryStore
+/// (BinaryScalarHistorySpecTests). GPU/fan/reopen-key-stability cases live in
+/// BinaryMetricsHistoryStoreTests. Privacy-session behavior has its own
+/// shared spec, PrivacySessionHistorySpec.
 /// </summary>
 public abstract class MetricsHistoryScalarSpec : IDisposable
 {
@@ -39,8 +35,11 @@ public abstract class MetricsHistoryScalarSpec : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private static MetricSample Scalars(long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
-        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
+    private static MetricSample Scalars(
+        long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55,
+        double? diskRead = 800, double? diskWrite = 400) =>
+        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
+            DiskReadBytesPerSec: diskRead, DiskWriteBytesPerSec: diskWrite);
 
     [Fact]
     public void Append_then_Query_RoundTripsScalarFields()
@@ -67,6 +66,26 @@ public abstract class MetricsHistoryScalarSpec : IDisposable
         Assert.Null(row.NetInBytesPerSec);
         Assert.Null(row.NetOutBytesPerSec);
         Assert.Null(row.CpuTempC);
+    }
+
+    [Fact]
+    public void Append_then_Query_RoundTripsDiskFields()
+    {
+        Store.Append(new[] { Scalars(1000, diskRead: 22222, diskWrite: 11111) }, null);
+
+        var row = Assert.Single(Store.Query(0, 10_000));
+        Assert.Equal(22222, row.DiskReadBytesPerSec);
+        Assert.Equal(11111, row.DiskWriteBytesPerSec);
+    }
+
+    [Fact]
+    public void Append_preserves_null_disk_fields_as_source_failed_not_zero()
+    {
+        Store.Append(new[] { Scalars(1000, diskRead: null, diskWrite: null) }, null);
+
+        var row = Assert.Single(Store.Query(0, 10_000));
+        Assert.Null(row.DiskReadBytesPerSec);
+        Assert.Null(row.DiskWriteBytesPerSec);
     }
 
     [Fact]
@@ -107,12 +126,6 @@ public abstract class MetricsHistoryScalarSpec : IDisposable
         var row = Assert.Single(Store.Query(0, 10_000));
         Assert.Equal(5000, row.TsSec);
     }
-}
-
-public sealed class SqliteScalarHistorySpecTests : MetricsHistoryScalarSpec
-{
-    protected override IMetricsHistoryStore CreateStore(string dir) =>
-        new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
 }
 
 public sealed class BinaryScalarHistorySpecTests : MetricsHistoryScalarSpec

@@ -8,8 +8,7 @@ namespace Nexus.Service.Tests.Mcp;
 /// implementation's tier-selection logic, so it is tested once here rather
 /// than duplicated per store - the store-behavior tests (raw round trip,
 /// rollup, pruning, summary, thinning, events, reopen) live in
-/// AiHistoryStoreSpec, parameterized over SqliteAiHistoryStore and
-/// BinaryAiHistoryStore.
+/// AiHistoryStoreSpec, run against BinaryAiHistoryStore.
 /// </summary>
 public sealed class AiHistoryStoreTests
 {

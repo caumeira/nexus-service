@@ -9,11 +9,10 @@ namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
 /// The raw (step &lt; 60, no minute rollup involved - QueryComponentTempDecimated
-/// has no rollup-eligible fast path in either store) QueryComponentTempDecimated
-/// behavior every store must have: per-component avg/max within a slot, keyed
-/// by component id, and slot boundaries. Run against both
-/// SqliteMetricsHistoryStore (SqliteComponentTempDecimatedRawSpecTests) and
-/// BinaryMetricsHistoryStore (BinaryComponentTempDecimatedRawSpecTests).
+/// has no rollup-eligible fast path) QueryComponentTempDecimated behavior the
+/// store must have: per-component avg/max within a slot, keyed by component
+/// id, and slot boundaries. Runs against BinaryMetricsHistoryStore
+/// (BinaryComponentTempDecimatedRawSpecTests).
 /// </summary>
 public abstract class ComponentTempDecimatedRawSpec : IDisposable
 {
@@ -87,12 +86,6 @@ public abstract class ComponentTempDecimatedRawSpec : IDisposable
 
         Assert.Empty(Store.QueryComponentTempDecimated(0, 0, stepSeconds: 10));
     }
-}
-
-public sealed class SqliteComponentTempDecimatedRawSpecTests : ComponentTempDecimatedRawSpec
-{
-    protected override IMetricsHistoryStore CreateStore(string dir) =>
-        new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
 }
 
 public sealed class BinaryComponentTempDecimatedRawSpecTests : ComponentTempDecimatedRawSpec

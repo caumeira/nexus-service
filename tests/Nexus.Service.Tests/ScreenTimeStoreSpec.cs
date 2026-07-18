@@ -7,16 +7,12 @@ using Xunit;
 namespace Nexus.Service.Tests;
 
 /// <summary>
-/// The screen-time behavior IScreenTimeStore's methods must have regardless
-/// of which store implements it - local-date session bucketing (not a UTC
-/// day floor, so a session recorded late at night lands on the wall-clock
-/// day the user saw), day/range/app/hour aggregation, the QuerySessions
-/// overlap window, delete variants, and case-sensitive app-name identity
-/// (SqliteScreenTimeStore's sessions.app_name carries no COLLATE NOCASE,
-/// unlike the metrics app-usage tier). Run against both
-/// SqliteScreenTimeStore (SqliteScreenTimeStoreSpecTests) and
-/// BinaryScreenTimeStore (BinaryScreenTimeStoreSpecTests) so a behavior
-/// change to either store's screen-time path is pinned once, not twice.
+/// The screen-time behavior IScreenTimeStore's methods must have -
+/// local-date session bucketing (not a UTC day floor, so a session recorded
+/// late at night lands on the wall-clock day the user saw), day/range/app/
+/// hour aggregation, the QuerySessions overlap window, delete variants, and
+/// case-sensitive app-name identity (unlike the metrics app-usage tier).
+/// Runs against BinaryScreenTimeStore (BinaryScreenTimeStoreSpecTests).
 /// </summary>
 public abstract class ScreenTimeStoreSpec : IDisposable
 {
@@ -324,12 +320,6 @@ public abstract class ScreenTimeStoreSpec : IDisposable
         Assert.Equal("Persisted", day.Apps[0].Name);
         Assert.Equal(30 * 60 * 1000, day.Apps[0].TotalMs);
     }
-}
-
-public sealed class SqliteScreenTimeStoreSpecTests : ScreenTimeStoreSpec
-{
-    protected override IScreenTimeStore CreateStore(string dir) =>
-        new SqliteScreenTimeStore(Path.Combine(dir, "screentime.db"));
 }
 
 public sealed class BinaryScreenTimeStoreSpecTests : ScreenTimeStoreSpec

@@ -58,11 +58,11 @@ public sealed record AiHistoryEventQueryResult(IReadOnlyList<AiHistoryEventRow> 
 
 /// <summary>
 /// Persistent store for the MCP history subsystem: tiered sensor sample series
-/// (raw / 1-minute / 5-minute aggregates) and the audit event log. One
-/// implementation is <see cref="SqliteAiHistoryStore"/>; when SQLite can't be
-/// opened, DI falls back to <see cref="UnavailableAiHistoryStore"/> so the rest
-/// of the service keeps running and the history tools report unavailability
-/// instead of throwing.
+/// (raw / 1-minute / 5-minute aggregates) and the audit event log. The
+/// implementation is <see cref="Nexus.Service.Mcp.History.Binary.BinaryAiHistoryStore"/>;
+/// when it can't be opened, DI falls back to <see cref="UnavailableAiHistoryStore"/>
+/// so the rest of the service keeps running and the history tools report
+/// unavailability instead of throwing.
 /// </summary>
 public interface IAiHistoryStore : IDisposable
 {

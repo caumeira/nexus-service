@@ -15,28 +15,33 @@ internal readonly record struct ScalarReading(
     double? MemoryPercent,
     long? NetInBytesPerSec,
     long? NetOutBytesPerSec,
-    double? CpuTempC);
+    double? CpuTempC,
+    long? DiskReadBytesPerSec,
+    long? DiskWriteBytesPerSec);
 
 /// <summary>
-/// The 1Hz scalar ring (cpu/mem/net-in/net-out/cpu-temp): a RingFile whose
-/// body layout and scale/unscale rules this class owns, so RingFile itself
-/// never needs to know what a "scalar" is. Percent/temperature fields are
-/// stored x10 fixed-point in an i16 (matching SqliteMetricsHistoryStore's
-/// existing on-wire precision); net bps fields are i64, not the i32 the
-/// original binary-store design sketched, so a link at or above roughly
-/// 17 Gbps stays representable instead of wrapping. Each field type has its
-/// own reserved "null" sentinel (the type's MinValue), so a source-failed
-/// reading is never confused with a genuine zero.
+/// The 1Hz scalar ring (cpu/mem/net-in/net-out/cpu-temp/disk-read/disk-write):
+/// a RingFile whose body layout and scale/unscale rules this class owns, so
+/// RingFile itself never needs to know what a "scalar" is. Percent/temperature
+/// fields are stored x10 fixed-point in an i16 (matching
+/// SqliteMetricsHistoryStore's existing on-wire precision); net/disk bps
+/// fields are i64, not the i32 the original binary-store design sketched, so
+/// a link or drive at or above roughly 17 Gbps stays representable instead of
+/// wrapping. Each field type has its own reserved "null" sentinel (the type's
+/// MinValue), so a source-failed reading is never confused with a genuine
+/// zero.
 /// </summary>
 internal sealed class ScalarRingStore : IDisposable
 {
-    // Body layout (BodyLength bytes total). Net fields first (i64, largest
+    // Body layout (BodyLength bytes total). i64 fields first (largest
     // alignment) then the three x10 i16 fields - order only matters for
     // computing these offsets once; RingFile treats the whole span as
     // opaque.
     private const int NetInOffset = 0;
     private const int NetOutOffset = NetInOffset + sizeof(long);
-    private const int CpuOffset = NetOutOffset + sizeof(long);
+    private const int DiskReadOffset = NetOutOffset + sizeof(long);
+    private const int DiskWriteOffset = DiskReadOffset + sizeof(long);
+    private const int CpuOffset = DiskWriteOffset + sizeof(long);
     private const int MemOffset = CpuOffset + sizeof(short);
     private const int CpuTempOffset = MemOffset + sizeof(short);
     public const int BodyLength = CpuTempOffset + sizeof(short);
@@ -163,6 +168,8 @@ internal sealed class ScalarRingStore : IDisposable
         var netIn = Slots(rows, r => r.NetInBytesPerSec, fromSec, toSec, stepSeconds);
         var netOut = Slots(rows, r => r.NetOutBytesPerSec, fromSec, toSec, stepSeconds);
         var temp = Slots(rows, r => r.CpuTempC, fromSec, toSec, stepSeconds);
+        var diskRead = Slots(rows, r => r.DiskReadBytesPerSec, fromSec, toSec, stepSeconds);
+        var diskWrite = Slots(rows, r => r.DiskWriteBytesPerSec, fromSec, toSec, stepSeconds);
 
         var allSlots = new SortedSet<long>();
         allSlots.UnionWith(cpu.Keys);
@@ -170,6 +177,8 @@ internal sealed class ScalarRingStore : IDisposable
         allSlots.UnionWith(netIn.Keys);
         allSlots.UnionWith(netOut.Keys);
         allSlots.UnionWith(temp.Keys);
+        allSlots.UnionWith(diskRead.Keys);
+        allSlots.UnionWith(diskWrite.Keys);
 
         var result = new List<ScalarDecimatedSlot>(allSlots.Count);
         foreach (var slot in allSlots)
@@ -180,7 +189,9 @@ internal sealed class ScalarRingStore : IDisposable
                 mem.GetValueOrDefault(slot)?.Avg, mem.GetValueOrDefault(slot)?.Max,
                 netIn.GetValueOrDefault(slot)?.Avg, netIn.GetValueOrDefault(slot)?.Max,
                 netOut.GetValueOrDefault(slot)?.Avg, netOut.GetValueOrDefault(slot)?.Max,
-                temp.GetValueOrDefault(slot)?.Avg, temp.GetValueOrDefault(slot)?.Max));
+                temp.GetValueOrDefault(slot)?.Avg, temp.GetValueOrDefault(slot)?.Max,
+                diskRead.GetValueOrDefault(slot)?.Avg, diskRead.GetValueOrDefault(slot)?.Max,
+                diskWrite.GetValueOrDefault(slot)?.Avg, diskWrite.GetValueOrDefault(slot)?.Max));
         }
         return result;
     }
@@ -194,6 +205,8 @@ internal sealed class ScalarRingStore : IDisposable
     {
         BinaryPrimitives.WriteInt64LittleEndian(body[NetInOffset..], ScaleWhole(s.NetInBytesPerSec));
         BinaryPrimitives.WriteInt64LittleEndian(body[NetOutOffset..], ScaleWhole(s.NetOutBytesPerSec));
+        BinaryPrimitives.WriteInt64LittleEndian(body[DiskReadOffset..], ScaleWhole(s.DiskReadBytesPerSec));
+        BinaryPrimitives.WriteInt64LittleEndian(body[DiskWriteOffset..], ScaleWhole(s.DiskWriteBytesPerSec));
         BinaryPrimitives.WriteInt16LittleEndian(body[CpuOffset..], ScaleX10(s.CpuPercent));
         BinaryPrimitives.WriteInt16LittleEndian(body[MemOffset..], ScaleX10(s.MemoryPercent));
         BinaryPrimitives.WriteInt16LittleEndian(body[CpuTempOffset..], ScaleX10(s.CpuTempC));
@@ -203,6 +216,8 @@ internal sealed class ScalarRingStore : IDisposable
     {
         var netIn = BinaryPrimitives.ReadInt64LittleEndian(body[NetInOffset..]);
         var netOut = BinaryPrimitives.ReadInt64LittleEndian(body[NetOutOffset..]);
+        var diskRead = BinaryPrimitives.ReadInt64LittleEndian(body[DiskReadOffset..]);
+        var diskWrite = BinaryPrimitives.ReadInt64LittleEndian(body[DiskWriteOffset..]);
         var cpu = BinaryPrimitives.ReadInt16LittleEndian(body[CpuOffset..]);
         var mem = BinaryPrimitives.ReadInt16LittleEndian(body[MemOffset..]);
         var cpuTemp = BinaryPrimitives.ReadInt16LittleEndian(body[CpuTempOffset..]);
@@ -210,7 +225,8 @@ internal sealed class ScalarRingStore : IDisposable
             ts,
             UnscaleX10(cpu), UnscaleX10(mem),
             UnscaleWhole(netIn), UnscaleWhole(netOut),
-            UnscaleX10(cpuTemp));
+            UnscaleX10(cpuTemp),
+            UnscaleWhole(diskRead), UnscaleWhole(diskWrite));
     }
 
     // Non-finite (NaN/Infinity) is treated the same as a missing reading

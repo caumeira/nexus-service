@@ -6,41 +6,36 @@ using System.Linq;
 namespace Nexus.Service.Monitoring.History.Binary;
 
 /// <summary>
-/// Binary-file-backed IMetricsHistoryStore, replacing SqliteMetricsHistoryStore
-/// one phase at a time (see the metrics-store design notes). Phase 1 wired the
-/// 1Hz scalar series (cpu/mem/net-in/net-out/cpu-temp) through ScalarRingStore
-/// and SuperBlock; Phase 2 added the scalar minute rollup
-/// (ScalarMinuteRollupRing) and per-entity gpu/fan history (GpuRingStore/
-/// FanRingStore, each their own raw-second plus minute-rollup rings); Phase 3
-/// adds per-storage-drive/RAM-DIMM temperature (TempComponentRingStore) and
-/// the unified 90-day cpu/gpu/storage/ram temperature bucket rollup
-/// (TempBucketStore), rebuilt from the other rings' raw data on every Append
-/// via RebuildTempBuckets - see that method's doc for the source-retention
-/// guard mirroring SqliteMetricsHistoryStore.UpsertTempBucketsRollup.
+/// Binary-file-backed IMetricsHistoryStore, the sole IMetricsHistoryStore
+/// implementation (see the metrics-store design notes). The 1Hz scalar
+/// series (cpu/mem/net-in/net-out/cpu-temp) runs through ScalarRingStore and
+/// SuperBlock; the scalar minute rollup (ScalarMinuteRollupRing) and
+/// per-entity gpu/fan history (GpuRingStore/FanRingStore, each their own
+/// raw-second plus minute-rollup rings) sit alongside it. Per-storage-drive/
+/// RAM-DIMM temperature (TempComponentRingStore) and the unified 90-day
+/// cpu/gpu/storage/ram temperature bucket rollup (TempBucketStore) are
+/// rebuilt from the other rings' raw data on every Append via
+/// RebuildTempBuckets.
 ///
-/// Unlike SqliteMetricsHistoryStore, there is no internal write lock: every
-/// ring's own crash-safety protocol (see RingFile) is what makes reads
-/// lock-free against a concurrent writer, on the same single-writer
-/// assumption the whole store is built on (MetricsSampler is the only
-/// Append caller).
+/// There is no internal write lock: every ring's own crash-safety protocol
+/// (see RingFile) is what makes reads lock-free against a concurrent writer,
+/// on the same single-writer assumption the whole store is built on
+/// (MetricsSampler is the only Append caller).
 ///
-/// Phase 4 adds IAppUsageHistoryStore via AppUsageStore, the per-app usage
+/// IAppUsageHistoryStore is served via AppUsageStore, the per-app usage
 /// tier - see that class's doc for the day-segment format and the
 /// AppMetricSample "gpu:&lt;gid&gt;"/"vram:&lt;gid&gt;" dependency on
-/// GpuRingStore.TryGetIndex, the app-store equivalent of the scalar
-/// gpu_series lookup SqliteMetricsHistoryStore's own app-usage path uses.
+/// GpuRingStore.TryGetIndex.
 ///
-/// Phase 5 adds IPrivacySessionStore via PrivacyLog, an append-only log with
+/// IPrivacySessionStore is served via PrivacyLog, an append-only log with
 /// an in-RAM index rather than a fixed-slot ring or day segments - see that
 /// class's doc for why privacy sessions get their own format (low-volume,
 /// transition-driven, keyed by (appId, capability, startUtcSec) instead of a
 /// timestamp).
 ///
-/// Phase 6 wires this store into NexusServiceCollectionExtensions behind the
-/// NEXUS_BINARY_METRICS_STORE env flag, an A/B alternative to
-/// SqliteMetricsHistoryStore (the default when the flag is unset); the
-/// parameterless constructor resolves the same shared config root
-/// SqliteMetricsHistoryStore's own default path uses.
+/// Wired into NexusServiceCollectionExtensions.AddNexusMonitoringHistory;
+/// the parameterless constructor resolves the shared config root every
+/// binary store in the db/ tree uses (NexusDataPaths.DatabaseDir()).
 /// </summary>
 public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageHistoryStore, IPrivacySessionStore
 {
@@ -281,7 +276,9 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
             FieldAgg.FromReadings(raw.Select(r => r.MemoryPercent)),
             FieldAgg.FromReadings(raw.Select(r => (double?)r.NetInBytesPerSec)),
             FieldAgg.FromReadings(raw.Select(r => (double?)r.NetOutBytesPerSec)),
-            FieldAgg.FromReadings(raw.Select(r => r.CpuTempC)));
+            FieldAgg.FromReadings(raw.Select(r => r.CpuTempC)),
+            FieldAgg.FromReadings(raw.Select(r => (double?)r.DiskReadBytesPerSec)),
+            FieldAgg.FromReadings(raw.Select(r => (double?)r.DiskWriteBytesPerSec)));
         _scalarRollup.RebuildMinute(minuteFloorSec, agg);
     }
 
@@ -301,6 +298,8 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
                 fansByTs.TryGetValue(s.TsSec, out var fans) ? fans : Array.Empty<FanReading>())
             {
                 ComponentTemps = componentsByTs.TryGetValue(s.TsSec, out var comps) ? comps : Array.Empty<ComponentTempReading>(),
+                DiskReadBytesPerSec = s.DiskReadBytesPerSec,
+                DiskWriteBytesPerSec = s.DiskWriteBytesPerSec,
             });
         }
         return result;

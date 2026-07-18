@@ -8,16 +8,13 @@ using Xunit;
 namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
-/// The per-app usage behavior IAppUsageHistoryStore.Append/Query must have
-/// regardless of which store implements it - window-average-over-distinct-
-/// sampled-ticks (not an app's own row count), case-insensitive name dedup
-/// with first-seen casing kept, the gpu_series/GpuRingStore dependency for
-/// "gpu:&lt;gid&gt;"/"vram:&lt;gid&gt;" rows, bare gpu/vram cross-adapter
-/// summing, prune-then-reappear reading fresh, and app key stability across
-/// a reopen. Run against both SqliteMetricsHistoryStore
-/// (SqliteAppUsageHistorySpecTests) and BinaryMetricsHistoryStore
-/// (BinaryAppUsageHistorySpecTests) so a behavior change to either store's
-/// app-usage path is pinned once, not twice.
+/// The per-app usage behavior IAppUsageHistoryStore.Append/Query must have -
+/// window-average-over-distinct-sampled-ticks (not an app's own row count),
+/// case-insensitive name dedup with first-seen casing kept, the
+/// gpu_series/GpuRingStore dependency for "gpu:&lt;gid&gt;"/"vram:&lt;gid&gt;"
+/// rows, bare gpu/vram cross-adapter summing, prune-then-reappear reading
+/// fresh, and app key stability across a reopen. Runs against
+/// BinaryMetricsHistoryStore (BinaryAppUsageHistorySpecTests).
 /// </summary>
 public abstract class AppUsageHistorySpec : IDisposable
 {
@@ -683,12 +680,6 @@ public abstract class AppUsageHistorySpec : IDisposable
         var points = Store.QueryAppSeries("cpu", "app.exe", 0, 10_000);
         Assert.Equal(2, points.Count);
     }
-}
-
-public sealed class SqliteAppUsageHistorySpecTests : AppUsageHistorySpec
-{
-    protected override IAppUsageHistoryStore CreateStore(string dir) =>
-        new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
 }
 
 public sealed class BinaryAppUsageHistorySpecTests : AppUsageHistorySpec

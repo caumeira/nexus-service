@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Mcp.History;
+using Nexus.Service.Mcp.History.Binary;
 using Nexus.Service.Mcp.Tools;
 using Xunit;
 
@@ -11,7 +12,7 @@ namespace Nexus.Service.Tests.Mcp;
 
 /// <summary>
 /// Unit coverage for the three history MCP tools against a real
-/// SqliteAiHistoryStore (temp-dir file, matching AiHistoryStoreTests) for the
+/// BinaryAiHistoryStore (temp dir, matching AiHistoryStoreTests) for the
 /// happy paths, and UnavailableAiHistoryStore for the store-unavailable path
 /// every tool must report as isError rather than throw or return empty data.
 /// </summary>
@@ -21,12 +22,12 @@ public sealed class HistoryToolsTests : IDisposable
 
     private readonly string _dir =
         Path.Combine(Path.GetTempPath(), "nexus-mcp-history-tools-" + Guid.NewGuid().ToString("N")[..8]);
-    private readonly SqliteAiHistoryStore _store;
+    private readonly BinaryAiHistoryStore _store;
 
     public HistoryToolsTests()
     {
         Directory.CreateDirectory(_dir);
-        _store = new SqliteAiHistoryStore(Path.Combine(_dir, "ai-history.db"));
+        _store = new BinaryAiHistoryStore(_dir);
     }
 
     public void Dispose()

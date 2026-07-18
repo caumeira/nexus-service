@@ -133,21 +133,6 @@
     <PackageReference Include="OpenTK.redist.glfw" Version="3.3.0-pre20200830200122" GeneratePathProperty="true" />
   </ItemGroup>
 
-  <!-- SQLite for the screen-time persistent store. Uses raw SqliteConnection +
-       SqliteCommand only (no EF Core, which is reflection-heavy and not AOT-safe).
-       The native e_sqlite3 lib is bundled by SQLitePCLRaw.bundle_e_sqlite3.
-       That bundle is pinned directly to 3.0.3 (overriding the 2.1.10 Microsoft.Data.Sqlite
-       pulls transitively) to clear advisory GHSA-2m69-gcr7-jv3q. TrimmerRootAssembly keeps
-       the reflection-using initialization path from being stripped under AOT. -->
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
-    <TrimmerRootAssembly Include="Microsoft.Data.Sqlite" />
-    <TrimmerRootAssembly Include="SQLitePCLRaw.core" />
-    <TrimmerRootAssembly Include="SQLitePCLRaw.provider.e_sqlite3" />
-    <TrimmerRootAssembly Include="SQLitePCLRaw.batteries_v2" />
-  </ItemGroup>
-
   <!-- System.IO.Ports: serial-port IO for HYTE NP50 (CDC virtual COM). The
        Windows package brings native serial helpers; on Linux we read /dev/ttyACM
        directly. AOT-compatible since .NET 7. -->

@@ -10,24 +10,29 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// <summary>
 /// Binary-file-backed IAppUsageHistoryStore (Phase 4 of the metrics-store
 /// design's per-app tier - the storage-dominant, hardest tier): a global
-/// AppNameDictionary shared by every metric, plus four independent metric
-/// kinds (cpu, memory, gpu, vram) each stored as append-only per-UTC-day
-/// segment files under their own directory. Retention drops whole day
-/// files once every tick they hold is older than the prune cutoff;
-/// PruneFloorSec then hides whatever remains of a day file straddling that
-/// cutoff at read time, so a query never sees a pruned tick even though the
-/// day itself is still on disk.
+/// AppNameDictionary shared by every metric, plus independent metric kinds
+/// (cpu, memory, gpu, vram, storage) each stored as append-only per-UTC-day
+/// segment files under their own directory. storage carries no gpu
+/// dimension and stores raw bytes/sec as an int64 (StorageRecordWidth),
+/// wider than the x10 fixed-point int32 SimpleRecordWidth uses for cpu/mem,
+/// so a disk throughput reading past roughly 2 GB/s stays representable
+/// instead of overflowing. Retention drops whole day files once
+/// every tick they hold is older than the prune cutoff; PruneFloorSec then
+/// hides whatever remains of a day file straddling that cutoff at read
+/// time, so a query never sees a pruned tick even though the day itself is
+/// still on disk.
 ///
 /// Chose the simpler of the design's two app-data options: no day-seal
 /// sorted-block table. A day segment is a flat append log of tick records
-/// (see WriteSimpleTick/WriteGpuTick/WriteVramTick), and every query does a
-/// linear scan over the days it touches, translating each record's per-day
-/// local app id back to the global id via that day's AppLocalIdMap. Query
-/// windows are bounded by MetricsHistory.RetentionDays (7 days), and even a
-/// fully-saturated day segment is a few MB, so this trades a small amount
-/// of read-side CPU for a format an order of magnitude simpler than a
-/// sorted per-app block table - see AppUsageStorageEstimateTests for the
-/// measured footprint this still achieves against the SQLite baseline.
+/// (see WriteSimpleTick/WriteGpuTick/WriteVramTick/WriteStorageTick), and
+/// every query does a linear scan over the days it touches, translating
+/// each record's per-day local app id back to the global id via that day's
+/// AppLocalIdMap. Query windows are bounded by MetricsHistory.RetentionDays
+/// (7 days), and even a fully-saturated day segment is a few MB, so this
+/// trades a small amount of read-side CPU for a format an order of
+/// magnitude simpler than a sorted per-app block table - see
+/// AppUsageStorageEstimateTests for the measured footprint this still
+/// achieves against the SQLite baseline.
 ///
 /// AppUsageStore is the sole writer (Append), the same single-writer
 /// assumption the rest of the binary store is built on; day segment reads
@@ -46,10 +51,11 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// </summary>
 internal sealed class AppUsageStore : IDisposable
 {
-    private enum AppMetricKind { Cpu = 0, Mem = 1, Gpu = 2, Vram = 3 }
+    private enum AppMetricKind { Cpu = 0, Mem = 1, Gpu = 2, Vram = 3, Storage = 4 }
 
-    private static readonly string[] KindDirNames = { "cpu", "mem", "gpu", "vram" };
-    private static readonly AppMetricKind[] AllKinds = { AppMetricKind.Cpu, AppMetricKind.Mem, AppMetricKind.Gpu, AppMetricKind.Vram };
+    private static readonly string[] KindDirNames = { "cpu", "mem", "gpu", "vram", "storage" };
+    private static readonly AppMetricKind[] AllKinds =
+        { AppMetricKind.Cpu, AppMetricKind.Mem, AppMetricKind.Gpu, AppMetricKind.Vram, AppMetricKind.Storage };
 
     private const int SecondsPerDay = 86_400;
 
@@ -58,6 +64,11 @@ internal sealed class AppUsageStore : IDisposable
     private const int SimpleRecordWidth = 6;
     private const int GpuRecordWidth = 10;
     private const int VramRecordWidth = 8;
+    // Storage carries raw bytes/sec (an int64, matching
+    // SqliteMetricsHistoryStore's value_bps column) rather than the x10
+    // fixed-point percent SimpleRecordWidth's int32 slot holds - disk
+    // throughput on a fast NVMe drive exceeds int32 range.
+    private const int StorageRecordWidth = 10;
 
     private readonly record struct AppEntry(int GlobalId, int GpuIndex, double Value, double? VramMb);
 
@@ -122,6 +133,7 @@ internal sealed class AppUsageStore : IDisposable
             var memByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, int ValueX10)> Apps)>>();
             var gpuByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, int GpuIndex, short LoadX10, int VramMbOrSentinel)> Apps)>>();
             var vramByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, int GpuIndex, int ValueMb)> Apps)>>();
+            var storageByDay = new Dictionary<long, List<(long Ts, List<(int GlobalId, long ValueBps)> Apps)>>();
 
             // Name resolution happens here, in tick-array order (not sorted
             // by ts), matching SqliteMetricsHistoryStore.InsertAppRows -
@@ -134,6 +146,7 @@ internal sealed class AppUsageStore : IDisposable
                 List<(int, int)>? memEntries = null;
                 List<(int, int, short, int)>? gpuEntries = null;
                 List<(int, int, int)>? vramEntries = null;
+                List<(int, long)>? storageEntries = null;
 
                 foreach (var metric in tick.Metrics)
                 {
@@ -159,6 +172,18 @@ internal sealed class AppUsageStore : IDisposable
                         foreach (var a in metric.Apps)
                         {
                             memEntries.Add((_names.RegisterOrGet(a.Name), ScaleX10ToInt32(a.Value)));
+                        }
+                    }
+                    else if (metric.Metric == "storage")
+                    {
+                        if (metric.Apps.Count == 0)
+                        {
+                            continue;
+                        }
+                        storageEntries = new List<(int, long)>(metric.Apps.Count);
+                        foreach (var a in metric.Apps)
+                        {
+                            storageEntries.Add((_names.RegisterOrGet(a.Name), ScaleWholeToInt64(a.Value)));
                         }
                     }
                     else if (metric.Metric.StartsWith("gpu:", StringComparison.Ordinal))
@@ -207,6 +232,10 @@ internal sealed class AppUsageStore : IDisposable
                 {
                     AddPending(vramByDay, day, tick.TsSec, vramEntries);
                 }
+                if (storageEntries is { Count: > 0 })
+                {
+                    AddPending(storageByDay, day, tick.TsSec, storageEntries);
+                }
             }
 
             foreach (var (day, dayTicks) in cpuByDay)
@@ -224,6 +253,10 @@ internal sealed class AppUsageStore : IDisposable
             foreach (var (day, dayTicks) in vramByDay)
             {
                 WriteVramDay(day, dayTicks);
+            }
+            foreach (var (day, dayTicks) in storageByDay)
+            {
+                WriteStorageDay(day, dayTicks);
             }
         }
 
@@ -592,6 +625,101 @@ internal sealed class AppUsageStore : IDisposable
         return result;
     }
 
+    // ----- write/read: storage -----
+
+    private void WriteStorageDay(long day, List<(long Ts, List<(int GlobalId, long ValueBps)> Apps)> ticks)
+    {
+        var idMap = AppLocalIdMap.LoadForWrite(IdsPath(AppMetricKind.Storage, day));
+        var resolvedTicks = new List<(long Ts, List<(ushort LocalId, long ValueBps)> Apps)>(ticks.Count);
+        foreach (var (ts, apps) in ticks)
+        {
+            var resolved = new List<(ushort, long)>(apps.Count);
+            foreach (var (globalId, valueBps) in apps)
+            {
+                if (idMap.GetOrAdd(globalId) is { } localId)
+                {
+                    resolved.Add(((ushort)localId, valueBps));
+                }
+            }
+            if (resolved.Count > 0)
+            {
+                resolvedTicks.Add((ts, resolved));
+            }
+        }
+
+        idMap.Flush();
+
+        var segPath = SegPath(AppMetricKind.Storage, day);
+        TruncateTornTail(segPath, StorageRecordWidth);
+        using var fs = new FileStream(segPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+        fs.Seek(0, SeekOrigin.End);
+        foreach (var (ts, apps) in resolvedTicks)
+        {
+            WriteStorageTick(fs, ts, apps);
+        }
+        fs.Flush(flushToDisk: true);
+    }
+
+    private static void WriteStorageTick(FileStream fs, long ts, List<(ushort LocalId, long ValueBps)> apps)
+    {
+        const int RecordWidth = StorageRecordWidth;
+        var bodyLength = 10 + apps.Count * RecordWidth;
+        var buf = new byte[bodyLength + 4];
+        BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(0, 8), ts);
+        BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan(8, 2), (ushort)apps.Count);
+
+        var pos = 10;
+        foreach (var (localId, valueBps) in apps)
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(buf.AsSpan(pos, 2), localId);
+            BinaryPrimitives.WriteInt64LittleEndian(buf.AsSpan(pos + 2, 8), valueBps);
+            pos += RecordWidth;
+        }
+
+        BinaryPrimitives.WriteUInt32LittleEndian(buf.AsSpan(bodyLength, 4), Crc32.Compute(buf.AsSpan(0, bodyLength)));
+        fs.Write(buf);
+    }
+
+    private static List<(long Ts, List<AppEntry> Apps)> ReadStorageDay(string path, int[] idMap)
+    {
+        const int RecordWidth = StorageRecordWidth;
+        var result = new List<(long, List<AppEntry>)>();
+        var bytes = File.ReadAllBytes(path);
+        var pos = 0;
+        while (pos + 10 <= bytes.Length)
+        {
+            var ts = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(pos, 8));
+            var count = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(pos + 8, 2));
+            var bodyLength = 10 + count * RecordWidth;
+            if (pos + bodyLength + 4 > bytes.Length)
+            {
+                break;
+            }
+
+            var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(pos + bodyLength, 4));
+            if (Crc32.Compute(bytes.AsSpan(pos, bodyLength)) != expectedCrc)
+            {
+                break;
+            }
+
+            var apps = new List<AppEntry>(count);
+            var entryPos = pos + 10;
+            for (var i = 0; i < count; i++)
+            {
+                var localId = BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(entryPos, 2));
+                var valueBps = BinaryPrimitives.ReadInt64LittleEndian(bytes.AsSpan(entryPos + 2, 8));
+                if (localId < idMap.Length)
+                {
+                    apps.Add(new AppEntry(idMap[localId], -1, valueBps, null));
+                }
+                entryPos += RecordWidth;
+            }
+            result.Add((ts, apps));
+            pos += bodyLength + 4;
+        }
+        return result;
+    }
+
     // A crash mid-append can leave a torn trailing tick record in a day
     // segment; unlike AppNameDictionary/AppLocalIdMap/EntityRegistry, this
     // format has no long-lived writer handle to truncate the file at load
@@ -653,6 +781,7 @@ internal sealed class AppUsageStore : IDisposable
                 AppMetricKind.Cpu or AppMetricKind.Mem => ReadSimpleDay(segPath, idMap),
                 AppMetricKind.Gpu => ReadGpuDay(segPath, idMap),
                 AppMetricKind.Vram => ReadVramDay(segPath, idMap),
+                AppMetricKind.Storage => ReadStorageDay(segPath, idMap),
                 _ => new List<(long, List<AppEntry>)>(),
             };
         }
@@ -711,6 +840,10 @@ internal sealed class AppUsageStore : IDisposable
         if (metric == "memory")
         {
             return (AppMetricKind.Mem, null);
+        }
+        if (metric == "storage")
+        {
+            return (AppMetricKind.Storage, null);
         }
         if (metric == "gpu")
         {
@@ -929,6 +1062,24 @@ internal sealed class AppUsageStore : IDisposable
             return int.MaxValue;
         }
         return (int)scaled;
+    }
+
+    private static long ScaleWholeToInt64(double value)
+    {
+        if (!double.IsFinite(value))
+        {
+            return 0;
+        }
+        var rounded = Math.Round(value);
+        if (rounded <= long.MinValue)
+        {
+            return long.MinValue + 1;
+        }
+        if (rounded >= long.MaxValue)
+        {
+            return long.MaxValue;
+        }
+        return (long)rounded;
     }
 
     private static int RoundToMb(double value)

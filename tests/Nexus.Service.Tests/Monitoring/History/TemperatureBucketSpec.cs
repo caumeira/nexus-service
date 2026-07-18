@@ -10,16 +10,13 @@ using Xunit;
 namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
-/// The unified 90-day temperature bucket rollup (temp_buckets in SQLite,
-/// TempBucketStore rebuilt from the scalar/gpu/temp-component rings in the
-/// binary store): cpu/gpu/storage/ram all rolling into one query, the
-/// 90-day retention staying independent of the 7-day load/net/fan tier, and
-/// the source-retention guard that stops a backward-dated replay from
-/// clobbering an aged-out bucket's retained aggregate. Run against both
-/// SqliteMetricsHistoryStore (SqliteTemperatureBucketSpecTests) and
-/// BinaryMetricsHistoryStore (BinaryTemperatureBucketSpecTests) - the
-/// legacy temperature.db import is SQLite-only (no binary-store
-/// equivalent) and stays pinned to SqliteMetricsHistoryStoreTemperatureTests.
+/// The unified 90-day temperature bucket rollup - TempBucketStore rebuilt
+/// from the scalar/gpu/temp-component rings: cpu/gpu/storage/ram all
+/// rolling into one query, the 90-day retention staying independent of the
+/// 7-day load/net/fan tier, and the source-retention guard that stops a
+/// backward-dated replay from clobbering an aged-out bucket's retained
+/// aggregate. Runs against BinaryMetricsHistoryStore
+/// (BinaryTemperatureBucketSpecTests).
 /// </summary>
 public abstract class TemperatureBucketSpec : IDisposable
 {
@@ -228,12 +225,6 @@ public abstract class TemperatureBucketSpec : IDisposable
         Assert.Equal(40.0, after.AvgC, precision: 5);
         Assert.Equal(1, after.Samples);
     }
-}
-
-public sealed class SqliteTemperatureBucketSpecTests : TemperatureBucketSpec
-{
-    protected override IMetricsHistoryStore CreateStore(string dir) =>
-        new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
 }
 
 public sealed class BinaryTemperatureBucketSpecTests : TemperatureBucketSpec

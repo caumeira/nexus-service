@@ -8,10 +8,9 @@ namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
 /// The raw (step &lt; 60, no minute rollup involved) QueryGpuDecimated/
-/// QueryFanDecimated behavior every store must have: per-gpu/per-fan avg/max
+/// QueryFanDecimated behavior the store must have: per-gpu/per-fan avg/max
 /// within a slot, keyed by id, and an empty result when no gpu/fan data
-/// falls in the window. Run against both SqliteMetricsHistoryStore
-/// (SqliteGpuFanDecimatedRawSpecTests) and BinaryMetricsHistoryStore
+/// falls in the window. Runs against BinaryMetricsHistoryStore
 /// (BinaryGpuFanDecimatedRawSpecTests) - the rollup-eligible (step&gt;=60)
 /// gpu/fan cases live in RollupHistorySpec, and the component-temp raw cases
 /// (which have no rollup-eligible path at all) live in
@@ -106,12 +105,6 @@ public abstract class GpuFanDecimatedRawSpec : IDisposable
         Assert.Null(slot.LoadAvg);
         Assert.Null(slot.TempAvg);
     }
-}
-
-public sealed class SqliteGpuFanDecimatedRawSpecTests : GpuFanDecimatedRawSpec
-{
-    protected override IMetricsHistoryStore CreateStore(string dir) =>
-        new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
 }
 
 public sealed class BinaryGpuFanDecimatedRawSpecTests : GpuFanDecimatedRawSpec

@@ -311,12 +311,9 @@ public static class NexusServiceCollectionExtensions
     /// (AddNexusCooling), and ISmartHealthSource (AddNexusDiagnostics) having
     /// already been registered.
     ///
-    /// The store itself is an A/B choice behind NEXUS_BINARY_METRICS_STORE=1
-    /// (Nexus.Service.Monitoring.History.Binary.BinaryMetricsHistoryStore,
-    /// see its class doc); unset or any other value keeps
-    /// SqliteMetricsHistoryStore, the default. Either one failing to
-    /// construct falls back to InMemoryMetricsHistoryStore, same as before
-    /// this flag existed.
+    /// The store is Nexus.Service.Monitoring.History.Binary.BinaryMetricsHistoryStore
+    /// (see its class doc); construction failing falls back to
+    /// InMemoryMetricsHistoryStore.
     /// </summary>
     public static IServiceCollection AddNexusMonitoringHistory(this IServiceCollection services)
     {
@@ -326,17 +323,13 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Monitoring.History.MetricsSampleBuffer>();
         services.AddSingleton<Nexus.Service.Monitoring.History.IMetricsHistoryStore>(_ =>
         {
-            var useBinaryStore = Environment.GetEnvironmentVariable("NEXUS_BINARY_METRICS_STORE") == "1";
             try
             {
-                return useBinaryStore
-                    ? new Nexus.Service.Monitoring.History.Binary.BinaryMetricsHistoryStore()
-                    : new Nexus.Service.Monitoring.History.SqliteMetricsHistoryStore();
+                return new Nexus.Service.Monitoring.History.Binary.BinaryMetricsHistoryStore();
             }
             catch (Exception ex)
             {
-                var storeName = useBinaryStore ? "binary" : "sqlite";
-                Console.Error.WriteLine($"[metrics-history-store] {storeName} unavailable, using in-memory: {ex.Message}");
+                Console.Error.WriteLine($"[metrics-history-store] binary store unavailable, using in-memory: {ex.Message}");
                 return new Nexus.Service.Monitoring.History.InMemoryMetricsHistoryStore();
             }
         });
@@ -1145,11 +1138,12 @@ public static class NexusServiceCollectionExtensions
         {
             try
             {
-                return new Nexus.Service.Activity.Storage.SqliteScreenTimeStore();
+                return new Nexus.Service.Activity.Storage.Binary.BinaryScreenTimeStore(
+                    System.IO.Path.Combine(NexusDataPaths.DatabaseDir(), "screentime"));
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[screentime-store] sqlite unavailable, using in-memory: {ex.Message}");
+                Console.Error.WriteLine($"[screentime-store] binary store unavailable, using in-memory: {ex.Message}");
                 return new Nexus.Service.Activity.Storage.InMemoryScreenTimeStore();
             }
         });
@@ -1533,14 +1527,15 @@ public static class NexusServiceCollectionExtensions
     /// <summary>
     /// AI Integration: the read-only telemetry/history and cooling/lighting/profile
     /// write MCP tools, the consent-gated registry that dispatches them, the
-    /// SQLite-backed history store + recorder + audit sink, and McpServerHost -
+    /// binary-file-backed history store + recorder + audit sink, and McpServerHost -
     /// the loopback-only MCP listener, off by default (AiIntegrationSettings
     /// .Enabled). Depends on IConfigStore (AddNexusCore), ISensorProvider
     /// (AddNexusSensors), IFanControlProvider / ICurveProvider (AddNexusCooling),
     /// ILightingProvider / LightingEngine (AddNexusLighting), ProfileManager
     /// (AddNexusLifecycle), and MultiplexHub (AddNexusCore) already being
-    /// registered. IAiHistoryStore falls back to a no-op store if SQLite can't
-    /// open, the same pattern as IMetricsHistoryStore in AddNexusMonitoringHistory.
+    /// registered. IAiHistoryStore falls back to a no-op store if the store
+    /// can't open, the same pattern as IMetricsHistoryStore in
+    /// AddNexusMonitoringHistory.
     /// </summary>
     public static IServiceCollection AddNexusMcp(this IServiceCollection services)
     {
@@ -1548,11 +1543,12 @@ public static class NexusServiceCollectionExtensions
         {
             try
             {
-                return new Nexus.Service.Mcp.History.SqliteAiHistoryStore();
+                return new Nexus.Service.Mcp.History.Binary.BinaryAiHistoryStore(
+                    System.IO.Path.Combine(NexusDataPaths.DatabaseDir(), "ai-history"));
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[ai-history-store] sqlite unavailable, history disabled: {ex.Message}");
+                Console.Error.WriteLine($"[ai-history-store] binary store unavailable, history disabled: {ex.Message}");
                 return new Nexus.Service.Mcp.History.UnavailableAiHistoryStore();
             }
         });

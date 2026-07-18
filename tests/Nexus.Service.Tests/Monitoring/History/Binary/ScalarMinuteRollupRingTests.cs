@@ -36,7 +36,7 @@ public class ScalarMinuteRollupRingTests : IDisposable
         new(_path, minuteCapacity, initialPruneFloorSec);
 
     private static ScalarMinuteAgg CpuOnly(double sum, int cnt, double max) =>
-        new(new FieldAgg(sum, cnt, max), FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty);
+        new(new FieldAgg(sum, cnt, max), FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty);
 
     [Fact]
     public void RebuildMinute_ThenQueryDecimated_RoundTrips()
