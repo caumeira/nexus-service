@@ -13,9 +13,9 @@ namespace Nexus.Service.Tests.Monitoring.History;
 /// falls in the window. Run against both SqliteMetricsHistoryStore
 /// (SqliteGpuFanDecimatedRawSpecTests) and BinaryMetricsHistoryStore
 /// (BinaryGpuFanDecimatedRawSpecTests) - the rollup-eligible (step&gt;=60)
-/// gpu/fan cases live in RollupHistorySpec, and component-temp decimation
-/// stays SQLite-only in DecimatedHistoryStoreTests since that series is not
-/// persisted by the binary store yet (Phase 3).
+/// gpu/fan cases live in RollupHistorySpec, and the component-temp raw cases
+/// (which have no rollup-eligible path at all) live in
+/// ComponentTempDecimatedRawSpec.
 /// </summary>
 public abstract class GpuFanDecimatedRawSpec : IDisposable
 {

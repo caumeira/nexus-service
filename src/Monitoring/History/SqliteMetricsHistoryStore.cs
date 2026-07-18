@@ -264,7 +264,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
     // rung at or above that width already is, so MonitoringHistoryRoutes'
     // DecimatedPathMinStepSeconds means the *FromRaw variants below are
     // unreached from the real ladder and stay only as a defensive fallback
-    // for a non-ladder step, exercised directly by DecimatedHistoryStoreTests
+    // for a non-ladder step, exercised directly by ScalarDecimatedRawSpec
     // rather than through the route.
     private static bool IsRollupEligible(int stepSeconds) => stepSeconds >= 60 && stepSeconds % 60 == 0;
 

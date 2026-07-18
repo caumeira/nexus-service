@@ -13,11 +13,10 @@ namespace Nexus.Service.Tests.Monitoring.History;
 /// boundaries, an all-null slot staying present with a null field, and exact
 /// agreement with the pure MetricsDecimation.Decimate function. Run against
 /// both SqliteMetricsHistoryStore (SqliteScalarDecimatedRawSpecTests) and
-/// BinaryMetricsHistoryStore (BinaryScalarDecimatedRawSpecTests) -
-/// BinaryMetricsHistoryStore only implements this raw path so far (the
-/// step&gt;=60 minute rollup is Phase 2), and the GPU/fan/component-temp
-/// decimated cases stay Sqlite-only in DecimatedHistoryStoreTests since
-/// those series aren't persisted by the binary store yet either.
+/// BinaryMetricsHistoryStore (BinaryScalarDecimatedRawSpecTests) - the
+/// GPU/fan raw cases live in GpuFanDecimatedRawSpec and the component-temp
+/// raw cases in ComponentTempDecimatedRawSpec, each parameterized the same
+/// way.
 /// </summary>
 public abstract class ScalarDecimatedRawSpec : IDisposable
 {

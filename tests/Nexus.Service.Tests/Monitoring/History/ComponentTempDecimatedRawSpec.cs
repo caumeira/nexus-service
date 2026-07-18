@@ -2,37 +2,41 @@ using System;
 using System.IO;
 using System.Linq;
 using Nexus.Service.Monitoring.History;
+using Nexus.Service.Monitoring.History.Binary;
 using Xunit;
 
 namespace Nexus.Service.Tests.Monitoring.History;
 
-public class DecimatedHistoryStoreTests : IDisposable
+/// <summary>
+/// The raw (step &lt; 60, no minute rollup involved - QueryComponentTempDecimated
+/// has no rollup-eligible fast path in either store) QueryComponentTempDecimated
+/// behavior every store must have: per-component avg/max within a slot, keyed
+/// by component id, and slot boundaries. Run against both
+/// SqliteMetricsHistoryStore (SqliteComponentTempDecimatedRawSpecTests) and
+/// BinaryMetricsHistoryStore (BinaryComponentTempDecimatedRawSpecTests).
+/// </summary>
+public abstract class ComponentTempDecimatedRawSpec : IDisposable
 {
     private readonly string _dir;
-    private readonly SqliteMetricsHistoryStore _store;
+    protected readonly IMetricsHistoryStore Store;
 
-    public DecimatedHistoryStoreTests()
+    protected ComponentTempDecimatedRawSpec()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "nexus-decimatedhistory-" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = Path.Combine(Path.GetTempPath(), "nexus-componenttempdecimated-spec-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_dir);
-        _store = new SqliteMetricsHistoryStore(Path.Combine(_dir, "metrics.db"));
+        Store = CreateStore(_dir);
     }
 
-    public void Dispose()
+    protected abstract IMetricsHistoryStore CreateStore(string dir);
+
+    public virtual void Dispose()
     {
-        _store.Dispose();
+        Store.Dispose();
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private static MetricSample Scalars(long ts, double? cpu, double? mem = 10, double? netIn = 100, double? netOut = 50, double? cpuTemp = 40) =>
-        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
-
-    // The raw (step<60) scalar decimation cases are pinned once in
-    // ScalarDecimatedRawSpec, and the raw gpu/fan cases in
-    // GpuFanDecimatedRawSpec - both run against this store and
-    // BinaryMetricsHistoryStore. Component-temp decimation below stays
-    // SQLite-only: BinaryMetricsHistoryStore does not persist that series
-    // yet (Phase 3, see its class doc).
+    private static MetricSample Scalars(long ts, double? cpu) =>
+        new(ts, cpu, 10, 100, 50, 40, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
 
     private static MetricSample ComponentSample(long ts, params ComponentTempReading[] components) =>
         new(ts, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { ComponentTemps = components };
@@ -44,9 +48,9 @@ public class DecimatedHistoryStoreTests : IDisposable
             new ComponentTempReading("ram:0", "ram", "DIMM A2", 40),
             new ComponentTempReading("storage:ABC", "storage", "Samsung 990 Pro", 35));
         var s2 = ComponentSample(1, new ComponentTempReading("ram:0", "ram", "DIMM A2", 44));
-        _store.Append(new[] { s1, s2 }, null);
+        Store.Append(new[] { s1, s2 }, null);
 
-        var slots = _store.QueryComponentTempDecimated(0, 1, stepSeconds: 10);
+        var slots = Store.QueryComponentTempDecimated(0, 1, stepSeconds: 10);
 
         var ram = Assert.Single(slots, s => s.ComponentId == "ram:0");
         Assert.Equal("ram", ram.Kind);
@@ -65,9 +69,9 @@ public class DecimatedHistoryStoreTests : IDisposable
     {
         var s1 = ComponentSample(0, new ComponentTempReading("ram:0", "ram", "DIMM A2", 40));
         var s2 = ComponentSample(10, new ComponentTempReading("ram:0", "ram", "DIMM A2", 60));
-        _store.Append(new[] { s1, s2 }, null);
+        Store.Append(new[] { s1, s2 }, null);
 
-        var slots = _store.QueryComponentTempDecimated(0, 19, stepSeconds: 10).OrderBy(s => s.Slot).ToList();
+        var slots = Store.QueryComponentTempDecimated(0, 19, stepSeconds: 10).OrderBy(s => s.Slot).ToList();
 
         Assert.Equal(2, slots.Count);
         Assert.Equal(0, slots[0].Slot);
@@ -79,8 +83,20 @@ public class DecimatedHistoryStoreTests : IDisposable
     [Fact]
     public void QueryComponentTempDecimated_ReturnsEmpty_WhenNoComponentDataInWindow()
     {
-        _store.Append(new[] { Scalars(0, cpu: 10) }, null);
+        Store.Append(new[] { Scalars(0, cpu: 10) }, null);
 
-        Assert.Empty(_store.QueryComponentTempDecimated(0, 0, stepSeconds: 10));
+        Assert.Empty(Store.QueryComponentTempDecimated(0, 0, stepSeconds: 10));
     }
+}
+
+public sealed class SqliteComponentTempDecimatedRawSpecTests : ComponentTempDecimatedRawSpec
+{
+    protected override IMetricsHistoryStore CreateStore(string dir) =>
+        new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
+}
+
+public sealed class BinaryComponentTempDecimatedRawSpecTests : ComponentTempDecimatedRawSpec
+{
+    protected override IMetricsHistoryStore CreateStore(string dir) =>
+        new BinaryMetricsHistoryStore(dir);
 }
