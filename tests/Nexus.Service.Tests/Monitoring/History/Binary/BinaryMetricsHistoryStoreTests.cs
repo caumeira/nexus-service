@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Monitoring.History.Binary;
 using Xunit;
@@ -10,10 +11,13 @@ namespace Nexus.Service.Tests.Monitoring.History.Binary;
 /// Facade-level tests for BinaryMetricsHistoryStore: proves ScalarRingStore
 /// and SuperBlock are wired together correctly (construction creates both
 /// files under the given directory, a persisted prune floor survives a
-/// reopen) and that the still-unimplemented per-entity/temperature surface
+/// reopen) and that the still-unimplemented temperature surface (Phase 3)
 /// fails loudly rather than silently returning wrong data. The exhaustive
-/// scalar semantics (null/absent, clamping, wraparound) are covered at the
-/// ScalarRingStore/RingFile level - this file only checks the facade wiring.
+/// scalar/gpu/fan semantics (null/absent, clamping, wraparound, rollup
+/// rebuild) are covered at the ScalarRingStore/GpuRingStore/FanRingStore/
+/// RingFile level and by the shared specs parameterized over both stores
+/// (MetricsHistoryScalarSpec, ScalarDecimatedRawSpec, GpuFanDecimatedRawSpec,
+/// RollupHistorySpec) - this file only checks the facade wiring.
 /// </summary>
 public class BinaryMetricsHistoryStoreTests : IDisposable
 {
@@ -84,26 +88,13 @@ public class BinaryMetricsHistoryStoreTests : IDisposable
     }
 
     [Fact]
-    public void QueryScalarsDecimated_WithARollupEligibleStep_ThrowsNotImplemented_NotWrongData()
+    public void QueryScalarsDecimated_WithARollupEligibleStep_ReadsFromTheRollupRing()
     {
         using var store = new BinaryMetricsHistoryStore(_dir);
-        store.Append(new[] { Scalars(0) }, null);
+        store.Append(new[] { Scalars(0, cpu: 10), Scalars(1, cpu: 30) }, null);
 
-        Assert.Throws<NotImplementedException>(() => store.QueryScalarsDecimated(0, 119, stepSeconds: 60));
-    }
-
-    [Fact]
-    public void QueryGpuDecimated_ThrowsNotImplemented()
-    {
-        using var store = new BinaryMetricsHistoryStore(_dir);
-        Assert.Throws<NotImplementedException>(() => store.QueryGpuDecimated(0, 100, stepSeconds: 10));
-    }
-
-    [Fact]
-    public void QueryFanDecimated_ThrowsNotImplemented()
-    {
-        using var store = new BinaryMetricsHistoryStore(_dir);
-        Assert.Throws<NotImplementedException>(() => store.QueryFanDecimated(0, 100, stepSeconds: 10));
+        var slot = Assert.Single(store.QueryScalarsDecimated(0, 59, stepSeconds: 60));
+        Assert.Equal(20, slot.CpuAvg);
     }
 
     [Fact]
@@ -121,7 +112,7 @@ public class BinaryMetricsHistoryStoreTests : IDisposable
     }
 
     [Fact]
-    public void Append_IgnoresGpuFanAndComponentTempReadings_WithoutThrowing()
+    public void Append_PersistsGpuAndFanReadings_ButStillIgnoresComponentTemp()
     {
         using var store = new BinaryMetricsHistoryStore(_dir);
         var sample = new MetricSample(10, 50, 60, 1000, 500, 55,
@@ -135,8 +126,46 @@ public class BinaryMetricsHistoryStoreTests : IDisposable
 
         var row = Assert.Single(store.Query(0, 100));
         Assert.Equal(50, row.CpuPercent);
-        Assert.Empty(row.Gpus);
-        Assert.Empty(row.Fans);
-        Assert.Empty(row.ComponentTemps);
+        var gpu = Assert.Single(row.Gpus);
+        Assert.Equal("gpu-0", gpu.GpuId);
+        Assert.Equal(10, gpu.LoadPercent);
+        var fan = Assert.Single(row.Fans);
+        Assert.Equal("fan-0", fan.FanId);
+        Assert.Equal(1000, fan.Rpm);
+        Assert.Empty(row.ComponentTemps); // Phase 3
+    }
+
+    [Fact]
+    public void GpuAndFanHistory_SurvivesReopen_WithStableRingIndicesAndData()
+    {
+        var sample = new MetricSample(10, 50, 60, 1000, 500, 55,
+            new[] { new GpuReading("gpu-0", "RTX 5080", "", 42, 55) },
+            new[] { new FanReading("fan-0", "Fan 1", 1200, 60) });
+
+        using (var store = new BinaryMetricsHistoryStore(_dir))
+        {
+            store.Append(new[] { sample }, null);
+        }
+
+        using var reopened = new BinaryMetricsHistoryStore(_dir);
+        var row = Assert.Single(reopened.Query(0, 100));
+
+        var gpu = Assert.Single(row.Gpus);
+        Assert.Equal("gpu-0", gpu.GpuId);
+        Assert.Equal(42, gpu.LoadPercent);
+        var fan = Assert.Single(row.Fans);
+        Assert.Equal("fan-0", fan.FanId);
+        Assert.Equal(1200, fan.Rpm);
+
+        // A newly-seen entity after reopen must land at the NEXT ring index,
+        // not collide with gpu-0's already-reopened index 0.
+        reopened.Append(new[]
+        {
+            new MetricSample(11, null, null, null, null, null,
+                new[] { new GpuReading("gpu-1", "RX 7900", "", 20, 40) }, Array.Empty<FanReading>()),
+        }, null);
+        var rows = reopened.Query(0, 100);
+        Assert.Contains(rows, r => r.Gpus.Any(g => g.GpuId == "gpu-1" && g.LoadPercent == 20));
+        Assert.Contains(rows, r => r.Gpus.Any(g => g.GpuId == "gpu-0" && g.LoadPercent == 42));
     }
 }

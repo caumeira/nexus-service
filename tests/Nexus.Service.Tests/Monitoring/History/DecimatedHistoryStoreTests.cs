@@ -28,58 +28,11 @@ public class DecimatedHistoryStoreTests : IDisposable
         new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
 
     // The raw (step<60) scalar decimation cases are pinned once in
-    // ScalarDecimatedRawSpec and run against both this store and
-    // BinaryMetricsHistoryStore - see that file. GPU/fan/component-temp
-    // decimation below stays SQLite-only: BinaryMetricsHistoryStore does not
-    // persist those series yet (see its class doc).
-
-    [Fact]
-    public void QueryGpuDecimated_AveragesAndMaxesPerGpu_KeyedById()
-    {
-        var s1 = new MetricSample(0, null, null, null, null, null,
-            new[] { new GpuReading("gpu-0", "RTX 5080", "", 10, 40), new GpuReading("gpu-1", "RX 7900", "", 50, 60) },
-            Array.Empty<FanReading>());
-        var s2 = new MetricSample(1, null, null, null, null, null,
-            new[] { new GpuReading("gpu-0", "RTX 5080", "", 30, 42) },
-            Array.Empty<FanReading>());
-        _store.Append(new[] { s1, s2 }, null);
-
-        var slots = _store.QueryGpuDecimated(0, 1, stepSeconds: 10);
-
-        var gpu0 = Assert.Single(slots, s => s.GpuId == "gpu-0");
-        Assert.Equal("RTX 5080", gpu0.Name);
-        Assert.Equal(20, gpu0.LoadAvg);
-        Assert.Equal(30, gpu0.LoadMax);
-        Assert.Equal(41, gpu0.TempAvg);
-
-        var gpu1 = Assert.Single(slots, s => s.GpuId == "gpu-1");
-        Assert.Equal(50, gpu1.LoadAvg);
-    }
-
-    [Fact]
-    public void QueryFanDecimated_AveragesAndMaxesPerFan_KeyedById_NotX10Scaled()
-    {
-        var s1 = new MetricSample(0, null, null, null, null, null,
-            Array.Empty<GpuReading>(), new[] { new FanReading("fan-0", "Fan 1", 1000, 40) });
-        var s2 = new MetricSample(1, null, null, null, null, null,
-            Array.Empty<GpuReading>(), new[] { new FanReading("fan-0", "Fan 1", 1200, 50) });
-        _store.Append(new[] { s1, s2 }, null);
-
-        var slot = Assert.Single(_store.QueryFanDecimated(0, 1, stepSeconds: 10));
-
-        Assert.Equal("fan-0", slot.FanId);
-        Assert.Equal(1100, slot.RpmAvg);
-        Assert.Equal(1200, slot.RpmMax);
-        Assert.Equal(45, slot.DutyAvg);
-    }
-
-    [Fact]
-    public void QueryGpuDecimated_ReturnsEmpty_WhenNoGpuDataInWindow()
-    {
-        _store.Append(new[] { Scalars(0, cpu: 10) }, null);
-
-        Assert.Empty(_store.QueryGpuDecimated(0, 0, stepSeconds: 10));
-    }
+    // ScalarDecimatedRawSpec, and the raw gpu/fan cases in
+    // GpuFanDecimatedRawSpec - both run against this store and
+    // BinaryMetricsHistoryStore. Component-temp decimation below stays
+    // SQLite-only: BinaryMetricsHistoryStore does not persist that series
+    // yet (Phase 3, see its class doc).
 
     private static MetricSample ComponentSample(long ts, params ComponentTempReading[] components) =>
         new(ts, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { ComponentTemps = components };
