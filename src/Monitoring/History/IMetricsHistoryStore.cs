@@ -62,14 +62,18 @@ public sealed record TemperatureBucketRow(
 
 /// <summary>One slot's avg/max for every scalar field. A field is null only
 /// when every raw reading in the slot was itself null (source failed that
-/// whole slot), matching MetricSample's "null = source failed" convention.</summary>
+/// whole slot), matching MetricSample's "null = source failed" convention.
+/// The disk fields default so every pre-existing construction site keeps
+/// compiling.</summary>
 public readonly record struct ScalarDecimatedSlot(
     long Slot,
     double? CpuAvg, double? CpuMax,
     double? MemAvg, double? MemMax,
     double? NetInAvg, double? NetInMax,
     double? NetOutAvg, double? NetOutMax,
-    double? CpuTempAvg, double? CpuTempMax);
+    double? CpuTempAvg, double? CpuTempMax,
+    double? DiskReadAvg = null, double? DiskReadMax = null,
+    double? DiskWriteAvg = null, double? DiskWriteMax = null);
 
 /// <summary>One GPU's slot-aggregated load/temperature.</summary>
 public readonly record struct GpuDecimatedSlot(

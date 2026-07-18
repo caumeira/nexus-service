@@ -27,13 +27,16 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private static MetricSample Scalars(long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
-        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
+    private static MetricSample Scalars(
+        long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55,
+        double? diskRead = 800, double? diskWrite = 400) =>
+        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
+            DiskReadBytesPerSec: diskRead, DiskWriteBytesPerSec: diskWrite);
 
     [Fact]
     public void Append_then_Query_RoundTripsScalarFields()
     {
-        _store.Append(new[] { Scalars(1000, cpu: 42.3, mem: 61.7, netIn: 12345, netOut: 6789, cpuTemp: 55.4) }, null);
+        _store.Append(new[] { Scalars(1000, cpu: 42.3, mem: 61.7, netIn: 12345, netOut: 6789, cpuTemp: 55.4, diskRead: 22222, diskWrite: 11111) }, null);
 
         var row = Assert.Single(_store.Query(0, 10_000));
         Assert.Equal(1000, row.TsSec);
@@ -42,12 +45,14 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
         Assert.Equal(12345, row.NetInBytesPerSec);
         Assert.Equal(6789, row.NetOutBytesPerSec);
         Assert.Equal(55.4, row.CpuTempC);
+        Assert.Equal(22222, row.DiskReadBytesPerSec);
+        Assert.Equal(11111, row.DiskWriteBytesPerSec);
     }
 
     [Fact]
     public void Append_preserves_null_fields_as_source_failed_not_zero()
     {
-        _store.Append(new[] { Scalars(1000, cpu: null, mem: 60, netIn: null, netOut: null, cpuTemp: null) }, null);
+        _store.Append(new[] { Scalars(1000, cpu: null, mem: 60, netIn: null, netOut: null, cpuTemp: null, diskRead: null, diskWrite: null) }, null);
 
         var row = Assert.Single(_store.Query(0, 10_000));
         Assert.Null(row.CpuPercent);
@@ -55,6 +60,8 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
         Assert.Null(row.NetInBytesPerSec);
         Assert.Null(row.NetOutBytesPerSec);
         Assert.Null(row.CpuTempC);
+        Assert.Null(row.DiskReadBytesPerSec);
+        Assert.Null(row.DiskWriteBytesPerSec);
     }
 
     [Fact]

@@ -157,7 +157,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             using (var cmd = _connection.CreateCommand())
             {
                 cmd.CommandText = """
-                    SELECT ts, cpu_x10, mem_x10, net_in_bps, net_out_bps, cpu_temp_x10
+                    SELECT ts, cpu_x10, mem_x10, net_in_bps, net_out_bps, cpu_temp_x10, disk_read_bps, disk_write_bps
                     FROM metric_seconds
                     WHERE ts BETWEEN $from AND $to
                     ORDER BY ts ASC;
@@ -173,7 +173,9 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                         UnscaleX10(reader, 2),
                         reader.IsDBNull(3) ? null : reader.GetInt64(3),
                         reader.IsDBNull(4) ? null : reader.GetInt64(4),
-                        UnscaleX10(reader, 5));
+                        UnscaleX10(reader, 5),
+                        reader.IsDBNull(6) ? null : reader.GetInt64(6),
+                        reader.IsDBNull(7) ? null : reader.GetInt64(7));
                 }
             }
 
@@ -253,7 +255,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                     ts, row.Cpu, row.Mem, row.NetIn, row.NetOut, row.CpuTemp,
                     gpuByTs.TryGetValue(ts, out var gpus) ? gpus : Array.Empty<GpuReading>(),
                     fanByTs.TryGetValue(ts, out var fans) ? fans : Array.Empty<FanReading>(),
-                    ComponentTemps: componentByTs.TryGetValue(ts, out var comps) ? comps : Array.Empty<ComponentTempReading>()));
+                    ComponentTemps: componentByTs.TryGetValue(ts, out var comps) ? comps : Array.Empty<ComponentTempReading>(),
+                    DiskReadBytesPerSec: row.DiskRead, DiskWriteBytesPerSec: row.DiskWrite));
             }
             return result;
         }
@@ -287,7 +290,9 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                    AVG(mem_x10) / 10.0, MAX(mem_x10) / 10.0,
                    AVG(net_in_bps), MAX(net_in_bps),
                    AVG(net_out_bps), MAX(net_out_bps),
-                   AVG(cpu_temp_x10) / 10.0, MAX(cpu_temp_x10) / 10.0
+                   AVG(cpu_temp_x10) / 10.0, MAX(cpu_temp_x10) / 10.0,
+                   AVG(disk_read_bps), MAX(disk_read_bps),
+                   AVG(disk_write_bps), MAX(disk_write_bps)
             FROM metric_seconds
             WHERE ts BETWEEN $from AND $to
             GROUP BY slot
@@ -307,7 +312,9 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 NullableDouble(reader, 3), NullableDouble(reader, 4),
                 NullableDouble(reader, 5), NullableDouble(reader, 6),
                 NullableDouble(reader, 7), NullableDouble(reader, 8),
-                NullableDouble(reader, 9), NullableDouble(reader, 10)));
+                NullableDouble(reader, 9), NullableDouble(reader, 10),
+                NullableDouble(reader, 11), NullableDouble(reader, 12),
+                NullableDouble(reader, 13), NullableDouble(reader, 14)));
         }
         return result;
     }
@@ -327,7 +334,9 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                    SUM(mem_sum_x10) * 1.0 / SUM(mem_cnt) / 10.0, MAX(mem_max_x10) / 10.0,
                    SUM(net_in_sum) * 1.0 / SUM(net_in_cnt), MAX(net_in_max),
                    SUM(net_out_sum) * 1.0 / SUM(net_out_cnt), MAX(net_out_max),
-                   SUM(cpu_temp_sum_x10) * 1.0 / SUM(cpu_temp_cnt) / 10.0, MAX(cpu_temp_max_x10) / 10.0
+                   SUM(cpu_temp_sum_x10) * 1.0 / SUM(cpu_temp_cnt) / 10.0, MAX(cpu_temp_max_x10) / 10.0,
+                   SUM(disk_read_sum) * 1.0 / SUM(disk_read_cnt), MAX(disk_read_max),
+                   SUM(disk_write_sum) * 1.0 / SUM(disk_write_cnt), MAX(disk_write_max)
             FROM metric_minutes
             WHERE ts_min + 59 >= $from AND ts_min <= $to
             GROUP BY slot
@@ -347,7 +356,9 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 NullableDouble(reader, 3), NullableDouble(reader, 4),
                 NullableDouble(reader, 5), NullableDouble(reader, 6),
                 NullableDouble(reader, 7), NullableDouble(reader, 8),
-                NullableDouble(reader, 9), NullableDouble(reader, 10)));
+                NullableDouble(reader, 9), NullableDouble(reader, 10),
+                NullableDouble(reader, 11), NullableDouble(reader, 12),
+                NullableDouble(reader, 13), NullableDouble(reader, 14)));
         }
         return result;
     }
@@ -574,7 +585,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
     }
 
     private readonly record struct ScalarRow(
-        double? Cpu, double? Mem, long? NetIn, long? NetOut, double? CpuTemp);
+        double? Cpu, double? Mem, long? NetIn, long? NetOut, double? CpuTemp, long? DiskRead, long? DiskWrite);
 
     private static void AddTo<T>(Dictionary<long, List<T>> map, long ts, T value)
     {
@@ -591,8 +602,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT OR REPLACE INTO metric_seconds (ts, cpu_x10, mem_x10, net_in_bps, net_out_bps, cpu_temp_x10)
-            VALUES ($ts, $cpu, $mem, $netIn, $netOut, $cpuTemp);
+            INSERT OR REPLACE INTO metric_seconds (ts, cpu_x10, mem_x10, net_in_bps, net_out_bps, cpu_temp_x10, disk_read_bps, disk_write_bps)
+            VALUES ($ts, $cpu, $mem, $netIn, $netOut, $cpuTemp, $diskRead, $diskWrite);
         """;
         var pTs = AddParam(cmd, "$ts");
         var pCpu = AddParam(cmd, "$cpu");
@@ -600,6 +611,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         var pNetIn = AddParam(cmd, "$netIn");
         var pNetOut = AddParam(cmd, "$netOut");
         var pCpuTemp = AddParam(cmd, "$cpuTemp");
+        var pDiskRead = AddParam(cmd, "$diskRead");
+        var pDiskWrite = AddParam(cmd, "$diskWrite");
 
         foreach (var s in samples)
         {
@@ -609,6 +622,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             pNetIn.Value = ScaleWhole(s.NetInBytesPerSec);
             pNetOut.Value = ScaleWhole(s.NetOutBytesPerSec);
             pCpuTemp.Value = ScaleX10(s.CpuTempC);
+            pDiskRead.Value = ScaleWhole(s.DiskReadBytesPerSec);
+            pDiskWrite.Value = ScaleWhole(s.DiskWriteBytesPerSec);
             cmd.ExecuteNonQuery();
         }
     }
@@ -722,13 +737,17 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 mem_sum_x10, mem_cnt, mem_max_x10,
                 net_in_sum, net_in_cnt, net_in_max,
                 net_out_sum, net_out_cnt, net_out_max,
-                cpu_temp_sum_x10, cpu_temp_cnt, cpu_temp_max_x10)
+                cpu_temp_sum_x10, cpu_temp_cnt, cpu_temp_max_x10,
+                disk_read_sum, disk_read_cnt, disk_read_max,
+                disk_write_sum, disk_write_cnt, disk_write_max)
             SELECT $ts,
                    SUM(cpu_x10), COUNT(cpu_x10), MAX(cpu_x10),
                    SUM(mem_x10), COUNT(mem_x10), MAX(mem_x10),
                    SUM(net_in_bps), COUNT(net_in_bps), MAX(net_in_bps),
                    SUM(net_out_bps), COUNT(net_out_bps), MAX(net_out_bps),
-                   SUM(cpu_temp_x10), COUNT(cpu_temp_x10), MAX(cpu_temp_x10)
+                   SUM(cpu_temp_x10), COUNT(cpu_temp_x10), MAX(cpu_temp_x10),
+                   SUM(disk_read_bps), COUNT(disk_read_bps), MAX(disk_read_bps),
+                   SUM(disk_write_bps), COUNT(disk_write_bps), MAX(disk_write_bps)
             FROM metric_seconds
             WHERE ts >= $ts AND ts < $ts + 60;
         """;
@@ -1127,12 +1146,14 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS metric_seconds (
-                ts           INTEGER PRIMARY KEY,
-                cpu_x10      INTEGER,
-                mem_x10      INTEGER,
-                net_in_bps   INTEGER,
-                net_out_bps  INTEGER,
-                cpu_temp_x10 INTEGER
+                ts             INTEGER PRIMARY KEY,
+                cpu_x10        INTEGER,
+                mem_x10        INTEGER,
+                net_in_bps     INTEGER,
+                net_out_bps    INTEGER,
+                cpu_temp_x10   INTEGER,
+                disk_read_bps  INTEGER,
+                disk_write_bps INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS gpu_series (
@@ -1167,7 +1188,9 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 mem_sum_x10      INTEGER, mem_cnt INTEGER NOT NULL DEFAULT 0, mem_max_x10 INTEGER,
                 net_in_sum       INTEGER, net_in_cnt INTEGER NOT NULL DEFAULT 0, net_in_max INTEGER,
                 net_out_sum      INTEGER, net_out_cnt INTEGER NOT NULL DEFAULT 0, net_out_max INTEGER,
-                cpu_temp_sum_x10 INTEGER, cpu_temp_cnt INTEGER NOT NULL DEFAULT 0, cpu_temp_max_x10 INTEGER
+                cpu_temp_sum_x10 INTEGER, cpu_temp_cnt INTEGER NOT NULL DEFAULT 0, cpu_temp_max_x10 INTEGER,
+                disk_read_sum    INTEGER, disk_read_cnt INTEGER NOT NULL DEFAULT 0, disk_read_max INTEGER,
+                disk_write_sum   INTEGER, disk_write_cnt INTEGER NOT NULL DEFAULT 0, disk_write_max INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS gpu_minutes (
@@ -1270,6 +1293,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
         MigrateAppSeriesToNoCase();
         ImportLegacyTemperatureHistory();
+        MigrateAddDiskColumns();
     }
 
     // Runs once (schema_meta version gate): imports the retired
@@ -1315,6 +1339,55 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
     private string ResolveLegacyTemperatureDbPath() =>
         Path.Combine(Path.GetDirectoryName(_dbPath)!, "temperature.db");
+
+    // disk_read_bps/disk_write_bps (metric_seconds) and their sum/cnt/max
+    // rollup counterparts (metric_minutes) were added after this store's
+    // initial release; CREATE TABLE IF NOT EXISTS above no-ops on a
+    // database that already has these tables, so an existing box needs the
+    // columns added explicitly. Gated by ColumnExists (checked, and skipped,
+    // on every boot) rather than the shared schema_meta version counter: that
+    // counter is a single monotonic value shared by every migration in this
+    // file, and bumping it here would make an earlier, still-pending
+    // migration's own "< threshold" gate (e.g. ImportLegacyTemperatureHistory's
+    // retry-on-failure contract) see a version past its threshold and wrongly
+    // treat itself as already done.
+    private void MigrateAddDiskColumns()
+    {
+        AddColumnIfMissing("metric_seconds", "disk_read_bps", "INTEGER");
+        AddColumnIfMissing("metric_seconds", "disk_write_bps", "INTEGER");
+        AddColumnIfMissing("metric_minutes", "disk_read_sum", "INTEGER");
+        AddColumnIfMissing("metric_minutes", "disk_read_cnt", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing("metric_minutes", "disk_read_max", "INTEGER");
+        AddColumnIfMissing("metric_minutes", "disk_write_sum", "INTEGER");
+        AddColumnIfMissing("metric_minutes", "disk_write_cnt", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing("metric_minutes", "disk_write_max", "INTEGER");
+    }
+
+    private bool ColumnExists(string table, string column)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info({table});";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void AddColumnIfMissing(string table, string column, string columnDdl)
+    {
+        if (ColumnExists(table, column))
+        {
+            return;
+        }
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {columnDdl};";
+        cmd.ExecuteNonQuery();
+    }
 
     // app_series was created without COLLATE NOCASE by an earlier version
     // of this store; CREATE TABLE IF NOT EXISTS above no-ops on a database

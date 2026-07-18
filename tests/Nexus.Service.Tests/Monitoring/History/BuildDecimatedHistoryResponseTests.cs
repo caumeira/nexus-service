@@ -82,6 +82,29 @@ public class BuildDecimatedHistoryResponseTests
     }
 
     [Fact]
+    public void BuildDecimatedHistoryResponse_DiskSeries_ReadsAvgAndMaxFromTheirOwnSlotFields()
+    {
+        var dbScalars = new[]
+        {
+            new ScalarDecimatedSlot(0, null, null, null, null, null, null, null, null, null, null,
+                DiskReadAvg: 2000, DiskReadMax: 3000, DiskWriteAvg: 400, DiskWriteMax: 600),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
+            dbScalars, Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), Array.Empty<MetricSample>(),
+            0, 9, stepSeconds: 10, seriesFilter: new HashSet<string> { "disk" }, gpuAdapterLuids: NoLuids);
+
+        Assert.Equal(2, response.Series.Count);
+        var read = response.Series.Single(s => s.Id == "disk-read");
+        Assert.Equal("disk", read.Kind);
+        Assert.Equal(2000, read.Points.Single().Avg);
+        Assert.Equal(3000, read.Points.Single().Max);
+        var write = response.Series.Single(s => s.Id == "disk-write");
+        Assert.Equal(400, write.Points.Single().Avg);
+        Assert.Equal(600, write.Points.Single().Max);
+    }
+
+    [Fact]
     public void BuildDecimatedHistoryResponse_GpuSeries_PairsLoadAndTemp_KeyedByGpuId()
     {
         var dbGpu = new[] { new GpuDecimatedSlot("gpu-0", "RTX 5080", 0, 55, 60, 62, 65) };
