@@ -30,52 +30,12 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
     private static MetricSample Scalars(long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
         new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
 
-    [Fact]
-    public void Append_then_Query_RoundTripsScalarFields()
-    {
-        _store.Append(new[] { Scalars(1000, cpu: 42.3, mem: 61.7, netIn: 12345, netOut: 6789, cpuTemp: 55.4) }, null);
-
-        var row = Assert.Single(_store.Query(0, 10_000));
-        Assert.Equal(1000, row.TsSec);
-        Assert.Equal(42.3, row.CpuPercent);
-        Assert.Equal(61.7, row.MemoryPercent);
-        Assert.Equal(12345, row.NetInBytesPerSec);
-        Assert.Equal(6789, row.NetOutBytesPerSec);
-        Assert.Equal(55.4, row.CpuTempC);
-    }
-
-    [Fact]
-    public void Append_preserves_null_fields_as_source_failed_not_zero()
-    {
-        _store.Append(new[] { Scalars(1000, cpu: null, mem: 60, netIn: null, netOut: null, cpuTemp: null) }, null);
-
-        var row = Assert.Single(_store.Query(0, 10_000));
-        Assert.Null(row.CpuPercent);
-        Assert.Equal(60, row.MemoryPercent);
-        Assert.Null(row.NetInBytesPerSec);
-        Assert.Null(row.NetOutBytesPerSec);
-        Assert.Null(row.CpuTempC);
-    }
-
-    [Fact]
-    public void Append_SameTimestamp_ReplacesRatherThanDuplicates()
-    {
-        _store.Append(new[] { Scalars(1000, cpu: 10) }, null);
-        _store.Append(new[] { Scalars(1000, cpu: 90) }, null);
-
-        var row = Assert.Single(_store.Query(0, 10_000));
-        Assert.Equal(90, row.CpuPercent);
-    }
-
-    [Fact]
-    public void Query_ReturnsRowsAscendingByTs_AndExcludesOutOfRange()
-    {
-        _store.Append(new[] { Scalars(3000), Scalars(1000), Scalars(9000), Scalars(2000) }, null);
-
-        var rows = _store.Query(1500, 3500);
-
-        Assert.Equal(new long[] { 2000, 3000 }, rows.Select(r => r.TsSec).ToArray());
-    }
+    // Scalar-only Append/Query behavior (round trip, null-vs-zero, same-ts
+    // replace, ascending order, empty no-op, prune cutoff) is pinned once in
+    // MetricsHistoryScalarSpec and run against both this store and
+    // BinaryMetricsHistoryStore - see that file. What remains here is
+    // everything specific to SQLite: GPU/fan entity tables, surrogate-key
+    // rollback, key stability across reopen, and privacy sessions.
 
     [Fact]
     public void Append_RoundTripsGpuReadings_KeyedByEntity()
@@ -210,14 +170,6 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
         var fan = Assert.Single(row.Fans);
         Assert.Equal("fan-a", fan.FanId);
         Assert.Equal(1200, fan.Rpm);
-    }
-
-    [Fact]
-    public void Append_EmptyList_WithNoCutoff_IsANoOp()
-    {
-        _store.Append(Array.Empty<MetricSample>(), null);
-
-        Assert.Empty(_store.Query(0, long.MaxValue));
     }
 
     private IPrivacySessionStore PrivacyStore => _store;

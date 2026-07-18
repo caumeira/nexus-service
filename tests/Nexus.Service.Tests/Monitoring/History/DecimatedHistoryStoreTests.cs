@@ -27,62 +27,11 @@ public class DecimatedHistoryStoreTests : IDisposable
     private static MetricSample Scalars(long ts, double? cpu, double? mem = 10, double? netIn = 100, double? netOut = 50, double? cpuTemp = 40) =>
         new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
 
-    [Fact]
-    public void QueryScalarsDecimated_AveragesAndMaxesEachFieldWithinASlot()
-    {
-        _store.Append(new[] { Scalars(0, cpu: 10), Scalars(1, cpu: 30) }, null);
-
-        var slots = _store.QueryScalarsDecimated(0, 1, stepSeconds: 10);
-
-        var slot = Assert.Single(slots);
-        Assert.Equal(0, slot.Slot);
-        Assert.Equal(20, slot.CpuAvg);
-        Assert.Equal(30, slot.CpuMax);
-    }
-
-    [Fact]
-    public void QueryScalarsDecimated_SplitsRowsAcrossSlotBoundaries()
-    {
-        _store.Append(new[] { Scalars(0, cpu: 10), Scalars(10, cpu: 50) }, null);
-
-        var slots = _store.QueryScalarsDecimated(0, 19, stepSeconds: 10).OrderBy(s => s.Slot).ToList();
-
-        Assert.Equal(2, slots.Count);
-        Assert.Equal(0, slots[0].Slot);
-        Assert.Equal(10, slots[0].CpuAvg);
-        Assert.Equal(10, slots[1].Slot);
-        Assert.Equal(50, slots[1].CpuAvg);
-    }
-
-    [Fact]
-    public void QueryScalarsDecimated_LeavesAFieldNull_WhenEveryReadingInTheSlotWasNull()
-    {
-        _store.Append(new[] { Scalars(0, cpu: null) }, null);
-
-        var slot = Assert.Single(_store.QueryScalarsDecimated(0, 0, stepSeconds: 10));
-
-        Assert.Null(slot.CpuAvg);
-        Assert.Null(slot.CpuMax);
-    }
-
-    [Fact]
-    public void QueryScalarsDecimated_MatchesRawDecimation_ForAWiderSyntheticWindow()
-    {
-        var samples = Enumerable.Range(0, 25).Select(i => Scalars(i, cpu: i)).ToArray();
-        _store.Append(samples, null);
-
-        var decimated = _store.QueryScalarsDecimated(0, 24, stepSeconds: 10).OrderBy(s => s.Slot).ToList();
-        var raw = MetricsDecimation.Decimate(
-            samples.Select(s => new MetricSamplePoint(s.TsSec, s.CpuPercent)), 0, 24, 10);
-
-        Assert.Equal(raw.Count, decimated.Count);
-        for (var i = 0; i < raw.Count; i++)
-        {
-            Assert.Equal(raw[i].T, decimated[i].Slot);
-            Assert.Equal(raw[i].Avg, decimated[i].CpuAvg!.Value, precision: 6);
-            Assert.Equal(raw[i].Max, decimated[i].CpuMax!.Value, precision: 6);
-        }
-    }
+    // The raw (step<60) scalar decimation cases are pinned once in
+    // ScalarDecimatedRawSpec and run against both this store and
+    // BinaryMetricsHistoryStore - see that file. GPU/fan/component-temp
+    // decimation below stays SQLite-only: BinaryMetricsHistoryStore does not
+    // persist those series yet (see its class doc).
 
     [Fact]
     public void QueryGpuDecimated_AveragesAndMaxesPerGpu_KeyedById()
