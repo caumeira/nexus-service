@@ -14,7 +14,11 @@ namespace Nexus.Service.Activity;
 /// state is required, not optional - unless the window covers a whole
 /// monitor, which only a fullscreen app does. Likewise a missing title is
 /// excluded unless the read itself was blocked (UIPI across an elevation
-/// boundary), which a truly titleless background window never trips.
+/// boundary), which a truly titleless background window never trips. The
+/// cloak/title/tool-window heuristics all exist to reject windows that are
+/// hidden from the user - the current OS foreground window is never one of
+/// those by definition, so it bypasses all of them and only the ownership
+/// and on-screen-bounds sanity checks still apply.
 /// </summary>
 public static class WindowClassification
 {
@@ -26,14 +30,21 @@ public static class WindowClassification
         bool hasTitle,
         bool hasOnScreenBounds,
         bool coversMonitor,
-        bool titleBlockedByUipi)
+        bool titleBlockedByUipi,
+        bool isForegroundWindow)
     {
+        if (owner != IntPtr.Zero || !hasOnScreenBounds)
+        {
+            return false;
+        }
+        if (isForegroundWindow)
+        {
+            return true;
+        }
         return isVisible
-            && owner == IntPtr.Zero
             && !isToolWindow
             && (!isCloaked || coversMonitor)
-            && (hasTitle || titleBlockedByUipi)
-            && hasOnScreenBounds;
+            && (hasTitle || titleBlockedByUipi);
     }
 
     /// <summary>True when the window rect has positive area and overlaps the

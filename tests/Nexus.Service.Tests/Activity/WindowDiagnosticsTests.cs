@@ -49,7 +49,7 @@ public class WindowDiagnosticsTests
     {
         var line = WindowDiagnostics.FormatLine(
             pid: 4242,
-            processName: "SystemShock",
+            processName: "notepad",
             isVisible: true,
             hasOwner: false,
             isToolWindow: false,
@@ -59,11 +59,12 @@ public class WindowDiagnosticsTests
             titleReadError: 5,
             hasOnScreenBounds: true,
             coversMonitor: false,
+            isForegroundWindow: false,
             isCountable: false);
 
         Assert.Contains("[window-diag]", line);
         Assert.Contains("pid=4242", line);
-        Assert.Contains("proc=\"SystemShock\"", line);
+        Assert.Contains("proc=\"notepad\"", line);
         Assert.Contains("isVisible=True", line);
         Assert.Contains("hasOwner=False", line);
         Assert.Contains("isToolWindow=False", line);
@@ -73,6 +74,7 @@ public class WindowDiagnosticsTests
         Assert.Contains("titleReadError=5", line);
         Assert.Contains("hasOnScreenBounds=True", line);
         Assert.Contains("coversMonitor=False", line);
+        Assert.Contains("isForegroundWindow=False", line);
         Assert.Contains("isCountable=False", line);
         Assert.Contains("class=Background", line);
     }
@@ -92,6 +94,7 @@ public class WindowDiagnosticsTests
             titleReadError: 0,
             hasOnScreenBounds: true,
             coversMonitor: false,
+            isForegroundWindow: false,
             isCountable: true);
 
         Assert.Contains("isCountable=True", line);
@@ -103,7 +106,7 @@ public class WindowDiagnosticsTests
     {
         var line = WindowDiagnostics.FormatLine(
             pid: 200,
-            processName: "SystemShock",
+            processName: "game",
             isVisible: true,
             hasOwner: false,
             isToolWindow: false,
@@ -113,10 +116,37 @@ public class WindowDiagnosticsTests
             titleReadError: 5,
             hasOnScreenBounds: true,
             coversMonitor: true,
+            isForegroundWindow: false,
             isCountable: true);
 
         Assert.Contains("isCloaked=True", line);
         Assert.Contains("coversMonitor=True", line);
+        Assert.Contains("class=App", line);
+    }
+
+    [Fact]
+    public void FormatLine_ReportsAppForTheForegroundWindow_CloakedAndNotCoveringAMonitor()
+    {
+        // The foreground override is the same mechanism as the fullscreen
+        // cover-monitor override above, taken for a window that fails both
+        // the cloak and title heuristics but is what the user has focused.
+        var line = WindowDiagnostics.FormatLine(
+            pid: 300,
+            processName: "borderless-app",
+            isVisible: true,
+            hasOwner: false,
+            isToolWindow: false,
+            isCloaked: true,
+            hasTitle: false,
+            titleLength: 0,
+            titleReadError: 0,
+            hasOnScreenBounds: true,
+            coversMonitor: false,
+            isForegroundWindow: true,
+            isCountable: true);
+
+        Assert.Contains("isForegroundWindow=True", line);
+        Assert.Contains("coversMonitor=False", line);
         Assert.Contains("class=App", line);
     }
 
@@ -129,11 +159,13 @@ public class WindowDiagnosticsTests
         var blocked = WindowDiagnostics.FormatLine(
             pid: 1, processName: "elevated", isVisible: true, hasOwner: false,
             isToolWindow: false, isCloaked: false, hasTitle: false, titleLength: 0,
-            titleReadError: 5, hasOnScreenBounds: true, coversMonitor: false, isCountable: false);
+            titleReadError: 5, hasOnScreenBounds: true, coversMonitor: false,
+            isForegroundWindow: false, isCountable: false);
         var legitimatelyEmpty = WindowDiagnostics.FormatLine(
             pid: 2, processName: "other", isVisible: true, hasOwner: false,
             isToolWindow: false, isCloaked: false, hasTitle: false, titleLength: 0,
-            titleReadError: 0, hasOnScreenBounds: true, coversMonitor: false, isCountable: false);
+            titleReadError: 0, hasOnScreenBounds: true, coversMonitor: false,
+            isForegroundWindow: false, isCountable: false);
 
         Assert.Contains("titleReadError=5", blocked);
         Assert.Contains("titleReadError=0", legitimatelyEmpty);

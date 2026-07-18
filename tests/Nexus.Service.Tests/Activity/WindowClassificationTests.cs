@@ -13,10 +13,11 @@ public class WindowClassificationTests
         bool hasTitle = true,
         bool hasOnScreenBounds = true,
         bool coversMonitor = false,
-        bool titleBlockedByUipi = false) =>
+        bool titleBlockedByUipi = false,
+        bool isForegroundWindow = false) =>
         WindowClassification.IsCountableWindow(
             isVisible, owner, isToolWindow, isCloaked, hasTitle, hasOnScreenBounds,
-            coversMonitor, titleBlockedByUipi);
+            coversMonitor, titleBlockedByUipi, isForegroundWindow);
 
     [Fact]
     public void IsCountableWindow_True_ForAVisibleUnownedTitledOnScreenWindow()
@@ -96,6 +97,47 @@ public class WindowClassificationTests
     public void IsCountableWindow_False_ForAWindowWithoutOnScreenBounds()
     {
         Assert.False(RealAppWindow(hasOnScreenBounds: false));
+    }
+
+    [Fact]
+    public void IsCountableWindow_True_ForTheForegroundWindow_EvenWhenCloakedAndNotCoveringAMonitor()
+    {
+        // A borderless windowed app can be DWM-cloaked without covering its
+        // whole monitor, failing the cloak heuristic - but if it is the
+        // window the user currently has focused, it is a real app regardless.
+        Assert.True(RealAppWindow(isCloaked: true, coversMonitor: false, isForegroundWindow: true));
+    }
+
+    [Fact]
+    public void IsCountableWindow_True_ForTheForegroundWindow_EvenWhenTitleless()
+    {
+        Assert.True(RealAppWindow(hasTitle: false, titleBlockedByUipi: false, isForegroundWindow: true));
+    }
+
+    [Fact]
+    public void IsCountableWindow_True_ForTheForegroundWindow_EvenWhenReportedHidden()
+    {
+        Assert.True(RealAppWindow(isVisible: false, isForegroundWindow: true));
+    }
+
+    [Fact]
+    public void IsCountableWindow_True_ForTheForegroundWindow_EvenWhenAToolWindow()
+    {
+        Assert.True(RealAppWindow(isToolWindow: true, isForegroundWindow: true));
+    }
+
+    [Fact]
+    public void IsCountableWindow_False_ForTheForegroundWindow_WhenOwned()
+    {
+        // The foreground override still requires this be a top-level window,
+        // not a dialog/popup owned by another window.
+        Assert.False(RealAppWindow(owner: new IntPtr(1), isForegroundWindow: true));
+    }
+
+    [Fact]
+    public void IsCountableWindow_False_ForTheForegroundWindow_WithoutOnScreenBounds()
+    {
+        Assert.False(RealAppWindow(hasOnScreenBounds: false, isForegroundWindow: true));
     }
 
     [Fact]
