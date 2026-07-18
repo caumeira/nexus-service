@@ -68,13 +68,13 @@ public class NexusAppFactory : WebApplicationFactory<Program>
             services.AddSingleton<IConfigStore>(new JsonConfigStore(SettingsPath));
 
             // IMcpAuditSink resolves McpServerHost -> McpToolRegistry ->
-            // IAiHistoryStore even with hosted services stripped, since /ai/*
+            // IAiEventLog even with hosted services stripped, since /ai/*
             // route handlers take McpServerHost as a DI param. Isolate its
             // data directory to the same per-factory temp dir so an AI-route
             // test never touches the developer's real machine data directory.
-            services.RemoveAll<Nexus.Service.Mcp.History.IAiHistoryStore>();
-            services.AddSingleton<Nexus.Service.Mcp.History.IAiHistoryStore>(
-                new Nexus.Service.Mcp.History.Binary.BinaryAiHistoryStore(Path.Combine(_configDir, "ai-history")));
+            services.RemoveAll<Nexus.Service.Mcp.History.IAiEventLog>();
+            services.AddSingleton<Nexus.Service.Mcp.History.IAiEventLog>(
+                new Nexus.Service.Mcp.History.Binary.BinaryAiEventLog(Path.Combine(_configDir, "ai-history")));
         });
     }
 
