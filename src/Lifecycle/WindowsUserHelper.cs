@@ -147,6 +147,15 @@ internal static class WindowsUserHelper
         var watchdog = new Thread(WatchdogLoop) { IsBackground = true };
         watchdog.Start();
 
+        // UserHelperBootstrapper forwards NEXUS_WINDOW_DIAG as this argv flag
+        // instead of the env var itself - a machine env var change on the
+        // service side does not reach a process schtasks spawns in another
+        // session. Re-hydrate it as the env var WindowSetPoller reads.
+        if (Array.IndexOf(args, Nexus.Service.Activity.WindowDiagnostics.HelperArgName) >= 0)
+        {
+            Environment.SetEnvironmentVariable(Nexus.Service.Activity.WindowDiagnostics.EnvVarName, "1");
+        }
+
         // User-session providers. Each one owns its own polling/listening
         // and pushes envelopes through the shared outbound. Adding a new
         // domain = a new helper-side class + a service-side subscriber;

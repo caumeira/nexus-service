@@ -54,6 +54,14 @@ public sealed class ProcessMonitor : BackgroundService
     private readonly Dictionary<int, (TimeSpan cpuTime, DateTime when)> _winPrev = new();
     private readonly Dictionary<int, (ulong cpuNs, DateTime when)> _macPrev = new();
 
+    // Anchors a stable fallback timestamp per pid for when the real process
+    // start time is unreadable (elevated/protected process under
+    // LocalSystem), so such a process still sorts by recency instead of
+    // always ranking as the oldest possible entry. Pruned on the same
+    // seen-pid pass as _winPrev, so a stale anchor never lingers to
+    // misattribute a pid Windows later reuses for a different process.
+    private readonly Dictionary<int, long> _firstSeenAtMs = new();
+
     /// <summary>windowSet is null on non-Windows and whenever no Windows
     /// build registers one (no user-session helper connected yet) - HasWindow
     /// then stays false for every process, matching "nothing is windowed"
@@ -153,6 +161,20 @@ public sealed class ProcessMonitor : BackgroundService
     /// <summary>Test-only seam: seeds the name-&gt;path cache directly,
     /// bypassing real MainModule resolution.</summary>
     internal void SeedResolvedPathForTest(string name, string path) => InsertPathCache(name, path);
+
+    /// <summary>Returns a stable epoch-ms anchor for pid, set to observedAt
+    /// the first time this pid is seen and unchanged on every later call -
+    /// the fallback SampleWindows uses in place of StartTime when reading
+    /// the real value throws.</summary>
+    internal long AnchorFirstSeenMs(int pid, DateTime observedAt)
+    {
+        if (!_firstSeenAtMs.TryGetValue(pid, out var anchored))
+        {
+            anchored = new DateTimeOffset(observedAt.ToUniversalTime()).ToUnixTimeMilliseconds();
+            _firstSeenAtMs[pid] = anchored;
+        }
+        return anchored;
+    }
 
     // Bounded like _pathCache, keyed by exe path (not name) so once resolved,
     // two names sharing one binary read the same entry. The in-flight dedup
@@ -569,14 +591,18 @@ public sealed class ProcessMonitor : BackgroundService
                 _winPrev[pid] = (cpuTime, now);
 
                 // Running as LocalSystem denies StartTime for some processes
-                // (elevated/protected system processes); leave it null rather
-                // than dropping the whole entry.
-                long? startedAtMs = null;
+                // (elevated/protected system processes); fall back to a
+                // stable first-seen anchor rather than leaving it null, so
+                // the entry still sorts by recency instead of the bottom.
+                long? startedAtMs;
                 try
                 {
                     startedAtMs = new DateTimeOffset(proc.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds();
                 }
-                catch { }
+                catch
+                {
+                    startedAtMs = AnchorFirstSeenMs(pid, now);
+                }
 
                 result.Add(new ProcessInfo
                 {
@@ -609,6 +635,27 @@ public sealed class ProcessMonitor : BackgroundService
                 _winPrev.Remove(k);
             }
         }
+        // Unlike _winPrev/_macPrev (an entry per live process every tick, so
+        // Count tracks seen.Count closely), _firstSeenAtMs only ever holds
+        // the sparse subset whose StartTime read failed - Count can stay far
+        // below seen.Count forever, so pruning cannot gate on that
+        // comparison or a stale entry never clears and can later re-anchor
+        // an unrelated process that reuses the same pid.
+        if (_firstSeenAtMs.Count > 0)
+        {
+            var toRemove = new List<int>();
+            foreach (var k in _firstSeenAtMs.Keys)
+            {
+                if (!seen.Contains(k))
+                {
+                    toRemove.Add(k);
+                }
+            }
+            foreach (var k in toRemove)
+            {
+                _firstSeenAtMs.Remove(k);
+            }
+        }
 
         result.Sort(static (a, b) =>
         {
@@ -626,8 +673,10 @@ public class ProcessInfo
     public double CpuPercent { get; set; }
     public double MemoryMb { get; set; }
     public double CpuTimeSeconds { get; set; }
-    /// <summary>Process creation time, UTC epoch ms. Null when unavailable
-    /// (access denied under LocalSystem, or not read on this platform).</summary>
+    /// <summary>Process creation time, UTC epoch ms. Falls back to a stable
+    /// first-seen anchor when the real value is denied (elevated/protected
+    /// process under LocalSystem); null only on a platform that never
+    /// populates it.</summary>
     public long? StartedAtMs { get; set; }
     /// <summary>True when this process owns a visible top-level window
     /// (Task-Manager-style App vs Background classification), from

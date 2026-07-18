@@ -11,7 +11,10 @@ namespace Nexus.Service.Activity;
 /// heuristic: IsWindowVisible alone still passes DWM-cloaked windows (hidden
 /// UWP/background windows, and the common case behind service processes
 /// like svchost owning technically-visible windows nobody sees), so cloak
-/// state is required, not optional.
+/// state is required, not optional - unless the window covers a whole
+/// monitor, which only a fullscreen app does. Likewise a missing title is
+/// excluded unless the read itself was blocked (UIPI across an elevation
+/// boundary), which a truly titleless background window never trips.
 /// </summary>
 public static class WindowClassification
 {
@@ -21,13 +24,15 @@ public static class WindowClassification
         bool isToolWindow,
         bool isCloaked,
         bool hasTitle,
-        bool hasOnScreenBounds)
+        bool hasOnScreenBounds,
+        bool coversMonitor,
+        bool titleBlockedByUipi)
     {
         return isVisible
             && owner == IntPtr.Zero
             && !isToolWindow
-            && !isCloaked
-            && hasTitle
+            && (!isCloaked || coversMonitor)
+            && (hasTitle || titleBlockedByUipi)
             && hasOnScreenBounds;
     }
 
@@ -43,5 +48,20 @@ public static class WindowClassification
             return false;
         }
         return left < virtualRight && right > virtualLeft && top < virtualBottom && bottom > virtualTop;
+    }
+
+    /// <summary>True when the window rect has positive area and fully
+    /// contains the given monitor's bounds - an exclusive-fullscreen window
+    /// renders at exactly its monitor's rect (or larger, for any overscan),
+    /// even though DWM cloaks it like a hidden background window.</summary>
+    public static bool CoversMonitor(
+        int left, int top, int right, int bottom,
+        int monitorLeft, int monitorTop, int monitorRight, int monitorBottom)
+    {
+        if (right <= left || bottom <= top)
+        {
+            return false;
+        }
+        return left <= monitorLeft && top <= monitorTop && right >= monitorRight && bottom >= monitorBottom;
     }
 }
