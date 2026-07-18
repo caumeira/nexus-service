@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -8,12 +9,13 @@ using Nexus.Service.Sensors;
 namespace Nexus.Service.Monitoring.History;
 
 /// <summary>
-/// Always-on background sampler: reads one MetricSample per tick into
-/// MetricsSampleBuffer, flushes the buffered tail to IMetricsHistoryStore
-/// every MetricsHistory.FlushSeconds ticks. PeriodicTimer do/while shape
-/// with a per-tick try/catch.
+/// Always-on sampler: reads one MetricSample per tick into MetricsSampleBuffer,
+/// flushes the buffered tail to IMetricsHistoryStore every MetricsHistory.FlushSeconds
+/// ticks. Runs on its own dedicated thread rather than the shared thread pool, so
+/// the 1Hz tick and the periodic flush are never delayed by thread-pool contention
+/// elsewhere in the process (queued work, pool starvation under load).
 /// </summary>
-public sealed class MetricsSampler : BackgroundService
+public sealed class MetricsSampler : IHostedService, IDisposable
 {
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan WarnThrottle = TimeSpan.FromMinutes(1);
@@ -23,6 +25,10 @@ public sealed class MetricsSampler : BackgroundService
     // hardware enumeration never signals ready still starts sampling.
     private static readonly TimeSpan StartupReadyTimeout = TimeSpan.FromSeconds(60);
 
+    // Bounds StopAsync so a stuck flush can't hang service shutdown; the
+    // thread is a background thread and is reclaimed by the process either way.
+    private static readonly TimeSpan StopJoinTimeout = TimeSpan.FromSeconds(5);
+
     private readonly ISensorProvider _sensors;
     private readonly IMetricsSource _source;
     private readonly MetricsSampleBuffer _buffer;
@@ -30,6 +36,9 @@ public sealed class MetricsSampler : BackgroundService
     private readonly IAppUsageSource _appSource;
     private readonly AppSampleBuffer _appBuffer;
     private readonly IAppUsageHistoryStore _appStore;
+
+    private readonly CancellationTokenSource _stopCts = new();
+    private Thread? _thread;
 
     private int _tickCount;
     private DateTime _lastPruneUtc = DateTime.MinValue;
@@ -49,11 +58,54 @@ public sealed class MetricsSampler : BackgroundService
         _appStore = appStore;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    // Test seam: set at the top of Run() from inside the dedicated thread, so
+    // a lifecycle test can confirm the loop executed off the thread pool.
+    internal string? RunningThreadName { get; private set; }
+    internal bool? RunningThreadIsPoolThread { get; private set; }
+
+    public Task StartAsync(CancellationToken cancellationToken)
     {
+        _thread = new Thread(Run)
+        {
+            IsBackground = true,
+            Name = "metrics-sampler",
+            // AboveNormal keeps the 1Hz tick and periodic flush landing on
+            // schedule when the machine is busy; not Highest, so it never
+            // starves real-time work elsewhere (audio capture, the lighting
+            // engine's own render thread).
+            Priority = ThreadPriority.AboveNormal,
+        };
+        _thread.Start();
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        _stopCts.Cancel();
+        _thread?.Join(StopJoinTimeout);
+        return Task.CompletedTask;
+    }
+
+    public void Dispose()
+    {
+        // Cancel + Join unconditionally rather than gating on
+        // IsCancellationRequested: if StopAsync's own Join already timed out
+        // (a slow flush still in flight), this is a second bounded wait
+        // window rather than an immediate disposal of _stopCts while the
+        // thread can still touch its Token.
+        _stopCts.Cancel();
+        _thread?.Join(StopJoinTimeout);
+        _stopCts.Dispose();
+    }
+
+    private void Run()
+    {
+        RunningThreadName = Thread.CurrentThread.Name;
+        RunningThreadIsPoolThread = Thread.CurrentThread.IsThreadPoolThread;
+
         try
         {
-            await _sensors.ReadyAsync(stoppingToken).WaitAsync(StartupReadyTimeout, stoppingToken).ConfigureAwait(false);
+            _sensors.ReadyAsync(_stopCts.Token).WaitAsync(StartupReadyTimeout, _stopCts.Token).GetAwaiter().GetResult();
         }
         catch (OperationCanceledException)
         {
@@ -65,18 +117,41 @@ public sealed class MetricsSampler : BackgroundService
             // schedule below rather than block forever.
         }
 
-        using var timer = new PeriodicTimer(TickInterval);
-        do
+        // Scheduling uses the monotonic Stopwatch clock, not DateTime, so a
+        // backward wall-clock step (NTP correction, DST edge case) never
+        // stalls the wait for hours - Tick still receives DateTime.UtcNow for
+        // the persisted sample timestamp, unaffected by this choice.
+        var intervalTicks = (long)(TickInterval.TotalSeconds * Stopwatch.Frequency);
+        var nextDeadlineTicks = Stopwatch.GetTimestamp() + intervalTicks;
+        while (true)
         {
             try
             {
-                await Tick(DateTime.UtcNow, stoppingToken).ConfigureAwait(false);
+                Tick(DateTime.UtcNow, _stopCts.Token).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
                 MaybeWarn(ex);
             }
-        } while (await WaitAsync(timer, stoppingToken).ConfigureAwait(false));
+
+            nextDeadlineTicks += intervalTicks;
+            var remainingTicks = nextDeadlineTicks - Stopwatch.GetTimestamp();
+            if (remainingTicks < 0)
+            {
+                // Starved past a whole interval: re-anchor instead of banking
+                // debt into a burst of catch-up ticks.
+                nextDeadlineTicks = Stopwatch.GetTimestamp() + intervalTicks;
+                remainingTicks = intervalTicks;
+            }
+
+            // A real stop event with a computed timeout: wakes immediately on
+            // Stop, otherwise paces the next tick onto the interval boundary.
+            var remaining = TimeSpan.FromSeconds((double)remainingTicks / Stopwatch.Frequency);
+            if (_stopCts.Token.WaitHandle.WaitOne(remaining))
+            {
+                break;
+            }
+        }
 
         // Graceful stop: flush whatever the buffer holds so a clean shutdown
         // never drops up to FlushSeconds worth of unflushed samples.
@@ -87,18 +162,6 @@ public sealed class MetricsSampler : BackgroundService
         catch (Exception ex)
         {
             ServiceLog.Warn($"[metrics-sampler] final flush failed: {ex.Message}");
-        }
-    }
-
-    private static async Task<bool> WaitAsync(PeriodicTimer timer, CancellationToken ct)
-    {
-        try
-        {
-            return await timer.WaitForNextTickAsync(ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
         }
     }
 
