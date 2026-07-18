@@ -1121,6 +1121,12 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(McpHistoryEvent))]
 [JsonSerializable(typeof(List<McpHistoryEvent>))]
 [JsonSerializable(typeof(McpQueryEventsResult))]
+[JsonSerializable(typeof(McpTopApp))]
+[JsonSerializable(typeof(List<McpTopApp>))]
+[JsonSerializable(typeof(McpTopAppsResult))]
+[JsonSerializable(typeof(McpAppHistoryPoint))]
+[JsonSerializable(typeof(List<McpAppHistoryPoint>))]
+[JsonSerializable(typeof(McpAppHistoryResult))]
 
 // Local AI assistant (managed Ollama runtime + agentic query loop).
 [JsonSerializable(typeof(AssistantStatusResponse))]

@@ -1,17 +1,16 @@
 using System;
-using System.Collections.Generic;
 using Nexus.Service.Mcp;
 using Nexus.Service.Mcp.History;
 using Xunit;
 
 namespace Nexus.Service.Tests.Mcp;
 
-public class SqliteMcpAuditSinkTests
+public class AiEventAuditSinkTests
 {
     [Fact]
     public void Record_swallows_store_failures_so_callers_never_see_them()
     {
-        var sink = new SqliteMcpAuditSink(new ThrowingHistoryStore());
+        var sink = new AiEventAuditSink(new ThrowingEventLog());
 
         var entry = new McpAuditEntry(
             "set_brightness", "{}", true, null, DateTimeOffset.UtcNow);
@@ -23,28 +22,14 @@ public class SqliteMcpAuditSinkTests
         Assert.Null(ex);
     }
 
-    private sealed class ThrowingHistoryStore : IAiHistoryStore
+    private sealed class ThrowingEventLog : IAiEventLog
     {
         public bool IsAvailable => true;
-
-        public void RecordSamples(IReadOnlyList<AiHistorySampleRow> rows, DateTime nowUtc) =>
-            throw new InvalidOperationException("disk full");
-
-        public IReadOnlyList<string> KnownSensorIds() => Array.Empty<string>();
-
-        public AiHistorySeriesResult? QuerySensorHistory(string sensorId, long fromUtcMs, long toUtcMs, int maxPoints) => null;
-
-        public IReadOnlyList<AiHistorySensorSummaryRow> Summarize(long fromUtcMs, long toUtcMs) =>
-            Array.Empty<AiHistorySensorSummaryRow>();
 
         public void RecordEvent(AiHistoryEventRow row) =>
             throw new InvalidOperationException("disk full");
 
         public AiHistoryEventQueryResult QueryEvents(long fromUtcMs, string? type, int limit) =>
             new(Array.Empty<AiHistoryEventRow>(), false);
-
-        public void Dispose()
-        {
-        }
     }
 }

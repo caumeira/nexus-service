@@ -9,24 +9,27 @@ using Nexus.Service.Monitoring.History.Binary;
 namespace Nexus.Service.Mcp.History.Binary;
 
 /// <summary>
-/// Append-only audit log for BinaryAiHistoryStore's RecordEvent/QueryEvents -
-/// the binary equivalent of SqliteAiHistoryStore's events table. Unlike
-/// PrivacyLog, there is no key to upsert on and so no compaction pass: an
-/// event is immutable once recorded (matching the SQL table, which has no
-/// UPDATE path either) and SqliteAiHistoryStore itself never prunes this
-/// table, so neither does this. Every record is kept in RAM (a plain list,
-/// replayed from the log on open) - event volume is bounded by how often an
-/// MCP tool call happens, not by a sampling tick, the same low-volume
-/// reasoning PrivacyLog's own class doc gives for its single lock.
+/// Append-only, file-backed IAiEventLog. There is no key to upsert on and so
+/// no compaction pass: an event is immutable once recorded. Every record is
+/// kept in RAM (a plain list, replayed from the log on open); event volume
+/// is bounded by how often an MCP tool call happens, not by a sampling tick.
+/// A single lock serializes RecordEvent/QueryEvents, which concurrent tool
+/// dispatch (the loopback MCP host and the in-process assistant) can drive
+/// from more than one thread at once. This log is never pruned.
 /// </summary>
-internal sealed class AiEventLog
+public sealed class BinaryAiEventLog : IAiEventLog
 {
     private readonly string _path;
     private readonly List<AiHistoryEventRow> _events = new();
+    private readonly object _lock = new();
 
-    public AiEventLog(string path)
+    /// <summary>dir is the store's own directory (db/ai-history); this creates
+    /// it if missing and opens events.log inside it, matching every other
+    /// binary store's own-directory-creation convention.</summary>
+    public BinaryAiEventLog(string dir)
     {
-        _path = path;
+        Directory.CreateDirectory(dir);
+        _path = Path.Combine(dir, "events.log");
         if (!File.Exists(_path))
         {
             using var created = File.Create(_path);
@@ -34,22 +37,30 @@ internal sealed class AiEventLog
         Load();
     }
 
-    public void Append(AiHistoryEventRow row)
+    public bool IsAvailable => true;
+
+    public void RecordEvent(AiHistoryEventRow row)
     {
-        AppendRecord(row);
-        _events.Add(row);
+        lock (_lock)
+        {
+            AppendRecord(row);
+            _events.Add(row);
+        }
     }
 
     public AiHistoryEventQueryResult QueryEvents(long fromUtcMs, string? type, int limit)
     {
-        var matches = _events
-            .Where(e => e.TsUtcMs >= fromUtcMs && (type is null || e.Kind == type))
-            .OrderByDescending(e => e.TsUtcMs)
-            .ToList();
+        lock (_lock)
+        {
+            var matches = _events
+                .Where(e => e.TsUtcMs >= fromUtcMs && (type is null || e.Kind == type))
+                .OrderByDescending(e => e.TsUtcMs)
+                .ToList();
 
-        var truncated = matches.Count > limit;
-        var page = matches.Take(Math.Max(limit, 0)).ToList();
-        return new AiHistoryEventQueryResult(page, truncated);
+            var truncated = matches.Count > limit;
+            var page = matches.Take(Math.Max(limit, 0)).ToList();
+            return new AiHistoryEventQueryResult(page, truncated);
+        }
     }
 
     private void Load()

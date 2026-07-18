@@ -15,13 +15,12 @@ public sealed class QueryEventsTool : IMcpTool
 {
     internal const int DefaultLimit = 50;
     internal const int MaxAllowedLimit = 500;
-    private const int MaxAllowedMinutes = AiHistoryRetention.FiveMinuteTierRetentionMinutes;
 
     private static readonly string[] ValidTypes = { AuditEntryKinds.AiWrite, AuditEntryKinds.Lifecycle };
 
-    private readonly IAiHistoryStore _history;
+    private readonly IAiEventLog _events;
 
-    public QueryEventsTool(IAiHistoryStore history) => _history = history;
+    public QueryEventsTool(IAiEventLog events) => _events = events;
 
     public string Name => "query_events";
     public string Title => "Audit Events";
@@ -44,7 +43,7 @@ public sealed class QueryEventsTool : IMcpTool
 
     public Task<McpToolExecutionResult> ExecuteAsync(JsonElement? args, CancellationToken ct)
     {
-        if (!_history.IsAvailable)
+        if (!_events.IsAvailable)
         {
             return Task.FromResult(McpToolExecutionResult.Error(HistoryToolText.Unavailable));
         }
@@ -53,7 +52,9 @@ public sealed class QueryEventsTool : IMcpTool
         {
             return Task.FromResult(McpToolExecutionResult.Error("'minutes' is required and must be a positive integer."));
         }
-        minutes = Math.Min(minutes, MaxAllowedMinutes);
+        // No upper clamp: the event log is never pruned (unlike the sensor
+        // tools, whose data only reaches back RetentionDays), so any lookback
+        // is valid; limit and Truncated bound the response size.
 
         var type = McpArgs.StringArg(args, "type");
         if (type is not null && !ValidTypes.Contains(type, StringComparer.Ordinal))
@@ -68,7 +69,7 @@ public sealed class QueryEventsTool : IMcpTool
         var nowUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var fromUtcMs = nowUtcMs - minutes * 60_000L;
 
-        var queryResult = _history.QueryEvents(fromUtcMs, type, limit);
+        var queryResult = _events.QueryEvents(fromUtcMs, type, limit);
         var result = new McpQueryEventsResult
         {
             Truncated = queryResult.Truncated,
