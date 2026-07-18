@@ -8,12 +8,12 @@ using Xunit;
 namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
-/// The minute-rollup tier - ScalarMinuteRollupRing/GpuRingStore/FanRingStore's
-/// minute rings: incremental upsert/rebuild at flush time, and the
-/// QueryXDecimated dispatch that serves step&gt;=60 (rollup-eligible, per
-/// MetricsHistory.StepLadderSeconds) from it instead of aggregating the raw
-/// per-second data directly. Runs against BinaryMetricsHistoryStore
-/// (BinaryRollupHistorySpecTests).
+/// The minute-rollup tier - ScalarMinuteRollupRing/GpuRingStore/FanRingStore/
+/// TempComponentRingStore's minute rings: incremental upsert/rebuild at
+/// flush time, and the QueryXDecimated dispatch that serves step&gt;=60
+/// (rollup-eligible, per MetricsHistory.StepLadderSeconds) from it instead
+/// of aggregating the raw per-second data directly. Runs against
+/// BinaryMetricsHistoryStore (BinaryRollupHistorySpecTests).
 /// </summary>
 public abstract class RollupHistorySpec : IDisposable
 {
@@ -40,6 +40,9 @@ public abstract class RollupHistorySpec : IDisposable
         double? diskRead = null, double? diskWrite = null) =>
         new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
             DiskReadBytesPerSec: diskRead, DiskWriteBytesPerSec: diskWrite);
+
+    private static MetricSample ComponentSample(long ts, params ComponentTempReading[] components) =>
+        new(ts, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { ComponentTemps = components };
 
     [Fact]
     public void DiskRollup_AccumulatesAcrossTwoFlushesLandingInTheSameMinute()
@@ -182,6 +185,70 @@ public abstract class RollupHistorySpec : IDisposable
 
         Assert.Equal(60, slot.Slot);
         Assert.Equal(40, slot.LoadAvg);
+    }
+
+    [Fact]
+    public void ComponentTempRollup_AccumulatesAcrossFlushes_KeyedByComponentId()
+    {
+        Store.Append(new[] { ComponentSample(0, new ComponentTempReading("ram:0", "ram", "DIMM A2", 40)) }, null);
+        Store.Append(new[] { ComponentSample(30, new ComponentTempReading("ram:0", "ram", "DIMM A2", 50)) }, null);
+
+        var slot = Assert.Single(Store.QueryComponentTempDecimated(0, 59, stepSeconds: 60));
+
+        Assert.Equal("ram:0", slot.ComponentId);
+        Assert.Equal("ram", slot.Kind);
+        Assert.Equal("DIMM A2", slot.Name);
+        Assert.Equal(45, slot.Avg);
+        Assert.Equal(50, slot.Max);
+    }
+
+    [Fact]
+    public void ComponentTempRollup_AtStep60_MatchesTheRawPathForTheSameWindow()
+    {
+        var samples = Enumerable.Range(0, 120)
+            .Select(i => ComponentSample(i, new ComponentTempReading("ram:0", "ram", "DIMM A2", 30 + i % 50)))
+            .ToArray();
+        Store.Append(samples, null);
+
+        var rollup = Store.QueryComponentTempDecimated(0, 119, stepSeconds: 60);
+        var raw = Store.QueryComponentTempDecimated(0, 119, stepSeconds: 10);
+        // Re-slot the fine-grained raw result to the same 60s boundaries the
+        // rollup is expected to reproduce exactly.
+        var rawBySlot = raw.GroupBy(s => s.Slot / 60 * 60);
+
+        Assert.Equal(2, rollup.Count);
+        foreach (var slot in rollup)
+        {
+            var covering = rawBySlot.Single(g => g.Key == slot.Slot);
+            var expectedAvg = covering.Average(s => s.Avg!.Value);
+            var expectedMax = covering.Max(s => s.Max!.Value);
+            Assert.Equal(expectedAvg, slot.Avg!.Value, precision: 3);
+            Assert.Equal(expectedMax, slot.Max!.Value, precision: 3);
+        }
+    }
+
+    [Fact]
+    public void ComponentTempRollup_IncludesAMinute_WhenOnlyPartOfItIsInsideTheWindow()
+    {
+        Store.Append(new[] { ComponentSample(60, new ComponentTempReading("ram:0", "ram", "DIMM A2", 40)) }, null);
+
+        var slot = Assert.Single(Store.QueryComponentTempDecimated(100, 200, stepSeconds: 60));
+
+        Assert.Equal(60, slot.Slot);
+        Assert.Equal(40, slot.Avg);
+    }
+
+    [Fact]
+    public void ComponentTempRollup_DoesNotDoubleCount_WhenATsIsReplayedInASecondFlush()
+    {
+        Store.Append(new[] { ComponentSample(0, new ComponentTempReading("ram:0", "ram", "DIMM A2", 40)) }, null);
+        Store.Append(new[] { ComponentSample(30, new ComponentTempReading("ram:0", "ram", "DIMM A2", 50)) }, null);
+        Store.Append(new[] { ComponentSample(30, new ComponentTempReading("ram:0", "ram", "DIMM A2", 50)) }, null); // replayed, unchanged
+
+        var slot = Assert.Single(Store.QueryComponentTempDecimated(0, 59, stepSeconds: 60));
+
+        Assert.Equal(45, slot.Avg); // (40+50)/2, not (40+50+50)/3
+        Assert.Equal(50, slot.Max);
     }
 
     [Fact]

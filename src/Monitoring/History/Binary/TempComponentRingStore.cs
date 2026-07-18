@@ -12,37 +12,45 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// SqliteMetricsHistoryStore's temp_component_series/temp_component_seconds):
 /// a TempComponentRegistry mapping component id -&gt; ring index (see that
 /// class's doc for why storage/RAM need a Kind-carrying registry rather than
-/// EntityRegistry), plus one per-second RingFile per registered component,
-/// grown on demand and capped at entityCapacity - the same shape
-/// GpuRingStore/FanRingStore use for their own second-ring tier, including
-/// the Volatile-swapped array publish discipline (see GpuRingStore's class
-/// doc for why a concurrent reader must bound its loop by the ring array's
-/// own length, not EntityRegistry.Count).
+/// EntityRegistry), plus one per-entity RingFile pair (raw per-second, minute
+/// rollup) per registered component, grown on demand and capped at
+/// entityCapacity - the same shape GpuRingStore/FanRingStore use for their
+/// own per-entity rings, including the Volatile-swapped array publish
+/// discipline (see GpuRingStore's class doc for why a concurrent reader must
+/// bound its loop by the ring array's own length, not EntityRegistry.Count).
 ///
-/// Unlike GpuRingStore/FanRingStore, there is no minute-rollup tier here:
-/// SqliteMetricsHistoryStore never built a temp_component_minutes table (see
-/// its class doc), since QueryComponentTempDecimated always aggregates the
-/// raw per-second table directly - this store matches that. The 90-day
-/// temperature history diagnostics needs instead comes from TempBucketStore,
-/// which rebuilds its own 5-minute buckets by reading this store's raw data
-/// (see BinaryMetricsHistoryStore.RebuildTempBuckets).
+/// The minute rollup exists so QueryComponentTempDecimated's wide-window
+/// (step&gt;=60) path can fold minute slots instead of scanning raw
+/// per-second rows across a multi-day scrub - the same trade GpuRingStore/
+/// FanRingStore already made. The 90-day temperature history diagnostics
+/// needs is unrelated: that comes from TempBucketStore, which rebuilds its
+/// own 5-minute buckets by reading this store's raw per-second data (see
+/// BinaryMetricsHistoryStore.RebuildTempBuckets) regardless of this rollup.
 /// </summary>
 internal sealed class TempComponentRingStore : IDisposable
 {
     private const int ValueOffset = 0;
     private const int SecondBodyLength = ValueOffset + sizeof(short);
 
+    private const int ValueSumOffset = 0;
+    private const int ValueCntOffset = ValueSumOffset + sizeof(int);
+    private const int ValueMaxOffset = ValueCntOffset + sizeof(int);
+    private const int MinuteBodyLength = ValueMaxOffset + sizeof(short);
+
     private readonly string _dir;
     private readonly long _secondCapacity;
+    private readonly long _minuteCapacity;
     private readonly TempComponentRegistry _registry;
     private RingFile[] _secondRings = Array.Empty<RingFile>();
+    private RingFile[] _minuteRings = Array.Empty<RingFile>();
     private long _pruneFloorSec;
 
-    public TempComponentRingStore(string dir, long secondCapacity, int entityCapacity, long initialPruneFloorSec)
+    public TempComponentRingStore(string dir, long secondCapacity, long minuteCapacity, int entityCapacity, long initialPruneFloorSec)
     {
         Directory.CreateDirectory(dir);
         _dir = dir;
         _secondCapacity = secondCapacity;
+        _minuteCapacity = minuteCapacity;
         _pruneFloorSec = initialPruneFloorSec;
         _registry = TempComponentRegistry.Open(Path.Combine(dir, "entities.reg"), entityCapacity);
 
@@ -52,26 +60,37 @@ internal sealed class TempComponentRingStore : IDisposable
         }
     }
 
-    // The only writer of _secondRings (Append's single-writer caller) - see
-    // GpuRingStore.EnsureRingsExist for the publish ordering this mirrors.
+    // The only writer of _secondRings/_minuteRings (Append's single-writer
+    // caller) - see GpuRingStore.EnsureRingsExist for the publish ordering
+    // this mirrors.
     private void EnsureRingsExist(int upToIndexInclusive)
     {
         var second = _secondRings;
+        var minute = _minuteRings;
         while (second.Length <= upToIndexInclusive)
         {
             var i = second.Length;
-            var next = new RingFile[second.Length + 1];
-            Array.Copy(second, next, second.Length);
-            next[i] = RingFile.CreateOrOpen(
+            var nextSecond = new RingFile[second.Length + 1];
+            Array.Copy(second, nextSecond, second.Length);
+            nextSecond[i] = RingFile.CreateOrOpen(
                 Path.Combine(_dir, $"{i}.ring"), _secondCapacity, SecondBodyLength, _pruneFloorSec);
-            second = next;
+            second = nextSecond;
+
+            var nextMinute = new RingFile[minute.Length + 1];
+            Array.Copy(minute, nextMinute, minute.Length);
+            nextMinute[i] = RingFile.CreateOrOpen(
+                Path.Combine(_dir, $"{i}.min"), _minuteCapacity, MinuteBodyLength, MinuteTier.ToPruneFloorIndex(_pruneFloorSec));
+            minute = nextMinute;
         }
+        Volatile.Write(ref _minuteRings, minute);
         Volatile.Write(ref _secondRings, second);
     }
 
     public void Append(IReadOnlyList<MetricSample> samples)
     {
+        var touchedMinutesByIndex = new Dictionary<int, HashSet<long>>();
         Span<byte> body = stackalloc byte[SecondBodyLength];
+
         foreach (var s in samples)
         {
             foreach (var c in s.ComponentTemps)
@@ -85,6 +104,21 @@ internal sealed class TempComponentRingStore : IDisposable
 
                 BinaryPrimitives.WriteInt16LittleEndian(body[ValueOffset..], FixedPointCodec.ScaleX10(c.ValueC));
                 _secondRings[idx].WriteSlot(s.TsSec, body);
+
+                if (!touchedMinutesByIndex.TryGetValue(idx, out var minutes))
+                {
+                    minutes = new HashSet<long>();
+                    touchedMinutesByIndex[idx] = minutes;
+                }
+                minutes.Add(MinuteTier.FloorToMinuteSec(s.TsSec));
+            }
+        }
+
+        foreach (var (idx, minutes) in touchedMinutesByIndex)
+        {
+            foreach (var minute in minutes)
+            {
+                RebuildMinute(idx, minute);
             }
         }
 
@@ -92,6 +126,20 @@ internal sealed class TempComponentRingStore : IDisposable
         {
             ring.Flush();
         }
+        foreach (var ring in _minuteRings)
+        {
+            ring.Flush();
+        }
+    }
+
+    private void RebuildMinute(int idx, long minuteFloorSec)
+    {
+        var raw = RingFileScan.Enumerate(_secondRings[idx], minuteFloorSec, minuteFloorSec + 59);
+        var value = FieldAgg.FromReadings(raw.Select(r => FixedPointCodec.UnscaleX10(BinaryPrimitives.ReadInt16LittleEndian(r.Body.AsSpan(ValueOffset)))));
+
+        Span<byte> body = stackalloc byte[MinuteBodyLength];
+        EncodeMinute(value, body);
+        _minuteRings[idx].WriteSlot(MinuteTier.ToIndex(minuteFloorSec), body);
     }
 
     public bool RaisePruneFloor(long cutoffSec)
@@ -106,6 +154,15 @@ internal sealed class TempComponentRingStore : IDisposable
             if (cutoffSec > ring.PruneFloorSec)
             {
                 ring.PruneFloorSec = cutoffSec;
+                changed = true;
+            }
+        }
+        var minuteFloorIndex = MinuteTier.ToPruneFloorIndex(cutoffSec);
+        foreach (var ring in Volatile.Read(ref _minuteRings))
+        {
+            if (minuteFloorIndex > ring.PruneFloorSec)
+            {
+                ring.PruneFloorSec = minuteFloorIndex;
                 changed = true;
             }
         }
@@ -142,11 +199,11 @@ internal sealed class TempComponentRingStore : IDisposable
         return result;
     }
 
-    /// <summary>The only QueryComponentTempDecimated path - see
-    /// GpuRingStore.QueryRawDecimated for the row-existence inclusion rule
-    /// this mirrors (a slot appears for a component iff at least one ts row
-    /// existed for it in that slot's range, regardless of whether the value
-    /// itself is null that row).</summary>
+    /// <summary>The raw (step&lt;60) path: per-component avg/max within a
+    /// slot - see GpuRingStore.QueryRawDecimated for the row-existence
+    /// inclusion rule this mirrors (a slot appears for a component iff at
+    /// least one ts row existed for it in that slot's range, regardless of
+    /// whether the value itself is null that row).</summary>
     public IReadOnlyList<ComponentTempDecimatedSlot> QueryRawDecimated(long fromSec, long toSec, int stepSeconds)
     {
         var result = new List<ComponentTempDecimatedSlot>();
@@ -178,6 +235,45 @@ internal sealed class TempComponentRingStore : IDisposable
         return result;
     }
 
+    /// <summary>The rollup-eligible (step&gt;=60) path: folds every minute
+    /// slot overlapping [fromSec, toSec] into stepSeconds-wide output slots
+    /// per component, one output row per minute-that-existed - see
+    /// GpuRingStore.QueryRollupDecimated for the row-per-touched-minute
+    /// grouping this mirrors.</summary>
+    public IReadOnlyList<ComponentTempDecimatedSlot> QueryRollupDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        var result = new List<ComponentTempDecimatedSlot>();
+        if (toSec < fromSec)
+        {
+            return result;
+        }
+
+        var firstMinuteIndex = MinuteTier.ToIndex(MinuteTier.FloorToMinuteSec(fromSec));
+        var lastMinuteIndex = MinuteTier.ToIndex(MinuteTier.FloorToMinuteSec(toSec));
+
+        var minuteRings = Volatile.Read(ref _minuteRings);
+        var entries = _registry.Entries;
+        for (var idx = 0; idx < minuteRings.Length; idx++)
+        {
+            var (id, kind, name) = entries[idx];
+            var bySlot = new SortedDictionary<long, FieldAgg>();
+
+            foreach (var (minuteIndex, body) in RingFileScan.Enumerate(minuteRings[idx], firstMinuteIndex, lastMinuteIndex))
+            {
+                var minuteFloorSec = minuteIndex * MinuteTier.SecondsPerMinute;
+                var slot = minuteFloorSec / stepSeconds * stepSeconds;
+                var value = DecodeMinute(body);
+                bySlot[slot] = bySlot.TryGetValue(slot, out var acc) ? acc.Combine(value) : value;
+            }
+
+            foreach (var (slot, agg) in bySlot)
+            {
+                result.Add(new ComponentTempDecimatedSlot(id, kind, name, slot, agg.Avg, agg.MaxOrNull));
+            }
+        }
+        return result;
+    }
+
     private static Dictionary<long, MetricPoint> Slots(
         IReadOnlyList<(long Key, byte[] Body)> rows, long fromSec, long toSec, int stepSeconds) =>
         MetricsDecimation.Decimate(
@@ -185,9 +281,44 @@ internal sealed class TempComponentRingStore : IDisposable
                 fromSec, toSec, stepSeconds)
             .ToDictionary(p => p.T);
 
+    private static void EncodeMinute(FieldAgg value, Span<byte> body)
+    {
+        BinaryPrimitives.WriteInt32LittleEndian(body[ValueSumOffset..], ScaleSumX10(value.Sum));
+        BinaryPrimitives.WriteInt32LittleEndian(body[ValueCntOffset..], value.Cnt);
+        BinaryPrimitives.WriteInt16LittleEndian(body[ValueMaxOffset..], FixedPointCodec.ScaleX10(value.MaxOrNull));
+    }
+
+    private static FieldAgg DecodeMinute(ReadOnlySpan<byte> body) =>
+        new(
+            BinaryPrimitives.ReadInt32LittleEndian(body[ValueSumOffset..]) / 10.0,
+            BinaryPrimitives.ReadInt32LittleEndian(body[ValueCntOffset..]),
+            FixedPointCodec.UnscaleX10(BinaryPrimitives.ReadInt16LittleEndian(body[ValueMaxOffset..])) ?? 0);
+
+    private static int ScaleSumX10(double value)
+    {
+        if (!double.IsFinite(value))
+        {
+            return 0;
+        }
+        var scaled = Math.Round(value * 10);
+        if (scaled <= int.MinValue)
+        {
+            return int.MinValue + 1;
+        }
+        if (scaled >= int.MaxValue)
+        {
+            return int.MaxValue;
+        }
+        return (int)scaled;
+    }
+
     public void Dispose()
     {
         foreach (var ring in _secondRings)
+        {
+            ring.Dispose();
+        }
+        foreach (var ring in _minuteRings)
         {
             ring.Dispose();
         }

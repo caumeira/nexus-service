@@ -8,10 +8,10 @@ using Xunit;
 namespace Nexus.Service.Tests.Monitoring.History;
 
 /// <summary>
-/// The raw (step &lt; 60, no minute rollup involved - QueryComponentTempDecimated
-/// has no rollup-eligible fast path) QueryComponentTempDecimated behavior the
-/// store must have: per-component avg/max within a slot, keyed by component
-/// id, and slot boundaries. Runs against BinaryMetricsHistoryStore
+/// The raw (step &lt; 60) QueryComponentTempDecimated behavior the store must
+/// have: per-component avg/max within a slot, keyed by component id, and
+/// slot boundaries. The step&gt;=60 rollup-eligible path is covered by
+/// RollupHistorySpec instead. Runs against BinaryMetricsHistoryStore
 /// (BinaryComponentTempDecimatedRawSpecTests).
 /// </summary>
 public abstract class ComponentTempDecimatedRawSpec : IDisposable

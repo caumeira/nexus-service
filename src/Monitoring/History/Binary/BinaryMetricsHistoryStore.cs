@@ -10,12 +10,11 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// implementation (see the metrics-store design notes). The 1Hz scalar
 /// series (cpu/mem/net-in/net-out/cpu-temp) runs through ScalarRingStore and
 /// SuperBlock; the scalar minute rollup (ScalarMinuteRollupRing) and
-/// per-entity gpu/fan history (GpuRingStore/FanRingStore, each their own
-/// raw-second plus minute-rollup rings) sit alongside it. Per-storage-drive/
-/// RAM-DIMM temperature (TempComponentRingStore) and the unified 90-day
-/// cpu/gpu/storage/ram temperature bucket rollup (TempBucketStore) are
-/// rebuilt from the other rings' raw data on every Append via
-/// RebuildTempBuckets.
+/// per-entity gpu/fan/storage-RAM-temp history (GpuRingStore/FanRingStore/
+/// TempComponentRingStore, each their own raw-second plus minute-rollup
+/// rings) sit alongside it. The unified 90-day cpu/gpu/storage/ram
+/// temperature bucket rollup (TempBucketStore) is rebuilt from the other
+/// rings' raw data on every Append via RebuildTempBuckets.
 ///
 /// There is no internal write lock: every ring's own crash-safety protocol
 /// (see RingFile) is what makes reads lock-free against a concurrent writer,
@@ -88,7 +87,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
         _scalarRollup = new ScalarMinuteRollupRing(Path.Combine(dbDir, ScalarsMinuteFileName), minuteCapacity, _superBlock.PruneFloorSec);
         _gpus = new GpuRingStore(Path.Combine(dbDir, "gpu"), secondCapacity, minuteCapacity, EntityCapacity, _superBlock.PruneFloorSec);
         _fans = new FanRingStore(Path.Combine(dbDir, "fan"), secondCapacity, minuteCapacity, EntityCapacity, _superBlock.PruneFloorSec);
-        _tempComponents = new TempComponentRingStore(Path.Combine(dbDir, "tempcomponent"), secondCapacity, EntityCapacity, _superBlock.PruneFloorSec);
+        _tempComponents = new TempComponentRingStore(Path.Combine(dbDir, "tempcomponent"), secondCapacity, minuteCapacity, EntityCapacity, _superBlock.PruneFloorSec);
         _tempBuckets = new TempBucketStore(
             Path.Combine(dbDir, "tempbucket"), tempBucketCapacity, TempBucketEntityCapacity, ComputeTempBucketFloorSec(_superBlock.PruneFloorSec));
         _apps = new AppUsageStore(Path.Combine(dbDir, "apps"), gpuId => _gpus.TryGetIndex(gpuId));
@@ -325,11 +324,10 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
             ? _fans.QueryRollupDecimated(fromSec, toSec, stepSeconds)
             : _fans.QueryRawDecimated(fromSec, toSec, stepSeconds);
 
-    // No temp-component minute rollup exists (see TempComponentRingStore's
-    // class doc), so this always aggregates the raw ring directly, unlike
-    // QueryGpuDecimated/QueryFanDecimated's rollup-eligible fast path.
     public IReadOnlyList<ComponentTempDecimatedSlot> QueryComponentTempDecimated(long fromSec, long toSec, int stepSeconds) =>
-        _tempComponents.QueryRawDecimated(fromSec, toSec, stepSeconds);
+        IsRollupEligible(stepSeconds)
+            ? _tempComponents.QueryRollupDecimated(fromSec, toSec, stepSeconds)
+            : _tempComponents.QueryRawDecimated(fromSec, toSec, stepSeconds);
 
     // fromUtcMs/toUtcMs are milliseconds; TempBucketStore's own keys are
     // seconds, so both bounds are floor-divided rather than rounded - a

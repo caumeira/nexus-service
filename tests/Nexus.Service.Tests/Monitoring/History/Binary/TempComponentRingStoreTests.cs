@@ -9,8 +9,9 @@ namespace Nexus.Service.Tests.Monitoring.History.Binary;
 /// <summary>
 /// TempComponentRingStore-level coverage mirroring GpuRingStoreTests: a
 /// small, test-chosen per-second ring capacity so wraparound is cheap to
-/// construct, a new component growing the entity pool by one ring file, the
-/// entityCapacity bound, and raw decimated averaging.
+/// construct, a new component growing the entity pool by one ring-file pair,
+/// the entityCapacity bound, raw decimated averaging, and the minute-rollup
+/// rebuild's replay-dedup at the entity level.
 /// </summary>
 public class TempComponentRingStoreTests : IDisposable
 {
@@ -27,8 +28,8 @@ public class TempComponentRingStoreTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private TempComponentRingStore CreateStore(long secondCapacity = 1000, int entityCapacity = 32) =>
-        new(_dir, secondCapacity, entityCapacity, initialPruneFloorSec: long.MinValue);
+    private TempComponentRingStore CreateStore(long secondCapacity = 1000, long minuteCapacity = 100, int entityCapacity = 32) =>
+        new(_dir, secondCapacity, minuteCapacity, entityCapacity, initialPruneFloorSec: long.MinValue);
 
     private static MetricSample ComponentSample(long ts, params ComponentTempReading[] components) =>
         new(ts, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { ComponentTemps = components };
@@ -112,5 +113,32 @@ public class TempComponentRingStoreTests : IDisposable
         store.Append(new[] { ComponentSample(0, new ComponentTempReading("ram:0", "ram", "A", 40)) });
 
         Assert.Empty(store.QueryRawDecimated(100, 200, stepSeconds: 10));
+    }
+
+    [Fact]
+    public void QueryRollupDecimated_RebuildReflectsAReplayedSecond_NotDoubleCounted()
+    {
+        using var store = CreateStore();
+        store.Append(new[] { ComponentSample(0, new ComponentTempReading("ram:0", "ram", "A", 40)) });
+        store.Append(new[] { ComponentSample(30, new ComponentTempReading("ram:0", "ram", "A", 50)) });
+        store.Append(new[] { ComponentSample(30, new ComponentTempReading("ram:0", "ram", "A", 50)) }); // ts=30 replayed, unchanged
+
+        var slot = Assert.Single(store.QueryRollupDecimated(0, 59, stepSeconds: 60));
+
+        Assert.Equal("ram:0", slot.ComponentId);
+        Assert.Equal(45, slot.Avg); // (40+50)/2, not (40+50+50)/3
+        Assert.Equal(50, slot.Max);
+    }
+
+    [Fact]
+    public void QueryRollupDecimated_IncludesAMinute_WhenOnlyPartOfItIsInsideTheWindow()
+    {
+        using var store = CreateStore();
+        store.Append(new[] { ComponentSample(60, new ComponentTempReading("ram:0", "ram", "A", 40)) });
+
+        var slot = Assert.Single(store.QueryRollupDecimated(100, 200, stepSeconds: 60));
+
+        Assert.Equal(60, slot.Slot);
+        Assert.Equal(40, slot.Avg);
     }
 }
