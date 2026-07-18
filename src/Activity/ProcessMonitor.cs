@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Monitoring.History;
@@ -53,6 +54,11 @@ public sealed class ProcessMonitor : BackgroundService
     // Delta tracking for CPU time (Windows uses TimeSpan, macOS uses nanoseconds).
     private readonly Dictionary<int, (TimeSpan cpuTime, DateTime when)> _winPrev = new();
     private readonly Dictionary<int, (ulong cpuNs, DateTime when)> _macPrev = new();
+
+    // Delta tracking for cumulative storage I/O bytes (read+write combined),
+    // pruned on the same seen-pid pass as _winPrev/_macPrev.
+    private readonly Dictionary<int, (long bytes, DateTime when)> _winStoragePrev = new();
+    private readonly Dictionary<int, (ulong bytes, DateTime when)> _macStoragePrev = new();
 
     // Anchors a stable fallback timestamp per pid for when the real process
     // start time is unreadable (elevated/protected process under
@@ -491,6 +497,22 @@ public sealed class ProcessMonitor : BackgroundService
             }
             _macPrev[pid] = (cpuNs, now);
 
+            double storageBytesPerSec = 0;
+            if (Platform.Mac.MacProcInfo.TryGetDiskIoBytes(pid, out var readBytes, out var writeBytes))
+            {
+                var storageBytes = readBytes + writeBytes;
+                if (_macStoragePrev.TryGetValue(pid, out var prevStorage))
+                {
+                    var elapsedMs = (now - prevStorage.when).TotalMilliseconds;
+                    if (elapsedMs > 50 && storageBytes >= prevStorage.bytes)
+                    {
+                        var deltaBytes = storageBytes - prevStorage.bytes;
+                        storageBytesPerSec = deltaBytes / (elapsedMs / 1000.0);
+                    }
+                }
+                _macStoragePrev[pid] = (storageBytes, now);
+            }
+
             result.Add(new ProcessInfo
             {
                 Pid = pid,
@@ -498,6 +520,7 @@ public sealed class ProcessMonitor : BackgroundService
                 CpuPercent = Math.Round(cpuPercent, 1),
                 MemoryMb = Math.Round(ti.ResidentSize / (1024.0 * 1024.0), 1),
                 CpuTimeSeconds = Math.Round((ti.TotalUser + ti.TotalSystem) / 1_000_000_000.0, 1),
+                StorageBytesPerSec = Math.Round(storageBytesPerSec, 1),
             });
         }
 
@@ -517,6 +540,21 @@ public sealed class ProcessMonitor : BackgroundService
                 _macPrev.Remove(k);
             }
         }
+        if (_macStoragePrev.Count > seen.Count)
+        {
+            var toRemove = new List<int>(_macStoragePrev.Count - seen.Count);
+            foreach (var k in _macStoragePrev.Keys)
+            {
+                if (!seen.Contains(k))
+                {
+                    toRemove.Add(k);
+                }
+            }
+            foreach (var k in toRemove)
+            {
+                _macStoragePrev.Remove(k);
+            }
+        }
 
         // Group by name: the first instance per name accumulates the rest.
         var grouped = new Dictionary<string, ProcessInfo>(result.Count);
@@ -527,6 +565,7 @@ public sealed class ProcessMonitor : BackgroundService
                 acc.CpuPercent = Math.Round(acc.CpuPercent + p.CpuPercent, 1);
                 acc.MemoryMb = Math.Round(acc.MemoryMb + p.MemoryMb, 1);
                 acc.CpuTimeSeconds = Math.Round(acc.CpuTimeSeconds + p.CpuTimeSeconds, 1);
+                acc.StorageBytesPerSec = Math.Round(acc.StorageBytesPerSec + p.StorageBytesPerSec, 1);
             }
             else
             {
@@ -590,6 +629,34 @@ public sealed class ProcessMonitor : BackgroundService
                 }
                 _winPrev[pid] = (cpuTime, now);
 
+                // Reuses the handle proc.TotalProcessorTime/WorkingSet64 already
+                // opened above rather than a second OpenProcess call. A pid whose
+                // handle lacks the access GetProcessIoCounters needs (rare given
+                // the reads above already succeeded) simply reports 0 this tick,
+                // not an exception.
+                double storageBytesPerSec = 0;
+                if (OperatingSystem.IsWindows())
+                {
+                    try
+                    {
+                        if (GetProcessIoCounters(proc.Handle, out var io))
+                        {
+                            var storageBytes = (long)(io.ReadTransferCount + io.WriteTransferCount);
+                            if (_winStoragePrev.TryGetValue(pid, out var prevStorage))
+                            {
+                                var elapsedStorage = (now - prevStorage.when).TotalMilliseconds;
+                                if (elapsedStorage > 50 && storageBytes >= prevStorage.bytes)
+                                {
+                                    var deltaBytes = storageBytes - prevStorage.bytes;
+                                    storageBytesPerSec = deltaBytes / (elapsedStorage / 1000.0);
+                                }
+                            }
+                            _winStoragePrev[pid] = (storageBytes, now);
+                        }
+                    }
+                    catch { }
+                }
+
                 // Running as LocalSystem denies StartTime for some processes
                 // (elevated/protected system processes); fall back to a
                 // stable first-seen anchor rather than leaving it null, so
@@ -613,6 +680,7 @@ public sealed class ProcessMonitor : BackgroundService
                     CpuTimeSeconds = Math.Round(cpuTime.TotalSeconds, 1),
                     StartedAtMs = startedAtMs,
                     HasWindow = _windowSet?.IsWindowed(pid) ?? false,
+                    StorageBytesPerSec = Math.Round(storageBytesPerSec, 1),
                 });
             }
             catch { }
@@ -633,6 +701,21 @@ public sealed class ProcessMonitor : BackgroundService
             foreach (var k in toRemove)
             {
                 _winPrev.Remove(k);
+            }
+        }
+        if (_winStoragePrev.Count > seen.Count)
+        {
+            var toRemove = new List<int>(_winStoragePrev.Count - seen.Count);
+            foreach (var k in _winStoragePrev.Keys)
+            {
+                if (!seen.Contains(k))
+                {
+                    toRemove.Add(k);
+                }
+            }
+            foreach (var k in toRemove)
+            {
+                _winStoragePrev.Remove(k);
             }
         }
         // Unlike _winPrev/_macPrev (an entry per live process every tick, so
@@ -664,6 +747,22 @@ public sealed class ProcessMonitor : BackgroundService
         });
         _latest = result;
     }
+
+    // Win32 P/Invoke for cumulative per-process I/O byte counters, same
+    // struct/import shape as WindowsNetworkProvider's copy of this call.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetProcessIoCounters(IntPtr hProcess, out IO_COUNTERS lpIoCounters);
 }
 
 public class ProcessInfo
@@ -685,6 +784,10 @@ public class ProcessInfo
     /// service-side Win32 call - Windows sources it from the user-session
     /// helper; macOS and an unconnected helper both read false.</summary>
     public bool HasWindow { get; set; }
+    /// <summary>Combined disk read+write rate, bytes/sec, delta-computed the
+    /// same way as CpuPercent. Zero when the platform call fails for this
+    /// pid or on the process's first observed tick.</summary>
+    public double StorageBytesPerSec { get; set; }
 }
 
 /// <summary>Lazily resolved publisher and signature status for one exe path,

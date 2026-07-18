@@ -67,6 +67,12 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
     /// the same "generous, not tight" intent.</summary>
     protected abstract long VramWorstCaseBudgetBytes { get; }
 
+    /// <summary>Ceiling for the projected 7-day app_storage_seconds footprint
+    /// - same intent as CpuMemBudgetBytes, measured separately since storage
+    /// is its own narrow table (value_bps, not value_x10) with no gpu
+    /// dimension.</summary>
+    protected abstract long StorageBudgetBytes { get; }
+
     public virtual void Dispose()
     {
         (Store as IDisposable)?.Dispose();
@@ -120,13 +126,58 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
     }
 
     /// <summary>
-    /// The vram metric carries the same gpu dimension as gpu load and is
-    /// excluded from the strict cpu+memory budget projection above for the
-    /// same reason: concurrent GPU-active processes are bounded well below
-    /// TopAppsPerSample in practice. This measures both the worst case
-    /// (every tick saturates the cap, one row per app per adapter) and a
-    /// realistic concurrent-app count, so the actual per-app storage add is
-    /// known rather than assumed.
+    /// app_storage_seconds has no gpu dimension and, like cpu/memory, is
+    /// realistically saturated every tick - a live process reads its disk I/O
+    /// counters unconditionally, so a mostly-idle box can still show many
+    /// processes above AppUsageEpsilon (any nonzero read+write byte count).
+    /// Measured separately from the cpu+mem projection above since it is its
+    /// own narrow table (value_bps, not value_x10).
+    /// </summary>
+    [Fact]
+    public void SevenDayProjection_StorageAtTopAppsPerSampleCap_StaysUnderTheStorageBudget()
+    {
+        const int simulatedTicks = 500;
+        const int distinctApps = 100; // > TopAppsPerSample, so every tick saturates the cap.
+        var random = new Random(1);
+
+        for (var t = 0; t < simulatedTicks; t++)
+        {
+            var ts = 1_000_000 + t * (long)MetricsHistory.AppSampleIntervalSeconds;
+            var storageApps = Enumerable.Range(0, distinctApps)
+                .OrderBy(_ => random.Next())
+                .Take(MetricsHistory.TopAppsPerSample)
+                .Select(i => new AppUsagePoint($"app{i}.exe", random.Next(1, 50_000_000), null))
+                .ToList();
+
+            var tick = new AppUsageTick(ts, new[] { new AppMetricSample("storage", storageApps) });
+            Store.Append(new[] { tick }, null);
+        }
+
+        var bytesForSimulatedWindow = MeasureStorageBytes();
+        var rowsWritten = (long)simulatedTicks * MetricsHistory.TopAppsPerSample;
+        var bytesPerRow = bytesForSimulatedWindow / (double)rowsWritten;
+
+        var ticksPerDay = 86_400 / MetricsHistory.AppSampleIntervalSeconds;
+        var projectedRows = (long)ticksPerDay * MetricsHistory.TopAppsPerSample * MetricsHistory.RetentionDays;
+        var projectedBytes = bytesPerRow * projectedRows;
+
+        _output.WriteLine($"measured: {bytesForSimulatedWindow} bytes / {rowsWritten} rows = {bytesPerRow:F1} bytes/row");
+        _output.WriteLine(
+            $"projected {MetricsHistory.RetentionDays}-day app_storage_seconds size " +
+            $"at cap={MetricsHistory.TopAppsPerSample}: {projectedBytes / 1_000_000.0:F1} MB ({projectedRows} rows)");
+
+        Assert.True(projectedBytes < StorageBudgetBytes,
+            $"projected {MetricsHistory.RetentionDays}-day storage {projectedBytes / 1_000_000.0:F1} MB exceeds the budget");
+    }
+
+    /// <summary>
+    /// app_vram_seconds carries the same gpu dimension as app_gpu_seconds and
+    /// is excluded from the strict budget projection above for the same
+    /// reason: concurrent GPU-active processes are bounded well below
+    /// TopAppsPerSample in practice. This measures both the worst case (every
+    /// tick saturates the cap, one row per app per adapter) and a realistic
+    /// concurrent-app count, so the actual per-app storage add is known
+    /// rather than assumed.
     /// </summary>
     [Fact]
     public void VramRow_MeasuresWorstCaseAndRealisticDailyStorage()
@@ -190,6 +241,7 @@ public sealed class SqliteAppUsageStorageEstimateTests : AppUsageStorageEstimate
     // the target being tuned.
     protected override long CpuMemBudgetBytes => 800_000_000;
     protected override long VramWorstCaseBudgetBytes => 800_000_000;
+    protected override long StorageBudgetBytes => 800_000_000;
 }
 
 public sealed class BinaryAppUsageStorageEstimateTests : AppUsageStorageEstimateSpec
@@ -207,4 +259,5 @@ public sealed class BinaryAppUsageStorageEstimateTests : AppUsageStorageEstimate
     // this long before it would ever approach the Sqlite ceiling.
     protected override long CpuMemBudgetBytes => 150_000_000;
     protected override long VramWorstCaseBudgetBytes => 100_000_000;
+    protected override long StorageBudgetBytes => 150_000_000;
 }

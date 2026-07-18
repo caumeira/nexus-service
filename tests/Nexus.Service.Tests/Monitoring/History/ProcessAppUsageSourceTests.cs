@@ -40,8 +40,8 @@ public class ProcessAppUsageSourceTests
         public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
-    private static ProcessInfo Proc(string name, double cpu, double mem, int pid = 0) =>
-        new() { Pid = pid, Name = name, CpuPercent = cpu, MemoryMb = mem };
+    private static ProcessInfo Proc(string name, double cpu, double mem, int pid = 0, double storage = 0) =>
+        new() { Pid = pid, Name = name, CpuPercent = cpu, MemoryMb = mem, StorageBytesPerSec = storage };
 
     private static (ProcessAppUsageSource Source, ProcessMonitor Processes, GpuProcessMonitor GpuProcesses, StubSensorProvider Sensors) Build()
     {
@@ -93,6 +93,54 @@ public class ProcessAppUsageSourceTests
         var mem = source.Sample().Single(m => m.Metric == "memory");
 
         Assert.Equal("high-mem-low-cpu", mem.Apps.First().Name);
+    }
+
+    [Fact]
+    public void Sample_AggregatesMultiplePidsWithTheSameName_ForStorage()
+    {
+        var (source, processes, _, _) = Build();
+        processes.SetProcessesForTest(new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100, pid: 1, storage: 1000),
+            Proc("chrome", cpu: 7, mem: 150, pid: 2, storage: 2500),
+            Proc("notepad", cpu: 1, mem: 20, pid: 3, storage: 10),
+        });
+
+        var storage = source.Sample().Single(m => m.Metric == "storage");
+
+        var chrome = storage.Apps.Single(a => a.Name == "chrome");
+        Assert.Equal(3500, chrome.Value);
+    }
+
+    [Fact]
+    public void Sample_ReturnsStorageMetric_SortedByStorageBytesPerSec_IndependentlyOfCpuOrder()
+    {
+        var (source, processes, _, _) = Build();
+        processes.SetProcessesForTest(new[]
+        {
+            Proc("low-storage-high-cpu", cpu: 90, mem: 10, storage: 10),
+            Proc("high-storage-low-cpu", cpu: 1, mem: 10, storage: 5_000_000),
+        });
+
+        var storage = source.Sample().Single(m => m.Metric == "storage");
+
+        Assert.Equal("high-storage-low-cpu", storage.Apps.First().Name);
+    }
+
+    [Fact]
+    public void Sample_ExcludesAnAppWithExactlyZeroStorage_EvenWithRoomUnderTheCap()
+    {
+        var (source, processes, _, _) = Build();
+        processes.SetProcessesForTest(new[]
+        {
+            Proc("idle.exe", cpu: 1, mem: 10, storage: 0),
+            Proc("active.exe", cpu: 1, mem: 10, storage: 4096),
+        });
+
+        var storage = source.Sample().Single(m => m.Metric == "storage");
+
+        Assert.DoesNotContain(storage.Apps, a => a.Name == "idle.exe");
+        Assert.Contains(storage.Apps, a => a.Name == "active.exe");
     }
 
     [Fact]

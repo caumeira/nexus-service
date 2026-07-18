@@ -77,6 +77,56 @@ internal static class MacProcInfo
         return Encoding.UTF8.GetString(pathBuf, nameStart, len - nameStart);
     }
 
+    // RUSAGE_INFO_V2 per sys/resource.h: proc_pid_rusage has no buffersize
+    // parameter, so the struct here must match rusage_info_v2's layout
+    // exactly (the kernel writes based on the flavor alone) - ri_uuid is
+    // kept as two ulong fields since its content is never read, only its
+    // 16-byte width for layout purposes.
+    private const int RUSAGE_INFO_V2 = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RUsageInfoV2
+    {
+        public ulong UuidLo;
+        public ulong UuidHi;
+        public ulong UserTime;
+        public ulong SystemTime;
+        public ulong PkgIdleWkups;
+        public ulong InterruptWkups;
+        public ulong Pageins;
+        public ulong WiredSize;
+        public ulong ResidentSize;
+        public ulong PhysFootprint;
+        public ulong ProcStartAbstime;
+        public ulong ProcExitAbstime;
+        public ulong ChildUserTime;
+        public ulong ChildSystemTime;
+        public ulong ChildPkgIdleWkups;
+        public ulong ChildInterruptWkups;
+        public ulong ChildPageins;
+        public ulong ChildElapsedAbstime;
+        public ulong DiskIoBytesRead;
+        public ulong DiskIoBytesWritten;
+    }
+
+    /// <summary>Cumulative disk read+write bytes for pid via proc_pid_rusage.
+    /// False (values zeroed) on any failure - permission denial or a pid
+    /// that exited between listing and this call - never throws.</summary>
+    public static bool TryGetDiskIoBytes(int pid, out ulong bytesRead, out ulong bytesWritten)
+    {
+        var info = new RUsageInfoV2();
+        int ret = proc_pid_rusage(pid, RUSAGE_INFO_V2, ref info);
+        if (ret != 0)
+        {
+            bytesRead = 0;
+            bytesWritten = 0;
+            return false;
+        }
+        bytesRead = info.DiskIoBytesRead;
+        bytesWritten = info.DiskIoBytesWritten;
+        return true;
+    }
+
     [DllImport("libproc.dylib")]
     private static extern int proc_listpids(uint type, uint typeinfo, [Out] int[]? buffer, int buffersize);
 
@@ -85,4 +135,7 @@ internal static class MacProcInfo
 
     [DllImport("libproc.dylib")]
     private static extern int proc_pidpath(int pid, [Out] byte[] buffer, uint buffersize);
+
+    [DllImport("libproc.dylib")]
+    private static extern int proc_pid_rusage(int pid, int flavor, ref RUsageInfoV2 buffer);
 }
