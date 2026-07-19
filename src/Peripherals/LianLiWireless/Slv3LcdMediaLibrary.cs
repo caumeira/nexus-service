@@ -177,7 +177,7 @@ public sealed class Slv3LcdMediaLibrary
                 $"scale={Slv3LcdProtocol.PanelWidth}:{Slv3LcdProtocol.PanelHeight}:force_original_aspect_ratio=decrease,pad={Slv3LcdProtocol.PanelWidth}:{Slv3LcdProtocol.PanelHeight}:-1:-1:color=black";
             // The web cropper picks the square region to keep; apply it before
             // the scale/pad so gif/video crop like stills do.
-            var cropPadFilter = crop is { IsFullFrame: false } cr ? $"{cr.ToFfmpegFilter()},{padFilter}" : padFilter;
+            var cropPadFilter = crop is { IsIdentity: false } cr ? $"{cr.ToFfmpegFilter()},{padFilter}" : padFilter;
 
             var delays = Array.Empty<int>();
             if (isStill)

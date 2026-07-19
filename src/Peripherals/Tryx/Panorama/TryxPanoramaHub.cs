@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Fps;
+using Nexus.Service.Media;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Panel;
 using Nexus.Service.Persistence;
@@ -16,9 +17,10 @@ using Nexus.Service.Sensors;
 
 namespace Nexus.Service.Peripherals.Tryx.Panorama;
 
-/// <summary>Normalized (0..1) crop rectangle the dashboard cropper produced, applied
-/// in the ffmpeg transcode so the user's framing fills the panel without letterboxing.</summary>
-public readonly record struct TryxVideoCrop(double X, double Y, double W, double H);
+/// <summary>Normalized (0..1) crop rectangle plus optional orientation (mirror + CW
+/// rotation) the dashboard cropper produced, applied in the ffmpeg transcode so the
+/// user's framing fills the panel without letterboxing.</summary>
+public readonly record struct TryxVideoCrop(double X, double Y, double W, double H, int Rotate = 0, bool Mirror = false);
 
 /// <summary>
 /// Singleton coordinator for a Tryx Panorama AIO device. Owns the open transport,
@@ -671,7 +673,7 @@ public sealed class TryxPanoramaHub : IDisposable
         string ffmpegPath, string input, TryxVideoCrop? crop, string outputMp4, CancellationToken ct)
     {
         var vf = crop is { } c
-            ? $"crop=in_w*{F(c.W)}:in_h*{F(c.H)}:in_w*{F(c.X)}:in_h*{F(c.Y)},scale={PanelWidth}:{PanelHeight}"
+            ? $"{CropRect.OrientationFilter(c.Rotate, c.Mirror)}crop=in_w*{F(c.W)}:in_h*{F(c.H)}:in_w*{F(c.X)}:in_h*{F(c.Y)},scale={PanelWidth}:{PanelHeight}"
             : $"scale={PanelWidth}:{PanelHeight}";
         var args = $"-nostdin -hide_banner -loglevel error -y -i \"{input}\" -an " +
                    $"-vf \"{vf}\" -c:v libx264 -profile:v main -pix_fmt yuv420p " +

@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Nexus.Service.Media;
 using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.Tryx.Panorama;
 using Nexus.Service.Platform;
@@ -501,13 +502,19 @@ public static class TryxRoutes
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
         var parts = raw.Split(',');
-        if (parts.Length != 4) return null;
+        if (parts.Length != 4 && parts.Length != 6) return null;
         if (double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x) &&
             double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y) &&
             double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var w) &&
             double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var h))
         {
-            return new TryxVideoCrop(x, y, w, h);
+            var rotate = 0;
+            var mirror = false;
+            if (parts.Length == 6 && !CropRect.TryParseOrientation(parts[4], parts[5], out rotate, out mirror))
+            {
+                return null;
+            }
+            return new TryxVideoCrop(x, y, w, h, rotate, mirror);
         }
         return null;
     }

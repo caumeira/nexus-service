@@ -352,8 +352,9 @@ public static class Slv3LcdRoutes
         return true;
     }
 
-    // "x,y,w,h" normalized (0..1). Returns null (import uncropped) when absent
-    // or malformed; clamps into range so a bad rect can't escape the frame.
+    // "x,y,w,h" or "x,y,w,h,rotate,mirror" normalized (0..1). Returns null
+    // (import uncropped) when absent or malformed; clamps into range so a bad
+    // rect can't escape the frame.
     private static Slv3LcdCropRect? ParseCropField(string? raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
@@ -361,7 +362,7 @@ public static class Slv3LcdRoutes
             return null;
         }
         var parts = raw.Split(',');
-        if (parts.Length != 4
+        if ((parts.Length != 4 && parts.Length != 6)
             || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x)
             || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y)
             || !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var w)
@@ -375,10 +376,16 @@ public static class Slv3LcdRoutes
         {
             return null;
         }
+        var rotate = 0;
+        var mirror = false;
+        if (parts.Length == 6 && !CropRect.TryParseOrientation(parts[4], parts[5], out rotate, out mirror))
+        {
+            return null;
+        }
         x = Math.Clamp(x, 0, 1);
         y = Math.Clamp(y, 0, 1);
         w = Math.Clamp(w, 0, 1 - x);
         h = Math.Clamp(h, 0, 1 - y);
-        return w > 0 && h > 0 ? new Slv3LcdCropRect(x, y, w, h) : null;
+        return w > 0 && h > 0 ? new Slv3LcdCropRect(x, y, w, h, rotate, mirror) : null;
     }
 }

@@ -8,16 +8,19 @@ using Nexus.Service.Platform;
 namespace Nexus.Service.Peripherals.LianLiWireless;
 
 /// <summary>
-/// A crop rectangle in source-normalized coordinates (0..1), applied before the
-/// scale-to-panel step. Renders to an ffmpeg <c>crop</c> filter that resolves
-/// against the source's own dimensions (<c>iw</c>/<c>ih</c>).
+/// A crop rectangle in source-normalized coordinates (0..1) plus an optional
+/// orientation (mirror + CW rotation), applied before the scale-to-panel step.
+/// Renders to an ffmpeg orientation-then-crop filter that resolves against the
+/// oriented frame's dimensions (<c>iw</c>/<c>ih</c> after any transpose).
 /// </summary>
-public readonly record struct Slv3LcdCropRect(double X, double Y, double W, double H)
+public readonly record struct Slv3LcdCropRect(double X, double Y, double W, double H, int Rotate = 0, bool Mirror = false)
 {
-    public bool IsFullFrame => X <= 0 && Y <= 0 && W >= 1 && H >= 1;
+    /// <summary>Full frame with no orientation: nothing to apply before scaling.</summary>
+    public bool IsIdentity => X <= 0 && Y <= 0 && W >= 1 && H >= 1 && Rotate == 0 && !Mirror;
 
     public string ToFfmpegFilter() => string.Create(
-        CultureInfo.InvariantCulture, $"crop=iw*{W}:ih*{H}:iw*{X}:ih*{Y}");
+        CultureInfo.InvariantCulture,
+        $"{CropRect.OrientationFilter(Rotate, Mirror)}crop=iw*{W}:ih*{H}:iw*{X}:ih*{Y}");
 }
 
 /// <summary>
@@ -68,7 +71,7 @@ public static class Slv3LcdImage
 
             var scaleFilter =
                 $"scale={PanelWidth}:{PanelHeight}:force_original_aspect_ratio=decrease,pad={PanelWidth}:{PanelHeight}:-1:-1:color=black";
-            var filter = crop is { IsFullFrame: false } c ? $"{c.ToFfmpegFilter()},{scaleFilter}" : scaleFilter;
+            var filter = crop is { IsIdentity: false } c ? $"{c.ToFfmpegFilter()},{scaleFilter}" : scaleFilter;
 
             var quality = InitialQuality;
             byte[]? smallest = null;
