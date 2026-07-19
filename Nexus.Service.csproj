@@ -320,6 +320,14 @@
            Text="macOS publish requires PublishAot=true. Non-AOT macOS builds are not shipped. Drop any -p:PublishAot=false override and re-run." />
   </Target>
 
+  <!-- Newer Apple ld (ld-prime) asserts on some large NativeAOT osx-arm64
+       links: "too many large addends" (ld/Fixup.cpp, setAddend). Confirmed
+       Apple linker bug (dotnet/runtime#119380), not ours; the classic linker
+       does not hit it. -->
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx'))">
+    <LinkerArg Include="-Wl,-ld_classic" />
+  </ItemGroup>
+
   <!-- Same discipline for the shipped linux-x64 build: the CI nexus-linux job
        publishes -r linux-x64 with the project-default PublishAot=true. A JIT /
        framework-dependent Linux build drags in the .NET runtime and behaves
