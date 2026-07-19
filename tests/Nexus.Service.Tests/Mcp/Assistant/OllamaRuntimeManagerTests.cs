@@ -71,7 +71,7 @@ public sealed class OllamaRuntimeManagerTests : IDisposable
         }
 
         var dataDir = NewTempDir();
-        var assetName = OperatingSystem.IsWindows() ? "ollama-windows-amd64.zip" : "ollama-darwin.tgz";
+        var assetName = OllamaRuntimeManager.ResolveAssetName();
         var binaryName = OperatingSystem.IsWindows() ? "ollama.exe" : "ollama";
         var payload = Encoding.UTF8.GetBytes("fake ollama binary contents");
         var archiveBytes = BuildArchive(assetName, binaryName, payload);
@@ -120,7 +120,7 @@ public sealed class OllamaRuntimeManagerTests : IDisposable
     public async Task InstallRuntimeAsync_rejects_a_sha256_mismatch_and_leaves_no_partial_file()
     {
         var dataDir = NewTempDir();
-        var assetName = OperatingSystem.IsWindows() ? "ollama-windows-amd64.zip" : "ollama-darwin.tgz";
+        var assetName = OllamaRuntimeManager.ResolveAssetName();
         var payload = Encoding.UTF8.GetBytes("some bytes");
 
         var http = new HttpClient(new RouteHandler(req =>
@@ -180,7 +180,7 @@ public sealed class OllamaRuntimeManagerTests : IDisposable
     public async Task InstallRuntimeAsync_is_single_flight_a_concurrent_call_is_a_no_op()
     {
         var dataDir = NewTempDir();
-        var assetName = OperatingSystem.IsWindows() ? "ollama-windows-amd64.zip" : "ollama-darwin.tgz";
+        var assetName = OllamaRuntimeManager.ResolveAssetName();
         var binaryName = OperatingSystem.IsWindows() ? "ollama.exe" : "ollama";
         if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
         {
@@ -236,7 +236,7 @@ public sealed class OllamaRuntimeManagerTests : IDisposable
         }
 
         var dataDir = NewTempDir();
-        var assetName = OperatingSystem.IsWindows() ? "ollama-windows-amd64.zip" : "ollama-darwin.tgz";
+        var assetName = OllamaRuntimeManager.ResolveAssetName();
         var binaryName = OperatingSystem.IsWindows() ? "ollama.exe" : "ollama";
         var archiveBytes = BuildArchive(assetName, binaryName, Encoding.UTF8.GetBytes("fake binary"));
         var sha = Convert.ToHexString(SHA256.HashData(archiveBytes)).ToLowerInvariant();
@@ -412,7 +412,7 @@ public sealed class OllamaRuntimeManagerTests : IDisposable
         }
 
         var dataDir = NewTempDir();
-        var assetName = OperatingSystem.IsWindows() ? "ollama-windows-amd64.zip" : "ollama-darwin.tgz";
+        var assetName = OllamaRuntimeManager.ResolveAssetName();
         var binaryName = OperatingSystem.IsWindows() ? "ollama.exe" : "ollama";
         var archiveBytes = BuildArchive(assetName, binaryName, Encoding.UTF8.GetBytes("fake binary"));
         var sha = Convert.ToHexString(SHA256.HashData(archiveBytes)).ToLowerInvariant();

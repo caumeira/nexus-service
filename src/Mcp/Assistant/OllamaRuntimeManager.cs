@@ -562,7 +562,7 @@ public sealed class OllamaRuntimeManager : IHostedService
         return (PinnedFallbackVersion, $"{baseUrl}/{assetName}", $"{baseUrl}/{Sha256SumsAssetName}");
     }
 
-    private static string ResolveAssetName()
+    internal static string ResolveAssetName()
     {
         if (OperatingSystem.IsWindows())
         {
