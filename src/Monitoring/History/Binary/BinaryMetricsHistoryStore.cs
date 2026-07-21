@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Nexus.Service.Monitoring.Events;
+using Nexus.Service.Monitoring.Events.Binary;
 
 namespace Nexus.Service.Monitoring.History.Binary;
 
@@ -32,11 +34,17 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// transition-driven, keyed by (appId, capability, startUtcSec) instead of a
 /// timestamp).
 ///
+/// IMonitoringEventStore is served via MonitoringEventLog, an append-only
+/// log of discrete point events (usb attach/detach, app-open/
+/// uac-escalation, custom) - see that class's doc for why it rewrites the
+/// file on delete/prune rather than layering a superseding record the way
+/// PrivacyLog's session upserts do.
+///
 /// Wired into NexusServiceCollectionExtensions.AddNexusMonitoringHistory;
 /// the parameterless constructor resolves the shared config root every
 /// binary store in the db/ tree uses (NexusDataPaths.DatabaseDir()).
 /// </summary>
-public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageHistoryStore, IPrivacySessionStore
+public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageHistoryStore, IPrivacySessionStore, IMonitoringEventStore
 {
     private const string SuperBlockFileName = "super";
     private const string ScalarsFileName = "scalars.ring";
@@ -62,6 +70,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
     private readonly TempBucketStore _tempBuckets;
     private readonly AppUsageStore _apps;
     private readonly PrivacyLog _privacy;
+    private readonly MonitoringEventLog _events;
 
     // Oldest ts a temp-bucket rebuild may trust the scalar/gpu/temp-component
     // rings to still hold in full. This field recovers from
@@ -90,6 +99,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
             Path.Combine(dbDir, "tempbucket"), tempBucketCapacity, TempBucketEntityCapacity, ComputeTempBucketFloorSec(_superBlock.PruneFloorSec));
         _apps = new AppUsageStore(Path.Combine(dbDir, "apps"), gpuId => _gpus.TryGetIndex(gpuId));
         _privacy = new PrivacyLog(Path.Combine(dbDir, "privacy.log"));
+        _events = new MonitoringEventLog(Path.Combine(dbDir, "events.log"));
         _sourceFloorSec = _superBlock.SourceFloorSec;
     }
 
@@ -355,6 +365,18 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
     IReadOnlyList<PrivacySession> IPrivacySessionStore.Query(long fromSec, long toSec) => _privacy.Query(fromSec, toSec);
 
     void IPrivacySessionStore.PruneOlderThan(long cutoffSec) => _privacy.PruneOlderThan(cutoffSec);
+
+    // ----- IMonitoringEventStore -----
+
+    public MonitoringEvent Append(long tUtcMs, string kind, string label, string? detail, bool custom) =>
+        _events.Append(tUtcMs, kind, label, detail, custom);
+
+    IReadOnlyList<MonitoringEvent> IMonitoringEventStore.Query(long fromUtcMs, long toUtcMs, int limit) =>
+        _events.Query(fromUtcMs, toUtcMs, limit);
+
+    public bool DeleteCustom(long id) => _events.DeleteCustom(id);
+
+    void IMonitoringEventStore.PruneOlderThan(long cutoffUtcMs) => _events.PruneOlderThan(cutoffUtcMs);
 
     public void Dispose()
     {

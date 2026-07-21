@@ -26,37 +26,70 @@ public sealed class MacAppDetectionProvider : IAppDetectionProvider
 
         try
         {
-            // lsappinfo list outputs one app per block, with "pid", "bundleID", "name" fields.
             var output = ShellExecutor.Run("/usr/bin/lsappinfo", 3000, "list");
-            var apps = new List<Detected>();
-            var blocks = output.Split(new[] { "---" }, StringSplitOptions.RemoveEmptyEntries);
-
-            foreach (var block in blocks)
-            {
-                var pidMatch = Regex.Match(block, @"""pid""\s*=\s*(\d+)");
-                var nameMatch = Regex.Match(block, @"""name""\s*=\s*""([^""]+)""");
-                var bundleMatch = Regex.Match(block, @"""bundleID""\s*=\s*""([^""]+)""");
-
-                if (!pidMatch.Success || !nameMatch.Success)
-                {
-                    continue;
-                }
-
-                apps.Add(new Detected
-                {
-                    Id = pidMatch.Groups[1].Value,
-                    Name = nameMatch.Groups[1].Value,
-                    Type = 0, // Process
-                });
-            }
-
-            return apps.DistinctBy(a => a.Name).ToList();
+            return Parse(output);
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[app-detection] failed: {ex.Message}");
             return Array.Empty<Detected>();
         }
+    }
+
+    // An entry opens with `N) "Display Name" ASN:0x0-0x184bf4a7:` and its
+    // fields follow on indented continuation lines, one of which carries
+    // `pid = 70090 type="Foreground"`. Only Foreground entries are GUI
+    // applications; UIElement and BackgroundOnly are agents with no user
+    // -facing window and outnumber real apps roughly 8:1.
+    private static readonly Regex EntryHeader = new(@"^\s*\d+\)\s+""([^""]+)""", RegexOptions.Compiled);
+    private static readonly Regex PidField = new(@"\bpid\s*=\s*(\d+)", RegexOptions.Compiled);
+    private static readonly Regex TypeField = new(@"\btype=""([^""]+)""", RegexOptions.Compiled);
+
+    internal static List<Detected> Parse(string output)
+    {
+        var apps = new List<Detected>();
+        string? name = null;
+        string? pid = null;
+        string? type = null;
+
+        void Flush()
+        {
+            if (name is not null && pid is not null && string.Equals(type, "Foreground", StringComparison.Ordinal))
+            {
+                apps.Add(new Detected { Id = pid, Name = name, Type = 0 });
+            }
+        }
+
+        foreach (var line in output.Split('\n'))
+        {
+            var header = EntryHeader.Match(line);
+            if (header.Success)
+            {
+                Flush();
+                name = header.Groups[1].Value;
+                pid = null;
+                type = null;
+                continue;
+            }
+
+            if (name is null)
+            {
+                continue;
+            }
+            var pidMatch = PidField.Match(line);
+            if (pidMatch.Success)
+            {
+                pid = pidMatch.Groups[1].Value;
+            }
+            var typeMatch = TypeField.Match(line);
+            if (typeMatch.Success)
+            {
+                type = typeMatch.Groups[1].Value;
+            }
+        }
+        Flush();
+
+        return apps.DistinctBy(a => a.Name).ToList();
     }
 
     public bool Kill(string id)

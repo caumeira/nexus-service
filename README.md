@@ -6,7 +6,7 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 
 ## What it does
 
-- **Sensors / monitoring** - CPU, GPU, RAM, network, disk, fan, temp, FPS, battery (laptop), media sessions. LibreHardwareMonitor on Windows, IOKit on macOS, sysfs/hwmon on Linux.
+- **Sensors / monitoring** - CPU, GPU, RAM, network, disk, fan, temp, FPS, battery (laptop), media sessions. LibreHardwareMonitor on Windows, IOKit on macOS, sysfs/hwmon on Linux. Timeline events (app opens, admin elevations, USB attach/detach, user-typed notes) are collected by `Monitoring/Events/MonitoringEventCollector` into an append-only binary log and served over `GET`/`POST`/`DELETE /monitoring/events` for the graph's event lane; privacy-capability access stays in its own store behind `GET /monitoring/privacy`.
 - **Cooling** - fan curves, pump speed, AIO control. Per-device drivers under `Cooling/` + `QSeries/`.
 - **Lighting** - RGB control via a bundled [headless OpenRGB child process](https://github.com/hello-nexus/openrgb-headless), plus first-party HYTE and Lian Li peripheral protocols. Effects engine, screen sync, audio sync, anime mode, game sync (drive your own hardware from a game's lighting: Razer Chroma, Alienware LightFX, and Logitech capture via bundled shims, plus CS2 Game State Integration).
 - **Peripherals** - DPI / polling / battery / sleep for supported mice and keyboards, plus first-party USB device-hub drivers (the Lian Li Uni fan family, Galahad II AIO, and Strimer RGB controllers) (`Peripherals/`).

@@ -1035,6 +1035,12 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.PrivacySessionWire))]
 [JsonSerializable(typeof(Nexus.Service.Routes.PrivacyAccessResponse))]
 
+// Monitoring timeline events (GET/POST/DELETE /monitoring/events)
+[JsonSerializable(typeof(Nexus.Service.Routes.MonitoringEventDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.MonitoringEventsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.MonitoringEventCreateRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.MonitoringEventCreateResponse))]
+
 // Process detail (GET /monitoring/process-info, POST /monitoring/process-kill,
 // POST /monitoring/process-open-location)
 [JsonSerializable(typeof(Nexus.Service.Routes.ProcessActionBody))]

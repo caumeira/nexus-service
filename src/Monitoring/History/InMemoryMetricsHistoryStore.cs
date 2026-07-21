@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Nexus.Service.Monitoring.Events;
 
 namespace Nexus.Service.Monitoring.History;
 
@@ -9,10 +10,10 @@ namespace Nexus.Service.Monitoring.History;
 /// window on every Append rather than relying on the hourly pruneCutoffSec
 /// cadence BinaryMetricsHistoryStore needs to avoid a write burst every tick -
 /// an in-memory ring always keeps its window regardless of that cadence. Also
-/// backs privacy sessions and per-app usage history for the same fallback
-/// reason.
+/// backs privacy sessions, per-app usage history, and monitoring timeline
+/// events for the same fallback reason.
 /// </summary>
-public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacySessionStore, IAppUsageHistoryStore
+public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacySessionStore, IAppUsageHistoryStore, IMonitoringEventStore
 {
     private const long RingWindowSeconds = 3 * 60 * 60;
 
@@ -20,6 +21,8 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
     private readonly SortedDictionary<long, MetricSample> _rows = new();
     private readonly Dictionary<(string AppId, string Capability, long StartUtcSec), PrivacySession> _privacySessions = new();
     private readonly SortedDictionary<long, AppUsageTick> _appTicks = new();
+    private readonly List<MonitoringEvent> _events = new();
+    private long _nextEventId = 1;
 
     public void Append(IReadOnlyList<MetricSample> samples, long? pruneCutoffSec)
     {
@@ -452,6 +455,51 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
                 }
             }
             return null;
+        }
+    }
+
+    public MonitoringEvent Append(long tUtcMs, string kind, string label, string? detail, bool custom)
+    {
+        lock (_lock)
+        {
+            var ev = new MonitoringEvent(_nextEventId, tUtcMs, kind, label, detail, custom);
+            _nextEventId++;
+            _events.Add(ev);
+            return ev;
+        }
+    }
+
+    IReadOnlyList<MonitoringEvent> IMonitoringEventStore.Query(long fromUtcMs, long toUtcMs, int limit)
+    {
+        lock (_lock)
+        {
+            var matches = _events
+                .Where(e => e.TUtcMs >= fromUtcMs && e.TUtcMs <= toUtcMs)
+                .OrderBy(e => e.TUtcMs)
+                .ToList();
+            return matches.Count <= limit ? matches : matches.Skip(matches.Count - limit).ToList();
+        }
+    }
+
+    public bool DeleteCustom(long id)
+    {
+        lock (_lock)
+        {
+            var index = _events.FindIndex(e => e.Id == id);
+            if (index < 0 || !_events[index].Custom)
+            {
+                return false;
+            }
+            _events.RemoveAt(index);
+            return true;
+        }
+    }
+
+    void IMonitoringEventStore.PruneOlderThan(long cutoffUtcMs)
+    {
+        lock (_lock)
+        {
+            _events.RemoveAll(e => e.TUtcMs < cutoffUtcMs);
         }
     }
 

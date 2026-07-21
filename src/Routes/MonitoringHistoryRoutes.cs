@@ -11,9 +11,11 @@ using Microsoft.Net.Http.Headers;
 using Nexus.Service.Activity;
 using Nexus.Service.Auth;
 using Nexus.Service.Models;
+using Nexus.Service.Monitoring.Events;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
+using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
 
@@ -50,6 +52,16 @@ public static class MonitoringHistoryRoutes
     private const int MaxMaxApps = 100;
     private const int MinMaxAppPoints = 1;
     private const int MaxMaxAppPoints = 2000;
+
+    private const int MinEventsLimit = 1;
+    private const int MaxEventsLimit = 2000;
+    private const int DefaultEventsLimit = 500;
+    private const int MaxCustomEventLabelLength = 120;
+
+    // POST /monitoring/events clamps a t further in the future than this to
+    // now, per the wire contract - a client's clock skew should not park an
+    // event ahead of every real one on the timeline.
+    private const long CustomEventFutureClampMs = 60_000;
 
     // Query-timing log throttle: at most one line per route per this window,
     // regardless of request volume, so a live scrub session (many requests a
@@ -149,6 +161,66 @@ public static class MonitoringHistoryRoutes
                 ServiceLog.Warn($"[monitoring-privacy] query failed: {ex.Message}");
                 return Results.Ok(new PrivacyAccessResponse { Supported = false });
             }
+        }).AllowPanel();
+
+        app.MapGet("/monitoring/events", (long? from, long? to, int? limit, IMonitoringEventStore store) =>
+        {
+            if (from is null)
+            {
+                return Results.BadRequest(ApiResponse.Fail("from is required"));
+            }
+
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var toMs = to ?? nowMs;
+            if (toMs < from.Value)
+            {
+                return Results.BadRequest(ApiResponse.Fail("to must be >= from"));
+            }
+
+            var clampedLimit = Math.Clamp(limit ?? DefaultEventsLimit, MinEventsLimit, MaxEventsLimit);
+            var events = store.Query(from.Value, toMs, clampedLimit);
+            return Results.Ok(new MonitoringEventsResponse(events.Select(ToEventDto).ToList()));
+        }).AllowPanel();
+
+        app.MapPost("/monitoring/events", (MonitoringEventCreateRequest body, IMonitoringEventStore store) =>
+        {
+            var labelError = NormalizeCustomEventLabel(body.Label, out var label);
+            if (labelError is not null)
+            {
+                return Results.Json(ApiResponse.Fail(labelError), AppJsonContext.Default.ApiResponse, statusCode: 400);
+            }
+            if (body.T <= 0)
+            {
+                return Results.Json(ApiResponse.Fail("t must be positive"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+            }
+
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var t = ClampFutureEventTime(body.T, nowMs);
+            var created = store.Append(t, MonitoringEventKinds.Custom, label, null, custom: true);
+            return Results.Json(
+                new MonitoringEventCreateResponse(ToEventDto(created)),
+                AppJsonContext.Default.MonitoringEventCreateResponse,
+                statusCode: 201);
+        }).AllowPanel();
+
+        app.MapDelete("/monitoring/events/{id:long}", (long id, IMonitoringEventStore store) =>
+        {
+            // No lookup-by-id on the store, so the widest possible window
+            // finds it - events are low-volume (see MonitoringEventLog's
+            // class doc), so this scan costs nothing worth a dedicated
+            // store method for a user-triggered, infrequent delete.
+            var existing = store.Query(long.MinValue, long.MaxValue, int.MaxValue).FirstOrDefault(e => e.Id == id);
+            if (existing is null)
+            {
+                return Results.NotFound();
+            }
+            if (!existing.Custom)
+            {
+                return Results.Json(ApiResponse.Fail("event is not custom"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+            }
+
+            store.DeleteCustom(id);
+            return Results.NoContent();
         }).AllowPanel();
 
         app.MapGet("/monitoring/history/apps", (
@@ -852,6 +924,29 @@ public static class MonitoringHistoryRoutes
         return map.Values.ToList();
     }
 
+    // Pure and directly unit-tested: trims, rejects empty, truncates to
+    // MaxCustomEventLabelLength. Returns an error message on failure (label
+    // left unset), or null on success (label set via the out parameter).
+    internal static string? NormalizeCustomEventLabel(string? rawLabel, out string label)
+    {
+        var trimmed = (rawLabel ?? "").Trim();
+        if (trimmed.Length == 0)
+        {
+            label = "";
+            return "label is required";
+        }
+        label = trimmed.Length > MaxCustomEventLabelLength ? trimmed[..MaxCustomEventLabelLength] : trimmed;
+        return null;
+    }
+
+    // Pure and directly unit-tested: a t more than CustomEventFutureClampMs
+    // ahead of nowMs clamps to nowMs, per the wire contract.
+    internal static long ClampFutureEventTime(long t, long nowMs) =>
+        t > nowMs + CustomEventFutureClampMs ? nowMs : t;
+
+    private static MonitoringEventDto ToEventDto(MonitoringEvent e) =>
+        new(e.Id, e.TUtcMs, e.Kind, e.Label, e.Detail, e.Custom);
+
     private static HashSet<string>? ParseSeriesFilter(string? series)
     {
         if (string.IsNullOrWhiteSpace(series))
@@ -1163,3 +1258,14 @@ public sealed record AppUsageHistoryResponse
     public bool Supported { get; init; } = true;
     public IReadOnlyList<AppHistoryEntryWire> Apps { get; init; } = Array.Empty<AppHistoryEntryWire>();
 }
+
+// GET/POST/DELETE /monitoring/events. Pinned cross-repo contract with
+// nexus-web - field names, kinds, and status codes must not change on one
+// side alone.
+public sealed record MonitoringEventDto(long Id, long T, string Kind, string Label, string? Detail, bool Custom);
+
+public sealed record MonitoringEventsResponse(IReadOnlyList<MonitoringEventDto> Events);
+
+public sealed record MonitoringEventCreateRequest(long T, string Label);
+
+public sealed record MonitoringEventCreateResponse(MonitoringEventDto Event);
