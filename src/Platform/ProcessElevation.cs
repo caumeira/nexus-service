@@ -33,6 +33,20 @@ public static class ProcessElevation
         return new ProcessElevationSnapshot(false, false, UnsupportedStatus);
     }
 
+    /// <summary>Whether the process identified by pid is running elevated.
+    /// False on any failure to open or query the process (exited, protected,
+    /// access denied) and on non-Windows - never throws.</summary>
+    public static bool IsProcessElevated(int pid)
+    {
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            return TryGetElevationForPid(pid);
+        }
+#endif
+        return false;
+    }
+
 #if WINDOWS
     [SupportedOSPlatform("windows")]
     private static bool TryGetWindowsElevation(out bool isElevated)
@@ -58,8 +72,42 @@ public static class ProcessElevation
         }
     }
 
+    [SupportedOSPlatform("windows")]
+    private static bool TryGetElevationForPid(int pid)
+    {
+        var handle = OpenProcess(ProcessQueryLimitedInformation, false, pid);
+        if (handle == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!OpenProcessToken(handle, TokenQuery, out var token))
+            {
+                return false;
+            }
+
+            using (token)
+            {
+                var tokenInfoLength = Marshal.SizeOf<TokenElevationInfo>();
+                if (!GetTokenInformation(token, TokenElevation, out var elevation, tokenInfoLength, out _))
+                {
+                    return false;
+                }
+
+                return elevation.TokenIsElevated != 0;
+            }
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+
     private const uint TokenQuery = 0x0008;
     private const int TokenElevation = 20;
+    private const uint ProcessQueryLimitedInformation = 0x1000;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct TokenElevationInfo
@@ -80,5 +128,12 @@ public static class ProcessElevation
         out TokenElevationInfo tokenInformation,
         int tokenInformationLength,
         out int returnLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, int processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CloseHandle(IntPtr handle);
 #endif
 }

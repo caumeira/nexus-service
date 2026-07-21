@@ -479,6 +479,8 @@ public static class ProfileRoutes
                     if (monitoring.ShowMacStatusBarIcon.HasValue) s.Monitoring.ShowMacStatusBarIcon = monitoring.ShowMacStatusBarIcon.Value;
                     if (monitoring.ShowWindowsTrayIcon.HasValue)  s.Monitoring.ShowWindowsTrayIcon  = monitoring.ShowWindowsTrayIcon.Value;
                     if (monitoring.DetailedCollapsed is not null) s.Monitoring.DetailedCollapsed   = monitoring.DetailedCollapsed;
+                    if (monitoring.EventsEnabled.HasValue)        s.Monitoring.EventsEnabled        = monitoring.EventsEnabled.Value;
+                    if (monitoring.EventKindsHidden is not null)  s.Monitoring.EventKindsHidden     = monitoring.EventKindsHidden;
                 }
                 if (body.Cooling is { } cooling)
                 {

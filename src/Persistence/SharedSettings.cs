@@ -37,6 +37,10 @@ public sealed class MonitoringSettings
     public bool ShowWindowsTrayIcon { get; set; } = true;
     /// <summary>IDs of sections collapsed on the Monitoring "Detailed" tab. Empty list = every section expanded. The SPA writes the full list on every toggle so the persisted state matches the current UI exactly.</summary>
     public List<string> DetailedCollapsed { get; set; } = new();
+    /// <summary>Global on/off for the monitoring timeline event overlay.</summary>
+    public bool EventsEnabled { get; set; } = true;
+    /// <summary>Event kinds the user has hidden. Unknown/new kinds default to visible.</summary>
+    public List<string> EventKindsHidden { get; set; } = new();
 }
 
 public sealed class PanelSettings
@@ -294,6 +298,8 @@ public sealed class MonitoringSettingsPatch
     public bool? ShowMacStatusBarIcon { get; set; }
     public bool? ShowWindowsTrayIcon { get; set; }
     public List<string>? DetailedCollapsed { get; set; }
+    public bool? EventsEnabled { get; set; }
+    public List<string>? EventKindsHidden { get; set; }
 }
 
 public sealed class UpdatePrefs

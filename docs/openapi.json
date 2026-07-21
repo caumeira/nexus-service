@@ -7343,6 +7343,100 @@
         }
       }
     },
+    "/monitoring/events": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitoringEventCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/monitoring/events/{id}": {
+      "delete": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/monitoring/history/apps": {
       "get": {
         "tags": [
@@ -15787,6 +15881,26 @@
           }
         }
       },
+      "MonitoringEventCreateRequest": {
+        "required": [
+          "t",
+          "label"
+        ],
+        "type": "object",
+        "properties": {
+          "t": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
       "MonitoringSettings": {
         "type": "object",
         "properties": {
@@ -15797,6 +15911,15 @@
             "type": "boolean"
           },
           "detailedCollapsed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "eventsEnabled": {
+            "type": "boolean"
+          },
+          "eventKindsHidden": {
             "type": "array",
             "items": {
               "type": "string"
@@ -15820,6 +15943,21 @@
             ]
           },
           "detailedCollapsed": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "eventsEnabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "eventKindsHidden": {
             "type": [
               "null",
               "array"

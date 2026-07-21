@@ -355,6 +355,17 @@ public static class NexusServiceCollectionExtensions
             (Nexus.Service.Monitoring.History.IPrivacySessionStore)sp.GetRequiredService<Nexus.Service.Monitoring.History.IMetricsHistoryStore>());
         services.AddSingleton<Nexus.Service.Monitoring.History.PrivacyAccessWatcher>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.History.PrivacyAccessWatcher>());
+
+        // IMonitoringEventStore resolves the same singleton instance as
+        // IMetricsHistoryStore (both interfaces land on one concrete store),
+        // the same pattern as IPrivacySessionStore above. MonitoringEventCollector
+        // depends on IUsbEnumerator, registered in AddNexusDevices - DI
+        // resolution is deferred to host build, so registration order across
+        // AddNexusX methods does not matter.
+        services.AddSingleton<Nexus.Service.Monitoring.Events.IMonitoringEventStore>(sp =>
+            (Nexus.Service.Monitoring.Events.IMonitoringEventStore)sp.GetRequiredService<Nexus.Service.Monitoring.History.IMetricsHistoryStore>());
+        services.AddSingleton<Nexus.Service.Monitoring.Events.MonitoringEventCollector>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.Events.MonitoringEventCollector>());
         return services;
     }
 
