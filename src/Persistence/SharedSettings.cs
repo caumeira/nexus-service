@@ -128,6 +128,7 @@ public sealed class Preferences
     public UnitsSettings Units { get; set; } = new();
     public UpdatePrefs Update { get; set; } = new();
     public DiagnosticsSettings Diagnostics { get; set; } = new();
+    public int StartupDelaySeconds { get; set; }
 }
 
 public sealed class CoolingPrefs
@@ -245,6 +246,7 @@ public sealed class PreferencesPatch
     public UnitsSettingsPatch? Units { get; set; }
     public UpdatePrefsPatch? Update { get; set; }
     public DiagnosticsSettingsPatch? Diagnostics { get; set; }
+    public int? StartupDelaySeconds { get; set; }
 }
 
 public sealed class ThemeSettingsPatch

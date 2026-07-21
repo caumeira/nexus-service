@@ -17529,6 +17529,14 @@
           },
           "diagnostics": {
             "$ref": "#/components/schemas/DiagnosticsSettings"
+          },
+          "startupDelaySeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -17624,6 +17632,15 @@
                 "$ref": "#/components/schemas/DiagnosticsSettingsPatch"
               }
             ]
+          },
+          "startupDelaySeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },

@@ -69,6 +69,9 @@ public sealed class RgbBridge : IDisposable
     /// eventually disappears.
     /// </summary>
     private static readonly TimeSpan RescanGracePeriod = TimeSpan.FromSeconds(15);
+
+    // Covers the PawnIO install gate LhmComputer waits on plus the open itself.
+    private static readonly TimeSpan LhmEnumerationWait = TimeSpan.FromSeconds(30);
     /// <summary>
     /// Minimum time the "scanning" flag stays true on initial boot (baseline 0).
     /// OpenRGB trickles devices in over a few seconds - Razer HID is first and
@@ -99,6 +102,11 @@ public sealed class RgbBridge : IDisposable
     private readonly HashSet<string> _drivableLatched = new(StringComparer.Ordinal);
     private CancellationTokenSource? _refreshCts;
     private Task? _shutdownTask;
+
+    // Deferred spawn from the last Activate. Deactivate's shutdown task awaits
+    // it before stopping, so a start that already passed its guard is always
+    // stopped rather than left running unowned.
+    private Task? _pendingStart;
     private long _lastConnectAttemptTicks; // DateTime.UtcNow.Ticks; updated via Interlocked
     private long _lastBounceTicks;         // DateTime.UtcNow.Ticks; updated via Interlocked
     private long _rescanStartedTicks;      // 0 = no active rescan; else = UtcNow ticks at bounce start
@@ -272,18 +280,59 @@ public sealed class RgbBridge : IDisposable
         _engine.OnFrame += newFrameHandler;
         _controller.DeviceListChanged += newDeviceListHandler;
 
-        // Initial boot is itself a rescan from the user's perspective: OpenRGB
-        // subprocess starts, detection plugins run, devices trickle in. Set the
-        // rescan flag with baseline 0 so the UI spinner runs from activate until
-        // at least one device shows up (or the grace period expires).
+        // Captured before any await: Deactivate disposes the source, and
+        // reading .Token off a disposed CancellationTokenSource throws.
+        var refreshToken = newCts.Token;
+
+        var pendingStart = Task.Run(async () =>
+        {
+            await Nexus.Service.Lifecycle.StartupDelayGate.WaitAsync().ConfigureAwait(false);
+
+            // OpenRGB reaches DIMM RGB controllers over the SMBus through
+            // PawnIO, and its detection runs exactly once - a bus probe that
+            // returns nothing leaves that stick missing for the session. Two
+            // startup hazards make that likely, and waiting for LHM's open
+            // clears both: PawnIO may still be installing (OpenRGB then finds
+            // zero busses and skips DIMMs entirely), and LHM's own SPD reads
+            // drive the same controller without taking OpenRGB's
+            // Global\Access_SMBUS.HTP.Method mutex, so concurrent transactions
+            // are unarbitrated. Completes immediately once startup is past.
+            if (Nexus.Service.Lifecycle.PawnIoBootGate.IsArmed)
+            {
+                await Nexus.Service.Lifecycle.PawnIoBootGate
+                    .WaitForLhmOpenAsync(LhmEnumerationWait).ConfigureAwait(false);
+            }
+
+            lock (_lock)
+            {
+                // A Deactivate() landing inside the wait must not leave an
+                // orphaned daemon behind, and an Activate/Deactivate/Activate
+                // burst must spawn one daemon, not one per deferred task -
+                // only the task still owning the current cycle proceeds.
+                if (!_active || _disposed || !ReferenceEquals(_refreshCts, newCts))
+                {
+                    return;
+                }
+
+                // Initial boot is itself a rescan from the user's perspective:
+                // OpenRGB subprocess starts, detection plugins run, devices
+                // trickle in. Set the rescan flag with baseline 0 so the UI
+                // spinner runs until at least one device shows up (or the
+                // grace period expires).
+                _rescanBaselineCount = 0;
+            }
+            Interlocked.Exchange(ref _rescanStartedTicks, DateTime.UtcNow.Ticks);
+
+            _proc.Start();
+
+            _ = Task.Run(EnsureConnectedAsync);
+            _ = Task.Run(() => DeviceRefreshLoopAsync(refreshToken));
+        });
+
         lock (_lock)
-        { _rescanBaselineCount = 0; }
-        Interlocked.Exchange(ref _rescanStartedTicks, DateTime.UtcNow.Ticks);
-
-        _proc.Start();
-
-        _ = Task.Run(EnsureConnectedAsync);
-        _ = Task.Run(() => DeviceRefreshLoopAsync(newCts.Token));
+        {
+            _pendingStart = pendingStart;
+        }
     }
 
     /// <summary>
@@ -334,8 +383,20 @@ public sealed class RgbBridge : IDisposable
         { cts?.Dispose(); }
         catch { }
 
+        Task? pendingStart;
+        lock (_lock)
+        { pendingStart = _pendingStart; }
+
         var task = Task.Run(async () =>
         {
+            // A deferred spawn that already passed its guard still has to be
+            // stopped, so let it finish starting before killing the process.
+            if (pendingStart is not null)
+            {
+                try
+                { await pendingStart.ConfigureAwait(false); }
+                catch { }
+            }
             try
             { await _controller.DisconnectAsync().ConfigureAwait(false); }
             catch { }
@@ -345,6 +406,7 @@ public sealed class RgbBridge : IDisposable
         lock (_lock)
         {
             _shutdownTask = task;
+            _pendingStart = null;
         }
     }
 
@@ -423,6 +485,18 @@ public sealed class RgbBridge : IDisposable
         {
             return;
         }
+
+        Task? pendingStart;
+        lock (_lock)
+        { pendingStart = _pendingStart; }
+        if (pendingStart is not null && !pendingStart.IsCompleted)
+        {
+            // The deferred spawn has not run yet. It performs the detection a
+            // bounce would force, and starting the process here would skip the
+            // SMBus wait that spawn exists for.
+            return;
+        }
+
         Interlocked.Exchange(ref _lastConnectAttemptTicks, 0);
         // Snapshot the current device count so RefreshDevicesAsync can hold the
         // visible list steady until OpenRGB's detection plugins report at least

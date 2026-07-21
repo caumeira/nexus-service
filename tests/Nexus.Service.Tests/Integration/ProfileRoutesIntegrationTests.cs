@@ -131,6 +131,54 @@ public sealed class ProfileRoutesIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Preferences_GET_defaults_startup_delay_to_zero()
+    {
+        var client = AuthedClient();
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(0, body.GetProperty("startupDelaySeconds").GetInt32());
+    }
+
+    [Fact]
+    public async Task Preferences_startup_delay_persists_and_round_trips_through_GET()
+    {
+        var client = AuthedClient();
+
+        var postRes = await client.PostAsJsonAsync("/preferences", new { startupDelaySeconds = 12 });
+        Assert.Equal(HttpStatusCode.OK, postRes.StatusCode);
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(12, body.GetProperty("startupDelaySeconds").GetInt32());
+    }
+
+    [Theory]
+    [InlineData(-5, 0)]
+    [InlineData(61, 60)]
+    [InlineData(9999, 60)]
+    public async Task Preferences_startup_delay_is_clamped_on_write(int posted, int expected)
+    {
+        var client = AuthedClient();
+
+        await client.PostAsJsonAsync("/preferences", new { startupDelaySeconds = posted });
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(expected, body.GetProperty("startupDelaySeconds").GetInt32());
+    }
+
+    [Fact]
+    public async Task Preferences_startup_delay_survives_an_unrelated_patch()
+    {
+        var client = AuthedClient();
+        await client.PostAsJsonAsync("/preferences", new { startupDelaySeconds = 20 });
+
+        await client.PostAsJsonAsync("/preferences", new { units = new { temperature = "f" } });
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(20, body.GetProperty("startupDelaySeconds").GetInt32());
+    }
+
+    [Fact]
     public async Task Preferences_diagnostics_patch_persists_and_round_trips_through_GET()
     {
         var client = AuthedClient();

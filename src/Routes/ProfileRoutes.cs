@@ -203,6 +203,7 @@ public static class ProfileRoutes
                     LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
                 },
                 Diagnostics = s.Diagnostics,
+                StartupDelaySeconds = s.StartupDelaySeconds,
             };
         }).AllowPanel();
 
@@ -508,6 +509,11 @@ public static class ProfileRoutes
                     if (update.UpdateMode is "notify" or "download" or "always") s.Update.UpdateMode = update.UpdateMode;
                     if (update.UpdateChannel is not null) s.Update.UpdateChannel = update.UpdateChannel;
                     if (update.LastDismissedUpdateVersion is not null) s.Update.LastDismissedUpdateVersion = update.LastDismissedUpdateVersion;
+                }
+                // Read once at service start; a change takes effect next boot.
+                if (body.StartupDelaySeconds is { } startupDelay)
+                {
+                    s.StartupDelaySeconds = Math.Clamp(startupDelay, 0, Nexus.Service.Lifecycle.StartupDelayGate.MaxSeconds);
                 }
                 if (body.Diagnostics is { } diagnostics)
                 {

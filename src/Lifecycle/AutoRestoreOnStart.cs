@@ -18,15 +18,18 @@ namespace Nexus.Service.Lifecycle;
 /// to the hardware. Without this, the engines come up with empty in-memory
 /// state and the user has to visit each tab to "kick" the saved profile.
 ///
-/// Runs after a short delay so the fan provider has enumerated channels and
-/// the RGB bridge is initialized (CurveEngine itself waits 3s for the same
-/// reason). On PawnIoBootGate-armed hosts it additionally waits for LHM's
-/// open to finish, since the preset apply rebuilds fan attachments from the
-/// channel list that open populates.
+/// Runs after a short delay so the fan provider has enumerated channels
+/// (CurveEngine itself waits 3s for the same reason). On PawnIoBootGate-armed
+/// hosts it additionally waits for LHM's open to finish, since the preset
+/// apply rebuilds fan attachments from the channel list that open populates.
+/// The lighting restore can run before the OpenRGB daemon exists - the bridge
+/// applies the persisted state once it connects.
 /// </summary>
 internal sealed class AutoRestoreOnStart : BackgroundService
 {
     private static readonly TimeSpan InitialDelay = TimeSpan.FromSeconds(4);
+
+    private static readonly TimeSpan LhmOpenWait = TimeSpan.FromSeconds(30);
 
     private readonly IConfigStore _store;
     private readonly ILightingProvider _lighting;
@@ -69,7 +72,10 @@ internal sealed class AutoRestoreOnStart : BackgroundService
         // the open itself, not a guess at its duration.
         if (PawnIoBootGate.IsArmed)
         {
-            await PawnIoBootGate.WaitForLhmOpenAsync(TimeSpan.FromSeconds(30));
+            // The startup-delay window holds the open itself back, so the cap
+            // has to clear it or the restore runs against an unenumerated LHM
+            // and detaches every motherboard fan.
+            await PawnIoBootGate.WaitForLhmOpenAsync(LhmOpenWait + StartupDelayGate.Configured);
             if (stoppingToken.IsCancellationRequested) return;
         }
 

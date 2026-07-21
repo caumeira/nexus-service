@@ -422,6 +422,15 @@ if (emitOpenApiPath is not null)
 var app = builder.Build();
 Nexus.Service.Lifecycle.BootTimer.Mark("after builder.Build()");
 
+// Arm before hosted services start - LhmWarmupService constructs LhmComputer
+// (and with it the SuperIO/SPD enumeration) as soon as the pipeline runs.
+if (!testHost)
+{
+    Nexus.Service.Lifecycle.StartupDelayGate.ArmForBootStart(
+        app.Services.GetRequiredService<Nexus.Service.Persistence.IConfigStore>()
+            .Load().StartupDelaySeconds);
+}
+
 // Connect the session D-Bus once here - single-threaded, BEFORE hosted services
 // (curve engine etc.) start. A root daemon drops euid for this socket connect
 // (LinuxSession.ConnectAsSessionUser); doing it now keeps that process-wide euid

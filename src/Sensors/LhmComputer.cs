@@ -51,6 +51,12 @@ public sealed class LhmComputer : IDisposable
         };
         _openTask = Task.Run(async () =>
         {
+            // Open() enumerates SuperIO and DIMM SPD exactly once, so a probe
+            // lost to another SMBus master is a sensor missing for the whole
+            // session. The user-configured window yields the boot-time bus
+            // burst first; zero by default.
+            await StartupDelayGate.WaitAsync().ConfigureAwait(false);
+
             // Open() enumerates SuperIO exactly once, and it needs the PawnIO
             // device up - wait for the boot-time install/repair to finish so
             // a just-repaired driver yields motherboard sensors in the same

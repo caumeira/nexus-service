@@ -70,6 +70,9 @@ public sealed class NexusSettings
     /// <summary>OTA self-update settings. NOT profile-scoped: workstation-level.</summary>
     public UpdateSettings Update { get; set; } = new();
 
+    /// <summary>Seconds (0-60, 0 disables) to hold one-shot hardware enumeration - LHM's open and the OpenRGB spawn - after service start, so a boot-time bus burst from third-party vendor tools drains first. See <see cref="Nexus.Service.Lifecycle.StartupDelayGate"/>. NOT profile-scoped: workstation-level.</summary>
+    public int StartupDelaySeconds { get; set; }
+
     /// <summary>True once the desktop first-run welcome screen has been shown and
     /// dismissed. Install-scoped, not cloud profile synced: excluded from
     /// <see cref="Nexus.Service.Persistence.ProfileManager"/>'s CloneSettings

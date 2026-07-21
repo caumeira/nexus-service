@@ -105,7 +105,12 @@ public sealed class MetricsSampler : IHostedService, IDisposable
 
         try
         {
-            _sensors.ReadyAsync(_stopCts.Token).WaitAsync(StartupReadyTimeout, _stopCts.Token).GetAwaiter().GetResult();
+            // The startup-delay window holds enumeration back, so the timeout
+            // has to clear it or sampling starts against unread sensors and
+            // writes zero-valued history rows.
+            _sensors.ReadyAsync(_stopCts.Token)
+                .WaitAsync(StartupReadyTimeout + Nexus.Service.Lifecycle.StartupDelayGate.Configured, _stopCts.Token)
+                .GetAwaiter().GetResult();
         }
         catch (OperationCanceledException)
         {
