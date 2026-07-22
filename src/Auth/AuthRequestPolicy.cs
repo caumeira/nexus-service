@@ -37,14 +37,19 @@ public static class AuthRequestPolicy
     /// <summary>
     /// True when the request targets the root dashboard shell document
     /// (<c>index.html</c>) in any slash-spelling. Kestrel normalizes dot-segments
-    /// but NOT repeated slashes, and UseDefaultFiles/UseStaticFiles serve the root
-    /// index.html for <c>/</c>, <c>//</c>, <c>///index.html</c>, etc. Collapse
+    /// but NOT repeated slashes, and the Windows static-file provider treats
+    /// <c>\</c> as a separator (which Kestrel also leaves alone); UseDefaultFiles/
+    /// UseStaticFiles serve the root index.html for <c>/</c>, <c>//</c>,
+    /// <c>///index.html</c>, <c>/\index.html</c>, etc. Fold backslashes, collapse
     /// repeated slashes and strip a trailing slash before matching so no spelling
-    /// serves the shell off the loopback interface.
+    /// serves the shell off the loopback interface. Backslash-plus-parent-segment
+    /// spellings (<c>/\a\..\index.html</c>) are caught by
+    /// <see cref="BlocksOffLoopbackStatic"/>, which rejects any off-loopback path
+    /// carrying a backslash outright.
     /// </summary>
     public static bool TargetsRootShellDocument(PathString path)
     {
-        var p = path.Value ?? string.Empty;
+        var p = (path.Value ?? string.Empty).Replace('\\', '/');
         while (p.Contains("//"))
             p = p.Replace("//", "/");
         if (p.Length > 1 && p[^1] == '/')
@@ -52,6 +57,23 @@ public static class AuthRequestPolicy
         return p.Length == 0
             || p == "/"
             || p.Equals("/index.html", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Whether a caller must be refused static serving of the dashboard shell.
+    /// Loopback callers are never blocked. Off-loopback, block a path that
+    /// targets the root shell document, OR one containing a backslash: Windows'
+    /// static-file provider treats <c>\</c> as a separator and Kestrel does not
+    /// normalize it, so a backslash can smuggle an unresolved parent segment
+    /// (<c>/\a\..\index.html</c>) onto the root shell. No legitimate LAN URL path
+    /// carries a backslash, so rejecting it outright closes that class.
+    /// </summary>
+    public static bool BlocksOffLoopbackStatic(HttpContext ctx)
+    {
+        if (IsLoopbackRemote(ctx))
+            return false;
+        var raw = ctx.Request.Path.Value ?? string.Empty;
+        return raw.Contains('\\') || TargetsRootShellDocument(ctx.Request.Path);
     }
 
     public static bool IsSpaShellFallbackAllowed(HttpContext ctx)

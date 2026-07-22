@@ -508,8 +508,7 @@ app.UseNexusSecurityHeaders();
 // so the phone panel can still load.
 app.Use(async (ctx, next) =>
 {
-    if (!Nexus.Service.Auth.AuthRequestPolicy.IsLoopbackRemote(ctx)
-        && Nexus.Service.Auth.AuthRequestPolicy.TargetsRootShellDocument(ctx.Request.Path))
+    if (Nexus.Service.Auth.AuthRequestPolicy.BlocksOffLoopbackStatic(ctx))
     {
         ctx.Response.StatusCode = StatusCodes.Status404NotFound;
         return;

@@ -210,6 +210,8 @@ public sealed class AuthMiddlewareIntegrationTests : IClassFixture<NexusAppFacto
     [Theory]
     [InlineData("/")]
     [InlineData("/index.html")]
+    [InlineData("/\\index.html")]            // Windows backslash separator
+    [InlineData("/\\panel\\..\\index.html")] // backslash-smuggled parent segment
     public async Task Dashboard_shell_root_from_lan_is_404(string path)
     {
         var ctx = await _factory.Server.SendAsync(c =>

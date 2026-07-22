@@ -268,6 +268,9 @@ public class AuthRequestPolicyTests
     [InlineData("///index.html")]
     [InlineData("/index.html/")]   // trailing slash
     [InlineData("/index.html//")]
+    [InlineData("/\\index.html")]  // Windows treats backslash as a separator
+    [InlineData("/\\")]
+    [InlineData("/\\/index.html")]
     public void TargetsRootShellDocument_TrueForEveryRootShellSpelling(string path)
         => Assert.True(AuthRequestPolicy.TargetsRootShellDocument(new PathString(path)));
 
@@ -280,6 +283,32 @@ public class AuthRequestPolicyTests
     [InlineData("/foo/index.html")] // a non-root index.html must not match the root gate
     public void TargetsRootShellDocument_FalseForAssetsAndNonRoot(string path)
         => Assert.False(AuthRequestPolicy.TargetsRootShellDocument(new PathString(path)));
+
+    // ── Off-loopback static block: shell (any spelling) + any backslash path ──
+
+    [Theory]
+    [InlineData("192.168.1.50", "/")]
+    [InlineData("192.168.1.50", "//index.html")]
+    [InlineData("192.168.1.50", "/\\index.html")]              // Windows backslash separator
+    [InlineData("192.168.1.50", "/\\panel\\..\\index.html")]   // backslash-smuggled parent segment
+    [InlineData("192.168.1.50", "/foo\\..\\index.html")]
+    public void BlocksOffLoopbackStatic_BlocksShellAndBackslashFromLan(string ip, string path)
+        => Assert.True(AuthRequestPolicy.BlocksOffLoopbackStatic(WithRemote(ip, path)));
+
+    [Theory]
+    [InlineData("192.168.1.50", "/assets/index-abc.js")]
+    [InlineData("192.168.1.50", "/panel/phone")]
+    [InlineData("192.168.1.50", "/r/pair")]
+    [InlineData("192.168.1.50", "/favicon.ico")]
+    public void BlocksOffLoopbackStatic_AllowsAssetsAndPanelFromLan(string ip, string path)
+        => Assert.False(AuthRequestPolicy.BlocksOffLoopbackStatic(WithRemote(ip, path)));
+
+    [Theory]
+    [InlineData("127.0.0.1", "/")]
+    [InlineData("127.0.0.1", "/\\panel\\..\\index.html")] // own machine may use any spelling
+    [InlineData("::1", "//index.html")]
+    public void BlocksOffLoopbackStatic_NeverBlocksLoopback(string ip, string path)
+        => Assert.False(AuthRequestPolicy.BlocksOffLoopbackStatic(WithRemote(ip, path)));
 
     private static DefaultHttpContext WithRemote(string ip, string path = "/")
     {

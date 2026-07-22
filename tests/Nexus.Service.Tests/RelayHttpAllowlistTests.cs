@@ -50,6 +50,8 @@ public class RelayHttpAllowlistTests
     [InlineData("POST", "/devices/firmware/flash//")] // repeated trailing slash
     [InlineData("POST", "/system/power/shutdown/")]  // trailing slash must not slip a destructive deny
     [InlineData("POST", "/system/pick-path/")]
+    [InlineData("POST", "/devices\\firmware\\flash")]  // backslash separator must not slip the deny
+    [InlineData("POST", "/devices/firmware/flash\\")]  // trailing backslash
     public void Rejects_SocketHighBandwidthAndOffAllowlist(string method, string path)
         => Assert.False(RelayHttpAllowlist.IsAllowed(method, path));
 

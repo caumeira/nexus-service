@@ -106,6 +106,7 @@ public static class RelayHttpAllowlist
         // both see the canonical path.
         var q = path.IndexOf('?');
         var p = q < 0 ? path : path[..q];
+        p = p.Replace('\\', '/'); // Windows routing/file layer treats '\' as a separator; fold so a denied path can't hide behind it
         while (p.Contains("//"))
             p = p.Replace("//", "/");
         if (p.Length > 1 && p[^1] == '/')
