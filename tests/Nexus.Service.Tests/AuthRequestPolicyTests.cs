@@ -206,7 +206,105 @@ public class AuthRequestPolicyTests
         Assert.Equal(200, ctx.Response.StatusCode);
     }
 
-    private static async Task<(bool reached, DefaultHttpContext ctx)> RunPathAuth(string method, string path)
+    // ── Loopback detection (backs the desktop-token + shell gates) ────────────
+
+    [Theory]
+    [InlineData("127.0.0.1")]
+    [InlineData("::1")]
+    public void IsLoopbackRemote_TrueForLoopback(string ip)
+        => Assert.True(AuthRequestPolicy.IsLoopbackRemote(WithRemote(ip)));
+
+    [Theory]
+    [InlineData("192.168.1.50")]
+    [InlineData("10.0.0.4")]
+    [InlineData("172.16.9.9")]
+    public void IsLoopbackRemote_FalseForLan(string ip)
+        => Assert.False(AuthRequestPolicy.IsLoopbackRemote(WithRemote(ip)));
+
+    [Fact]
+    public void IsLoopbackRemote_FalseForNullRemote_FailsClosed()
+        => Assert.False(AuthRequestPolicy.IsLoopbackRemote(NewContext("GET", "/")));
+
+    // ── Dashboard shell is loopback-only; panel/pairing reach the LAN ─────────
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/index.html")]
+    [InlineData("/monitoring")]
+    [InlineData("/system/settings")]
+    [InlineData("/lighting")]
+    public void IsShellReachable_AllowsAnyPathFromLoopback(string path)
+        => Assert.True(AuthRequestPolicy.IsShellReachable(WithRemote("127.0.0.1", path)));
+
+    [Theory]
+    [InlineData("/panel")]
+    [InlineData("/panel/phone")]
+    [InlineData("/panel/phone/pair")]
+    [InlineData("/panel/xyz")]
+    [InlineData("/r")]
+    [InlineData("/r/pair")]
+    public void IsShellReachable_AllowsPanelAndPairingSurfacesFromLan(string path)
+        => Assert.True(AuthRequestPolicy.IsShellReachable(WithRemote("192.168.1.50", path)));
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/index.html")]
+    [InlineData("/monitoring")]
+    [InlineData("/system/settings")]
+    [InlineData("/lighting")]
+    [InlineData("/panelX")]  // not a /panel segment boundary
+    [InlineData("/rogue")]   // not a /r segment boundary
+    public void IsShellReachable_BlocksDashboardShellFromLan(string path)
+        => Assert.False(AuthRequestPolicy.IsShellReachable(WithRemote("192.168.1.50", path)));
+
+    private static DefaultHttpContext WithRemote(string ip, string path = "/")
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "GET";
+        ctx.Request.Path = path;
+        ctx.Connection.RemoteIpAddress = System.Net.IPAddress.Parse(ip);
+        return ctx;
+    }
+
+    // ── Shell gate through the real UseNexusPathAuth pipeline ─────────────────
+    // The SPA-shell branch runs before any DI, so an empty provider drives it.
+    // A terminal Run(200) stands in for MapFallbackToFile: "reached" == the shell
+    // would have been served.
+
+    [Fact]
+    public async Task ShellGate_ServesDashboardShellToLoopback()
+    {
+        var (reached, ctx) = await RunShellAuth("/monitoring", "127.0.0.1");
+        Assert.True(reached);
+        Assert.Equal(200, ctx.Response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/monitoring")]
+    [InlineData("/system/settings")]
+    public async Task ShellGate_BlocksDashboardShellFromLan(string path)
+    {
+        var (reached, ctx) = await RunShellAuth(path, "192.168.1.50");
+        Assert.False(reached);
+        Assert.Equal(404, ctx.Response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("/panel/phone/settings")]
+    [InlineData("/r/pair")]
+    public async Task ShellGate_ServesPanelAndPairingShellToLan(string path)
+    {
+        var (reached, ctx) = await RunShellAuth(path, "192.168.1.50");
+        Assert.True(reached);
+        Assert.Equal(200, ctx.Response.StatusCode);
+    }
+
+    private static Task<(bool reached, DefaultHttpContext ctx)> RunShellAuth(string path, string remoteIp)
+        => RunPathAuth("GET", path, remoteIp, accept: "text/html");
+
+    private static async Task<(bool reached, DefaultHttpContext ctx)> RunPathAuth(
+        string method, string path, string? remoteIp = null, string? accept = null)
     {
         var services = new ServiceCollection().BuildServiceProvider();
         var builder = new ApplicationBuilder(services);
@@ -224,6 +322,10 @@ public class AuthRequestPolicyTests
         ctx.Request.Method = method;
         ctx.Request.Path = path;
         ctx.Request.Scheme = "http";
+        if (accept is not null)
+            ctx.Request.Headers.Accept = accept;
+        if (remoteIp is not null)
+            ctx.Connection.RemoteIpAddress = System.Net.IPAddress.Parse(remoteIp);
         await pipeline(ctx);
         return (reached, ctx);
     }

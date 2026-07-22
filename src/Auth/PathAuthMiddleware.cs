@@ -154,6 +154,15 @@ internal static class PathAuthMiddleware
             // state-changing endpoint must never ride the auth-bypass lane.
             if (AuthRequestPolicy.IsSpaShellFallbackAllowed(ctx))
             {
+                // The desktop dashboard shell is loopback-only. Off-loopback,
+                // serve the SPA shell solely for the phone-panel / pairing
+                // surfaces; every other navigation 404s so the dashboard UI is
+                // never reachable from the LAN or relay.
+                if (!AuthRequestPolicy.IsShellReachable(ctx))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+                    return;
+                }
                 await next(ctx);
                 return;
             }
@@ -197,7 +206,12 @@ internal static class PathAuthMiddleware
 
             var tokens = ctx.RequestServices.GetRequiredService<TokenService>();
             var requestToken = AuthRequestPolicy.ExtractBearerOrQueryToken(ctx);
-            if (tokens.Validate(requestToken))
+            // The desktop token is a loopback-only credential: it is minted only
+            // over loopback (/pair) and the desktop app always reaches the service
+            // over 127.0.0.1. Honor it only from loopback so a leaked token can't
+            // drive the PC from another machine. Off-LAN access is the relay +
+            // phone-session path (handled above), which never presents this token.
+            if (AuthRequestPolicy.IsLoopbackRemote(ctx) && tokens.Validate(requestToken))
             {
                 await next(ctx);
                 return;

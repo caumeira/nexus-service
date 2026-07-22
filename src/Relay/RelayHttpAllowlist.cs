@@ -72,6 +72,7 @@ public static class RelayHttpAllowlist
         "/system/power/shutdown", // destructive - LAN-only
         "/system/power/restart",  // destructive - LAN-only
         "/system/power/logout",   // strands a remote user - LAN-only
+        "/devices/firmware/flash", // irreversible flash - brick risk over a lossy tunnel, never triggered remotely
     };
 
     /// <summary>

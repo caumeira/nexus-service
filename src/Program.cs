@@ -500,6 +500,25 @@ app.UseWebSockets(wsOptions);
 
 app.UseNexusSecurityHeaders();
 
+// The dashboard SPA shell must never be served off the loopback interface.
+// UseStaticFiles/UseDefaultFiles serve index.html for "/" and "/index.html"
+// BEFORE the auth middleware runs, so gate those two shell entry points here;
+// the SPA client-route fallback is gated inside UseNexusPathAuth. Static assets
+// (/assets, fonts, favicon) stay LAN-reachable so the phone panel can still load.
+app.Use(async (ctx, next) =>
+{
+    if (!Nexus.Service.Auth.AuthRequestPolicy.IsLoopbackRemote(ctx))
+    {
+        var path = ctx.Request.Path;
+        if (path == "/" || path.Equals("/index.html", StringComparison.OrdinalIgnoreCase))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+    }
+    await next(ctx);
+});
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

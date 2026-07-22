@@ -44,8 +44,15 @@ public class RelayHttpAllowlistTests
     [InlineData("POST", "/system/power/shutdown")]   // destructive - LAN-only
     [InlineData("POST", "/system/power/restart")]    // destructive - LAN-only
     [InlineData("POST", "/system/power/logout")]     // strands a remote user - LAN-only
+    [InlineData("POST", "/devices/firmware/flash")]  // irreversible flash - brick risk over a lossy tunnel
     public void Rejects_SocketHighBandwidthAndOffAllowlist(string method, string path)
         => Assert.False(RelayHttpAllowlist.IsAllowed(method, path));
+
+    [Theory]
+    [InlineData("GET", "/devices/firmware/status")] // firmware READ stays tunnelable (only the flash is denied)
+    [InlineData("GET", "/devices/all")]
+    public void Allows_DeviceReadsAlongsideFirmwareFlashDeny(string method, string path)
+        => Assert.True(RelayHttpAllowlist.IsAllowed(method, path));
 
     [Theory]
     [InlineData("CONNECT", "/panel/status")]

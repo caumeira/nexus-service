@@ -174,4 +174,66 @@ public sealed class AuthMiddlewareIntegrationTests : IClassFixture<NexusAppFacto
         Assert.True(res.Headers.Contains("X-Content-Type-Options"),
             "panel shell must carry X-Content-Type-Options: nosniff");
     }
+
+    // ── Desktop token is loopback-only (a leaked token can't drive from LAN) ──
+
+    [Fact]
+    public async Task Desktop_token_from_lan_is_rejected()
+    {
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "GET";
+            c.Request.Path = "/defaults";
+            c.Request.Headers.Authorization = "Bearer " + Token; // valid token, wrong network
+            c.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.50");
+        });
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Desktop_token_from_loopback_is_accepted()
+    {
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "GET";
+            c.Request.Path = "/defaults";
+            c.Request.Headers.Authorization = "Bearer " + Token;
+            c.Connection.RemoteIpAddress = IPAddress.Loopback;
+        });
+
+        Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
+    }
+
+    // ── Dashboard shell / index.html not served off the loopback interface ────
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/index.html")]
+    public async Task Dashboard_shell_root_from_lan_is_404(string path)
+    {
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "GET";
+            c.Request.Path = path;
+            c.Request.Headers.Accept = "text/html";
+            c.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.50");
+        });
+
+        Assert.Equal(StatusCodes.Status404NotFound, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Dashboard_client_route_from_lan_is_404()
+    {
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "GET";
+            c.Request.Path = "/monitoring";
+            c.Request.Headers.Accept = "text/html";
+            c.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.50");
+        });
+
+        Assert.Equal(StatusCodes.Status404NotFound, ctx.Response.StatusCode);
+    }
 }

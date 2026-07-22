@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
@@ -5,6 +6,34 @@ namespace Nexus.Service.Auth;
 
 public static class AuthRequestPolicy
 {
+    /// <summary>
+    /// True when the request arrived on the loopback interface (127.0.0.1 / ::1).
+    /// A null remote address (a synthetic in-process request with no socket) is
+    /// treated as NOT loopback so the shell and desktop-token gates fail closed.
+    /// </summary>
+    public static bool IsLoopbackRemote(HttpContext ctx)
+    {
+        var addr = ctx.Connection.RemoteIpAddress;
+        return addr is not null && IPAddress.IsLoopback(addr);
+    }
+
+    /// <summary>
+    /// Whether the SPA shell (index.html) may be served to this caller. The
+    /// desktop dashboard is loopback-only; the phone-panel (<c>/panel</c>) and
+    /// pairing deep-link (<c>/r</c>) surfaces are the only SPA entry points a
+    /// LAN or relay client may load. Any other navigation off the loopback
+    /// interface is 404'd before the shell is served, so the dashboard UI is
+    /// never reachable from another machine.
+    /// </summary>
+    public static bool IsShellReachable(HttpContext ctx)
+    {
+        if (IsLoopbackRemote(ctx))
+            return true;
+        var path = ctx.Request.Path;
+        return path.StartsWithSegments("/panel", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/r", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsSpaShellFallbackAllowed(HttpContext ctx)
     {
         if (!IsGet(ctx.Request.Method))

@@ -1,3 +1,5 @@
+using System.Net;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -56,6 +58,16 @@ public class NexusAppFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Testing");
         builder.ConfigureTestServices(services =>
         {
+            // A CreateClient() request models the LOCAL desktop client, which in
+            // production always reaches the service over loopback. TestServer's
+            // HttpClient path leaves Connection.RemoteIpAddress null, so default
+            // it to loopback - otherwise the loopback-gated auth (desktop token,
+            // dashboard shell) would 401/404 every CreateClient test. Tests that
+            // exercise a LAN caller set an explicit non-loopback RemoteIpAddress
+            // via Server.SendAsync (which runs before the pipeline), so the ??=
+            // below leaves those untouched.
+            services.AddSingleton<IStartupFilter, LoopbackRemoteDefaultStartupFilter>();
+
             // The request pipeline under test does not depend on any hosted
             // service being started, and they touch hardware/network and add
             // timing nondeterminism - so strip them all.
@@ -86,5 +98,24 @@ public class NexusAppFactory : WebApplicationFactory<Program>
             try { Directory.Delete(_configDir, recursive: true); }
             catch { /* best-effort temp cleanup */ }
         }
+    }
+
+    /// <summary>
+    /// Front-of-pipeline middleware that defaults a null RemoteIpAddress to
+    /// loopback (see the note at the registration site). Explicit non-loopback
+    /// addresses set via <c>Server.SendAsync</c> are preserved.
+    /// </summary>
+    private sealed class LoopbackRemoteDefaultStartupFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) =>
+            app =>
+            {
+                app.Use(async (ctx, n) =>
+                {
+                    ctx.Connection.RemoteIpAddress ??= IPAddress.Loopback;
+                    await n(ctx);
+                });
+                next(app);
+            };
     }
 }
