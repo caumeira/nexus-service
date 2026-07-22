@@ -104,6 +104,11 @@ public class NexusAppFactory : WebApplicationFactory<Program>
     /// Front-of-pipeline middleware that defaults a null RemoteIpAddress to
     /// loopback (see the note at the registration site). Explicit non-loopback
     /// addresses set via <c>Server.SendAsync</c> are preserved.
+    ///
+    /// Consequence for test authors: a <c>CreateClient()</c> request is ALWAYS
+    /// treated as loopback, so it cannot exercise a LAN-caller gate. A test that
+    /// must act as a LAN caller MUST set a non-loopback RemoteIpAddress via
+    /// <c>Server.SendAsync</c>, or it will false-pass the loopback-gated auth.
     /// </summary>
     private sealed class LoopbackRemoteDefaultStartupFilter : IStartupFilter
     {

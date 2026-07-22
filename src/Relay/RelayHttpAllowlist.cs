@@ -72,7 +72,7 @@ public static class RelayHttpAllowlist
         "/system/power/shutdown", // destructive - LAN-only
         "/system/power/restart",  // destructive - LAN-only
         "/system/power/logout",   // strands a remote user - LAN-only
-        "/devices/firmware/flash", // irreversible flash - brick risk over a lossy tunnel, never triggered remotely
+        "/devices/firmware/flash", // irreversible flash - brick risk over a lossy tunnel
     };
 
     /// <summary>
@@ -98,9 +98,18 @@ public static class RelayHttpAllowlist
         if (string.IsNullOrEmpty(path) || path[0] != '/')
             return false;
 
-        // Compare only the path, ignoring any query string.
+        // Compare only the path, ignoring any query string, and normalize the
+        // slash-spelling first: routing matches a trailing slash ("/x/flash/")
+        // and repeated slashes to the same handler, so a raw exact-match deny
+        // would let a denied path slip through. Collapse repeated slashes and
+        // strip a trailing slash so the exact deny and the segment-boundary allow
+        // both see the canonical path.
         var q = path.IndexOf('?');
         var p = q < 0 ? path : path[..q];
+        while (p.Contains("//"))
+            p = p.Replace("//", "/");
+        if (p.Length > 1 && p[^1] == '/')
+            p = p[..^1];
 
         foreach (var denied in DeniedPaths)
         {

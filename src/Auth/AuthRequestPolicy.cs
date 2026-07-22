@@ -34,6 +34,26 @@ public static class AuthRequestPolicy
             || path.StartsWithSegments("/r", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// True when the request targets the root dashboard shell document
+    /// (<c>index.html</c>) in any slash-spelling. Kestrel normalizes dot-segments
+    /// but NOT repeated slashes, and UseDefaultFiles/UseStaticFiles serve the root
+    /// index.html for <c>/</c>, <c>//</c>, <c>///index.html</c>, etc. Collapse
+    /// repeated slashes and strip a trailing slash before matching so no spelling
+    /// serves the shell off the loopback interface.
+    /// </summary>
+    public static bool TargetsRootShellDocument(PathString path)
+    {
+        var p = path.Value ?? string.Empty;
+        while (p.Contains("//"))
+            p = p.Replace("//", "/");
+        if (p.Length > 1 && p[^1] == '/')
+            p = p[..^1];
+        return p.Length == 0
+            || p == "/"
+            || p.Equals("/index.html", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static bool IsSpaShellFallbackAllowed(HttpContext ctx)
     {
         if (!IsGet(ctx.Request.Method))

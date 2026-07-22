@@ -257,6 +257,30 @@ public class AuthRequestPolicyTests
     public void IsShellReachable_BlocksDashboardShellFromLan(string path)
         => Assert.False(AuthRequestPolicy.IsShellReachable(WithRemote("192.168.1.50", path)));
 
+    // ── Root shell document matcher: every slash-spelling of the shell is caught ─
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/index.html")]
+    [InlineData("/INDEX.HTML")]
+    [InlineData("//")]             // repeated-slash root -> default-doc index.html
+    [InlineData("//index.html")]   // Kestrel does NOT collapse repeated slashes
+    [InlineData("///index.html")]
+    [InlineData("/index.html/")]   // trailing slash
+    [InlineData("/index.html//")]
+    public void TargetsRootShellDocument_TrueForEveryRootShellSpelling(string path)
+        => Assert.True(AuthRequestPolicy.TargetsRootShellDocument(new PathString(path)));
+
+    [Theory]
+    [InlineData("/assets/index-abc.js")]
+    [InlineData("/panel/phone")]
+    [InlineData("/monitoring")]
+    [InlineData("/favicon.ico")]
+    [InlineData("/index.htmlx")]
+    [InlineData("/foo/index.html")] // a non-root index.html must not match the root gate
+    public void TargetsRootShellDocument_FalseForAssetsAndNonRoot(string path)
+        => Assert.False(AuthRequestPolicy.TargetsRootShellDocument(new PathString(path)));
+
     private static DefaultHttpContext WithRemote(string ip, string path = "/")
     {
         var ctx = new DefaultHttpContext();

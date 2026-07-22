@@ -45,6 +45,11 @@ public class RelayHttpAllowlistTests
     [InlineData("POST", "/system/power/restart")]    // destructive - LAN-only
     [InlineData("POST", "/system/power/logout")]     // strands a remote user - LAN-only
     [InlineData("POST", "/devices/firmware/flash")]  // irreversible flash - brick risk over a lossy tunnel
+    [InlineData("POST", "/devices/firmware/flash/")] // trailing slash still routes to the flash handler
+    [InlineData("POST", "/Devices/Firmware/Flash")]  // deny is case-insensitive
+    [InlineData("POST", "/devices/firmware/flash//")] // repeated trailing slash
+    [InlineData("POST", "/system/power/shutdown/")]  // trailing slash must not slip a destructive deny
+    [InlineData("POST", "/system/pick-path/")]
     public void Rejects_SocketHighBandwidthAndOffAllowlist(string method, string path)
         => Assert.False(RelayHttpAllowlist.IsAllowed(method, path));
 
