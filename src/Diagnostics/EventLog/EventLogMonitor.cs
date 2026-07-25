@@ -332,7 +332,11 @@ public sealed class EventLogMonitor : BackgroundService
             {
                 return 0;
             }
-            using var handle = new WevtApi.SafeEvtHandle(eventHandle, ownsHandle: true);
+            // EVT_SUBSCRIBE_CALLBACK borrows the handle: wevtapi closes it when
+            // the callback returns, so closing it here double-frees inside
+            // wevtapi (surfaces later as a 0xc0000409 fail-fast). Only EvtNext
+            // handles (Backfill) are caller-owned.
+            using var handle = new WevtApi.SafeEvtHandle(eventHandle, ownsHandle: false);
             var xml = Render(handle);
             var incident = xml is not null ? EventXmlParser.Parse(xml) : null;
             if (incident is not null)
@@ -342,7 +346,9 @@ public sealed class EventLogMonitor : BackgroundService
         }
         catch (Exception ex)
         {
-            state?.WarnOnce(ex);
+            // An exception escaping an [UnmanagedCallersOnly] frame fail-fasts
+            // the AOT process; nothing may throw past this point.
+            try { state?.WarnOnce(ex); } catch { }
         }
         return 0;
     }

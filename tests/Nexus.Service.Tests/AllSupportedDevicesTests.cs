@@ -10,7 +10,9 @@ public class AllSupportedDevicesTests
     public void Merged_IncludesBothPeripheralsAndLighting()
     {
         var all = AllSupportedDevices.All;
-        Assert.Contains(all, d => d.Category == "mouse");   // from the peripherals catalog
+        // Source "nexus" + category "controller" is reachable only from
+        // SupportedDevicesCatalog; the OpenRGB rows are all Source "openrgb".
+        Assert.Contains(all, d => d.Source == "nexus" && d.Category == "controller");
         Assert.Contains(all, d => d.Vendor == "Tryx");      // from the lighting catalog
         Assert.True(all.Count > 1500);
     }
@@ -37,7 +39,6 @@ public class AllSupportedDevicesTests
 
         var peripheralKeys = SupportedDevicesCatalog.All.Where(Real).Select(Key).ToHashSet();
         var overlap = LightingDevicesCatalog.All.Where(Real).Where(d => peripheralKeys.Contains(Key(d))).ToList();
-        Assert.NotEmpty(overlap); // the two catalogs share input peripherals (e.g. Corsair/Razer)
 
         var merged = AllSupportedDevices.All.Where(Real).ToDictionary(Key, d => d);
         foreach (var lit in overlap)

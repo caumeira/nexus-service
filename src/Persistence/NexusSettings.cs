@@ -73,6 +73,15 @@ public sealed class NexusSettings
     /// <summary>Seconds (0-60, 0 disables) to hold one-shot hardware enumeration - LHM's open and the OpenRGB spawn - after service start, so a boot-time bus burst from third-party vendor tools drains first. See <see cref="Nexus.Service.Lifecycle.StartupDelayGate"/>. NOT profile-scoped: workstation-level.</summary>
     public int StartupDelaySeconds { get; set; }
 
+    /// <summary>Disables all GPU monitoring: LHM skips GPU hardware entirely (no
+    /// ADL FrameMetrics/PMLog sessions, no per-node D3DKMT statistics) and the
+    /// per-process PDH GPU counters never start. Diagnostic switch for boxes
+    /// where driver-level GPU telemetry interacts badly with the graphics stack
+    /// (AMD + HAGS TDR reports); GPU tiles and per-process GPU columns go
+    /// empty. Read once at service start - a change takes effect next boot.
+    /// NOT profile-scoped: workstation-level.</summary>
+    public bool DisableGpuMonitoring { get; set; }
+
     /// <summary>True once the desktop first-run welcome screen has been shown and
     /// dismissed. Install-scoped, not cloud profile synced: excluded from
     /// <see cref="Nexus.Service.Persistence.ProfileManager"/>'s CloneSettings

@@ -204,6 +204,7 @@ public static class ProfileRoutes
                 },
                 Diagnostics = s.Diagnostics,
                 StartupDelaySeconds = s.StartupDelaySeconds,
+                DisableGpuMonitoring = s.DisableGpuMonitoring,
             };
         }).AllowPanel();
 
@@ -516,6 +517,11 @@ public static class ProfileRoutes
                 if (body.StartupDelaySeconds is { } startupDelay)
                 {
                     s.StartupDelaySeconds = Math.Clamp(startupDelay, 0, Nexus.Service.Lifecycle.StartupDelayGate.MaxSeconds);
+                }
+                // Read once at service start; a change takes effect next boot.
+                if (body.DisableGpuMonitoring is { } disableGpu)
+                {
+                    s.DisableGpuMonitoring = disableGpu;
                 }
                 if (body.Diagnostics is { } diagnostics)
                 {

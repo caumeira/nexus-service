@@ -3,8 +3,8 @@ using System;
 namespace Nexus.Service.Peripherals.Hid;
 
 /// <summary>
-/// Minimal HID device abstraction. Covers feature-report send/receive, which is
-/// all most gaming peripheral config protocols (Razer, Logitech HID++, etc.) need.
+/// Minimal HID device abstraction: feature reports plus interrupt read/write,
+/// the transports the first-party device protocols are built on.
 /// </summary>
 public interface IHidDevice : IDisposable
 {

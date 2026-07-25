@@ -12,7 +12,7 @@ public class GpuProcessMonitorTests
     public async Task FirstSubscriberOnGpuProcessesTopic_ResolvesAPendingWaitViaThePulsePath()
     {
         var hub = new MultiplexHub();
-        var monitor = new GpuProcessMonitor(hub);
+        var monitor = new GpuProcessMonitor(hub, new InMemoryConfigStore());
 
         var waitTask = monitor.WaitForNextSampleAsync(30_000, CancellationToken.None);
         using var sub = hub.AddTestSubscription("gpu-processes");
@@ -26,7 +26,7 @@ public class GpuProcessMonitorTests
     public async Task FirstSubscriberOnAnUnrelatedTopic_DoesNotResolveAPendingWaitEarly()
     {
         var hub = new MultiplexHub();
-        var monitor = new GpuProcessMonitor(hub);
+        var monitor = new GpuProcessMonitor(hub, new InMemoryConfigStore());
 
         var waitTask = monitor.WaitForNextSampleAsync(50, CancellationToken.None);
         using var sub = hub.AddTestSubscription("processes");
@@ -38,7 +38,7 @@ public class GpuProcessMonitorTests
     public async Task Dispose_UnsubscribesFromTheHub_SoALaterSubscriptionDoesNotResolveAPendingWait()
     {
         var hub = new MultiplexHub();
-        var monitor = new GpuProcessMonitor(hub);
+        var monitor = new GpuProcessMonitor(hub, new InMemoryConfigStore());
         monitor.Dispose();
 
         var waitTask = monitor.WaitForNextSampleAsync(50, CancellationToken.None);
@@ -51,7 +51,7 @@ public class GpuProcessMonitorTests
     public async Task APriorCompletedWait_DoesNotAbsorbALaterPulse()
     {
         var hub = new MultiplexHub();
-        var monitor = new GpuProcessMonitor(hub);
+        var monitor = new GpuProcessMonitor(hub, new InMemoryConfigStore());
         await monitor.WaitForNextSampleAsync(20, CancellationToken.None);
 
         var waitTask = monitor.WaitForNextSampleAsync(30_000, CancellationToken.None);

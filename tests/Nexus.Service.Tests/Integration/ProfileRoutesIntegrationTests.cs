@@ -167,6 +167,21 @@ public sealed class ProfileRoutesIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Preferences_disable_gpu_monitoring_defaults_false_and_round_trips()
+    {
+        var client = AuthedClient();
+
+        var before = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(before.GetProperty("disableGpuMonitoring").GetBoolean());
+
+        var postRes = await client.PostAsJsonAsync("/preferences", new { disableGpuMonitoring = true });
+        Assert.Equal(HttpStatusCode.OK, postRes.StatusCode);
+
+        var after = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(after.GetProperty("disableGpuMonitoring").GetBoolean());
+    }
+
+    [Fact]
     public async Task Preferences_startup_delay_survives_an_unrelated_patch()
     {
         var client = AuthedClient();

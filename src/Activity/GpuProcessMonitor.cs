@@ -24,6 +24,7 @@ namespace Nexus.Service.Activity;
 public sealed class GpuProcessMonitor : BackgroundService
 {
     private readonly MultiplexHub _hub;
+    private readonly Nexus.Service.Persistence.IConfigStore _config;
     private readonly object _demandGate = new();
     private readonly HashSet<string> _demands = new(StringComparer.Ordinal);
     // volatile fields cannot be readonly; suppress the IDE0044 false positive.
@@ -38,9 +39,10 @@ public sealed class GpuProcessMonitor : BackgroundService
     private readonly object _wakeGate = new();
     private TaskCompletionSource<bool>? _pendingWake;
 
-    public GpuProcessMonitor(MultiplexHub hub)
+    public GpuProcessMonitor(MultiplexHub hub, Nexus.Service.Persistence.IConfigStore config)
     {
         _hub = hub;
+        _config = config;
         _hub.OnTopicFirstSubscriber += OnTopicFirstSubscriber;
     }
 
@@ -115,6 +117,11 @@ public sealed class GpuProcessMonitor : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
 #if WINDOWS
+        if (_config.Load().DisableGpuMonitoring)
+        {
+            Console.WriteLine("[gpu-process-monitor] disabled by settings");
+            return;
+        }
         await Task.Delay(2000, ct);
         IntPtr query = IntPtr.Zero, engine = IntPtr.Zero, mem = IntPtr.Zero;
         try
