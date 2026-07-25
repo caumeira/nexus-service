@@ -133,6 +133,7 @@ public sealed class Preferences
     public UpdatePrefs Update { get; set; } = new();
     public DiagnosticsSettings Diagnostics { get; set; } = new();
     public int StartupDelaySeconds { get; set; }
+    public bool DisableGpuMonitoring { get; set; }
 }
 
 public sealed class CoolingPrefs
@@ -251,6 +252,7 @@ public sealed class PreferencesPatch
     public UpdatePrefsPatch? Update { get; set; }
     public DiagnosticsSettingsPatch? Diagnostics { get; set; }
     public int? StartupDelaySeconds { get; set; }
+    public bool? DisableGpuMonitoring { get; set; }
 }
 
 public sealed class ThemeSettingsPatch

@@ -66,7 +66,7 @@ public class ProcessAppUsageSourcePerformanceTests
     {
         var hub = new MultiplexHub();
         var processes = new ProcessMonitor(hub);
-        var gpuProcesses = new GpuProcessMonitor(hub);
+        var gpuProcesses = new GpuProcessMonitor(hub, new InMemoryConfigStore());
         var source = new ProcessAppUsageSource(processes, gpuProcesses, new StubSensorProvider(), new StubNetworkProvider());
 
         const int processCount = 400; // comfortably above a busy real box's live process count
