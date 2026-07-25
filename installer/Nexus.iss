@@ -70,7 +70,10 @@ WizardSmallImageFile=logo-small.bmp
 UninstallDisplayIcon={app}\{#MyAppExeName}
 SetupIconFile=..\icon.ico
 ShowLanguageDialog=no
-CloseApplications=force
+; CloseApplications=no keeps Inno from loading RstrtMgr.dll (Restart Manager).
+; PrepareToInstall already terminates every process that holds a payload file
+; open, which is more precise than what Restart Manager would close for us.
+CloseApplications=no
 RestartApplications=no
 ; build-installer.ps1 -Sign defines EnableSigning and the nexussign tool via
 ; /S. SignedUninstaller matters for Smart App Control: the extracted
@@ -239,10 +242,22 @@ begin
   TaskKill := ExpandConstant('{sys}\taskkill.exe');
   StringChangeEx(AdbExe, '''', '''''', True);
   StringChangeEx(TaskKill, '''', '''''', True);
+  //   5. msedgewebview2.exe: the dashboard/overlay/kiosk WebView2 children
+  //      outlive their host and keep {app}\wwwroot files open, which used to
+  //      be Restart Manager's job to clear (CloseApplications=no now). Match
+  //      only our own by the --user-data-dir the overlay passes
+  //      (%ProgramData%\Nexus\DesktopWebView2), so another app's WebView2 is
+  //      left alone; the runtime image lives outside {app}, so a path match
+  //      cannot distinguish them. Folded into the same powershell hop as the
+  //      adb sweep to keep this to one process spawn.
   Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -NonInteractive -Command "Get-Process -Name adb -ErrorAction SilentlyContinue | ' +
     'Where-Object { $_.Path -ieq ''' + AdbExe + ''' } | ' +
-    'ForEach-Object { & ''' + TaskKill + ''' /F /T /PID $_.Id }"',
+    'ForEach-Object { & ''' + TaskKill + ''' /F /T /PID $_.Id }; ' +
+    'Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.Name -ieq ''msedgewebview2.exe'' -and ' +
+    '$_.CommandLine -like ''*\Nexus\DesktopWebView2*'' } | ' +
+    'ForEach-Object { & ''' + TaskKill + ''' /F /PID $_.ProcessId }"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
