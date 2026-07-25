@@ -220,7 +220,7 @@ Other slow / event-driven topics (e.g. `prefs`, `lighting`, `cooling`,
 | `cooling-realtime` | `CurveEngine` | default `1000 ms` when curves exist | Cooling view | Live fan channel speed/RPM. |
 | `cooling-curves` | `CurveEngine` | default `1000 ms` when curves exist | Cooling view | Curve calculations and applied outputs. |
 | `conflicts` | `ConflictWatcher` | poll every `5000 ms` server-side, broadcasts only on change, plus snapshot on subscribe | `useConflictApps()` | Competing RGB/control app detection (iCUE, NZXT CAM, etc) driving the device-page conflict gate. |
-| `devices` | `DeviceBroadcaster` | re-enumerates every `5000 ms` only while subscribed, broadcasts only on change or first subscriber | `useDevices()`, `useUsbDevices()`, `usePeripherals()` | Push-driven refetch for the curated device list, raw USB list, and peripheral list; see Devices view traffic below. |
+| `devices` | `DeviceBroadcaster` | re-enumerates every `5000 ms` only while subscribed, broadcasts only on change or first subscriber | `useDevices()`, `useUsbDevices()` | Push-driven refetch for the curated device list and raw USB list; see Devices view traffic below. |
 | `benchmark/{runId}` | `BenchmarkRunner` | provider progress, documented around `500 ms` | Benchmark view | Benchmark progress and terminal state. |
 | `audio` | `IBeatsProvider.OnBeat`, broadcast from `AppBootstrap` | event-driven while audio capture is running | Lighting view audio preview | Audio level/bass/mid/high/beat/spectrum snapshot for shader preview. |
 | `panel/phone/presence` | subscription-count topic | no payload today | phone panel subscribes | Lets `/panel/status` count connected phone remotes. |
@@ -339,16 +339,13 @@ Mounted Devices view traffic:
 | Request | Cadence | Count | Purpose |
 |---|---:|---:|---|
 | `GET /devices/all` | one-shot REST seed on mount (Available tab active), refetched on the `devices` WS topic | event + push | Curated connected device list. |
-| `GET /peripherals` | one-shot REST seed on mount (Available tab active), refetched on the `devices` WS topic | event + push | Service-owned peripheral list. |
 | `GET /devices/usb/all` | one-shot REST seed whenever the Devices view is mounted, refetched on the `devices` WS topic | event + push | VID/PID support detection; one subscription shared by the catalog highlight and the Connected Devices modal. |
 | `GET /displays` | every `5000 ms` on Panels tab | `0.2 req/s` | Attached monitor inventory and brightness-control capability summary. |
 | `GET /panel/status` | every `5000 ms` on Panels tab | `0.2 req/s` | Panel host running state for directly managed panels. |
 | `GET /panel/phone/sessions` | every `5000 ms` on Panels tab | `0.2 req/s` | Paired phone/tablet panel presence metadata. |
-| Browser WebHID snapshot | every `10000 ms` | local only | Browser-local granted WebHID peripherals, not service traffic. |
-| `GET /peripherals/{id}` | every `5000 ms` while a service peripheral popup is open | `0.2 req/s` | Peripheral detail and battery/DPI/polling/sleep state. |
 | `GET /y70/brightness`, `/y70/rotation`, `/y70/toggle` | one-shot when Y70 popup/widget mounts | event | Y70 controls hydration. |
 
-The curated device list, raw USB list, and peripheral list moved from 5s
+The curated device list and raw USB list moved from 5s
 REST polling to a one-shot fetch plus the `devices` WS topic (see the
 Multiplex WebSocket Topics table above); `DeviceBroadcaster` re-enumerates
 every 5s server-side only while the topic has a subscriber, and only
@@ -360,9 +357,8 @@ than a separate tab); the `GET /displays`, `/panel/status`, and
 `/panel/phone/sessions` rows above have not been individually re-verified
 against the current tab layout.
 
-Devices user actions call peripheral `PUT` routes, Y70 `POST` routes, firmware
-routes, lighting rescan/identify routes, and supported-device modal routes on
-demand.
+Devices user actions call Y70 `POST` routes, firmware routes, lighting
+rescan/identify routes, and supported-device modal routes on demand.
 
 ### Benchmark
 
@@ -501,7 +497,7 @@ features.
 - Desktop and panel subscribe to the composite `monitoring` topic globally.
   Any `useSensors()` consumer adds six more sensor topic frames per second,
   duplicating data already present in `monitoring`.
-- Devices view's curated/USB/peripheral lists are push-driven via the
+- Devices view's curated/USB lists are push-driven via the
   `devices` topic rather than polled (see Devices view traffic above);
   `DeviceBroadcaster` re-enumerates the OS device/USB lists every `5000 ms`
   server-side only while the topic has a subscriber, and only broadcasts

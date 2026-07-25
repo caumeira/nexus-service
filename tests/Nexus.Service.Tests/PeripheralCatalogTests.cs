@@ -7,12 +7,19 @@ namespace Nexus.Service.Tests;
 public class PeripheralCatalogTests
 {
     [Fact]
-    public void SupportedDevicesCatalog_ContainsRazerMice()
+    public void SupportedDevicesCatalog_ContainsStreamDecks()
     {
-        var razer = SupportedDevicesCatalog.All.Where(d => d.Vendor == "Razer").ToList();
-        Assert.NotEmpty(razer);
-        // Must include the DeathAdder V2 Pro generation we have protocol for
-        Assert.Contains(razer, d => d.ProductId.Equals("0x007D", System.StringComparison.OrdinalIgnoreCase));
+        var decks = SupportedDevicesCatalog.All.Where(d => d.Vendor == "Elgato").ToList();
+        Assert.NotEmpty(decks);
+        Assert.Contains(decks, d => d.ProductId.Equals("0x0080", System.StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void SupportedDevicesCatalog_ClaimsOnlyNativelyDrivenDevices()
+    {
+        // A row here is a support claim. Devices Nexus only detects, or only
+        // lights up through OpenRGB, belong in LightingDevicesCatalog instead.
+        Assert.All(SupportedDevicesCatalog.All, d => Assert.Equal("nexus", d.Source));
     }
 
     [Fact]

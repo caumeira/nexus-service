@@ -1025,8 +1025,6 @@ public static class NexusServiceCollectionExtensions
 #else
         services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.StubHidEnumerator>();
 #endif
-        services.AddSingleton<Nexus.Service.Peripherals.PeripheralRegistry>();
-
         // Real HID-backed keeb provider. StubKeebProvider stays registered only
         // as the IInputterProvider fallback on platforms without a native inputter.
         services.AddSingleton<StubKeebProvider>();

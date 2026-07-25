@@ -4727,47 +4727,6 @@
         }
       }
     },
-    "/peripherals": {
-      "get": {
-        "tags": [
-          "Nexus"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetPeripheralsResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/peripherals/{id}": {
-      "get": {
-        "tags": [
-          "Nexus"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/peripherals/supported": {
       "get": {
         "tags": [
@@ -4802,102 +4761,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/peripherals/{id}/dpi": {
-      "put": {
-        "tags": [
-          "Nexus"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetDpiBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/peripherals/{id}/polling": {
-      "put": {
-        "tags": [
-          "Nexus"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetPollingBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/peripherals/{id}/sleep": {
-      "put": {
-        "tags": [
-          "Nexus"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetSleepBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
           }
         }
       }
@@ -11376,22 +11239,6 @@
           }
         }
       },
-      "BatteryState": {
-        "type": "object",
-        "properties": {
-          "percent": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "charging": {
-            "type": "boolean"
-          }
-        }
-      },
       "BrandEnableBody": {
         "type": "object",
         "properties": {
@@ -13226,70 +13073,6 @@
           }
         }
       },
-      "DpiState": {
-        "type": "object",
-        "properties": {
-          "minDpi": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "maxDpi": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "step": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "stageCount": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "activeStage": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "stageDpi": {
-            "type": "array",
-            "items": {
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          },
-          "current": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
       "EnableSmartLightBody": {
         "type": "object",
         "properties": {
@@ -13979,17 +13762,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/LightingDevice"
-            }
-          }
-        }
-      },
-      "GetPeripheralsResponse": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PeripheralDto"
             }
           }
         }
@@ -17330,90 +17102,6 @@
           }
         }
       },
-      "PeripheralDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "vendor": {
-            "type": "string"
-          },
-          "category": {
-            "type": "string"
-          },
-          "vendorId": {
-            "type": "string"
-          },
-          "productId": {
-            "type": "string"
-          },
-          "serial": {
-            "type": "string"
-          },
-          "firmwareVersion": {
-            "type": "string"
-          },
-          "isWireless": {
-            "type": "boolean"
-          },
-          "capabilities": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "dpi": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/DpiState"
-              }
-            ]
-          },
-          "polling": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/PollingState"
-              }
-            ]
-          },
-          "battery": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/BatteryState"
-              }
-            ]
-          },
-          "sleep": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SleepState"
-              }
-            ]
-          },
-          "toggles": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ToggleState"
-            }
-          }
-        }
-      },
       "PickPathBody": {
         "type": "object",
         "properties": {
@@ -17484,30 +17172,6 @@
           },
           "problemText": {
             "type": "string"
-          }
-        }
-      },
-      "PollingState": {
-        "type": "object",
-        "properties": {
-          "supportedHz": {
-            "type": "array",
-            "items": {
-              "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": [
-                "integer",
-                "string"
-              ],
-              "format": "int32"
-            }
-          },
-          "currentHz": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
           }
         }
       },
@@ -18350,29 +18014,6 @@
           }
         }
       },
-      "SetDpiBody": {
-        "type": "object",
-        "properties": {
-          "dpi": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "stage": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
       "SetFanLockBody": {
         "type": "object",
         "properties": {
@@ -18611,19 +18252,6 @@
           }
         }
       },
-      "SetPollingBody": {
-        "type": "object",
-        "properties": {
-          "hz": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          }
-        }
-      },
       "SetPrimaryBody": {
         "type": "object",
         "properties": {
@@ -18640,29 +18268,6 @@
           },
           "right": {
             "type": "string"
-          }
-        }
-      },
-      "SetSleepBody": {
-        "type": "object",
-        "properties": {
-          "idleSeconds": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "lowBatteryPercent": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
           }
         }
       },
@@ -18770,27 +18375,6 @@
           },
           "msg": {
             "type": "string"
-          }
-        }
-      },
-      "SleepState": {
-        "type": "object",
-        "properties": {
-          "idleSeconds": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "lowBatteryPercent": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
           }
         }
       },
@@ -20288,20 +19872,6 @@
               "null",
               "string"
             ]
-          }
-        }
-      },
-      "ToggleState": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          },
-          "enabled": {
-            "type": "boolean"
           }
         }
       },
