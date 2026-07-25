@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using LibreHardwareMonitor.Hardware;
 using Nexus.Service.Lifecycle;
+using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Sensors;
 
@@ -35,12 +36,21 @@ public sealed class LhmComputer : IDisposable
     private readonly object _updateLock = new();
     private long _lastUpdateTicks;
 
-    public LhmComputer()
+    public LhmComputer(IConfigStore config)
     {
+        // With GPU disabled LHM never constructs its AMD/NVIDIA GPU nodes, so
+        // no ADL FrameMetrics/PMLog session is opened and no per-node D3DKMT
+        // statistics are queried for the process lifetime (the
+        // DisableGpuMonitoring diagnostic switch - see NexusSettings).
+        var gpuEnabled = !config.Load().DisableGpuMonitoring;
+        if (!gpuEnabled)
+        {
+            Console.WriteLine("[lhm] GPU monitoring disabled by settings");
+        }
         _computer = new Computer
         {
             IsCpuEnabled = true,
-            IsGpuEnabled = true,
+            IsGpuEnabled = gpuEnabled,
             IsMemoryEnabled = true,
             IsStorageEnabled = true,
             IsMotherboardEnabled = true,

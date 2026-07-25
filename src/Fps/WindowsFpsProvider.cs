@@ -18,6 +18,9 @@ public sealed class WindowsFpsProvider : IFpsProvider
     private static readonly string SessionName = $"Nexus-Fps-{Environment.ProcessId}";
     private static readonly Guid DxgKrnlProviderGuid = new("802EC45A-1E99-4B83-9920-87C98277BA9D");
     private static readonly TraceEventID PresentInfoEventId = (TraceEventID)0x00b8;
+    // Present_Info's keyword per the DxgKrnl manifest (PresentMon's
+    // Microsoft_Windows_DxgKrnl.h: Present = 0x8000000).
+    private const ulong DxgKrnlPresentKeyword = 0x8000000;
 
     // The nexus-service runs as LocalSystem in Session 0, which has no
     // interactive desktop - GetForegroundWindow() from here always returns
@@ -259,7 +262,18 @@ public sealed class WindowsFpsProvider : IFpsProvider
             using var stopRegistration = token.Register(static state => StopSession((TraceEventSession?)state), session);
             onEvent = HandleTraceEvent;
             session.Source.Dynamic.All += onEvent;
-            session.EnableProvider(DxgKrnlProviderGuid);
+            // A bare EnableProvider means every keyword at Verbose - the full
+            // DxgKrnl stream (scheduler, VidMm, HAGS logging), all marshalled
+            // into managed code while HandleTraceEvent keeps only Present_Info.
+            // Keyword + event-id filtering bounds the session to presents.
+            session.EnableProvider(
+                DxgKrnlProviderGuid,
+                TraceEventLevel.Informational,
+                matchAnyKeywords: DxgKrnlPresentKeyword,
+                options: new TraceEventProviderOptions
+                {
+                    EventIDsToEnable = new[] { (int)PresentInfoEventId },
+                });
             session.Source.Process();
         }
         catch (Exception ex) when (!token.IsCancellationRequested)

@@ -68,7 +68,7 @@ public class ProcessAppUsageSourceTests
     {
         var hub = new MultiplexHub();
         var processes = new ProcessMonitor(hub);
-        var gpuProcesses = new GpuProcessMonitor(hub);
+        var gpuProcesses = new GpuProcessMonitor(hub, new InMemoryConfigStore());
         var sensors = new StubSensorProvider();
         var network = new FakeNetworkProvider();
         var source = new ProcessAppUsageSource(processes, gpuProcesses, sensors, network);

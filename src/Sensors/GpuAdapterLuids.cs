@@ -31,9 +31,45 @@ internal static class GpuAdapterLuids
     private const uint MicrosoftVendorId = 0x1414;
 #endif
 
+#if WINDOWS
+    // Adapter LUIDs only change on driver reset / hotplug, but Enumerate() is
+    // on the 1 Hz metrics-sampler path via Attach(); without a cache that
+    // creates and tears down a DXGI factory every second for the process
+    // lifetime - churn in the graphics stack a TDR investigation (AMD + HAGS)
+    // flagged as an always-on dGPU touch. A failed/empty enumeration is not
+    // cached so a transient DXGI failure retries on the next call.
+    private const long CacheTtlMs = 60_000;
+    private static readonly object CacheLock = new();
+    private static IReadOnlyList<Adapter>? _cache;
+    private static long _cacheAtMs;
+#endif
+
     public static IReadOnlyList<Adapter> Enumerate()
     {
 #if WINDOWS
+        lock (CacheLock)
+        {
+            var now = Environment.TickCount64;
+            if (_cache is { Count: > 0 } cached && now - _cacheAtMs < CacheTtlMs)
+            {
+                return cached;
+            }
+            var fresh = EnumerateUncached();
+            if (fresh.Count > 0)
+            {
+                _cache = fresh;
+                _cacheAtMs = now;
+            }
+            return fresh;
+        }
+#else
+        return Array.Empty<Adapter>();
+#endif
+    }
+
+#if WINDOWS
+    private static IReadOnlyList<Adapter> EnumerateUncached()
+    {
         var list = new List<Adapter>();
         try
         {
@@ -64,10 +100,8 @@ internal static class GpuAdapterLuids
             Console.Error.WriteLine($"[gpu-luid] DXGI enumeration failed: {ex.Message}");
         }
         return list;
-#else
-        return Array.Empty<Adapter>();
-#endif
     }
+#endif
 
     private static readonly IReadOnlySet<string> NoKernelLuids = new HashSet<string>();
 
@@ -79,6 +113,7 @@ internal static class GpuAdapterLuids
     /// </summary>
     public static void Attach(List<GpuReadout> gpus, IReadOnlyDictionary<string, string> rawNames)
     {
+        if (gpus.Count == 0) return;
         var adapters = Enumerate();
         if (adapters.Count == 0) return;
         // Any indirect-display driver (a remote-desktop or USB/virtual "display",
