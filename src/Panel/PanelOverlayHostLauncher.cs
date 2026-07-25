@@ -336,14 +336,23 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         }
         // Unique task name so concurrent spawns or stale tasks don't collide.
         var taskName = $"NexusOverlayLaunch_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        string xmlPath;
         try
         {
-            // /IT = interactive. /SC ONCE + an already-past /ST 00:00 so the task
-            // only ever fires from our explicit /Run: a leftover task (if the
-            // /Delete below fails) has a spent trigger and cannot auto-run on a
-            // wall clock. /F overwrites if collides.
-            if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\"",
-                          "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F"))
+            xmlPath = Nexus.Service.Lifecycle.UserSessionTaskXml.WriteTempFile(
+                Nexus.Service.Lifecycle.UserSessionTaskXml.Build(username, $"\"{exePath}\""));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[overlay-host] could not stage task XML: {ex.Message}");
+            return null;
+        }
+        try
+        {
+            // The task carries no trigger, so it only ever starts from the
+            // explicit /Run below; a leftover task (if the /Delete fails) cannot
+            // auto-run on a wall clock. /F overwrites if it collides.
+            if (!Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F"))
             {
                 return null;
             }
@@ -377,6 +386,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         {
             // Best-effort cleanup - leaves no schtasks residue.
             Schtasks("/Delete", "/TN", taskName, "/F");
+            try { System.IO.File.Delete(xmlPath); } catch { /* best-effort */ }
         }
     }
 
