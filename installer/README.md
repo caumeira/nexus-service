@@ -37,8 +37,8 @@ script's legacy `..\..\aot` default no longer exists:
 powershell -File installer\build-installer.ps1 -PublishDir "$env:ProgramFiles\Nexus"
 ```
 
-Output: `installer\output\Nexus-Setup.exe` (~19 MB compressed) plus a
-`SHA256SUMS` next to it, with copies of both dropped at `%USERPROFILE%\nexus\`.
+Output: `installer\output\Nexus-Setup.exe` plus a `SHA256SUMS` next to it,
+with copies of both dropped at `%USERPROFILE%\nexus\`.
 Releases are published as a semver `vX.Y.Z` tag (matching `VERSION`) on
 `hello-nexus/nexus` via `gh release create`, and must carry the
 `SHA256SUMS` asset - the OTA updater requires the published hash to auto-stage a
@@ -61,9 +61,9 @@ signal worth checking - diff against the last `Nexus-Setup.exe`. A jump can be
 intended (a new bundled feature) or junk; verify which.
 
 - **Intended payload:** the firmware flasher binaries (`dfu-util\`,
-  `dfu-driver\`, ~4.4 MB) ship in release - end users flash firmware upgrades
-  through them (this is what grew v69 = 24 MB vs v68 = 18.7 MB; the firmware
-  flasher feature landed between those tags). They are *not* junk. `DevTools`
+  `dfu-driver\`) ship in release - end users flash firmware upgrades
+  through them, and they account for the step up in installer size when the
+  firmware flasher feature landed. They are *not* junk. `DevTools`
   only unlocks the brick-risky cross-variant / downgrade paths in
   `FirmwareFlasher.cs`, not flashing itself, so don't gate the binaries on it.
 - **Actual junk to strip:** delete any `test-results\` (a `dotnet test` runner
