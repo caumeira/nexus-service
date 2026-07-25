@@ -391,43 +391,108 @@ internal static class WindowsServiceInstaller
 
     private static void ExtendServiceDaclWithAuthUsersStart()
     {
-        // Read current SDDL via `sc sdshow NexusService`, append an ACE granting
-        // Authenticated Users SERVICE_QUERY_STATUS + SERVICE_START, write back
-        // with `sc sdset`. Inheriting the platform default keeps any future
-        // ACEs Windows adds in newer releases.
-        var sdshow = RunScCaptureOutput("sdshow", ServiceName);
-        if (string.IsNullOrWhiteSpace(sdshow))
+        // Read the current DACL as SDDL, append an ACE granting Authenticated
+        // Users SERVICE_QUERY_STATUS + SERVICE_START, write it back. Inheriting
+        // the platform default keeps any future ACEs Windows adds in newer
+        // releases.
+        //
+        // Goes through advapi32 rather than `sc.exe sdshow/sdset`: no child
+        // process, so the descriptor never appears on a command line, and the
+        // result is a Win32 error code instead of locale-sensitive stdout.
+        // Scoped to DACL_SECURITY_INFORMATION, which leaves the SACL untouched
+        // and so needs no SeSecurityPrivilege.
+        var hScm = OpenSCManager(null, null, SC_MANAGER_CONNECT);
+        if (hScm == IntPtr.Zero)
         {
-            Log("WARN sdshow returned empty; skipping DACL extension");
+            Log($"WARN OpenSCManager failed ({Marshal.GetLastWin32Error()}); skipping DACL extension");
             return;
         }
-        // sdshow output is: blank line, SDDL, blank line.
-        var sddl = sdshow.Trim();
-        // The ACE we want: allow Authenticated Users (AU) SERVICE_QUERY_STATUS (LC) + SERVICE_START (RP)
-        const string newAce = "(A;;LCRP;;;AU)";
-        if (sddl.Contains(newAce, StringComparison.Ordinal))
+        try
         {
-            Log("DACL already grants SERVICE_START to Authenticated Users");
-            return;
+            var hSvc = OpenService(hScm, ServiceName, READ_CONTROL | WRITE_DAC);
+            if (hSvc == IntPtr.Zero)
+            {
+                Log($"WARN OpenService failed ({Marshal.GetLastWin32Error()}); skipping DACL extension");
+                return;
+            }
+            try
+            {
+                var sddl = ReadServiceDaclSddl(hSvc);
+                if (string.IsNullOrWhiteSpace(sddl))
+                {
+                    Log("WARN could not read service DACL; skipping DACL extension");
+                    return;
+                }
+                var newSddl = ServiceDaclSddl.InsertAuthUsersStartAce(sddl);
+                if (newSddl is null)
+                {
+                    Log("DACL already grants SERVICE_START to Authenticated Users");
+                    return;
+                }
+                if (WriteServiceDaclSddl(hSvc, newSddl))
+                {
+                    Log("granted SERVICE_START to Authenticated Users");
+                }
+                else
+                {
+                    Log($"WARN setting service DACL failed ({Marshal.GetLastWin32Error()})");
+                }
+            }
+            finally
+            {
+                CloseServiceHandle(hSvc);
+            }
         }
-        // Insert before the SACL part (S:...) if present, otherwise at end.
-        var sIdx = sddl.IndexOf("S:", StringComparison.Ordinal);
-        string newSddl;
-        if (sIdx >= 0)
+        finally
         {
-            newSddl = sddl.Insert(sIdx, newAce);
+            CloseServiceHandle(hScm);
         }
-        else
+    }
+
+    // Two-call pattern: the sizing call passes a null buffer and is expected to
+    // fail with ERROR_INSUFFICIENT_BUFFER while setting pcbBytesNeeded.
+    private static string? ReadServiceDaclSddl(IntPtr hSvc)
+    {
+        if (QueryServiceObjectSecurity(hSvc, DACL_SECURITY_INFORMATION, null, 0, out var needed)
+            || Marshal.GetLastWin32Error() != ERROR_INSUFFICIENT_BUFFER
+            || needed == 0)
         {
-            newSddl = sddl + newAce;
+            return null;
         }
-        if (!RunSc("sdset", ServiceName, newSddl))
+        var buffer = new byte[needed];
+        if (!QueryServiceObjectSecurity(hSvc, DACL_SECURITY_INFORMATION, buffer, needed, out _))
         {
-            Log("WARN sdset failed");
+            return null;
         }
-        else
+        if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                buffer, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, out var sddlPtr, out _))
         {
-            Log("granted SERVICE_START to Authenticated Users");
+            return null;
+        }
+        try
+        {
+            return Marshal.PtrToStringUni(sddlPtr);
+        }
+        finally
+        {
+            LocalFree(sddlPtr);
+        }
+    }
+
+    private static bool WriteServiceDaclSddl(IntPtr hSvc, string sddl)
+    {
+        if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl, SDDL_REVISION_1, out var sdPtr, out _))
+        {
+            return false;
+        }
+        try
+        {
+            return SetServiceObjectSecurity(hSvc, DACL_SECURITY_INFORMATION, sdPtr);
+        }
+        finally
+        {
+            LocalFree(sdPtr);
         }
     }
 
@@ -505,6 +570,12 @@ internal static class WindowsServiceInstaller
     private const uint SERVICE_QUERY_STATUS = 0x0004;
     private const int SC_STATUS_PROCESS_INFO = 0;
 
+    private const uint READ_CONTROL = 0x00020000;
+    private const uint WRITE_DAC = 0x00040000;
+    private const uint DACL_SECURITY_INFORMATION = 0x00000004;
+    private const uint SDDL_REVISION_1 = 1;
+    private const int ERROR_INSUFFICIENT_BUFFER = 122;
+
     [StructLayout(LayoutKind.Sequential)]
     private struct SERVICE_STATUS_PROCESS
     {
@@ -532,6 +603,33 @@ internal static class WindowsServiceInstaller
 
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern bool CloseServiceHandle(IntPtr hSCObject);
+
+    // lpSecurityDescriptor is null on the sizing call, so the parameter is
+    // declared nullable rather than as a non-null byte[].
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool QueryServiceObjectSecurity(IntPtr hService, uint dwSecurityInformation,
+        byte[]? lpSecurityDescriptor, uint cbBufSize, out uint pcbBytesNeeded);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool SetServiceObjectSecurity(IntPtr hService, uint dwSecurityInformation,
+        IntPtr lpSecurityDescriptor);
+
+    // advapi32 exports only the A/W-suffixed forms of both converters, so the
+    // entry point is spelled out rather than left to CharSet probing.
+    [DllImport("advapi32.dll", EntryPoint = "ConvertSecurityDescriptorToStringSecurityDescriptorW",
+        CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(
+        byte[] securityDescriptor, uint requestedStringSdRevision, uint securityInformation,
+        out IntPtr stringSecurityDescriptor, out uint stringSecurityDescriptorLen);
+
+    [DllImport("advapi32.dll", EntryPoint = "ConvertStringSecurityDescriptorToSecurityDescriptorW",
+        CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        string stringSecurityDescriptor, uint stringSdRevision,
+        out IntPtr securityDescriptor, out uint securityDescriptorSize);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr hMem);
 
     // sc.exe STATE output is locale-sensitive; QueryServiceStatusEx returns a
     // numeric dwCurrentState (1=STOPPED, 2=START_PENDING, 3=STOP_PENDING, 4=RUNNING).
@@ -661,12 +759,6 @@ internal static class WindowsServiceInstaller
     {
         var (code, _) = RunCli("sc.exe", args, suppressOutput: true);
         return code == 0;
-    }
-
-    private static string RunScCaptureOutput(params string[] args)
-    {
-        var (_, output) = RunCli("sc.exe", args, suppressOutput: true);
-        return output;
     }
 
     private static bool RunNetsh(params string[] args)
