@@ -194,8 +194,15 @@ internal static class WindowsServiceInstaller
             // quotes - netsh is even pickier than sc.exe about ArgumentList
             // tokenization.
             Log("configuring firewall rule");
-            RunNetsh("advfirewall", "firewall", "delete", "rule",
-                $"name={FirewallRuleName}");
+            // netsh has no upsert, so an existing rule is removed before the add
+            // or the two stack up. On a first install there is nothing to remove,
+            // and issuing the delete anyway is a wasted process whose command
+            // line reads as firewall-rule tampering.
+            if (FirewallRuleExists())
+            {
+                RunNetsh("advfirewall", "firewall", "delete", "rule",
+                    $"name={FirewallRuleName}");
+            }
             RunNetsh("advfirewall", "firewall", "add", "rule",
                 $"name={FirewallRuleName}",
                 "dir=in", "action=allow",
@@ -764,6 +771,19 @@ internal static class WindowsServiceInstaller
     private static bool RunNetsh(params string[] args)
     {
         var (code, _) = RunCli("netsh.exe", args);
+        return code == 0;
+    }
+
+    /// <summary>
+    /// True when a firewall rule named <see cref="FirewallRuleName"/> exists.
+    /// Keyed on the exit code (1 when nothing matches), never the output, which
+    /// netsh localizes.
+    /// </summary>
+    private static bool FirewallRuleExists()
+    {
+        var (code, _) = RunCli("netsh.exe",
+            new[] { "advfirewall", "firewall", "show", "rule", $"name={FirewallRuleName}" },
+            suppressOutput: true);
         return code == 0;
     }
 
