@@ -38,8 +38,8 @@ internal static class TelemetryRoutes
             if (transitionType is not null)
             {
                 // Crash-safe ordering: the marker reaches disk before the
-                // flag flips, so a crash mid-transition is recovered by the
-                // next FleetTelemetryWorker retry pass.
+                // flag flips, so a crash mid-transition still has a pending
+                // marker to recover on the next FleetTelemetryWorker pass.
                 store.Update(s => s.Telemetry.FleetPendingConsentEvent = transitionType);
                 store.FlushNow();
             }
@@ -48,6 +48,11 @@ internal static class TelemetryRoutes
 
             if (transitionType is not null)
             {
+                // Flush the flip too - otherwise a crash inside the debounce
+                // window reverts CollectAnonymousData on disk while the
+                // already-flushed marker still drives a retry that reports
+                // the new value nexus-api/PostHog never actually persisted.
+                store.FlushNow();
                 // Off the request path - delivery has its own 10s timeout and
                 // the persisted marker guarantees a retry if this is lost.
                 _ = DeliverInBackground(fleet, transitionType);

@@ -212,6 +212,50 @@ public class FleetEventServiceTests
     }
 
     [Fact]
+    public async Task DeliverConsentTransitionAsync_opt_out_does_not_resend_to_posthog_on_a_retry()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Telemetry.CollectAnonymousData = false;
+            s.Telemetry.InstallId = "install-1";
+            s.Telemetry.FleetPendingConsentEvent = TelemetryEvents.OptOut;
+        });
+        var sink = new FakeTelemetrySink();
+        var transport = new FakeFleetEventTransport { Respond = _ => false }; // nexus-api unreachable
+        var svc = MakeService(store, transport, sinks: new ITelemetrySink[] { sink });
+
+        await svc.DeliverConsentTransitionAsync(TelemetryEvents.OptOut, CancellationToken.None);
+        await svc.DeliverConsentTransitionAsync(TelemetryEvents.OptOut, CancellationToken.None);
+
+        Assert.Equal(2, transport.Sent.Count); // nexus-api retried both times
+        Assert.Single(sink.Received); // PostHog attempted only once for this pending type
+        Assert.Equal(TelemetryEvents.OptOut, store.Load().Telemetry.FleetPendingConsentEvent); // still pending
+    }
+
+    [Fact]
+    public async Task DeliverConsentTransitionAsync_does_not_clear_a_marker_a_newer_toggle_already_overwrote()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Telemetry.CollectAnonymousData = true;
+            s.Telemetry.InstallId = "install-1";
+            // A newer opt_in toggle already overwrote the marker while a
+            // stale opt_out delivery attempt (below) was still in flight.
+            s.Telemetry.FleetPendingConsentEvent = TelemetryEvents.OptIn;
+        });
+        var transport = new FakeFleetEventTransport { Respond = _ => true };
+        var svc = MakeService(store, transport);
+
+        await svc.DeliverConsentTransitionAsync(TelemetryEvents.OptOut, CancellationToken.None);
+
+        // The stale call delivered successfully, but the marker no longer
+        // names "opt_out" - clearing it would drop the newer opt_in retry.
+        Assert.Equal(TelemetryEvents.OptIn, store.Load().Telemetry.FleetPendingConsentEvent);
+    }
+
+    [Fact]
     public async Task DeliverConsentTransitionAsync_with_no_install_id_clears_the_marker_without_sending()
     {
         var store = new InMemoryConfigStore();

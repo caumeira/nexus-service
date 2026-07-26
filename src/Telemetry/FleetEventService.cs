@@ -18,7 +18,9 @@ namespace Nexus.Service.Telemetry;
 /// and PostHog (a corroborating product event, best-effort, not retried
 /// beyond the attempts nexus-api delivery already forces). Called both by the
 /// consent route (immediate attempt on a real transition) and by
-/// <see cref="FleetTelemetryWorker"/> (boot + hourly retry pass).
+/// <see cref="FleetTelemetryWorker"/> (boot + hourly retry pass); <see cref="_gate"/>
+/// serializes those two call sites so they never run a delivery attempt
+/// concurrently.
 /// </summary>
 internal sealed class FleetEventService
 {
@@ -27,11 +29,18 @@ internal sealed class FleetEventService
     private readonly ITelemetry _telemetry;
     private readonly IReadOnlyList<ITelemetrySink> _sinks;
     private readonly SystemSpecsCollector _specs;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     // Not persisted: bounds the PostHog leg of the install event to one
     // attempt per process lifetime, so a nexus-api outage that forces many
     // hourly retries doesn't also resend the PostHog event every retry.
     private bool _postHogInstallAttempted;
+
+    // Not persisted: the consent-transition type PostHog was last attempted
+    // for. A retry of the SAME pending type skips PostHog again; a new
+    // pending type (the user toggled again before delivery completed) gets
+    // its own attempt.
+    private string? _postHogConsentAttemptedFor;
 
     public FleetEventService(
         IConfigStore store,
@@ -55,26 +64,46 @@ internal sealed class FleetEventService
     /// </summary>
     public async Task RunPendingRetriesAsync(CancellationToken ct)
     {
-        var pending = _store.Load().Telemetry.FleetPendingConsentEvent;
-        if (!string.IsNullOrEmpty(pending))
-            await DeliverConsentTransitionAsync(pending, ct).ConfigureAwait(false);
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var pending = _store.Load().Telemetry.FleetPendingConsentEvent;
+            if (!string.IsNullOrEmpty(pending))
+                await DeliverConsentTransitionCoreAsync(pending, ct).ConfigureAwait(false);
 
-        if (!_store.Load().Telemetry.CollectAnonymousData)
-            return;
+            if (!_store.Load().Telemetry.CollectAnonymousData)
+                return;
 
-        if (!_store.Load().Telemetry.FleetInstallDelivered)
-            await DeliverInstallAsync(ct).ConfigureAwait(false);
+            if (!_store.Load().Telemetry.FleetInstallDelivered)
+                await DeliverInstallAsync(ct).ConfigureAwait(false);
 
-        await MaybeDeliverSpecsAsync(ct).ConfigureAwait(false);
+            await MaybeDeliverSpecsAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     /// <summary>
     /// Delivers the opt_out/opt_in event for a just-recorded consent flip.
     /// The caller has already persisted <paramref name="type"/> into
-    /// FleetPendingConsentEvent before flipping CollectAnonymousData; this
-    /// clears that marker only once nexus-api confirms delivery.
+    /// FleetPendingConsentEvent before flipping CollectAnonymousData.
     /// </summary>
     public async Task DeliverConsentTransitionAsync(string type, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await DeliverConsentTransitionCoreAsync(type, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task DeliverConsentTransitionCoreAsync(string type, CancellationToken ct)
     {
         var installId = InstallIdentity.ResolveStored(_store);
         if (installId is null)
@@ -88,32 +117,46 @@ internal sealed class FleetEventService
         var payload = BuildEnvelope(type, installId);
         var delivered = await _transport.SendAsync(payload, ct).ConfigureAwait(false);
 
-        if (type == TelemetryEvents.OptOut)
+        if (_postHogConsentAttemptedFor != type)
         {
-            // Both consent-gated pipelines are closed at this point (the
-            // flag already flipped false): send directly to each sink,
-            // bypassing ITelemetry.Capture and its opt-out gate.
-            var ev = new TelemetryEvent
+            _postHogConsentAttemptedFor = type;
+            if (type == TelemetryEvents.OptOut)
             {
-                Name = TelemetryEvents.OptOut,
-                Timestamp = DateTimeOffset.UtcNow,
-                Properties = new[] { new KeyValuePair<string, object?>("version", payload.Version) },
-            };
-            foreach (var sink in _sinks)
-            {
-                try { await sink.SendAsync(installId, new[] { ev }, ct).ConfigureAwait(false); }
-                catch (Exception ex) { Console.Error.WriteLine($"[fleet-event] opt_out sink failed: {ex.Message}"); }
+                // Both consent-gated pipelines are closed at this point (the
+                // flag already flipped false): send directly to each sink,
+                // bypassing ITelemetry.Capture and its opt-out gate.
+                var ev = new TelemetryEvent
+                {
+                    Name = TelemetryEvents.OptOut,
+                    Timestamp = DateTimeOffset.UtcNow,
+                    Properties = new[] { new KeyValuePair<string, object?>("version", payload.Version) },
+                };
+                foreach (var sink in _sinks)
+                {
+                    try { await sink.SendAsync(installId, new[] { ev }, ct).ConfigureAwait(false); }
+                    catch (Exception ex) { Console.Error.WriteLine($"[fleet-event] opt_out sink failed: {ex.Message}"); }
+                }
             }
-        }
-        else
-        {
-            // opt_in: CollectAnonymousData is already true by this point, so
-            // the normal product-events pipeline is open.
-            _telemetry.Capture(type, ("version", payload.Version));
+            else
+            {
+                // opt_in: CollectAnonymousData is already true by this point, so
+                // the normal product-events pipeline is open.
+                _telemetry.Capture(type, ("version", payload.Version));
+            }
         }
 
         if (delivered)
-            _store.Update(s => s.Telemetry.FleetPendingConsentEvent = "");
+        {
+            // Compare-and-clear: only drop the marker if it still names the
+            // transition this call just delivered. A newer toggle may have
+            // overwritten it with a different pending type while this call
+            // was in flight.
+            _store.Update(s =>
+            {
+                if (s.Telemetry.FleetPendingConsentEvent == type)
+                    s.Telemetry.FleetPendingConsentEvent = "";
+            });
+        }
     }
 
     private async Task DeliverInstallAsync(CancellationToken ct)

@@ -68,7 +68,7 @@ public sealed class HeartbeatService : BackgroundService
     private async Task BeatAsync(CancellationToken ct)
     {
         // Shared with product telemetry: resolves the anonymous id and honors
-        // the single opt-out (forgets the id when disabled). See InstallIdentity.
+        // the single opt-out (the id itself survives). See InstallIdentity.
         var installId = InstallIdentity.Resolve(_store);
         if (installId is null)
             return;
