@@ -194,8 +194,15 @@ internal static class WindowsServiceInstaller
             // quotes - netsh is even pickier than sc.exe about ArgumentList
             // tokenization.
             Log("configuring firewall rule");
-            RunNetsh("advfirewall", "firewall", "delete", "rule",
-                $"name={FirewallRuleName}");
+            // netsh has no upsert, so an existing rule is removed before the add
+            // or the two stack up. On a first install there is nothing to remove,
+            // and issuing the delete anyway is a wasted process whose command
+            // line reads as firewall-rule tampering.
+            if (FirewallRuleExists())
+            {
+                RunNetsh("advfirewall", "firewall", "delete", "rule",
+                    $"name={FirewallRuleName}");
+            }
             RunNetsh("advfirewall", "firewall", "add", "rule",
                 $"name={FirewallRuleName}",
                 "dir=in", "action=allow",
@@ -765,6 +772,39 @@ internal static class WindowsServiceInstaller
     {
         var (code, _) = RunCli("netsh.exe", args);
         return code == 0;
+    }
+
+    private const string FirewallRulesKey =
+        @"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules";
+
+    /// <summary>
+    /// True when a firewall rule named <see cref="FirewallRuleName"/> exists.
+    /// Reads the rule store directly rather than shelling out to
+    /// `netsh advfirewall firewall show rule`, which spawns a process whose
+    /// command line reads as firewall reconnaissance. Each value's data is a
+    /// pipe-delimited rule string carrying a Name= field.
+    /// A false negative only costs a duplicate allow rule, never connectivity.
+    /// </summary>
+    private static bool FirewallRuleExists()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(FirewallRulesKey);
+            if (key is null) return false;
+            foreach (var name in key.GetValueNames())
+            {
+                if (key.GetValue(name) is string rule &&
+                    rule.Contains($"|Name={FirewallRuleName}|", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"WARN could not read firewall rule store: {ex.Message}");
+        }
+        return false;
     }
 
     private static bool KillSiblingProcesses(string imageName)
