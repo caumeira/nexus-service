@@ -107,7 +107,9 @@ public class ApkFlasherTests
             uninstallRunner: uninstallRunner);
     }
 
-    private static async Task WaitForPhaseAsync(FlashStatusDto status, string phase, int timeoutMs = 5000)
+    // Polls until the phase lands, so this only bounds a genuine stall and has
+    // to outlast a loaded parallel suite rather than a quiet machine.
+    private static async Task WaitForPhaseAsync(FlashStatusDto status, string phase, int timeoutMs = 30000)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (DateTime.UtcNow < deadline)

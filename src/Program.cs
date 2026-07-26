@@ -106,7 +106,11 @@ Nexus.Service.Platform.Linux.LinuxSession.AdoptActiveSessionEnv();
 
 // Capture stdout / stderr to a rotating nexus-service.log file before anything else
 // writes to the console. Doesn't change Console behaviour - just tees output.
-Nexus.Service.Platform.ServiceLog.Initialize();
+// Skipped under the test host: the tee is process-global and outlives the
+// fixture, so every later Console write in the suite pays a locked, flushed
+// file write.
+if (!testHost)
+    Nexus.Service.Platform.ServiceLog.Initialize();
 Nexus.Service.Lifecycle.BootTimer.Mark("after ServiceLog.Initialize");
 
 var url = ServiceLaunchIntent.ResolveServiceUrl(args);

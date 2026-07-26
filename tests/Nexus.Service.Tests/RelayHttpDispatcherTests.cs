@@ -335,7 +335,7 @@ public sealed class RelayHttpDispatcherTests
         await connection.StartAsync(CancellationToken.None);
 
         // The PC must register a host link on rid_http for the active session.
-        await relay.WaitForHostAsync(ridHttp, TimeSpan.FromSeconds(5));
+        await relay.WaitForHostAsync(ridHttp, MultiRidFakeRelay.HostWait);
 
         // Client peers up on rid_http, derives the per-conn key, sends a sealed
         // request (dir=2) for the protected panel route.

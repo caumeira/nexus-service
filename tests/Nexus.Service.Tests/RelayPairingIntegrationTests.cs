@@ -68,7 +68,7 @@ public sealed class RelayPairingIntegrationTests
         var ridPair = RelayCrypto.DeriveRid(pairRoot);
 
         // The PC registers a host socket on rid_pair.
-        await relay.WaitForHostAsync(ridPair, TimeSpan.FromSeconds(5));
+        await relay.WaitForHostAsync(ridPair, MultiRidFakeRelay.HostWait);
 
         // 2) Phone peers up on rid_pair with a connSalt, derives the claim key,
         //    and sends the sealed claim request (dir=2, client→host).
@@ -118,7 +118,7 @@ public sealed class RelayPairingIntegrationTests
         var sessionRid = RelayCrypto.DeriveRid(sessionRoot);
         Assert.NotEqual(ridPair, sessionRid);
 
-        await relay.WaitForHostAsync(sessionRid, TimeSpan.FromSeconds(5));
+        await relay.WaitForHostAsync(sessionRid, MultiRidFakeRelay.HostWait);
 
         var runtimeSalt = new byte[RelayCrypto.ConnSaltLength];
         for (var i = 0; i < runtimeSalt.Length; i++) runtimeSalt[i] = (byte)(i + 0x50);

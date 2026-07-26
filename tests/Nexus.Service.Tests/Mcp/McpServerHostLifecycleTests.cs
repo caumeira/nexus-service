@@ -64,7 +64,7 @@ public sealed class McpServerHostLifecycleTests : IDisposable
         var boundPort = host.BoundPort;
         Assert.NotNull(boundPort);
 
-        using (var client = new HttpClient())
+        using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) })
         {
             var probe = await client.GetAsync($"http://127.0.0.1:{boundPort}/mcp");
             Assert.Equal(HttpStatusCode.MethodNotAllowed, probe.StatusCode);
@@ -76,7 +76,7 @@ public sealed class McpServerHostLifecycleTests : IDisposable
         Assert.False(host.Running);
         Assert.Null(host.BoundPort);
 
-        using var clientAfterStop = new HttpClient();
+        using var clientAfterStop = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         await Assert.ThrowsAsync<HttpRequestException>(() => clientAfterStop.GetAsync($"http://127.0.0.1:{boundPort}/mcp"));
     }
 

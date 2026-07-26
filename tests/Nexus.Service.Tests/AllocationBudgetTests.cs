@@ -25,8 +25,16 @@ namespace Nexus.Service.Tests;
 public class AllocationBudgetTests
 {
     /// <summary>
-    /// Runs <paramref name="body"/> once to force JIT/first-call setup, then
-    /// measures the per-iteration managed allocation over a steady-state run.
+    /// The counter advances in allocation-context chunks (~8 KB), not per
+    /// object, so an unrelated chunk refresh inside the window reads as one
+    /// chunk of apparent cost. Over this many iterations a single chunk divides
+    /// to zero, while a real one-byte-per-iteration regression still reads as 1.
+    /// </summary>
+    private const int ZeroAllocIterations = 16384;
+
+    /// <summary>
+    /// Runs <paramref name="body"/> a few times to force JIT/first-call setup,
+    /// then measures the per-iteration managed allocation over a steady-state run.
     /// </summary>
     private static long BytesPerIteration(int iterations, Action body)
     {
@@ -50,14 +58,14 @@ public class AllocationBudgetTests
     public void CanvasFill_IsZeroAlloc()
     {
         var canvas = new CanvasBuffer(160, 90);
-        Assert.Equal(0, BytesPerIteration(1000, () => canvas.Fill(255, 128, 64)));
+        Assert.Equal(0, BytesPerIteration(ZeroAllocIterations, () => canvas.Fill(255, 128, 64)));
     }
 
     [Fact]
     public void CanvasClear_IsZeroAlloc()
     {
         var canvas = new CanvasBuffer(160, 90);
-        Assert.Equal(0, BytesPerIteration(1000, () => canvas.Clear()));
+        Assert.Equal(0, BytesPerIteration(ZeroAllocIterations, () => canvas.Clear()));
     }
 
     [Fact]
@@ -65,7 +73,7 @@ public class AllocationBudgetTests
     {
         var canvas = new CanvasBuffer(160, 90);
         var src = new byte[160 * 90 * 3];
-        Assert.Equal(0, BytesPerIteration(1000, () => canvas.WriteFromRgb(src)));
+        Assert.Equal(0, BytesPerIteration(ZeroAllocIterations, () => canvas.WriteFromRgb(src)));
     }
 
     // ── Curve evaluation: once per fan channel per tick, must never allocate ──
@@ -78,7 +86,7 @@ public class AllocationBudgetTests
         {
             graph.Points.Add(new GraphPoint { Temp = 20 + i * 7.0, Speed = 20 + i * 10.0 });
         }
-        Assert.Equal(0, BytesPerIteration(1000, () => CurveEngine.EvaluateGraph(graph, 55f)));
+        Assert.Equal(0, BytesPerIteration(ZeroAllocIterations, () => CurveEngine.EvaluateGraph(graph, 55f)));
     }
 
     // ── NP50 per-port frame assembly: ~30 Hz, writes a pre-allocated buffer ──
@@ -89,7 +97,7 @@ public class AllocationBudgetTests
         const int leds = 120;
         var dst = new RgbColor[leds];
         var src = new byte[leds * 3];
-        Assert.Equal(0, BytesPerIteration(1000,
+        Assert.Equal(0, BytesPerIteration(ZeroAllocIterations,
             () => Np50LightingFrameWriter.FillBufferSlice(dst, 0, src, leds, 1.0, false, 0, 0)));
     }
 

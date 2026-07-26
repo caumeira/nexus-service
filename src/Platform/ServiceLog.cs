@@ -45,6 +45,11 @@ public static class ServiceLog
 
     public static void Initialize()
     {
+        // Re-entry would tee the tee: each call captures the current Console.Out
+        // as its primary, so N calls cost N locked file writes per console write.
+        if (_writer is not null)
+            return;
+
         try
         {
             var dir = ResolveLogsDir();
@@ -61,13 +66,45 @@ public static class ServiceLog
 
             _originalOut = Console.Out;
             _originalError = Console.Error;
-            Console.SetOut(new TeeTextWriter(Console.Out, _writer, isError: false));
-            Console.SetError(new TeeTextWriter(Console.Error, _writer, isError: true));
+            Console.SetOut(new TeeTextWriter(Console.Out, isError: false));
+            Console.SetError(new TeeTextWriter(Console.Error, isError: true));
             Console.Out.WriteLine($"[service-log] writing to {_path}");
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[service-log] init failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Uninstalls the Console tee and closes the log, so a test exercising Initialize does not leave it installed for the rest of the process.</summary>
+    internal static void ResetForTests()
+    {
+        StreamWriter? doomed;
+        lock (Lock)
+        {
+            if (_originalOut is not null) Console.SetOut(_originalOut);
+            if (_originalError is not null) Console.SetError(_originalError);
+            // Clear the field under the lock before disposing: a tee still held
+            // by another thread resolves the writer through this field on every
+            // write, so nulling it first closes the use-after-dispose window.
+            doomed = _writer;
+            _writer = null;
+            _originalOut = null;
+            _originalError = null;
+            _path = null;
+        }
+        doomed?.Dispose();
+    }
+
+    /// <summary>Appends to the log if one is open. Resolves the writer under the lock so a concurrent reset cannot leave a caller holding a disposed one.</summary>
+    private static void WriteToFile(string text, bool newLine)
+    {
+        lock (Lock)
+        {
+            if (_writer is null)
+                return;
+            if (newLine) _writer.WriteLine(text);
+            else _writer.Write(text);
         }
     }
 
@@ -89,13 +126,7 @@ public static class ServiceLog
         var console = isError ? _originalError ?? Console.Error : _originalOut ?? Console.Out;
         console.WriteLine(message);
 
-        var writer = _writer;
-        if (writer is null)
-            return;
-        lock (Lock)
-        {
-            writer.WriteLine($"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ} {level} {message}");
-        }
+        WriteToFile($"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ} {level} {message}", newLine: true);
     }
 
     private static string ResolveLogsDir()
@@ -155,16 +186,17 @@ public static class ServiceLog
         catch { /* best effort */ }
     }
 
+    // Resolves the log writer through ServiceLog on each write rather than
+    // capturing it, so a reset that closes the log cannot strand this writer
+    // holding a disposed one.
     private sealed class TeeTextWriter : TextWriter
     {
         private readonly TextWriter _primary;
-        private readonly TextWriter _file;
         private readonly bool _isError;
 
-        public TeeTextWriter(TextWriter primary, TextWriter file, bool isError)
+        public TeeTextWriter(TextWriter primary, bool isError)
         {
             _primary = primary;
-            _file = file;
             _isError = isError;
         }
 
@@ -173,38 +205,26 @@ public static class ServiceLog
         public override void Write(char value)
         {
             _primary.Write(value);
-            lock (Lock)
-            {
-                _file.Write(value);
-            }
+            WriteToFile(value.ToString(), newLine: false);
         }
 
         public override void Write(string? value)
         {
             _primary.Write(value);
-            lock (Lock)
-            {
-                _file.Write(value);
-            }
+            WriteToFile(value ?? string.Empty, newLine: false);
         }
 
         public override void WriteLine(string? value)
         {
             _primary.WriteLine(value);
-            lock (Lock)
-            {
-                var prefix = $"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ} {(_isError ? "ERR" : "INF")} ";
-                _file.WriteLine(prefix + (value ?? string.Empty));
-            }
+            var prefix = $"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ} {(_isError ? "ERR" : "INF")} ";
+            WriteToFile(prefix + (value ?? string.Empty), newLine: true);
         }
 
         public override void WriteLine()
         {
             _primary.WriteLine();
-            lock (Lock)
-            {
-                _file.WriteLine();
-            }
+            WriteToFile(string.Empty, newLine: true);
         }
     }
 }

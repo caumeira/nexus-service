@@ -145,6 +145,9 @@ internal sealed class MultiRidFakeRelay : IDisposable
         }
     }
 
+    /// <summary>Failure deadline for a host to appear; the wait completes the moment it does, so this only bounds a genuine failure and must survive a loaded parallel suite.</summary>
+    public static readonly TimeSpan HostWait = TimeSpan.FromSeconds(30);
+
     public Task WaitForHostAsync(string rid, TimeSpan timeout)
     {
         TaskCompletionSource<bool> tcs;

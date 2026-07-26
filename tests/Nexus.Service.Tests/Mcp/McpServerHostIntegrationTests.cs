@@ -45,7 +45,14 @@ public sealed class McpServerHostIntegrationTests : IAsyncLifetime
         await _host.ApplyConfiguredStateAsync();
         Assert.True(_host.Running);
         Assert.NotNull(_host.BoundPort);
-        _client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_host.BoundPort}/") };
+        // Explicit timeout: HttpClient defaults to 100s, so a loopback host that
+        // never answers burns that before failing and drags the whole suite past
+        // the runner's hang budget.
+        _client = new HttpClient
+        {
+            BaseAddress = new Uri($"http://127.0.0.1:{_host.BoundPort}/"),
+            Timeout = TimeSpan.FromSeconds(30),
+        };
     }
 
     public async Task DisposeAsync()
