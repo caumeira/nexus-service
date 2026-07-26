@@ -39,8 +39,7 @@ public class FleetEventServiceTests
         }
     }
 
-    /// <summary>Minimal ISensorProvider double; every non-configured member
-    /// returns an empty placeholder, matching the real providers' contract.</summary>
+    /// <summary>Minimal ISensorProvider double; every non-configured member returns an empty placeholder.</summary>
     private sealed class StubSensors : ISensorProvider
     {
         public string Cpu { get; init; } = "";
@@ -246,8 +245,7 @@ public class FleetEventServiceTests
         {
             s.Telemetry.CollectAnonymousData = true;
             s.Telemetry.InstallId = "install-1";
-            // A newer opt_in toggle already overwrote the marker while a
-            // stale opt_out delivery attempt (below) was still in flight.
+            // A newer opt_in toggle already overwrote the marker while a stale opt_out attempt (below) was in flight.
             s.Telemetry.FleetPendingConsentEvent = TelemetryEvents.OptIn;
         });
         var transport = new FakeFleetEventTransport { Respond = _ => true };
@@ -255,8 +253,7 @@ public class FleetEventServiceTests
 
         await svc.DeliverConsentTransitionAsync(TelemetryEvents.OptOut, CancellationToken.None);
 
-        // The stale call delivered successfully, but the marker no longer
-        // names "opt_out" - clearing it would drop the newer opt_in retry.
+        // The stale call delivered, but the marker no longer names "opt_out" - clearing it would drop the newer retry.
         Assert.Equal(TelemetryEvents.OptIn, store.Load().Telemetry.FleetPendingConsentEvent);
     }
 

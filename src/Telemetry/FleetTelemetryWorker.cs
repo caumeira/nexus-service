@@ -5,12 +5,7 @@ using Microsoft.Extensions.Hosting;
 
 namespace Nexus.Service.Telemetry;
 
-/// <summary>
-/// Runs <see cref="FleetEventService.RunPendingRetriesAsync"/> at boot and
-/// every hour, so a delivery that failed (or a consent transition the process
-/// crashed during) eventually reaches nexus-api. Mirrors HeartbeatService's
-/// PeriodicTimer do/while shape.
-/// </summary>
+/// <summary>Runs <see cref="FleetEventService.RunPendingRetriesAsync"/> at boot and hourly so a failed delivery or an interrupted consent transition eventually reaches nexus-api.</summary>
 internal sealed class FleetTelemetryWorker : BackgroundService
 {
     private static readonly TimeSpan Interval = TimeSpan.FromHours(1);

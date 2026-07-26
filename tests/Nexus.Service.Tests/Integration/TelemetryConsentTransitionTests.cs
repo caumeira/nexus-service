@@ -15,18 +15,7 @@ using Xunit;
 
 namespace Nexus.Service.Tests.Integration;
 
-/// <summary>
-/// POST /telemetry/consent through the real route: a genuine true/false flip
-/// persists a pending fleet event BEFORE flipping CollectAnonymousData, but
-/// the initial welcome confirm (posting the same value the fresh-install
-/// default already holds) is not a transition. IFleetEventTransport is
-/// swapped for a fake that always fails, so no test hits the real nexus-api
-/// endpoint and the pending marker is deterministically observable after the
-/// request returns (a transport that succeeded would clear it inline, since
-/// the background delivery task has no real async gap to outlive the
-/// request). Delivery success clearing the marker is covered at the unit
-/// level in FleetEventServiceTests, not here.
-/// </summary>
+/// <summary>POST /telemetry/consent: crash-safe marker-before-flip ordering and the not-a-transition welcome confirm, with a fake IFleetEventTransport that always fails so the pending marker stays observable; delivery-success clearing is covered in FleetEventServiceTests.</summary>
 [Collection("NexusHost")]
 public sealed class TelemetryConsentTransitionTests : IDisposable
 {
@@ -84,9 +73,7 @@ public sealed class TelemetryConsentTransitionTests : IDisposable
     {
         var store = _factory.Services.GetRequiredService<IConfigStore>();
         Assert.True(store.Load().Telemetry.CollectAnonymousData); // fresh-install default
-        // In production FleetTelemetryWorker mints this at boot, well before a
-        // user reaches the consent toggle; NexusAppFactory strips all hosted
-        // services, so seed it directly to model that already-minted state.
+        // FleetTelemetryWorker mints this at boot in production; NexusAppFactory strips hosted services, so seed it directly.
         store.Update(s => s.Telemetry.InstallId = "test-install-id");
 
         var res = await PostConsent(DesktopClient(), false);

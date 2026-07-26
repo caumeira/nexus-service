@@ -12,21 +12,10 @@ using Nexus.Service.Sensors;
 
 namespace Nexus.Service.Telemetry;
 
-/// <summary>
-/// Builds and delivers the fleet events (install, specs, opt_out, opt_in) to
-/// both sinks: nexus-api's /telemetry/events (the system of record - tracked
-/// with persisted per-event delivered state and retried until it succeeds)
-/// and PostHog (a corroborating product event, best-effort, not retried
-/// beyond the attempts nexus-api delivery already forces). Called both by the
-/// consent route (immediate attempt on a real transition) and by
-/// <see cref="FleetTelemetryWorker"/> (boot + hourly retry pass); <see cref="_gate"/>
-/// serializes those two call sites so they never run a delivery attempt
-/// concurrently.
-/// </summary>
+/// <summary>Builds/delivers fleet events to nexus-api (system of record, persisted retry) and PostHog (best-effort); <see cref="_gate"/> serializes the route and <see cref="FleetTelemetryWorker"/> call sites.</summary>
 internal sealed class FleetEventService
 {
-    // While opted out, an "opt_out" event undelivered this long gives up
-    // permanently instead of retrying forever - see DeliverConsentTransitionCoreAsync.
+    // Opted-out box: an undelivered opt_out this old is abandoned rather than retried forever.
     private static readonly TimeSpan OptOutRetryExpiry = TimeSpan.FromDays(7);
 
     private readonly IConfigStore _store;
@@ -37,15 +26,10 @@ internal sealed class FleetEventService
     private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    // Not persisted: bounds the PostHog leg of the install event to one
-    // attempt per process lifetime, so a nexus-api outage that forces many
-    // hourly retries doesn't also resend the PostHog event every retry.
+    // Not persisted: caps the install event's PostHog leg to one attempt per process lifetime, independent of nexus-api retries.
     private bool _postHogInstallAttempted;
 
-    // Not persisted: the consent-transition type PostHog was last attempted
-    // for. A retry of the SAME pending type skips PostHog again; a new
-    // pending type (the user toggled again before delivery completed) gets
-    // its own attempt.
+    // Not persisted: last consent-transition type PostHog was attempted for; a retry of the same type skips it, a new type gets its own attempt.
     private string? _postHogConsentAttemptedFor;
 
     public FleetEventService(
@@ -74,12 +58,7 @@ internal sealed class FleetEventService
         _clock = clock;
     }
 
-    /// <summary>
-    /// One retry pass: deliver a pending consent-transition event regardless
-    /// of the current consent value (the sanctioned opt-out exception), then
-    /// - only while opted in - deliver the install event once and re-send
-    /// specs when the summary changed.
-    /// </summary>
+    /// <summary>One retry pass: consent event first regardless of consent state (the opt-out exception), then install/specs only while opted in.</summary>
     public async Task RunPendingRetriesAsync(CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -103,11 +82,7 @@ internal sealed class FleetEventService
         }
     }
 
-    /// <summary>
-    /// Delivers the opt_out/opt_in event for a just-recorded consent flip.
-    /// The caller has already persisted <paramref name="type"/> into
-    /// FleetPendingConsentEvent before flipping CollectAnonymousData.
-    /// </summary>
+    /// <summary>Delivers the opt_out/opt_in event; the caller already persisted the pending marker before flipping CollectAnonymousData.</summary>
     public async Task DeliverConsentTransitionAsync(string type, CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -126,15 +101,12 @@ internal sealed class FleetEventService
         var installId = InstallIdentity.ResolveStored(_store);
         if (installId is null)
         {
-            // Never had an id to attribute this to (opted out before any
-            // event ever minted one) - nothing to deliver.
+            // No install id was ever minted (opted out before anything else ran) - nothing to attribute this to.
             ClearPendingConsentEvent();
             return;
         }
 
-        // Bounded retry while opted out: an opted-in machine still heartbeats,
-        // so opt_in keeps retrying unbounded. opt_out is the only event an
-        // opted-out box would otherwise chase forever with zero other traffic.
+        // Bounded only for opt_out: an opted-in box still heartbeats, so opt_in retries unbounded.
         if (type == TelemetryEvents.OptOut && HasOptOutExpired())
         {
             Console.Error.WriteLine("[fleet-event] opt_out undelivered after 7 days, giving up");
@@ -150,9 +122,7 @@ internal sealed class FleetEventService
             _postHogConsentAttemptedFor = type;
             if (type == TelemetryEvents.OptOut)
             {
-                // Both consent-gated pipelines are closed at this point (the
-                // flag already flipped false): send directly to each sink,
-                // bypassing ITelemetry.Capture and its opt-out gate.
+                // Both consent gates are closed here (flag already false) - send directly to each sink, bypassing Capture.
                 var ev = new TelemetryEvent
                 {
                     Name = TelemetryEvents.OptOut,
@@ -167,18 +137,14 @@ internal sealed class FleetEventService
             }
             else
             {
-                // opt_in: CollectAnonymousData is already true by this point, so
-                // the normal product-events pipeline is open.
+                // opt_in: CollectAnonymousData is already true, so the normal Capture pipeline is open.
                 _telemetry.Capture(type, ("version", payload.Version));
             }
         }
 
         if (delivered)
         {
-            // Compare-and-clear: only drop the marker if it still names the
-            // transition this call just delivered. A newer toggle may have
-            // overwritten it with a different pending type while this call
-            // was in flight.
+            // Compare-and-clear: only drop the marker if it still names this delivered type - a newer toggle may have overwritten it mid-flight.
             _store.Update(s =>
             {
                 if (s.Telemetry.FleetPendingConsentEvent == type)
@@ -268,11 +234,10 @@ internal sealed class FleetEventService
         Arch = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
     };
 
-    // Unit-separator delimiter so a field value containing the delimiter
-    // can't collide two different summaries into the same hash input.
+    // Unit-separator delimiter stops a field containing it from colliding two summaries into one hash.
     internal static string ComputeSpecsHash(string cpu, IReadOnlyList<string> gpu, long ramBytes, string motherboard)
     {
-        var input = string.Join('\u001f', cpu, string.Join('\u001f', gpu), ramBytes.ToString(), motherboard);
+        var input = string.Join((char)0x1F, cpu, string.Join((char)0x1F, gpu), ramBytes.ToString(), motherboard);
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(bytes);
     }

@@ -170,40 +170,22 @@ public sealed class SmartLightConfig
 
 public sealed class TelemetrySettings
 {
-    /// <summary>Anonymous usage telemetry (fleet heartbeat + product events +
-    /// fleet events). Fresh installs default this true (JsonConfigStore.Load's
-    /// !File.Exists branch is the only place that sets it); every existing,
-    /// migrated, or corrupt-fallback settings.json keeps the field's own
-    /// default of false until the user explicitly opts in. When false, nothing
-    /// is captured or sent except the bounded opt-out delivery retry.</summary>
+    /// <summary>Default true only for a fresh install (JsonConfigStore.Load's !File.Exists branch); existing/migrated/corrupt-fallback settings keep this false until the user opts in.</summary>
     public bool CollectAnonymousData { get; set; }
 
-    /// <summary>Random per-install id (no PII). Generated on first use and
-    /// persisted; survives opt-out so a later opt-in resumes the same id
-    /// instead of double-counting installs. Cleared only by a purge
-    /// uninstall, outside this store.</summary>
+    /// <summary>Anonymous per-install id; survives opt-out so a later opt-in resumes it instead of double-counting installs.</summary>
     public string InstallId { get; set; } = "";
 
-    /// <summary>True once the one-time fleet "install" event has reached
-    /// nexus-api. An existing opted-in install backfills this once after
-    /// upgrading into a build that carries this field.</summary>
+    /// <summary>True once the one-time "install" fleet event reached nexus-api; an existing opted-in install backfills it once after upgrading.</summary>
     public bool FleetInstallDelivered { get; set; }
 
-    /// <summary>Hash of the coarse specs summary (CPU/GPU/RAM/motherboard) last
-    /// delivered to nexus-api as a fleet "specs" event. Empty until the first
-    /// successful send; a changed hash triggers a re-send.</summary>
+    /// <summary>Hash of the specs summary last delivered to nexus-api; a changed hash triggers a re-send.</summary>
     public string FleetSpecsHash { get; set; } = "";
 
-    /// <summary>Consent-transition fleet event awaiting delivery to nexus-api,
-    /// "opt_out" or "opt_in". Persisted before CollectAnonymousData flips so a
-    /// crash mid-transition is recovered by the next retry pass. Empty when
-    /// nothing is pending.</summary>
+    /// <summary>"opt_out"/"opt_in" fleet event awaiting delivery, persisted before CollectAnonymousData flips so a crash recovers on the next retry pass.</summary>
     public string FleetPendingConsentEvent { get; set; } = "";
 
-    /// <summary>Round-trip ("o") UTC timestamp of when FleetPendingConsentEvent
-    /// was armed. While opted out, an undelivered "opt_out" older than 7 days
-    /// gives up permanently instead of retrying forever - see
-    /// FleetEventService. Empty when nothing is pending.</summary>
+    /// <summary>Round-trip UTC timestamp FleetPendingConsentEvent was armed; an opt_out undelivered past 7 days is abandoned instead of retried forever.</summary>
     public string FleetPendingConsentSince { get; set; } = "";
 }
 

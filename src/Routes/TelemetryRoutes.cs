@@ -17,9 +17,7 @@ namespace Nexus.Service.Routes;
 /// <see cref="LocalhostOnlyEndpointExtensions.LocalhostOnly"/> (no .AllowPanel()).
 ///   GET  /telemetry/consent  -> { enabled }
 ///   POST /telemetry/consent  -> set + return { enabled }
-/// A real true/false flip fires the opt_in/opt_out fleet event; the initial
-/// welcome confirm (posting the same value the fresh-install default already
-/// holds) is not a transition and fires nothing.
+/// A true/false flip fires opt_in/opt_out; posting the same value as the fresh-install default is not a transition.
 /// </summary>
 internal static class TelemetryRoutes
 {
@@ -37,9 +35,7 @@ internal static class TelemetryRoutes
 
             if (transitionType is not null)
             {
-                // Crash-safe ordering: the marker reaches disk before the
-                // flag flips, so a crash mid-transition still has a pending
-                // marker to recover on the next FleetTelemetryWorker pass.
+                // Crash-safe: the marker hits disk before the flag flips, so a crash mid-transition still has it to recover.
                 store.Update(s =>
                 {
                     s.Telemetry.FleetPendingConsentEvent = transitionType;
@@ -52,13 +48,9 @@ internal static class TelemetryRoutes
 
             if (transitionType is not null)
             {
-                // Flush the flip too - otherwise a crash inside the debounce
-                // window reverts CollectAnonymousData on disk while the
-                // already-flushed marker still drives a retry that reports
-                // the new value nexus-api/PostHog never actually persisted.
+                // Flush the flip too, or a crash before the debounce window reverts the on-disk flag while the marker still claims it changed.
                 store.FlushNow();
-                // Off the request path - delivery has its own 10s timeout and
-                // the persisted marker guarantees a retry if this is lost.
+                // Fire-and-forget: the persisted marker guarantees a retry if this attempt is lost.
                 _ = DeliverInBackground(fleet, transitionType);
             }
 

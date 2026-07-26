@@ -5,11 +5,7 @@ using Xunit;
 
 namespace Nexus.Service.Tests.Telemetry;
 
-/// <summary>
-/// Serializes FleetEventPayload through the real AOT source-gen context
-/// (AppJsonContext), not a hand-written JSON string, so a field rename here
-/// is caught the moment it breaks the nexus-api wire contract.
-/// </summary>
+/// <summary>Serializes through the real AppJsonContext, not a hand-written string, so a field rename is caught the moment it breaks the nexus-api contract.</summary>
 public class FleetEventPayloadWireTests
 {
     [Fact]
