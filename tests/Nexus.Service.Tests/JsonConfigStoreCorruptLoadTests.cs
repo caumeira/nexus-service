@@ -54,6 +54,20 @@ public sealed class JsonConfigStoreCorruptLoadTests : IDisposable
     }
 
     [Fact]
+    public void Corrupt_file_keeps_telemetry_off()
+    {
+        // The file existed, so the corrupt-fallback path routes through
+        // Migrate() like any other pre-existing document, never the
+        // fresh-install !File.Exists branch that defaults telemetry on.
+        File.WriteAllText(_path, "{ this is not valid json ");
+
+        using var store = new JsonConfigStore(_path);
+        var settings = store.Load();
+
+        Assert.False(settings.Telemetry.CollectAnonymousData);
+    }
+
+    [Fact]
     public void Setting_round_trips_through_a_reopen()
     {
         using (var store = new JsonConfigStore(_path))

@@ -170,14 +170,23 @@ public sealed class SmartLightConfig
 
 public sealed class TelemetrySettings
 {
-    /// <summary>Anonymous usage telemetry (fleet heartbeat). Opt-in: default off
-    /// on a fresh install until the user consents. When false, no heartbeat is
-    /// sent and no install id is generated.</summary>
+    /// <summary>Default true only for a fresh install (JsonConfigStore.Load's !File.Exists branch); existing/migrated/corrupt-fallback settings keep this false until the user opts in.</summary>
     public bool CollectAnonymousData { get; set; }
 
-    /// <summary>Random per-install id (no PII). Generated on the first beat and
-    /// persisted; reset to empty if the user opts out.</summary>
+    /// <summary>Anonymous per-install id; survives opt-out so a later opt-in resumes it instead of double-counting installs.</summary>
     public string InstallId { get; set; } = "";
+
+    /// <summary>True once the one-time "install" fleet event reached nexus-api; an existing opted-in install backfills it once after upgrading.</summary>
+    public bool FleetInstallDelivered { get; set; }
+
+    /// <summary>Hash of the specs summary last delivered to nexus-api; a changed hash triggers a re-send.</summary>
+    public string FleetSpecsHash { get; set; } = "";
+
+    /// <summary>"opt_out"/"opt_in" fleet event awaiting delivery, persisted before CollectAnonymousData flips so a crash recovers on the next retry pass.</summary>
+    public string FleetPendingConsentEvent { get; set; } = "";
+
+    /// <summary>Round-trip UTC timestamp FleetPendingConsentEvent was armed; an opt_out undelivered past 7 days is abandoned instead of retried forever.</summary>
+    public string FleetPendingConsentSince { get; set; } = "";
 }
 
 public sealed class ScreenTimeSettings
