@@ -6,7 +6,7 @@ namespace Nexus.Service.Devices.Detection;
 /// <summary>
 /// Single-flight, short-TTL cache over any <see cref="IUsbEnumerator"/>.
 /// Roughly a dozen periodic callers (device heartbeat workers, the Devices
-/// tab polls, PeripheralRegistry) funnel through this cache; without the
+/// tab polls) funnel through this cache; without the
 /// refresh lock every caller that arrived during a refresh started its own
 /// bus scan, so each TTL expiry spawned several concurrent scans.
 ///

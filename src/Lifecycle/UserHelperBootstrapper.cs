@@ -97,9 +97,34 @@ internal static class UserHelperBootstrapper
         }
 
         var taskName = $"{taskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
-        // /ST 00:00 is already past, so a leftover task (if the /Delete below
-        // fails) has a spent trigger and never auto-runs on a wall clock; only
-        // the explicit /Run fires it.
+        return CreateRunDelete(taskName, username, command);
+    }
+
+    /// <summary>
+    /// Registers a trigger-less task for <paramref name="username"/>, runs it,
+    /// and deletes it. The task carries no trigger, so a leftover one (when the
+    /// /Delete fails) can only ever be started by an explicit /Run.
+    /// </summary>
+    private static bool CreateRunDelete(string taskName, string username, string command)
+    {
+        try
+        {
+            if (CreateFromXml(taskName, username, command))
+            {
+                try { return Schtasks("/Run", "/TN", taskName); }
+                finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[user-session-task] XML registration threw: {ex.Message}");
+        }
+
+        // Fall back to the schedule-type form. Registering from XML is the
+        // preferred path, but a host that rejects it must still get its tray
+        // helper and overlay, so the legacy command line stands behind it.
+        // /ST 00:00 is already past, so a leftover task has a spent trigger.
+        Console.Error.WriteLine($"[user-session-task] {taskName}: XML registration failed, using schedule-type form");
         if (!Schtasks("/Create", "/TN", taskName, "/TR", command,
                       "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F"))
         {
@@ -107,6 +132,21 @@ internal static class UserHelperBootstrapper
         }
         try { return Schtasks("/Run", "/TN", taskName); }
         finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
+    }
+
+    // Registers taskName from a trigger-less task XML. False when the XML could
+    // not be staged or schtasks rejected it.
+    private static bool CreateFromXml(string taskName, string username, string command)
+    {
+        var xmlPath = UserSessionTaskXml.WriteTempFile(UserSessionTaskXml.Build(username, command));
+        try
+        {
+            return Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F");
+        }
+        finally
+        {
+            try { File.Delete(xmlPath); } catch { /* best-effort */ }
+        }
     }
 
     // Machine environment variable changes made after this service last
@@ -137,15 +177,10 @@ internal static class UserHelperBootstrapper
         }
 
         var taskName = $"{taskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
-        // Past /ST 00:00: a leftover task can't auto-fire on a wall clock; only
-        // the explicit /Run below triggers it.
-        if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\" {nexusArg}",
-                      "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F"))
+        if (!CreateRunDelete(taskName, username, $"\"{exePath}\" {nexusArg}"))
         {
             return;
         }
-        try { Schtasks("/Run", "/TN", taskName); }
-        finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
 
         Console.WriteLine($"[{logTag}] launched {nexusArg} as {username}");
     }

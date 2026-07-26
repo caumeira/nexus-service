@@ -88,10 +88,6 @@ public class AotJsonSafetyTests
         new object[] { typeof(FocusSession) },
         new object[] { typeof(AppUsage) },
 
-        // Peripherals
-        new object[] { typeof(GetPeripheralsResponse) },
-        new object[] { typeof(PeripheralDto) },
-
         // Gallery
         new object[] { typeof(Nexus.Service.Models.Gallery.GallerySourcesResponse) },
         new object[] { typeof(Nexus.Service.Models.Gallery.GallerySourceMutationResponse) },

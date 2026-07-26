@@ -273,13 +273,6 @@
     </EmbeddedResource>
   </ItemGroup>
 
-  <!-- Device protocol specs embedded into the AOT binary. -->
-  <ItemGroup>
-    <EmbeddedResource Include="protocols\razer-mouse.json">
-      <LogicalName>razer-mouse.json</LogicalName>
-    </EmbeddedResource>
-  </ItemGroup>
-
   <!-- Bundled device firmware images, one .hex per (device, version) under
        data/firmware/<deviceId>/<version>.hex. Embedded so the firmware ships
        inside the single AOT binary (no loose files, no OTA download path).
