@@ -58,7 +58,12 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
 
             if (!File.Exists(SettingsPath))
             {
+                // Fresh install only: anonymous telemetry defaults on here
+                // (opt-out model). Every other path (existing file, migrated
+                // file, corrupt-file fallback) keeps the field's own default
+                // of false until the user explicitly opts in.
                 _cached = new NexusSettings();
+                _cached.Telemetry.CollectAnonymousData = true;
                 Persist(_cached);
                 return _cached;
             }

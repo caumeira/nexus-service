@@ -170,14 +170,35 @@ public sealed class SmartLightConfig
 
 public sealed class TelemetrySettings
 {
-    /// <summary>Anonymous usage telemetry (fleet heartbeat). Opt-in: default off
-    /// on a fresh install until the user consents. When false, no heartbeat is
-    /// sent and no install id is generated.</summary>
+    /// <summary>Anonymous usage telemetry (fleet heartbeat + product events +
+    /// fleet events). Fresh installs default this true (JsonConfigStore.Load's
+    /// !File.Exists branch is the only place that sets it); every existing,
+    /// migrated, or corrupt-fallback settings.json keeps the field's own
+    /// default of false until the user explicitly opts in. When false, nothing
+    /// is captured or sent except the bounded opt-out delivery retry.</summary>
     public bool CollectAnonymousData { get; set; }
 
-    /// <summary>Random per-install id (no PII). Generated on the first beat and
-    /// persisted; reset to empty if the user opts out.</summary>
+    /// <summary>Random per-install id (no PII). Generated on first use and
+    /// persisted; survives opt-out so a later opt-in resumes the same id
+    /// instead of double-counting installs. Cleared only by a purge
+    /// uninstall, outside this store.</summary>
     public string InstallId { get; set; } = "";
+
+    /// <summary>True once the one-time fleet "install" event has reached
+    /// nexus-api. An existing opted-in install backfills this once after
+    /// upgrading into a build that carries this field.</summary>
+    public bool FleetInstallDelivered { get; set; }
+
+    /// <summary>Hash of the coarse specs summary (CPU/GPU/RAM/motherboard) last
+    /// delivered to nexus-api as a fleet "specs" event. Empty until the first
+    /// successful send; a changed hash triggers a re-send.</summary>
+    public string FleetSpecsHash { get; set; } = "";
+
+    /// <summary>Consent-transition fleet event awaiting delivery to nexus-api,
+    /// "opt_out" or "opt_in". Persisted before CollectAnonymousData flips so a
+    /// crash mid-transition is recovered by the next retry pass. Empty when
+    /// nothing is pending.</summary>
+    public string FleetPendingConsentEvent { get; set; } = "";
 }
 
 public sealed class ScreenTimeSettings

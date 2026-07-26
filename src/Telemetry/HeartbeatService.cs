@@ -14,8 +14,10 @@ namespace Nexus.Service.Telemetry;
 /// Anonymous fleet-presence heartbeat. POSTs to api.hellonexus.com at boot and
 /// every 5 minutes so we can see active installs, versions, and rough location
 /// (DAU / concurrents / version / geo) - no PII. Gated by the
-/// "collect anonymous data" setting (default on); off ⇒ no beat, and the
-/// install id is forgotten. Server derives location from the Cloudflare edge.
+/// "collect anonymous data" setting (true by default only on a fresh install;
+/// existing installs keep their stored value); off means no beat, and the
+/// install id is kept (not wiped) so a later opt-in resumes the same id.
+/// Server derives location from the Cloudflare edge.
 /// </summary>
 public sealed class HeartbeatService : BackgroundService
 {

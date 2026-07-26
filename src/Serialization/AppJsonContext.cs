@@ -905,6 +905,10 @@ namespace Nexus.Service.Serialization;
 // Fleet telemetry heartbeat payload (anonymous).
 [JsonSerializable(typeof(Nexus.Service.Telemetry.HeartbeatPayload))]
 
+// Fleet events (install / specs / opt_out / opt_in) posted to nexus-api.
+[JsonSerializable(typeof(Nexus.Service.Telemetry.FleetEventPayload))]
+[JsonSerializable(typeof(Nexus.Service.Telemetry.FleetEventSpecs))]
+
 // Phone-as-webcam control surface.
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStartRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStatusResponse))]

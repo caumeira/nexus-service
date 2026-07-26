@@ -18,7 +18,7 @@ public class InstallIdentityTests
     }
 
     [Fact]
-    public void Resolve_returns_null_and_forgets_id_when_opted_out()
+    public void Resolve_returns_null_but_keeps_id_when_opted_out()
     {
         var store = new InMemoryConfigStore();
         store.Update(s =>
@@ -28,6 +28,29 @@ public class InstallIdentityTests
         });
 
         Assert.Null(InstallIdentity.Resolve(store));
-        Assert.Equal("", store.Load().Telemetry.InstallId);
+        Assert.Equal("old-id", store.Load().Telemetry.InstallId);
+    }
+
+    [Fact]
+    public void ResolveStored_returns_null_when_nothing_was_ever_minted()
+    {
+        var store = new InMemoryConfigStore();
+        Assert.Null(InstallIdentity.ResolveStored(store));
+        Assert.Equal("", store.Load().Telemetry.InstallId); // never mints one itself
+    }
+
+    [Fact]
+    public void ResolveStored_reads_the_id_regardless_of_consent()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Telemetry.CollectAnonymousData = true;
+            s.Telemetry.InstallId = "existing-id";
+        });
+        Assert.Equal("existing-id", InstallIdentity.ResolveStored(store));
+
+        store.Update(s => s.Telemetry.CollectAnonymousData = false);
+        Assert.Equal("existing-id", InstallIdentity.ResolveStored(store));
     }
 }

@@ -168,6 +168,47 @@ public class JsonConfigStoreMigrationTests : IDisposable
     }
 
     [Fact]
+    public void Load_NoSettingsFile_TelemetryDefaultsOn()
+    {
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.True(s.Telemetry.CollectAnonymousData);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_ExistingFileWithoutTelemetryField_StaysOff()
+    {
+        // A settings.json from before this field existed: the file is present
+        // (not a fresh install), so the fresh-install default-on branch in
+        // JsonConfigStore.Load never runs and the field keeps its own false.
+        var json = """
+        {
+          "schemaVersion": 11
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.False(s.Telemetry.CollectAnonymousData);
+            Assert.Equal("", s.Telemetry.InstallId);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
     public void Load_TryxOverlay_PredatingItemsFontSizeAlignAndDocked_DefaultsThem()
     {
         // A settings.json from before the sensor-item overlay fields shipped: only

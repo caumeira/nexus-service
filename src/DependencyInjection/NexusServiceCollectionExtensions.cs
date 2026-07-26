@@ -116,6 +116,13 @@ public static class NexusServiceCollectionExtensions
         // Attaches the hardware/system profile (specs + recognized connected
         // devices) to the anonymous person via $set. Post-boot, refreshed.
         services.AddHostedService<Nexus.Service.Telemetry.SystemProfileService>();
+        // Fleet events (install / specs / opt_out / opt_in) to nexus-api, with
+        // persisted per-event delivered state retried at boot and hourly. The
+        // consent route also calls FleetEventService directly for an
+        // immediate delivery attempt on a real opt_out/opt_in transition.
+        services.AddSingleton<Nexus.Service.Telemetry.IFleetEventTransport, Nexus.Service.Telemetry.FleetEventTransport>();
+        services.AddSingleton<Nexus.Service.Telemetry.FleetEventService>();
+        services.AddHostedService<Nexus.Service.Telemetry.FleetTelemetryWorker>();
 #if WINDOWS
         // Triggers the IFanControlProvider singleton ctor (which transitively
         // constructs LhmComputer + kicks off its background Open()) right

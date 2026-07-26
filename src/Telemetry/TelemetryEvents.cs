@@ -16,4 +16,11 @@ public static class TelemetryEvents
     public const string WidgetOpened = "widget_opened";
     public const string FirmwareFlashed = "firmware_flashed";
     public const string PairCompleted = "pair_completed";
+
+    // Fleet events (dual-sink: PostHog + nexus-api /telemetry/events). The
+    // string doubles as the wire "type" field nexus-api expects.
+    public const string Install = "install";
+    public const string Specs = "specs";
+    public const string OptOut = "opt_out";
+    public const string OptIn = "opt_in";
 }

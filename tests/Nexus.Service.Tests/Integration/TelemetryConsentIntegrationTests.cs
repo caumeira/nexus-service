@@ -45,10 +45,10 @@ public sealed class TelemetryConsentIntegrationTests : IClassFixture<NexusAppFac
     }
 
     [Fact]
-    public async Task Consent_is_reachable_on_loopback_with_token_and_defaults_off()
+    public async Task Consent_is_reachable_on_loopback_with_token_and_fresh_install_defaults_on()
     {
         var store = _factory.Services.GetRequiredService<IConfigStore>();
-        Assert.False(store.Load().Telemetry.CollectAnonymousData);
+        Assert.True(store.Load().Telemetry.CollectAnonymousData);
         Assert.Equal(StatusCodes.Status200OK, await Send("GET", null));
     }
 
