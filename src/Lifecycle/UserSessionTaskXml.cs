@@ -81,13 +81,21 @@ internal static class UserSessionTaskXml
     }
 
     /// <summary>
-    /// Writes task XML to a temp file and returns its path. schtasks /XML
+    /// Writes task XML to a scratch file and returns its path. schtasks /XML
     /// rejects the file unless it is UTF-16 with a byte order mark. The caller
     /// deletes the file.
+    ///
+    /// Staged under the Nexus data directory rather than the system temp dir:
+    /// this runs as LocalSystem, whose temp path is C:\Windows\Temp, and a
+    /// scheduled task registered from there reads as a staged payload.
     /// </summary>
     internal static string WriteTempFile(string xml)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"nexus-task-{Guid.NewGuid():N}.xml");
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "Nexus", "tasks");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, $"nexus-task-{Guid.NewGuid():N}.xml");
         File.WriteAllText(path, xml, new UnicodeEncoding(bigEndian: false, byteOrderMark: true));
         return path;
     }
