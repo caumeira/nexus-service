@@ -199,6 +199,12 @@ public sealed class TelemetrySettings
     /// crash mid-transition is recovered by the next retry pass. Empty when
     /// nothing is pending.</summary>
     public string FleetPendingConsentEvent { get; set; } = "";
+
+    /// <summary>Round-trip ("o") UTC timestamp of when FleetPendingConsentEvent
+    /// was armed. While opted out, an undelivered "opt_out" older than 7 days
+    /// gives up permanently instead of retrying forever - see
+    /// FleetEventService. Empty when nothing is pending.</summary>
+    public string FleetPendingConsentSince { get; set; } = "";
 }
 
 public sealed class ScreenTimeSettings

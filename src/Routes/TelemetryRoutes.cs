@@ -40,7 +40,11 @@ internal static class TelemetryRoutes
                 // Crash-safe ordering: the marker reaches disk before the
                 // flag flips, so a crash mid-transition still has a pending
                 // marker to recover on the next FleetTelemetryWorker pass.
-                store.Update(s => s.Telemetry.FleetPendingConsentEvent = transitionType);
+                store.Update(s =>
+                {
+                    s.Telemetry.FleetPendingConsentEvent = transitionType;
+                    s.Telemetry.FleetPendingConsentSince = DateTimeOffset.UtcNow.ToString("o");
+                });
                 store.FlushNow();
             }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -24,11 +25,16 @@ namespace Nexus.Service.Telemetry;
 /// </summary>
 internal sealed class FleetEventService
 {
+    // While opted out, an "opt_out" event undelivered this long gives up
+    // permanently instead of retrying forever - see DeliverConsentTransitionCoreAsync.
+    private static readonly TimeSpan OptOutRetryExpiry = TimeSpan.FromDays(7);
+
     private readonly IConfigStore _store;
     private readonly IFleetEventTransport _transport;
     private readonly ITelemetry _telemetry;
     private readonly IReadOnlyList<ITelemetrySink> _sinks;
     private readonly SystemSpecsCollector _specs;
+    private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     // Not persisted: bounds the PostHog leg of the install event to one
@@ -48,12 +54,24 @@ internal sealed class FleetEventService
         ITelemetry telemetry,
         IEnumerable<ITelemetrySink> sinks,
         SystemSpecsCollector specs)
+        : this(store, transport, telemetry, sinks, specs, TimeProvider.System)
+    {
+    }
+
+    internal FleetEventService(
+        IConfigStore store,
+        IFleetEventTransport transport,
+        ITelemetry telemetry,
+        IEnumerable<ITelemetrySink> sinks,
+        SystemSpecsCollector specs,
+        TimeProvider clock)
     {
         _store = store;
         _transport = transport;
         _telemetry = telemetry;
         _sinks = sinks.Where(s => s.Enabled).ToArray();
         _specs = specs;
+        _clock = clock;
     }
 
     /// <summary>
@@ -110,7 +128,17 @@ internal sealed class FleetEventService
         {
             // Never had an id to attribute this to (opted out before any
             // event ever minted one) - nothing to deliver.
-            _store.Update(s => s.Telemetry.FleetPendingConsentEvent = "");
+            ClearPendingConsentEvent();
+            return;
+        }
+
+        // Bounded retry while opted out: an opted-in machine still heartbeats,
+        // so opt_in keeps retrying unbounded. opt_out is the only event an
+        // opted-out box would otherwise chase forever with zero other traffic.
+        if (type == TelemetryEvents.OptOut && HasOptOutExpired())
+        {
+            Console.Error.WriteLine("[fleet-event] opt_out undelivered after 7 days, giving up");
+            ClearPendingConsentEvent();
             return;
         }
 
@@ -154,10 +182,26 @@ internal sealed class FleetEventService
             _store.Update(s =>
             {
                 if (s.Telemetry.FleetPendingConsentEvent == type)
+                {
                     s.Telemetry.FleetPendingConsentEvent = "";
+                    s.Telemetry.FleetPendingConsentSince = "";
+                }
             });
         }
     }
+
+    private bool HasOptOutExpired()
+    {
+        var since = _store.Load().Telemetry.FleetPendingConsentSince;
+        return DateTimeOffset.TryParse(since, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var armedAt)
+            && _clock.GetUtcNow() - armedAt >= OptOutRetryExpiry;
+    }
+
+    private void ClearPendingConsentEvent() => _store.Update(s =>
+    {
+        s.Telemetry.FleetPendingConsentEvent = "";
+        s.Telemetry.FleetPendingConsentSince = "";
+    });
 
     private async Task DeliverInstallAsync(CancellationToken ct)
     {

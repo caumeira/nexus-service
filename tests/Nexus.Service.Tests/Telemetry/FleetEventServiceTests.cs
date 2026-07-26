@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Sensors;
+using Nexus.Service.Persistence;
 using Nexus.Service.Sensors;
 using Nexus.Service.Telemetry;
+using Nexus.Service.Tests.Cloud;
 using Xunit;
 
 namespace Nexus.Service.Tests.Telemetry;
@@ -67,13 +70,15 @@ public class FleetEventServiceTests
     }
 
     private static FleetEventService MakeService(
-        InMemoryConfigStore store,
+        IConfigStore store,
         FakeFleetEventTransport transport,
         ITelemetry? telemetry = null,
         IEnumerable<ITelemetrySink>? sinks = null,
-        StubSensors? sensors = null) =>
+        StubSensors? sensors = null,
+        TimeProvider? clock = null) =>
         new(store, transport, telemetry ?? new TelemetryClient(store),
-            sinks ?? Array.Empty<ITelemetrySink>(), new SystemSpecsCollector(sensors ?? new StubSensors()));
+            sinks ?? Array.Empty<ITelemetrySink>(), new SystemSpecsCollector(sensors ?? new StubSensors()),
+            clock ?? TimeProvider.System);
 
     private static InMemoryConfigStore OptedInStore(bool installDelivered = true)
     {
@@ -253,6 +258,112 @@ public class FleetEventServiceTests
         // The stale call delivered successfully, but the marker no longer
         // names "opt_out" - clearing it would drop the newer opt_in retry.
         Assert.Equal(TelemetryEvents.OptIn, store.Load().Telemetry.FleetPendingConsentEvent);
+    }
+
+    [Fact]
+    public async Task Opt_out_pending_event_expires_after_seven_days_and_goes_fully_silent()
+    {
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Telemetry.CollectAnonymousData = false;
+            s.Telemetry.InstallId = "install-1";
+            s.Telemetry.FleetPendingConsentEvent = TelemetryEvents.OptOut;
+            s.Telemetry.FleetPendingConsentSince = clock.GetUtcNow().ToString("o");
+        });
+        var transport = new FakeFleetEventTransport { Respond = _ => false }; // nexus-api never reachable
+        var svc = MakeService(store, transport, clock: clock);
+
+        clock.Advance(TimeSpan.FromDays(7) + TimeSpan.FromMinutes(1));
+        await svc.DeliverConsentTransitionAsync(TelemetryEvents.OptOut, CancellationToken.None);
+
+        Assert.Empty(transport.Sent); // gave up before attempting delivery at all
+        Assert.Equal("", store.Load().Telemetry.FleetPendingConsentEvent);
+        Assert.Equal("", store.Load().Telemetry.FleetPendingConsentSince);
+    }
+
+    [Fact]
+    public async Task Opt_out_delivery_success_inside_the_expiry_window_still_clears_normally()
+    {
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Telemetry.CollectAnonymousData = false;
+            s.Telemetry.InstallId = "install-1";
+            s.Telemetry.FleetPendingConsentEvent = TelemetryEvents.OptOut;
+            s.Telemetry.FleetPendingConsentSince = clock.GetUtcNow().ToString("o");
+        });
+        var transport = new FakeFleetEventTransport { Respond = _ => true };
+        var svc = MakeService(store, transport, clock: clock);
+
+        clock.Advance(TimeSpan.FromDays(6)); // within the 7-day bound
+        await svc.DeliverConsentTransitionAsync(TelemetryEvents.OptOut, CancellationToken.None);
+
+        Assert.Single(transport.Sent);
+        Assert.Equal("", store.Load().Telemetry.FleetPendingConsentEvent);
+        Assert.Equal("", store.Load().Telemetry.FleetPendingConsentSince);
+    }
+
+    [Fact]
+    public async Task Opt_in_pending_event_never_expires()
+    {
+        var clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Telemetry.CollectAnonymousData = true;
+            s.Telemetry.InstallId = "install-1";
+            s.Telemetry.FleetPendingConsentEvent = TelemetryEvents.OptIn;
+            s.Telemetry.FleetPendingConsentSince = clock.GetUtcNow().ToString("o");
+        });
+        var transport = new FakeFleetEventTransport { Respond = _ => false }; // never delivered
+        var svc = MakeService(store, transport, clock: clock);
+
+        clock.Advance(TimeSpan.FromDays(30)); // far past the opt_out-only bound
+        await svc.DeliverConsentTransitionAsync(TelemetryEvents.OptIn, CancellationToken.None);
+
+        Assert.Single(transport.Sent); // opt_in keeps retrying unbounded
+        Assert.Equal(TelemetryEvents.OptIn, store.Load().Telemetry.FleetPendingConsentEvent);
+    }
+
+    [Fact]
+    public async Task FleetPendingConsentSince_survives_a_settings_reload_and_the_expiry_still_applies()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "nexus-test-fleetexp-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "settings.json");
+        try
+        {
+            var armedAt = DateTimeOffset.UtcNow.AddDays(-8); // already past the bound
+            using (var store = new JsonConfigStore(path))
+            {
+                store.Update(s =>
+                {
+                    s.Telemetry.CollectAnonymousData = false;
+                    s.Telemetry.InstallId = "install-1";
+                    s.Telemetry.FleetPendingConsentEvent = TelemetryEvents.OptOut;
+                    s.Telemetry.FleetPendingConsentSince = armedAt.ToString("o");
+                });
+                store.FlushNow();
+            }
+
+            // Reopen from disk - simulates a process restart.
+            using var reopened = new JsonConfigStore(path);
+            var transport = new FakeFleetEventTransport();
+            var svc = MakeService(reopened, transport);
+
+            await svc.RunPendingRetriesAsync(CancellationToken.None);
+
+            Assert.Empty(transport.Sent);
+            Assert.Equal("", reopened.Load().Telemetry.FleetPendingConsentEvent);
+            Assert.Equal("", reopened.Load().Telemetry.FleetPendingConsentSince);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
     }
 
     [Fact]
