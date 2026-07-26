@@ -336,23 +336,14 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         }
         // Unique task name so concurrent spawns or stale tasks don't collide.
         var taskName = $"NexusOverlayLaunch_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
-        string xmlPath;
-        try
-        {
-            xmlPath = Nexus.Service.Lifecycle.UserSessionTaskXml.WriteTempFile(
-                Nexus.Service.Lifecycle.UserSessionTaskXml.Build(username, $"\"{exePath}\""));
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[overlay-host] could not stage task XML: {ex.Message}");
-            return null;
-        }
         try
         {
             // The task carries no trigger, so it only ever starts from the
             // explicit /Run below; a leftover task (if the /Delete fails) cannot
-            // auto-run on a wall clock. /F overwrites if it collides.
-            if (!Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F"))
+            // auto-run on a wall clock. /F overwrites if it collides. A host
+            // that rejects the XML falls back to the schedule-type form rather
+            // than losing the overlay, at the cost of a spent-trigger task.
+            if (!CreateTask(taskName, username, exePath))
             {
                 return null;
             }
@@ -386,7 +377,6 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         {
             // Best-effort cleanup - leaves no schtasks residue.
             Schtasks("/Delete", "/TN", taskName, "/F");
-            try { System.IO.File.Delete(xmlPath); } catch { /* best-effort */ }
         }
     }
 
@@ -406,6 +396,37 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         }
         catch { return string.Empty; }
         finally { if (buf != IntPtr.Zero) WTSFreeMemory(buf); }
+    }
+
+    // Registers taskName from a trigger-less task XML, falling back to the
+    // schedule-type command line when the host rejects it.
+    [SupportedOSPlatform("windows")]
+    private static bool CreateTask(string taskName, string username, string exePath)
+    {
+        try
+        {
+            var xmlPath = Nexus.Service.Lifecycle.UserSessionTaskXml.WriteTempFile(
+                Nexus.Service.Lifecycle.UserSessionTaskXml.Build(username, $"\"{exePath}\""));
+            try
+            {
+                if (Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F"))
+                {
+                    return true;
+                }
+            }
+            finally
+            {
+                try { System.IO.File.Delete(xmlPath); } catch { /* best-effort */ }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[overlay-host] XML registration threw: {ex.Message}");
+        }
+
+        Console.Error.WriteLine("[overlay-host] XML registration failed, using schedule-type form");
+        return Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\"",
+                        "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F");
     }
 
     private static bool Schtasks(params string[] args)

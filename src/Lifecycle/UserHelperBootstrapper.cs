@@ -107,25 +107,41 @@ internal static class UserHelperBootstrapper
     /// </summary>
     private static bool CreateRunDelete(string taskName, string username, string command)
     {
-        string xmlPath;
         try
         {
-            xmlPath = UserSessionTaskXml.WriteTempFile(UserSessionTaskXml.Build(username, command));
+            if (CreateFromXml(taskName, username, command))
+            {
+                try { return Schtasks("/Run", "/TN", taskName); }
+                finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
+            }
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[user-session-task] could not stage task XML: {ex.Message}");
-            return false;
+            Console.Error.WriteLine($"[user-session-task] XML registration threw: {ex.Message}");
         }
 
+        // Fall back to the schedule-type form. Registering from XML is the
+        // preferred path, but a host that rejects it must still get its tray
+        // helper and overlay, so the legacy command line stands behind it.
+        // /ST 00:00 is already past, so a leftover task has a spent trigger.
+        Console.Error.WriteLine($"[user-session-task] {taskName}: XML registration failed, using schedule-type form");
+        if (!Schtasks("/Create", "/TN", taskName, "/TR", command,
+                      "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F"))
+        {
+            return false;
+        }
+        try { return Schtasks("/Run", "/TN", taskName); }
+        finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
+    }
+
+    // Registers taskName from a trigger-less task XML. False when the XML could
+    // not be staged or schtasks rejected it.
+    private static bool CreateFromXml(string taskName, string username, string command)
+    {
+        var xmlPath = UserSessionTaskXml.WriteTempFile(UserSessionTaskXml.Build(username, command));
         try
         {
-            if (!Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F"))
-            {
-                return false;
-            }
-            try { return Schtasks("/Run", "/TN", taskName); }
-            finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
+            return Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F");
         }
         finally
         {
