@@ -10533,6 +10533,18 @@
         }
       }
     },
+    "/cloud/games/scores": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/cloud/account/devices": {
       "get": {
         "tags": [
