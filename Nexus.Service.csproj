@@ -675,6 +675,7 @@
     <Compile Remove="src/Activity/MacAudioBeatsProvider.cs" />
     <Compile Remove="src/Activity/MacMediaProvider.cs" />
     <Compile Remove="src/Activity/MacNetworkProvider.cs" />
+    <Compile Remove="src/Activity/MacProcessIconProvider.cs" />
     <Compile Remove="src/Activity/MacScreenTimeProvider.cs" />
     <Compile Remove="src/Activity/MacShortcutsProvider.cs" />
     <Compile Remove="src/Activity/MacVolumeProvider.cs" />

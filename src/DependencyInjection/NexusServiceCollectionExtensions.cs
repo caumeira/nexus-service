@@ -1185,7 +1185,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, MacAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, MacShortcutsProvider>();
-        services.AddSingleton<IProcessIconProvider, StubProcessIconProvider>();
+        services.AddSingleton<IProcessIconProvider, MacProcessIconProvider>();
         services.AddSingleton<IProcessActionsProvider, DirectProcessActionsProvider>();
         services.AddSingleton<IMediaProvider, MacMediaProvider>();
         services.AddSingleton<IVolumeProvider, MacVolumeProvider>();

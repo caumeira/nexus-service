@@ -37,8 +37,9 @@ public sealed class StubShortcutsProvider : IShortcutsProvider
 
 public sealed class StubProcessIconProvider : IProcessIconProvider
 {
-    // Unsupported off Windows is a stable platform trait, not a transient
-    // failure - empty (not null) so the route caches it and never retries.
+    // Unsupported on the platforms that register this stub (Linux, fallback)
+    // is a stable trait, not a transient failure - empty (not null) so the
+    // route caches it and never retries.
     public byte[]? GetIcon(string exePath) => Array.Empty<byte>();
 }
 
