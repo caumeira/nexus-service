@@ -100,6 +100,17 @@ public static class ActivityRoutes
             var bytes = m.GetAlbumArt(source);
             return bytes.Length == 0 ? Results.BadRequest() : Results.File(bytes, "image/png");
         }).AllowPanel();
+        // Optional upgrade over /album-art: catalog-resolved high-res cover.
+        // 404 on any miss; callers keep the standard thumbnail.
+        app.MapGet("/api/media/{source}/album-art-hd", async (string source, IMediaProvider m, IAlbumArtHdResolver hd) =>
+        {
+            if (!m.GetSessions().TryGetValue(source, out var session))
+            {
+                return Results.NotFound();
+            }
+            var bytes = await hd.GetHdAlbumArtAsync(session.Song);
+            return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "image/jpeg");
+        }).AllowPanel();
 
         // Shortcuts
         app.MapGet("/shortcuts", (string? targetId, IShortcutsProvider s) =>

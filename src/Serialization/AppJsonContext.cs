@@ -331,6 +331,10 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Platform.Stocks.YahooChartQuote))]
 [JsonSerializable(typeof(Nexus.Service.Platform.Stocks.YahooChartQuote[]))]
 [JsonSerializable(typeof(double?[]))]
+// HD album art (iTunes Search API)
+[JsonSerializable(typeof(Nexus.Service.Activity.ItunesSearchResponse))]
+[JsonSerializable(typeof(Nexus.Service.Activity.ItunesSearchResult))]
+[JsonSerializable(typeof(Nexus.Service.Activity.ItunesSearchResult[]))]
 [JsonSerializable(typeof(Nexus.Service.Models.Profiles.ListProfilesResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Profiles.ProfileResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Profiles.SwitchProfileResponse))]

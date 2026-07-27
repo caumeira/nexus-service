@@ -1215,6 +1215,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IAudioDeviceProvider, StubAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, StubBeatsProvider>();
 #endif
+        services.AddSingleton<IAlbumArtHdResolver, AlbumArtHdResolver>();
         services.AddSingleton<ProcessIconCache>();
         services.AddSingleton<ProcessHashCache>();
         services.AddSingleton<IProcessDetailProvider, ProcessDetailProvider>();
