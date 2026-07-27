@@ -6559,7 +6559,61 @@
         }
       }
     },
+    "/api/media/{source}/seek": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaSeekBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/media/{source}/album-art": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/media/{source}/album-art-hd": {
       "get": {
         "tags": [
           "Nexus"
@@ -15488,6 +15542,19 @@
           }
         }
       },
+      "MediaSeekBody": {
+        "type": "object",
+        "properties": {
+          "positionMs": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "MemoryHealthResponse": {
         "type": "object",
         "properties": {
@@ -17339,6 +17406,9 @@
               "string"
             ],
             "format": "int32"
+          },
+          "disableGpuMonitoring": {
+            "type": "boolean"
           }
         }
       },
@@ -17443,6 +17513,12 @@
               "string"
             ],
             "format": "int32"
+          },
+          "disableGpuMonitoring": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
