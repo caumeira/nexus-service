@@ -313,11 +313,20 @@
            Text="macOS publish requires PublishAot=true. Non-AOT macOS builds are not shipped. Drop any -p:PublishAot=false override and re-run." />
   </Target>
 
-  <!-- Newer Apple ld (ld-prime) asserts on some large NativeAOT osx-arm64
-       links: "too many large addends" (ld/Fixup.cpp, setAddend). Confirmed
-       Apple linker bug (dotnet/runtime#119380), not ours; the classic linker
-       does not hit it. -->
-  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx'))">
+  <!-- Both Apple linkers fail this link on an Xcode 26 toolchain: ld-prime
+       asserts "too many large addends" (dotnet/runtime#119380, fixed only in
+       .NET 11's object writer) and its ld_classic asserts in dylibToOrdinal.
+       CI's runner toolchain still links fine with ld_classic, so that stays
+       the default; a machine with Homebrew lld links with ld64.lld instead,
+       and -p:NexusMacLdPath overrides the probe outright. -->
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('osx')) AND '$(NexusMacLdPath)' == '' AND '$(GITHUB_ACTIONS)' != 'true'">
+    <NexusMacLdPath Condition="Exists('/opt/homebrew/opt/lld/bin/ld64.lld')">/opt/homebrew/opt/lld/bin/ld64.lld</NexusMacLdPath>
+    <NexusMacLdPath Condition="'$(NexusMacLdPath)' == '' AND Exists('/usr/local/opt/lld/bin/ld64.lld')">/usr/local/opt/lld/bin/ld64.lld</NexusMacLdPath>
+  </PropertyGroup>
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx')) AND '$(NexusMacLdPath)' != ''">
+    <LinkerArg Include="--ld-path=&quot;$(NexusMacLdPath)&quot;" />
+  </ItemGroup>
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx')) AND '$(NexusMacLdPath)' == ''">
     <LinkerArg Include="-Wl,-ld_classic" />
   </ItemGroup>
 
