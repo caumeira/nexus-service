@@ -164,6 +164,7 @@ public static class OpenRgbZoneSupport
         var prefs = settings.Devices.LightingDevicePrefs;
         var layouts = settings.Lighting.DeviceLayouts;
         var zoneLedCounts = settings.Devices.ZoneLedCounts;
+        var exclusions = settings.Devices.OpenRgbDetectorExclusions;
 
         var result = new List<LightingDevice>(devices.Count);
         // Two independent slot counters so device cards and motherboard zone
@@ -174,6 +175,11 @@ public static class OpenRgbZoneSupport
         {
             var d = devices[i];
             var baseId = d.StableId;
+            // Detector-excluded devices render from their persisted snapshot
+            // below; the live entry (pre-bounce real device or the fork's
+            // zero-LED placeholder dummy) would duplicate or shadow that card.
+            if (exclusions.Count > 0 && exclusions.ContainsKey(baseId))
+                continue;
             var baseKey = DeviceKeyComputer.ForOpenRgbDevice(d);
             var isSplitMotherboard = IsSplitMotherboard(d);
             var structure = BuildStructure(d, settings);
@@ -303,6 +309,57 @@ public static class OpenRgbZoneSupport
                     stripSlot++;
                 else
                     cardSlot++;
+            }
+        }
+
+        // Detector-excluded devices: the hardware is deliberately undetected
+        // (denylisted in the daemon's config), so the card renders from the
+        // snapshot taken at exclusion time. Controlled=false is stamped by the
+        // composite provider - the base id stays in the uncontrolled list for
+        // as long as the exclusion exists - and toggling the card back on
+        // lifts the exclusion via the bridge's reconcile pass. Sorted so the
+        // default canvas slots stay stable across calls.
+        if (exclusions.Count > 0)
+        {
+            var keys = new List<string>(exclusions.Keys);
+            keys.Sort(StringComparer.Ordinal);
+            foreach (var key in keys)
+            {
+                var snap = exclusions[key];
+                var snapDevice = new RgbDevice
+                {
+                    Name = snap.DetectorName,
+                    Vendor = snap.Vendor,
+                    Serial = snap.Serial,
+                    Location = snap.Location,
+                    Type = snap.Type,
+                    LedCount = snap.LedCount,
+                };
+                prefs.TryGetValue(key, out var pref);
+                layouts.TryGetValue(key, out var layout);
+                var (dx, dy, dw, dh) = OpenRgbLightingDeviceProvider.DefaultCardLayout(cardSlot);
+                result.Add(new LightingDevice
+                {
+                    Id = key,
+                    DeviceKey = DeviceKeyComputer.ForOpenRgbDevice(snapDevice),
+                    Name = snap.DetectorName,
+                    Type = OpenRgbTypeName(snap.Type),
+                    IconType = OpenRgbTypeName(snap.Type),
+                    LedsOn = !disabled.Contains(key),
+                    Brightness = pref?.Brightness ?? 100,
+                    Hue = pref?.Hue ?? 0,
+                    Saturation = pref?.Saturation ?? 1.0f,
+                    LedCount = snap.LedCount,
+                    EnabledLedCount = snap.LedCount,
+                    CanvasX = layout?.X ?? dx,
+                    CanvasY = layout?.Y ?? dy,
+                    CanvasW = layout?.W ?? dw,
+                    CanvasH = layout?.H ?? dh,
+                    CanvasRotation = NormalizeRotation(layout?.Rotation ?? 0),
+                    DeviceId = key,
+                    ZoneCustomizable = false,
+                });
+                cardSlot++;
             }
         }
 

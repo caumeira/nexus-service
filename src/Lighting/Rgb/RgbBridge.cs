@@ -113,7 +113,9 @@ public sealed class RgbBridge : IDisposable
     private int _rescanBaselineCount;      // device count snapshotted when rescan started
     private int _refreshPending;           // 0 = idle, 1 = refresh scheduled/running
     private readonly SemaphoreSlim _refreshSemaphore = new(1, 1);
-    private int _lastUsbCount = -1;        // -1 = not yet observed; no bounce on first read
+    private Dictionary<string, int>? _lastUsbKeys; // key -> unit count; null = not yet observed, no bounce on first read
+    // StableIds already warned about an exclusion the daemon did not honor.
+    private readonly HashSet<string> _warnedIneffectiveExclusions = new(StringComparer.Ordinal);
 
     // Identify: split id -> start + expiration. OnFrame consults this so the
     // active effect keeps running but the user's chosen zone flashes white on
@@ -803,6 +805,15 @@ public sealed class RgbBridge : IDisposable
                 _devices = finalList;
             }
 
+            // Settled commits reconcile detector exclusions: a device the user
+            // fully un-controlled gets snapshotted + denylisted (and the
+            // subprocess bounced once to release it); a re-controlled one gets
+            // its exclusion lifted the same way.
+            if (!inInitialHold)
+            {
+                ReconcileDetectorExclusions(finalList, settingsSnapshot);
+            }
+
             // Sync engine's DeviceFrame array with the current hardware list. For a
             // device that's still present at the same LED count, we REUSE the existing
             // DeviceFrame instance - its LED buffer keeps its last rendered colors so
@@ -825,6 +836,10 @@ public sealed class RgbBridge : IDisposable
             {
                 var d = devices[i];
                 if (IsOwnedByFirstParty(d)) continue;
+                // Excluded devices render from their persisted snapshot; the
+                // live entry (pre-bounce real device or the fork's placeholder
+                // dummy) must not occupy an engine frame or a canvas slot.
+                if (settingsSnapshot.Devices.OpenRgbDetectorExclusions.ContainsKey(d.StableId)) continue;
                 var baseId = d.StableId;
                 var isSplitMotherboard = OpenRgbZoneSupport.IsSplitMotherboard(d);
                 var structure = OpenRgbZoneSupport.BuildStructure(d, settingsSnapshot);
@@ -1078,6 +1093,56 @@ public sealed class RgbBridge : IDisposable
         });
     }
 
+    /// <summary>
+    /// Persist the exclusion delta computed from a settled device list, then
+    /// bounce the subprocess once so the relaunched daemon reads the rewritten
+    /// OpenRGB.json denylist (the config is only read at process start).
+    /// </summary>
+    private void ReconcileDetectorExclusions(IReadOnlyList<RgbDevice> settledList, NexusSettings settingsSnapshot)
+    {
+        OpenRgbDetectorExclusions.Delta delta;
+        try
+        {
+            delta = OpenRgbDetectorExclusions.Compute(settledList, settingsSnapshot);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[rgb-bridge] exclusion compute failed: {ex.Message}");
+            return;
+        }
+        if (delta.IsEmpty)
+        {
+            // Steady state. A drivable device still live under an existing
+            // exclusion means the snapshot name did not match a detector
+            // string (possible for I2C-detected hardware, where controller
+            // and detector names can differ) - the denylist write is then a
+            // silent no-op in the daemon, so surface it once per device. The
+            // bounce-age gate keeps a refresh that raced the exclusion's own
+            // bounce (fetched from the not-yet-killed daemon) from warning
+            // spuriously and permanently eating the one warn per id.
+            var lastBounce = Interlocked.Read(ref _lastBounceTicks);
+            var bounceSettled = lastBounce == 0 || DateTime.UtcNow.Ticks - lastBounce >= RescanGracePeriod.Ticks;
+            if (bounceSettled && Interlocked.Read(ref _rescanStartedTicks) == 0)
+            {
+                foreach (var d in settledList)
+                {
+                    if (d.LedCount > 0
+                        && settingsSnapshot.Devices.OpenRgbDetectorExclusions.ContainsKey(d.StableId)
+                        && _warnedIneffectiveExclusions.Add(d.StableId))
+                    {
+                        ServiceLog.Warn($"[rgb-bridge] '{d.Name}' is still detected despite its detector exclusion; the OpenRGB detector name likely differs from the device name");
+                    }
+                }
+            }
+            return;
+        }
+
+        _store.Update(s => OpenRgbDetectorExclusions.Apply(s, delta));
+        ServiceLog.Info($"[rgb-bridge] detector exclusions changed (+{delta.Add.Count}/-{delta.Remove.Count}), bouncing subprocess to apply");
+        Interlocked.Exchange(ref _lastBounceTicks, DateTime.UtcNow.Ticks);
+        BounceSubprocess();
+    }
+
     private void SyncPhysicalBuffers(IReadOnlyList<RgbDevice> devices)
     {
         // Drop buffers for devices that no longer exist.
@@ -1248,8 +1313,9 @@ public sealed class RgbBridge : IDisposable
                 await RefreshDevicesAsync().ConfigureAwait(false);
 
                 // USB hot-plug watcher: cheap-ish enumeration every other tick.
-                // If the count changes, the OpenRGB subprocess likely missed the
-                // new hardware (headless daemon doesn't auto-rescan), so we bounce.
+                // A diff on the per-device key set from an RGB-capable vendor
+                // means the OpenRGB subprocess likely missed new hardware
+                // (headless daemon doesn't auto-rescan), so we bounce.
                 if (++tick % UsbCheckEveryNTicks == 0)
                 {
                     CheckUsbTopology();
@@ -1264,10 +1330,10 @@ public sealed class RgbBridge : IDisposable
 
     private void CheckUsbTopology()
     {
-        int currentCount;
+        Dictionary<string, int> current;
         try
         {
-            currentCount = _usb.Enumerate().Count;
+            current = UsbTopologyFilter.BuildKeys(_usb.Enumerate());
         }
         catch (Exception ex)
         {
@@ -1275,10 +1341,23 @@ public sealed class RgbBridge : IDisposable
             return;
         }
 
-        var previousCount = _lastUsbCount;
-        _lastUsbCount = currentCount;
-        if (previousCount < 0 || previousCount == currentCount)
+        var previous = _lastUsbKeys;
+        _lastUsbKeys = current;
+        if (previous is null)
         {
+            return;
+        }
+
+        var (added, removed, relevant) = UsbTopologyFilter.Classify(previous, current, Nexus.Service.Peripherals.LightingDevicesCatalog.UsbVendorIds);
+        if (added == 0 && removed == 0)
+        {
+            return;
+        }
+        if (!relevant)
+        {
+            // A flash drive / phone / dock churn. OpenRGB has no detector for
+            // the vendor, so a full re-detect would only glitch live lighting.
+            ServiceLog.Info($"[rgb-bridge] usb topology changed (+{added}/-{removed}), no RGB-capable vendor involved, skipping re-detect");
             return;
         }
 
@@ -1289,7 +1368,7 @@ public sealed class RgbBridge : IDisposable
             return;
         }
         Interlocked.Exchange(ref _lastBounceTicks, now);
-        ServiceLog.Info($"[rgb-bridge] usb topology changed ({previousCount} -> {currentCount}), bouncing subprocess for re-detect");
+        ServiceLog.Info($"[rgb-bridge] usb topology changed (+{added}/-{removed}, rgb-relevant), bouncing subprocess for re-detect");
         BounceSubprocess();
     }
 

@@ -36,6 +36,86 @@ public static class LightingDevicesCatalog
         }
     }
 
+    private static IReadOnlySet<int>? _usbVendorIds;
+
+    /// <summary>
+    /// Distinct USB vendor ids across every OpenRGB detector row plus the
+    /// first-party devices; consulted by the RGB hot-plug relevance filter.
+    /// Empty when the embedded resource is missing or unreadable, which the
+    /// filter treats as "every change is relevant".
+    /// </summary>
+    public static IReadOnlySet<int> UsbVendorIds
+    {
+        get
+        {
+            if (_usbVendorIds is not null)
+            {
+                return _usbVendorIds;
+            }
+            lock (_gate)
+            {
+                _usbVendorIds ??= LoadUsbVendorIds();
+                return _usbVendorIds;
+            }
+        }
+    }
+
+    private static IReadOnlySet<int> LoadUsbVendorIds()
+    {
+        var ids = new HashSet<int>();
+        var asm = typeof(LightingDevicesCatalog).Assembly;
+        using (var stream = asm.GetManifestResourceStream("openrgb-supported-devices.json"))
+        {
+            if (stream is null)
+            {
+                return ids;
+            }
+            try
+            {
+                // Raw rows, not All: the natively-driven controllers All drops
+                // still represent hardware whose arrival must trigger a rescan.
+                var file = JsonSerializer.Deserialize(stream, AppJsonContext.Default.OpenRgbSupportedDevicesFile);
+                if (file?.Devices is null)
+                {
+                    return ids;
+                }
+                foreach (var d in file.Devices)
+                {
+                    if (TryParseHexId(d.Vid, out var vid))
+                    {
+                        ids.Add(vid);
+                    }
+                }
+            }
+            catch
+            {
+                // Fail open (empty set = every change relevant) rather than
+                // silently narrowing relevance to first-party vendors.
+                ids.Clear();
+                return ids;
+            }
+        }
+        foreach (var d in FirstPartyDevices)
+        {
+            if (TryParseHexId(d.VendorId, out var vid))
+            {
+                ids.Add(vid);
+            }
+        }
+        return ids;
+    }
+
+    private static bool TryParseHexId(string? raw, out int value)
+    {
+        value = 0;
+        if (string.IsNullOrEmpty(raw))
+        {
+            return false;
+        }
+        var s = raw.StartsWith("0x", System.StringComparison.OrdinalIgnoreCase) ? raw.Substring(2) : raw;
+        return int.TryParse(s, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out value) && value > 0;
+    }
+
     private static IReadOnlyList<SupportedDeviceDto> Load()
     {
         var asm = typeof(LightingDevicesCatalog).Assembly;

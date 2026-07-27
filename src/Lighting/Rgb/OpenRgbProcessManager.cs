@@ -27,15 +27,17 @@ public sealed class OpenRgbProcessManager : IDisposable
 
     private readonly object _lock = new();
     private readonly string _exePath;
+    private readonly Nexus.Service.Persistence.IConfigStore? _store;
     private Process? _proc;
     private DateTime _startedUtc;
     private TimeSpan _backoff = InitialBackoff;
     private CancellationTokenSource? _supervisorCts;
     private bool _disposed;
 
-    public OpenRgbProcessManager(string? overrideExePath = null)
+    public OpenRgbProcessManager(string? overrideExePath = null, Nexus.Service.Persistence.IConfigStore? store = null)
     {
         _exePath = overrideExePath ?? ResolveDefaultPath();
+        _store = store;
     }
 
     public bool IsAvailable => (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux()) && File.Exists(_exePath);
@@ -150,13 +152,54 @@ public sealed class OpenRgbProcessManager : IDisposable
     private static readonly string[] DisabledDetectors = { "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub" };
 
     /// <summary>
+    /// Detector names the user excluded by turning Nexus Control off for every
+    /// card of the device. Written as disabled + <c>placeholder_only</c> so the
+    /// fork reports a zero-LED presence dummy instead of claiming the hardware.
+    /// Null when settings could not be read - the caller then leaves the
+    /// on-disk placeholder state untouched rather than re-enabling detectors
+    /// whose exclusions still exist.
+    /// </summary>
+    private System.Collections.Generic.IReadOnlyCollection<string>? ResolvePlaceholderDetectors()
+    {
+        if (_store is null)
+        {
+            return Array.Empty<string>();
+        }
+        try
+        {
+            var exclusions = _store.Load().Devices.OpenRgbDetectorExclusions;
+            if (exclusions.Count == 0)
+            {
+                return Array.Empty<string>();
+            }
+            var names = new System.Collections.Generic.SortedSet<string>(StringComparer.Ordinal);
+            foreach (var kv in exclusions)
+            {
+                if (!string.IsNullOrEmpty(kv.Value.DetectorName))
+                {
+                    names.Add(kv.Value.DetectorName);
+                }
+            }
+            return names;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Merge our detector denylist into the OpenRGB config's
     /// <c>Detectors.detectors</c> map, preserving anything OpenRGB itself wrote.
     /// OpenRGB reads this on startup (ResourceManager.cpp) and skips disabled
-    /// detectors. Best-effort: a failure here just means OpenRGB might surface a
-    /// zombie keeb entry, which CompositeLightingDeviceProvider also strips.
+    /// detectors. User exclusions additionally land in the service-owned
+    /// <c>Detectors.placeholder_only</c> array (the fork registers a zero-LED
+    /// presence dummy for those); names dropped from that array since the last
+    /// launch get their detector re-enabled. Best-effort: a failure here just
+    /// means OpenRGB might surface a zombie entry, which
+    /// CompositeLightingDeviceProvider also strips.
     /// </summary>
-    private static void EnsureDetectorOverrides(string configDir)
+    internal static void EnsureDetectorOverrides(string configDir, System.Collections.Generic.IReadOnlyCollection<string>? placeholderOnlyDetectors)
     {
         try
         {
@@ -195,10 +238,59 @@ public sealed class OpenRgbProcessManager : IDisposable
                 }
             }
 
+            // placeholder_only is wholly service-owned: any name present last
+            // launch but gone now was un-ignored, so its detector re-enables.
+            // Skipped entirely (state left as-is) when the exclusion list could
+            // not be read, so a settings hiccup never re-enables detectors
+            // whose exclusions still exist.
+            if (placeholderOnlyDetectors is not null)
+            {
+                var previous = new System.Collections.Generic.List<string>();
+                if (detectors["placeholder_only"] is System.Text.Json.Nodes.JsonArray prevArr)
+                {
+                    foreach (var node in prevArr)
+                    {
+                        if (node is System.Text.Json.Nodes.JsonValue pv && pv.TryGetValue<string>(out var s) && !string.IsNullOrEmpty(s))
+                        {
+                            previous.Add(s);
+                        }
+                    }
+                }
+                var desired = new System.Collections.Generic.HashSet<string>(placeholderOnlyDetectors, StringComparer.Ordinal);
+                foreach (var name in previous)
+                {
+                    if (!desired.Contains(name) && Array.IndexOf(DisabledDetectors, name) < 0)
+                    {
+                        map[name] = true;
+                        changed = true;
+                    }
+                }
+                foreach (var name in placeholderOnlyDetectors)
+                {
+                    var alreadyDisabled = map[name] is System.Text.Json.Nodes.JsonValue v
+                        && v.TryGetValue<bool>(out var b) && b == false;
+                    if (!alreadyDisabled)
+                    {
+                        map[name] = false;
+                        changed = true;
+                    }
+                }
+                if (!desired.SetEquals(previous))
+                {
+                    var arr = new System.Text.Json.Nodes.JsonArray();
+                    foreach (var name in placeholderOnlyDetectors)
+                    {
+                        arr.Add((System.Text.Json.Nodes.JsonNode?)System.Text.Json.Nodes.JsonValue.Create(name));
+                    }
+                    detectors["placeholder_only"] = arr;
+                    changed = true;
+                }
+            }
+
             if (changed)
             {
                 File.WriteAllText(path, root.ToJsonString());
-                ServiceLog.Info($"[openrgb-proc] disabled detectors {string.Join(", ", DisabledDetectors)} in {path}");
+                ServiceLog.Info($"[openrgb-proc] detector overrides written ({DisabledDetectors.Length} first-party, {(placeholderOnlyDetectors is null ? "unchanged" : placeholderOnlyDetectors.Count.ToString())} placeholder-only) in {path}");
             }
         }
         catch (Exception ex)
@@ -255,10 +347,10 @@ public sealed class OpenRgbProcessManager : IDisposable
             { Directory.CreateDirectory(configDir); }
             catch { /* will fail loudly when OpenRGB itself tries */ }
 
-            // Keep OpenRGB from claiming devices nexus-service drives directly.
-            // Re-asserted on every (re)launch so a supervisor restart can't run
-            // an instance that re-grabs the keeb.
-            EnsureDetectorOverrides(configDir);
+            // Keep OpenRGB from claiming devices nexus-service drives directly
+            // or the user excluded. Re-asserted on every (re)launch so a
+            // supervisor restart can't run an instance that re-grabs them.
+            EnsureDetectorOverrides(configDir, ResolvePlaceholderDetectors());
 
             // The MSBuild Content copy (and tar/zip round-trips) drop the
             // executable bit on Linux/macOS - restore it or Process.Start fails

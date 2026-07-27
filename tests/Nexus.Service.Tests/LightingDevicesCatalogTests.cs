@@ -75,4 +75,20 @@ public class LightingDevicesCatalogTests
             Assert.Equal("nexus", rows[0].Source);
         }
     }
+
+    [Fact]
+    public void UsbVendorIds_CoverOpenRgbAndFirstPartyVendors()
+    {
+        var ids = LightingDevicesCatalog.UsbVendorIds;
+
+        // Dozens of distinct vendors in the OpenRGB resource; a tiny set means
+        // the embedded resource failed to parse and the hot-plug filter would
+        // silently stop matching real RGB hardware.
+        Assert.True(ids.Count >= 50, $"expected >= 50 vendor ids, got {ids.Count}");
+        Assert.Contains(0x1B1C, ids); // Corsair
+        Assert.Contains(0x0CF2, ids); // Lian Li
+        Assert.Contains(0x3402, ids); // HYTE (first-party)
+        Assert.Contains(0x391A, ids); // Tryx (first-party only)
+        Assert.DoesNotContain(0x0781, ids); // SanDisk - storage, never RGB
+    }
 }

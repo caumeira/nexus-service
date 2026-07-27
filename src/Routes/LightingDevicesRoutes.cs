@@ -280,12 +280,14 @@ public static partial class DevicesRoutes
         });
         // Uncontrolled ids are pure persisted state - no provider owns a "not
         // controlled" action, so this writes the shared store directly rather
-        // than dispatching through ILightingDeviceProvider. On re-enable,
-        // nudge RgbBridge to reclaim direct mode immediately rather than
-        // waiting for its poll cadence, and re-push a smart light's static
-        // color: while no effect runs nothing else re-pushes it (effect mode
-        // recovers on its own writer tick once the id drops out of the
-        // uncontrolled list).
+        // than dispatching through ILightingDeviceProvider. The refresh nudge
+        // runs in both directions: on re-enable RgbBridge reclaims direct mode
+        // immediately rather than waiting for its poll cadence, and on disable
+        // its reconcile pass excludes a fully un-controlled OpenRGB device
+        // from the daemon's detection so vendor software can own it. Smart
+        // lights additionally re-push their static color on re-enable: while
+        // no effect runs nothing else re-pushes it (effect mode recovers on
+        // its own writer tick once the id drops out of the uncontrolled list).
         app.MapPost("/devices/lighting-devices/controlled", (
             SetLightingDeviceControlledBody body,
             Nexus.Service.Persistence.IConfigStore store,
@@ -293,9 +295,9 @@ public static partial class DevicesRoutes
             Nexus.Service.Lighting.Smart.SmartLightProvider smart) =>
         {
             Nexus.Service.Lighting.LightingControlledState.SetControlled(body.Id, body.Controlled, store);
+            bridge?.RequestTopologyRefresh();
             if (body.Controlled)
             {
-                bridge?.RequestTopologyRefresh();
                 smart.RestoreStatic(body.Id);
             }
             return ApiResponse.Ok();

@@ -687,6 +687,28 @@ public sealed class DevicesSettings
     public List<string> MappingKnownDevices { get; set; } = new();
     /// <summary>When true, the SmartHub's onboard firmware animation drives the ARGB ports and Nexus stops streaming to them.</summary>
     public bool SmartHubFirmwareControl { get; set; }
+    /// <summary>
+    /// OpenRGB devices excluded from the bundled daemon's detection because the
+    /// user turned Nexus Control off for every card they emit. Keyed by the
+    /// device's OpenRGB stable id; the value snapshots identity at exclusion
+    /// time so the card keeps rendering (and the exclusion can be lifted) while
+    /// the hardware is deliberately no longer detected. DetectorName feeds the
+    /// detector denylist + placeholder_only list in the daemon's OpenRGB.json.
+    /// </summary>
+    public Dictionary<string, OpenRgbDetectorExclusion> OpenRgbDetectorExclusions { get; set; } = new();
+}
+
+/// <summary>Identity snapshot of an OpenRGB device taken when its detector was excluded.</summary>
+public sealed class OpenRgbDetectorExclusion
+{
+    /// <summary>OpenRGB device name; equals the REGISTER_*_DETECTOR string for HID controllers, so it keys the daemon's detector denylist. Exclusion is per detector name, i.e. per model.</summary>
+    public string DetectorName { get; set; } = "";
+    public string Vendor { get; set; } = "";
+    public string Serial { get; set; } = "";
+    public string Location { get; set; } = "";
+    public int LedCount { get; set; }
+    /// <summary>OpenRGB device type; drives the synthesized card's icon.</summary>
+    public uint Type { get; set; }
 }
 
 /// <summary>One user-defined zone of a device partition: an ordered run of segment-local slices. One zone = one lighting card = one engine frame.</summary>
