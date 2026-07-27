@@ -19,6 +19,9 @@ public interface IMediaProvider
 {
     IReadOnlyDictionary<string, MediaSession> GetSessions();
     void Control(string source, string action);
+    /// <summary>Jump to an absolute position. No-op when the session does
+    /// not advertise IsSeekEnabled - callers gate on that flag.</summary>
+    void Seek(string source, long positionMs);
     byte[] GetAlbumArt(string source);
 }
 

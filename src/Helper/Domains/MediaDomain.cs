@@ -34,6 +34,16 @@ public sealed class MediaControlPayload
 }
 
 /// <summary>
+/// Payload for <c>media.seek</c>. Service-to-helper command. Position is
+/// absolute milliseconds from the start of the track.
+/// </summary>
+public sealed class MediaSeekPayload
+{
+    public string Source { get; set; } = "";
+    public long PositionMs { get; set; }
+}
+
+/// <summary>
 /// Payload for <c>media.getAlbumArt</c>. Service-to-helper RPC. The
 /// helper replies with an <see cref="AlbumArtResult"/> in
 /// HelperResult.Payload.
@@ -68,6 +78,17 @@ public static class MediaCommands
             ct: ct);
     }
 
+    public static Task SeekAsync(HelperRegistry registry, string source, long positionMs, CancellationToken ct = default)
+    {
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "media.seek",
+            payload: new MediaSeekPayload { Source = source, PositionMs = positionMs },
+            payloadType: AppJsonContext.Default.MediaSeekPayload,
+            ct: ct);
+    }
+
     public static async Task<byte[]> GetAlbumArtAsync(HelperRegistry registry, string source, CancellationToken ct = default)
     {
         var conn = registry.GetAny();
@@ -92,11 +113,13 @@ public static class MediaCommands
 public sealed class MediaHandler
 {
     private readonly Action<string, string> _control;
+    private readonly Action<string, long> _seek;
     private readonly Func<string, byte[]> _getAlbumArt;
 
-    public MediaHandler(Action<string, string> control, Func<string, byte[]> getAlbumArt)
+    public MediaHandler(Action<string, string> control, Action<string, long> seek, Func<string, byte[]> getAlbumArt)
     {
         _control = control;
+        _seek = seek;
         _getAlbumArt = getAlbumArt;
     }
 
@@ -107,6 +130,13 @@ public sealed class MediaHandler
             if (env.Payload is null) return Task.FromResult(env.Ok());
             var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.MediaControlPayload);
             if (p is not null) _control(p.Source, p.Action);
+            return Task.FromResult(env.Ok());
+        });
+        registry.Register("media.seek", (env, _) =>
+        {
+            if (env.Payload is null) return Task.FromResult(env.Ok());
+            var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.MediaSeekPayload);
+            if (p is not null) _seek(p.Source, p.PositionMs);
             return Task.FromResult(env.Ok());
         });
         registry.Register("media.getAlbumArt", (env, _) =>

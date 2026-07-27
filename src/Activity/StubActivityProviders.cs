@@ -23,6 +23,7 @@ public sealed class StubMediaProvider : IMediaProvider
 
     public IReadOnlyDictionary<string, MediaSession> GetSessions() => Empty;
     public void Control(string source, string action) { }
+    public void Seek(string source, long positionMs) { }
     public byte[] GetAlbumArt(string source) => Array.Empty<byte>();
 }
 

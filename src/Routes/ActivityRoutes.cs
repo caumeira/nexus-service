@@ -12,6 +12,11 @@ namespace Nexus.Service.Routes;
 
 public static class ActivityRoutes
 {
+    /// <summary>~11.5 days. Longer than any real track, and low enough that the
+    /// tick (x10_000) and microsecond (x1_000) conversions downstream stay well
+    /// inside Int64.</summary>
+    private const long MaxSeekPositionMs = 1_000_000_000L;
+
     public static void MapActivityEndpoints(this WebApplication app)
     {
         // Screen time - persistent history browsing
@@ -94,6 +99,20 @@ public static class ActivityRoutes
         {
             m.Control(source, body.Action);
             return ApiResponse.Ok();
+        }).AllowPanel();
+        // Absolute seek. Providers no-op when the underlying player does not
+        // support it; the SPA gates the control on session.controls.isSeekEnabled.
+        app.MapPost("/api/media/{source}/seek", IResult (string source, MediaSeekBody body, IMediaProvider m) =>
+        {
+            // Upper bound as well as lower: downstream multiplies by 10_000
+            // (SMTC ticks) and 1_000 (MPRIS microseconds), which overflow into a
+            // negative position past ~9.2e14.
+            if (body.PositionMs < 0 || body.PositionMs > MaxSeekPositionMs)
+            {
+                return Results.BadRequest(ApiResponse.Fail($"positionMs must be between 0 and {MaxSeekPositionMs}"));
+            }
+            m.Seek(source, body.PositionMs);
+            return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
         app.MapGet("/api/media/{source}/album-art", (string source, IMediaProvider m) =>
         {

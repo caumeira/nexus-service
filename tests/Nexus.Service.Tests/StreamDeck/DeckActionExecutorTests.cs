@@ -76,8 +76,10 @@ internal sealed class FakeMediaProvider : IMediaProvider
 {
     public Dictionary<string, MediaSession> Sessions = new();
     public (string Source, string Action)? LastControl;
+    public (string Source, long PositionMs)? LastSeek;
     public IReadOnlyDictionary<string, MediaSession> GetSessions() => Sessions;
     public void Control(string source, string action) => LastControl = (source, action);
+    public void Seek(string source, long positionMs) => LastSeek = (source, positionMs);
     public byte[] GetAlbumArt(string source) => Array.Empty<byte>();
 }
 

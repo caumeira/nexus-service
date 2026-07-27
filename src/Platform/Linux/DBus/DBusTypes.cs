@@ -223,6 +223,15 @@ public sealed class DBusWriter
         _pos += 4;
     }
 
+    /// <summary>D-Bus `x`: 64-bit signed, 8-byte aligned.</summary>
+    public void WriteInt64(long v)
+    {
+        AlignTo(8);
+        Ensure(8);
+        BitConverter.TryWriteBytes(_buf.AsSpan(_pos, 8), v);
+        _pos += 8;
+    }
+
     public void WriteBool(bool v) => WriteUInt32(v ? 1u : 0u);
 
     public void WriteString(string s)

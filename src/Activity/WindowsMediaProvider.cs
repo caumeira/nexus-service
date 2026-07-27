@@ -77,6 +77,11 @@ public sealed class WindowsMediaProvider : IMediaProvider, IDisposable
         _ = MediaCommands.ControlAsync(_helper, source, action);
     }
 
+    public void Seek(string source, long positionMs)
+    {
+        _ = MediaCommands.SeekAsync(_helper, source, positionMs);
+    }
+
     public byte[] GetAlbumArt(string source)
     {
         MediaSession? session;

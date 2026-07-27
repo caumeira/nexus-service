@@ -695,6 +695,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Dictionary<string, MediaSession>))]
 [JsonSerializable(typeof(IReadOnlyDictionary<string, MediaSession>))]
 [JsonSerializable(typeof(MediaControlBody))]
+[JsonSerializable(typeof(MediaSeekBody))]
 [JsonSerializable(typeof(VolumeState))]
 [JsonSerializable(typeof(SetVolumeBody))]
 [JsonSerializable(typeof(SetMutedBody))]
@@ -792,6 +793,7 @@ namespace Nexus.Service.Serialization;
 // Media
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.MediaSnapshotPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.MediaControlPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.MediaSeekPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.AlbumArtRequest))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.AlbumArtResult))]
 // Brightness

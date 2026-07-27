@@ -129,6 +129,59 @@ public sealed class LinuxMediaProvider : IMediaProvider
         return new DBusReader(reply.Body).ReadStringVariantDict();
     }
 
+    public void Seek(string source, long positionMs)
+    {
+        if (!OperatingSystem.IsLinux() || string.IsNullOrEmpty(source))
+            return;
+        try
+        {
+            _dbus.StartAsync().GetAwaiter().GetResult();
+            // SetPosition is ignored by spec unless the TrackId matches the
+            // current track, so it must come from live metadata rather than a
+            // cached snapshot.
+            var meta = GetMetadataAsync(source).GetAwaiter().GetResult();
+            var trackId = meta.TryGetValue("mpris:trackid", out var raw) ? raw as string : null;
+            if (!IsValidObjectPath(trackId))
+            {
+                // WriteObjectPath is an alias for WriteString, so nothing checks
+                // syntax before the bytes go out - and dbus-daemon drops the whole
+                // connection on a malformed `o`. That connection is the shared
+                // singleton (tray SNI, screen-time, screencast), so an invalid
+                // trackid must never reach the wire. Spotify's Linux client
+                // publishes a `spotify:track:...` URI here rather than a path.
+                Console.Error.WriteLine($"[media-linux] Seek on {source} skipped: mpris:trackid is not an object path");
+                return;
+            }
+            _dbus.CallAsync(source, MprisPath, PlayerIface, "SetPosition", "ox", w =>
+            {
+                w.WriteObjectPath(trackId!);
+                w.WriteInt64(positionMs * 1000L);
+            }).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[media-linux] Seek on {source} failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>D-Bus object path: leading '/', segments of [A-Za-z0-9_], no
+    /// trailing or doubled '/' (root "/" alone is legal).</summary>
+    internal static bool IsValidObjectPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path) || path[0] != '/') return false;
+        if (path == "/") return true;
+        if (path[^1] == '/') return false;
+        foreach (var seg in path.Split('/').Skip(1))
+        {
+            if (seg.Length == 0) return false;
+            foreach (var c in seg)
+            {
+                if (!char.IsAsciiLetterOrDigit(c) && c != '_') return false;
+            }
+        }
+        return true;
+    }
+
     private async Task<Dictionary<string, object?>> GetMetadataAsync(string busName)
     {
         var reply = await _dbus.CallAsync(busName, MprisPath, PropsIface, "Get", "ss", w =>

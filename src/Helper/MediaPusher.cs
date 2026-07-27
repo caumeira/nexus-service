@@ -1,6 +1,7 @@
 #if WINDOWS
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -153,6 +154,43 @@ public sealed class MediaPusher : IDisposable
         }
         return result;
     }
+
+    /// <summary>
+    /// Called by MediaHandler when a `media.seek` envelope arrives. Absolute
+    /// position in ms; SMTC takes 100ns ticks. Silently ignored by apps that
+    /// report IsPlaybackPositionEnabled false, which is the same flag the SPA
+    /// gates its seek control on.
+    /// </summary>
+    public void Seek(string source, long positionMs)
+    {
+        if (positionMs < 0) return;
+        // Helper envelopes are dispatched without awaiting, so a scrub burst
+        // runs several of these concurrently and could otherwise land in an
+        // order other than the user's. Stamp on arrival, then apply under a
+        // lock and discard anything a newer request already superseded.
+        var arrival = Stopwatch.GetTimestamp();
+        lock (_seekLock)
+        {
+            if (_lastSeekArrival.TryGetValue(source, out var applied) && applied > arrival) return;
+            _lastSeekArrival[source] = arrival;
+
+            if (!TryGetSession(source, out var session)) return;
+            var ctrl = session.ControlSession;
+            try
+            {
+                if (!ctrl.GetPlaybackInfo().Controls.IsPlaybackPositionEnabled) return;
+                ctrl.TryChangePlaybackPositionAsync(positionMs * TimeSpan.TicksPerMillisecond)
+                    .AsTask().GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[media] seek on {source} failed: {ex.Message}");
+            }
+        }
+    }
+
+    private readonly object _seekLock = new();
+    private readonly Dictionary<string, long> _lastSeekArrival = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Called by MediaHandler when a `media.control` envelope arrives.

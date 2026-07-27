@@ -212,7 +212,7 @@ internal static class WindowsUserHelper
                 }
                 catch { /* best-effort wake; 5 s poll is the safety net */ }
             }).Register(handlerRegistry);
-        new MediaHandler(media.Control, media.GetAlbumArt).Register(handlerRegistry);
+        new MediaHandler(media.Control, media.Seek, media.GetAlbumArt).Register(handlerRegistry);
         new BrightnessHandler(brightness).Register(handlerRegistry);
         new ShortcutsHandler(new Nexus.Service.Activity.WindowsShortcutsProvider()).Register(handlerRegistry);
         new ProcessIconHandler(new Nexus.Service.Activity.WindowsIconExtractor()).Register(handlerRegistry);

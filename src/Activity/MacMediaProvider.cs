@@ -70,6 +70,28 @@ public sealed class MacMediaProvider : IMediaProvider
         }
     }
 
+    public void Seek(string source, long positionMs)
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return;
+        }
+
+        // `player position` is in seconds (fractional accepted) for both
+        // Spotify and Music; the wire contract is milliseconds.
+        var seconds = (positionMs / 1000.0).ToString("0.###", CultureInfo.InvariantCulture);
+        var escaped = source.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        // ShellExecutor.Run returns "" for any failure and never surfaces the
+        // exit code, so the script echoes a sentinel: no sentinel back means the
+        // player rejected the seek (stopped session, non-seekable stream).
+        var result = RunOsascript(
+            $"tell application \"{escaped}\" to set player position to {seconds}\nreturn \"ok\"").Trim();
+        if (result != "ok")
+        {
+            Console.Error.WriteLine($"[media-mac] seek on {source} was not accepted");
+        }
+    }
+
     public byte[] GetAlbumArt(string source)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
@@ -146,6 +168,9 @@ public sealed class MacMediaProvider : IMediaProvider
                 IsPauseEnabled = playing,
                 IsNextEnabled = true,
                 IsPrevEnabled = true,
+                // Both scriptable sources expose a writable `player position`,
+                // which is the same channel the transport controls already use.
+                IsSeekEnabled = true,
             },
         };
     }

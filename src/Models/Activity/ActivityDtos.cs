@@ -162,6 +162,11 @@ public class MediaControlBody
     public string Action { get; set; } = "";
 }
 
+public class MediaSeekBody
+{
+    public long PositionMs { get; set; }
+}
+
 // ----- Volume -----
 
 public class VolumeState
