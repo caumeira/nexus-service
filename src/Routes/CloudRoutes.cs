@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Nexus.Service.Auth;
 using Nexus.Service.Cloud;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Cloud;
@@ -15,10 +16,10 @@ namespace Nexus.Service.Routes;
 
 /// <summary>
 /// Local /cloud/... surface for the dashboard's account UI. Desktop-bearer
-/// only (no .AllowPanel()) - cloud credentials/tokens never reach a paired
-/// phone session. CloudAccountService/CloudProfileSyncService hold the
-/// actual tokens; these routes are thin proxies plus local session/sync
-/// state.
+/// only (no .AllowPanel()) except /cloud/games/scores, which the panel
+/// games submit from - the cloud bearer stays server-side either way, since
+/// CloudAccountService/CloudProfileSyncService hold the actual tokens and
+/// these routes are thin proxies plus local session/sync state.
 /// </summary>
 public static class CloudRoutes
 {
@@ -26,6 +27,7 @@ public static class CloudRoutes
     private static readonly string[] AllowedAvatarContentTypes = { "image/png", "image/jpeg", "image/webp" };
     private const long MaxBenchmarkSubmitBytes = 256 * 1024;
     private const long MaxDevicePutBytes = 64 * 1024;
+    private const long MaxGameScoreSubmitBytes = 4 * 1024;
 
     public static void MapCloudEndpoints(this WebApplication app)
     {
@@ -208,6 +210,34 @@ public static class CloudRoutes
             }
             return Results.Text(result.Value!.Body, result.Value.ContentType, statusCode: result.StatusCode);
         });
+
+        // Thin forwarder for the panel games' score submission, same raw
+        // passthrough shape as /cloud/benchmarks/submit: no local DTO, bearer
+        // attached when signed in, anonymous otherwise, upstream status/body
+        // relayed verbatim. Panel-reachable (unlike the rest of this file)
+        // because Snake/Blocks submit from the Y70/monitor/phone panel
+        // surfaces, not the desktop dashboard; the cloud bearer itself is
+        // attached server-side and never leaves this process.
+        app.MapPost("/cloud/games/scores", async (HttpRequest req, CloudAccountService accounts, ICloudApiClient api, CancellationToken ct) =>
+        {
+            var (bytes, tooLarge) = await ReadBoundedAsync(req.Body, MaxGameScoreSubmitBytes, ct).ConfigureAwait(false);
+            if (tooLarge)
+            {
+                return Results.BadRequest(ApiResponse.Fail("Game score submission too large."));
+            }
+            var rawJson = bytes is null || bytes.Length == 0 ? "{}" : Encoding.UTF8.GetString(bytes);
+
+            var accountId = accounts.ActiveAccountId;
+            var result = accountId is null
+                ? await api.PostRawAsync("/games/scores", rawJson, null, ct).ConfigureAwait(false)
+                : await accounts.WithAuthAsync(accountId, token => api.PostRawAsync("/games/scores", rawJson, token, ct), ct).ConfigureAwait(false);
+
+            if (!result.Success)
+            {
+                return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
+            }
+            return Results.Text(result.Value!.Body, result.Value.ContentType, statusCode: result.StatusCode);
+        }).AllowPanel();
 
         // Thin forwarders for the dashboard's device-management UI: same raw
         // passthrough shape as /cloud/benchmarks/submit, no local DTO, bearer
