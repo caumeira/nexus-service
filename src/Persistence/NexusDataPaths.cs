@@ -19,9 +19,24 @@ internal static class NexusDataPaths
     /// <summary><c>&lt;config-root&gt;/Nexus</c>: %ProgramData%\Nexus (Windows,
     /// machine-scope since the service runs as LocalSystem),
     /// ~/Library/Application Support/Nexus (macOS), $XDG_CONFIG_HOME/Nexus or
-    /// ~/.config/Nexus (Linux).</summary>
-    public static string NexusRoot()
+    /// ~/.config/Nexus (Linux). NEXUS_DATA_ROOT, when set to a non-blank
+    /// value, takes precedence on every platform so a verification host can
+    /// point at a throwaway directory instead of the real machine store.</summary>
+    public static string NexusRoot() => ResolveRoot(Environment.GetEnvironmentVariable("NEXUS_DATA_ROOT"));
+
+    /// <summary>Shared database directory every history store's files live
+    /// under: <c>&lt;NexusRoot&gt;/db</c>.</summary>
+    public static string DatabaseDir() => Path.Combine(NexusRoot(), "db");
+
+    /// <summary>Test seam: resolves the root from an explicit override value
+    /// instead of reading the environment, so tests never mutate process-wide
+    /// state.</summary>
+    internal static string ResolveRoot(string? overrideRoot)
     {
+        if (!string.IsNullOrWhiteSpace(overrideRoot))
+        {
+            return Path.GetFullPath(overrideRoot.Trim());
+        }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -39,8 +54,4 @@ internal static class NexusDataPaths
         }
         return Path.Combine(xdg, "Nexus");
     }
-
-    /// <summary>Shared database directory every history store's files live
-    /// under: <c>&lt;NexusRoot&gt;/db</c>.</summary>
-    public static string DatabaseDir() => Path.Combine(NexusRoot(), "db");
 }
