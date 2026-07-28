@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using Nexus.Service.Serialization;
@@ -9,10 +8,9 @@ using Nexus.Service.Serialization;
 namespace Nexus.Service.Persistence;
 
 /// <summary>
-/// File-backed NexusSettings store.
-/// Path: ~/Library/Application Support/Nexus/settings.json on macOS,
-///       %LOCALAPPDATA%/Nexus/settings.json on Windows,
-///       $XDG_CONFIG_HOME/Nexus/settings.json (or ~/.config/Nexus) on Linux.
+/// File-backed NexusSettings store. Path is
+/// <see cref="NexusDataPaths.NexusRoot"/>/settings.json, which resolves the
+/// per-OS default or the NEXUS_DATA_ROOT override.
 ///
 /// Concurrency: a single global lock around load/save. Updates mutate the in-memory
 /// doc synchronously, but the disk write is coalesced to a short debounce window so
@@ -264,28 +262,15 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     public static string ResolveDataDirectory()
         => Path.GetDirectoryName(ResolveSettingsPath())!;
 
+    // Delegates the root to NexusDataPaths so NEXUS_DATA_ROOT is read in one
+    // place; an active override lands settings.json directly under it, with
+    // no ProgramData/legacy-path branching (that logic only applies to a real
+    // per-OS install, which an override is standing in for).
     private static string ResolveSettingsPath()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "Application Support", "Nexus", "settings.json");
-        }
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            // Machine-scope: settings belong to the LocalSystem service, not the
-            // logged-in user. CommonApplicationData = %ProgramData%.
-            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            return Path.Combine(programData, "Nexus", "settings.json");
-        }
+        => Path.Combine(NexusDataPaths.NexusRoot(), "settings.json");
 
-        // Linux / others
-        var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
-        if (string.IsNullOrEmpty(xdg))
-        {
-            xdg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
-        }
-        return Path.Combine(xdg, "Nexus", "settings.json");
-    }
-
+    /// <summary>Test seam: composes the settings path from an explicit root
+    /// instead of reading the environment.</summary>
+    internal static string ResolveSettingsPath(string? overrideRoot)
+        => Path.Combine(NexusDataPaths.ResolveRoot(overrideRoot), "settings.json");
 }
