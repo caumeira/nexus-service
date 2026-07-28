@@ -24,24 +24,41 @@ public sealed class MacAppIconExtractor : IDisposable
     public const int DefaultIconSizePts = 256;
     private const int RequestTimeoutMs = 5000;
 
-    private readonly Thread _worker;
+    private readonly object _startLock = new();
     private readonly BlockingCollection<Action> _queue = new(new ConcurrentQueue<Action>());
-
-    public MacAppIconExtractor()
-    {
-        _worker = new Thread(RunWorkerLoop)
-        {
-            IsBackground = true,
-            Name = "NexusIconExtractAppKit",
-        };
-        _worker.Start();
-    }
+    private Thread? _worker;
 
     public void Dispose()
     {
         _queue.CompleteAdding();
-        try { _worker.Join(1000); } catch { }
+        try { _worker?.Join(1000); } catch { }
         _queue.Dispose();
+    }
+
+    // The worker starts on the first extraction, never in the ctor: the DI
+    // graph constructs this during host startup, and a worker thread touching
+    // AppKit there races MacStatusBar's main-thread AppKit init - the race
+    // wedges the status item and the app exits silently minutes later.
+    private void EnsureWorkerStarted()
+    {
+        if (_worker is not null)
+        {
+            return;
+        }
+        lock (_startLock)
+        {
+            if (_worker is not null)
+            {
+                return;
+            }
+            var worker = new Thread(RunWorkerLoop)
+            {
+                IsBackground = true,
+                Name = "NexusIconExtractAppKit",
+            };
+            worker.Start();
+            _worker = worker;
+        }
     }
 
     /// <summary>Null only when the worker could not answer in time (transient,
@@ -53,6 +70,8 @@ public sealed class MacAppIconExtractor : IDisposable
         {
             return Array.Empty<byte>();
         }
+
+        EnsureWorkerStarted();
 
         // TaskCompletionSource instead of a ManualResetEventSlim: a timed-out
         // caller returns while the queued closure still holds the completion
@@ -84,9 +103,11 @@ public sealed class MacAppIconExtractor : IDisposable
 
     private void RunWorkerLoop()
     {
-        // Idempotent; guarantees AppKit is initialized even when the status
-        // bar (the other AppKit consumer) is not running, e.g. NEXUS_TEST_HOST.
-        try { NSApplicationLoad(); } catch { }
+        // Plain dylib load so NSWorkspace resolves in a headless process
+        // (NEXUS_TEST_HOST); in the bundled app MacStatusBar already loaded
+        // AppKit, making this a no-op refcount. Never NSApplicationLoad off
+        // the main thread - see the EnsureWorkerStarted note.
+        try { NativeLibrary.Load(Appkit); } catch { }
         try
         {
             foreach (var work in _queue.GetConsumingEnumerable())
@@ -219,9 +240,6 @@ public sealed class MacAppIconExtractor : IDisposable
     // CGImageForProposedRect:context:hints: - (NSRect*, NSGraphicsContext*, NSDictionary*)
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern IntPtr MsgSend_RectPtr(IntPtr receiver, IntPtr sel, ref NSRect rect, IntPtr context, IntPtr hints);
-
-    [DllImport(Appkit, EntryPoint = "NSApplicationLoad")]
-    private static extern byte NSApplicationLoad();
 
     [DllImport(CoreFoundation)]
     private static extern IntPtr CFStringCreateWithCString(IntPtr allocator, [MarshalAs(UnmanagedType.LPStr)] string str, uint encoding);
