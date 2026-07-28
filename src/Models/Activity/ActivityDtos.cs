@@ -100,6 +100,15 @@ public class MediaSession
     public MediaSong Song { get; set; } = new();
     public MediaPlayback Playback { get; set; } = new();
     public MediaControls Controls { get; set; } = new();
+
+    /// <summary>Shallow copy with a substituted position; the original is left untouched.</summary>
+    public MediaSession WithPositionMs(double positionMs)
+    {
+        var copy = (MediaSession)MemberwiseClone();
+        copy.Playback = Playback.Clone();
+        copy.Playback.PositionMs = positionMs;
+        return copy;
+    }
 }
 
 public class ColorRgba
@@ -125,6 +134,11 @@ public class MediaPlayback
     public bool Stopped { get; set; }
     public double PositionMs { get; set; }
     public double DurationMs { get; set; }
+
+    /// <summary>Rate the position advances at; 0 while a playing source is stalled.</summary>
+    public double PlaybackRate { get; set; } = 1.0;
+
+    public MediaPlayback Clone() => (MediaPlayback)MemberwiseClone();
 }
 
 public class MediaControls

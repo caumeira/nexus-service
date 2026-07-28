@@ -110,6 +110,22 @@ public sealed class MediaPusher : IDisposable
                 var key = UniqueKey(result, friendly);
                 freshMap[key] = session.Id;
 
+                var playing = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                // A non-finite rate from a source app would poison the position
+                // and throw for the WHOLE envelope when it is serialized.
+                var reportedRate = playback.PlaybackRate ?? 1.0;
+                var rate = double.IsFinite(reportedRate) ? reportedRate : 1.0;
+                // Position is what the player last SET, not a live clock.
+                var positionMs = timeline.Position.TotalMilliseconds;
+                if (playing && timeline.EndTime.TotalMilliseconds > 0)
+                {
+                    positionMs = MediaPositionMath.Advance(
+                        positionMs,
+                        timeline.EndTime.TotalMilliseconds,
+                        MediaPositionMath.SinceTimelineStamp(timeline.LastUpdatedTime, DateTimeOffset.UtcNow),
+                        rate);
+                }
+
                 result[key] = new MediaSession
                 {
                     SourceAppName = key,
@@ -122,12 +138,13 @@ public sealed class MediaPusher : IDisposable
                     },
                     Playback = new MediaPlayback
                     {
-                        Playing = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing,
+                        Playing = playing,
                         Stopped = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped,
                         Shuffled = playback.IsShuffleActive == true,
                         RepeatMode = (playback.AutoRepeatMode ?? MediaPlaybackAutoRepeatMode.None).ToString(),
-                        PositionMs = timeline.Position.TotalMilliseconds,
+                        PositionMs = positionMs,
                         DurationMs = timeline.EndTime.TotalMilliseconds,
+                        PlaybackRate = rate,
                     },
                     Controls = new MediaControls
                     {
@@ -181,6 +198,10 @@ public sealed class MediaPusher : IDisposable
                 if (!ctrl.GetPlaybackInfo().Controls.IsPlaybackPositionEnabled) return;
                 ctrl.TryChangePlaybackPositionAsync(positionMs * TimeSpan.TicksPerMillisecond)
                     .AsTask().GetAwaiter().GetResult();
+                // This pusher subscribes to no timeline event, so without an
+                // explicit push the service keeps serving - and advancing - the
+                // pre-seek position until an unrelated session event fires.
+                SchedulePush();
             }
             catch (Exception ex)
             {
