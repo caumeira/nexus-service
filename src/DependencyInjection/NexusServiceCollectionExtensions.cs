@@ -1184,6 +1184,8 @@ public static class NexusServiceCollectionExtensions
 #elif MACOS
         services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, MacAppDetectionProvider>();
+        // One extractor (one AppKit worker thread) behind both icon surfaces.
+        services.AddSingleton<MacAppIconExtractor>();
         services.AddSingleton<IShortcutsProvider, MacShortcutsProvider>();
         services.AddSingleton<IProcessIconProvider, MacProcessIconProvider>();
         services.AddSingleton<IProcessActionsProvider, DirectProcessActionsProvider>();

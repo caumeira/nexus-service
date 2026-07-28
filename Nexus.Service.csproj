@@ -681,6 +681,7 @@
        target platform's types. -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND !$(RuntimeIdentifier.StartsWith('osx'))">
     <Compile Remove="src/Activity/MacAppDetectionProvider.cs" />
+    <Compile Remove="src/Activity/MacAppIconExtractor.cs" />
     <Compile Remove="src/Activity/MacAudioBeatsProvider.cs" />
     <Compile Remove="src/Activity/MacMediaProvider.cs" />
     <Compile Remove="src/Activity/MacNetworkProvider.cs" />

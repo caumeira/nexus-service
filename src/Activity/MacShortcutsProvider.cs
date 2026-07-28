@@ -12,14 +12,22 @@ namespace Nexus.Service.Activity;
 /// Real macOS shortcuts provider.
 /// - GetAll() enumerates /Applications, /System/Applications, and
 ///   ~/Applications for .app bundles
-/// - GetIcon() extracts the app icon from the bundle's Resources/*.icns, converts to PNG via sips
+/// - GetIcon() renders the bundle icon through the shared MacAppIconExtractor
+///   (NSWorkspace, so Assets.car-only bundles resolve too)
 /// - Launch() shells out to `open -a`
 /// </summary>
 public sealed class MacShortcutsProvider : IShortcutsProvider
 {
+    private const int ShortcutIconSizePts = 128;
     private static readonly TimeSpan IconCacheTtl = TimeSpan.FromHours(1);
     private readonly Dictionary<string, (byte[] Data, DateTime Expiry)> _iconCache = new();
     private readonly object _iconLock = new();
+    private readonly MacAppIconExtractor _iconExtractor;
+
+    public MacShortcutsProvider(MacAppIconExtractor iconExtractor)
+    {
+        _iconExtractor = iconExtractor;
+    }
 
     public IReadOnlyList<Shortcut> GetAll()
     {
@@ -86,61 +94,17 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
             return Array.Empty<byte>();
         }
 
-        try
+        // A null (extractor timeout) is not cached, so a transient stall does
+        // not pin an empty icon for the whole TTL. The smaller proposed size
+        // keeps the TTL cache and the physical deck's per-key downscale at
+        // list-icon weight rather than full app-icon reps.
+        var extracted = _iconExtractor.ExtractPng(shortcut.Path, ShortcutIconSizePts);
+        if (extracted is { Length: > 0 })
         {
-            var resourcesDir = Path.Combine(shortcut.Path, "Contents", "Resources");
-            if (!Directory.Exists(resourcesDir))
-            {
-                return Array.Empty<byte>();
-            }
-
-            var icnsFile = Directory.GetFiles(resourcesDir, "*.icns").FirstOrDefault();
-            if (icnsFile is null)
-            {
-                return Array.Empty<byte>();
-            }
-
-            // Convert .icns → .png via sips (ships with macOS, no dep)
-            var tmpPng = Path.GetTempFileName() + ".png";
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "/usr/bin/sips",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                psi.ArgumentList.Add("-s");
-                psi.ArgumentList.Add("format");
-                psi.ArgumentList.Add("png");
-                psi.ArgumentList.Add(icnsFile);
-                psi.ArgumentList.Add("--out");
-                psi.ArgumentList.Add(tmpPng);
-                psi.ArgumentList.Add("--resampleWidth");
-                psi.ArgumentList.Add("128");
-
-                using var proc = Process.Start(psi);
-                proc?.WaitForExit(5000);
-
-                if (File.Exists(tmpPng))
-                {
-                    var bytes = File.ReadAllBytes(tmpPng);
-                    lock (_iconLock)
-                    { _iconCache[targetId] = (bytes, DateTime.UtcNow + IconCacheTtl); }
-                    return bytes;
-                }
-            }
-            finally
-            {
-                try
-                { File.Delete(tmpPng); }
-                catch { }
-            }
+            lock (_iconLock)
+            { _iconCache[targetId] = (extracted, DateTime.UtcNow + IconCacheTtl); }
+            return extracted;
         }
-        catch { }
-
         return Array.Empty<byte>();
     }
 
