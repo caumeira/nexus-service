@@ -518,7 +518,7 @@ public static class Np50Protocol
     /// Per-spec voltage formula: <c>V = 3.3 * (H*100 + L) / 4096</c>. Public so callers
     /// debugging odd readings can see the underlying ADC voltage.
     /// </summary>
-    public static double DecodeVoltage(byte high, byte low) => 3.3 * (high * 100.0 + low) / 4096.0;
+    public static double DecodeVoltage(byte high, byte low) => HyteThermistor.VoltageFromAdc(high, low);
 
     /// <summary>
     /// Convert ADC voltage bytes to °C using the right lookup table. Returns null when the
@@ -531,26 +531,7 @@ public static class Np50Protocol
         if (kind == FanOrPump.Fan && high == 0 && low == 1) return null;
         // Pump cable probe absent: both zero (rough heuristic; the WPF reference treats it as 0°C).
         if (kind == FanOrPump.Pump && high == 0 && low == 0) return null;
-        var voltage = DecodeVoltage(high, low);
-        return NearestTempByVoltage(voltage, kind);
-    }
-
-    private static float? NearestTempByVoltage(double voltage, FanOrPump kind)
-    {
-        var table = kind == FanOrPump.Pump ? PumpTempToVoltage : FanTempToVoltage;
-        // Linear scan - table is 76 entries, no need for a binary search.
-        var best = -1;
-        var bestDelta = double.MaxValue;
-        for (var i = 0; i < table.Length; i++)
-        {
-            var delta = Math.Abs(voltage - table[i].Value);
-            if (delta < bestDelta) { bestDelta = delta; best = i; }
-        }
-        // Landing on either end means the voltage saturated the thermistor's calibrated span,
-        // which is how an input with no probe wired to it reads. The reference discards the hot
-        // end the same way (CoolingHubBaseController: `temp == 75 ? previous : temp`).
-        if (best <= 0 || best >= table.Length - 1) return null;
-        return (float)table[best].Key;
+        return HyteThermistor.NearestTempC(DecodeVoltage(high, low), fan: kind == FanOrPump.Fan);
     }
 
     private static void DecodePortWarning(byte raw, Np50PortWarning target)
@@ -585,53 +566,8 @@ public static class Np50Protocol
         }
     }
 
-    // ────────────────────────────────────────────────────────────────────
-    // Temperature lookup tables (verbatim from HYTE's nexus-control-service:
-    //   LightDancing/Common/SmartDeviceCommon/SmartDeviceMethods.cs)
-    // Sourced from production code so calibration matches the official tool.
-    // ────────────────────────────────────────────────────────────────────
-
+    /// <summary>Which thermistor curve a probe sits on; the two are not interchangeable.</summary>
     public enum FanOrPump { Pump, Fan }
-
-    private static readonly KeyValuePair<double, double>[] PumpTempToVoltage =
-    {
-        new(0, 3.04), new(1, 3.033), new(2, 3.025), new(3, 3.012), new(4, 3.009),
-        new(5, 3.0), new(6, 2.995), new(7, 2.987), new(8, 2.98), new(9, 2.976),
-        new(10, 2.968), new(11, 2.954), new(12, 2.949), new(13, 2.943), new(14, 2.932),
-        new(15, 2.918), new(16, 2.89), new(17, 2.882), new(18, 2.874), new(19, 2.866),
-        new(20, 2.84), new(21, 2.832), new(22, 2.826), new(23, 2.789), new(24, 2.773),
-        new(25, 2.755), new(26, 2.74), new(27, 2.715), new(28, 2.694), new(29, 2.682),
-        new(30, 2.669), new(31, 2.644), new(32, 2.631), new(33, 2.611), new(34, 2.591),
-        new(35, 2.57), new(36, 2.555), new(37, 2.53), new(38, 2.515), new(39, 2.496),
-        new(40, 2.469), new(41, 2.452), new(42, 2.433), new(43, 2.408), new(44, 2.387),
-        new(45, 2.361), new(46, 2.346), new(47, 2.318), new(48, 2.299), new(49, 2.277),
-        new(50, 2.261), new(51, 2.233), new(52, 2.207), new(53, 2.18), new(54, 2.155),
-        new(55, 2.133), new(56, 2.103), new(57, 2.084), new(58, 2.058), new(59, 2.034),
-        new(60, 2.011), new(61, 1.988), new(62, 1.964), new(63, 1.93), new(64, 1.911),
-        new(65, 1.884), new(66, 1.858), new(67, 1.836), new(68, 1.807), new(69, 1.781),
-        new(70, 1.761), new(71, 1.734), new(72, 1.704), new(73, 1.681), new(74, 1.654),
-        new(75, 1.643),
-    };
-
-    private static readonly KeyValuePair<double, double>[] FanTempToVoltage =
-    {
-        new(0, 3.22), new(1, 3.21), new(2, 3.2), new(3, 3.19), new(4, 3.181),
-        new(5, 3.17), new(6, 3.159), new(7, 3.146), new(8, 3.133), new(9, 3.125),
-        new(10, 3.104), new(11, 3.099), new(12, 3.088), new(13, 3.075), new(14, 3.063),
-        new(15, 3.05), new(16, 3.034), new(17, 3.023), new(18, 3.012), new(19, 2.999),
-        new(20, 2.984), new(21, 2.968), new(22, 2.952), new(23, 2.94), new(24, 2.921),
-        new(25, 2.904), new(26, 2.886), new(27, 2.872), new(28, 2.852), new(29, 2.837),
-        new(30, 2.816), new(31, 2.798), new(32, 2.783), new(33, 2.761), new(34, 2.745),
-        new(35, 2.729), new(36, 2.7), new(37, 2.684), new(38, 2.666), new(39, 2.635),
-        new(40, 2.624), new(41, 2.603), new(42, 2.58), new(43, 2.558), new(44, 2.538),
-        new(45, 2.515), new(46, 2.492), new(47, 2.472), new(48, 2.449), new(49, 2.427),
-        new(50, 2.404), new(51, 2.383), new(52, 2.363), new(53, 2.338), new(54, 2.311),
-        new(55, 2.29), new(56, 2.264), new(57, 2.241), new(58, 2.217), new(59, 2.194),
-        new(60, 2.168), new(61, 2.143), new(62, 2.115), new(63, 2.093), new(64, 2.066),
-        new(65, 2.042), new(66, 2.02), new(67, 1.998), new(68, 1.976), new(69, 1.947),
-        new(70, 1.927), new(71, 1.902), new(72, 1.876), new(73, 1.853), new(74, 1.828),
-        new(75, 1.803),
-    };
 }
 
 /// <summary>24-bit RGB color used by lighting writes. GRB byte-ordering is handled by the protocol.</summary>

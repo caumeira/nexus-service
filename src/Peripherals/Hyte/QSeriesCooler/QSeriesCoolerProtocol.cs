@@ -245,19 +245,8 @@ public static class QSeriesCoolerProtocol
     /// which reads the EEPROM curve's own millivolt byte packing. Returns null when the voltage
     /// saturates either end of the table, which is how an unpopulated sensor input reads.
     /// </summary>
-    public static float? TryDecodeLiveTempC(byte high, byte low)
-    {
-        var voltage = 3.3 * (high * 100 + low) / 4096.0;
-        var best = -1;
-        var bestErr = double.MaxValue;
-        for (var i = 0; i < PumpTempVoltage.Length; i++)
-        {
-            var err = Math.Abs(PumpTempVoltage[i] - voltage);
-            if (err < bestErr) { bestErr = err; best = i; }
-        }
-        if (best <= 0 || best >= PumpTempVoltage.Length - 1) return null;
-        return best;
-    }
+    public static float? TryDecodeLiveTempC(byte high, byte low) =>
+        HyteThermistor.NearestTempC(HyteThermistor.VoltageFromAdc(high, low), fan: false);
 
     /// <summary>
     /// Coolant temperatures from the 20-byte Port-0 status response: inlet in bytes [5..6],
@@ -564,56 +553,19 @@ public static class QSeriesCoolerProtocol
     /// </summary>
     public static (byte high, byte low) EncodeCurveTemp(int tempC, bool fan)
     {
-        var table = fan ? FanTempVoltage : PumpTempVoltage;
-        var t = Math.Clamp(tempC, 0, table.Length - 1);
         // Replicates HYTE byte-for-byte: GetVoltageByTemp floors the voltage to 3
         // decimals, then the model getter scales by 1000 and truncates each byte.
-        var voltage = Math.Floor(table[t] * 1000) / 1000;
+        var voltage = Math.Floor(HyteThermistor.VoltageAt(tempC, fan) * 1000) / 1000;
         var milliVolts = voltage * 1000;
         return ((byte)(milliVolts / 100), (byte)(milliVolts % 100));
     }
 
-    /// <summary>Decode the firmware's two voltage bytes back to the nearest °C in the thermistor table.</summary>
-    public static int DecodeCurveTemp(byte high, byte low, bool fan)
-    {
-        var voltage = high / 10.0 + low / 1000.0;
-        var table = fan ? FanTempVoltage : PumpTempVoltage;
-        var best = 0;
-        var bestErr = double.MaxValue;
-        for (var i = 0; i < table.Length; i++)
-        {
-            var err = Math.Abs(table[i] - voltage);
-            if (err < bestErr) { bestErr = err; best = i; }
-        }
-        return best;
-    }
-
-    // Thermistor temp(°C, index 0..75) → sensor voltage. Ported verbatim from HYTE
-    // SmartDeviceMethods._pumpTempToVoltageMapping. Pump and fan use distinct curves.
-    private static readonly double[] PumpTempVoltage =
-    {
-        3.04, 3.033, 3.025, 3.012, 3.009, 3.0, 2.995, 2.987, 2.98, 2.976,
-        2.968, 2.954, 2.949, 2.943, 2.932, 2.918, 2.89, 2.882, 2.874, 2.866,
-        2.84, 2.832, 2.826, 2.789, 2.773, 2.755, 2.74, 2.715, 2.694, 2.682,
-        2.669, 2.644, 2.631, 2.611, 2.591, 2.57, 2.555, 2.53, 2.515, 2.496,
-        2.469, 2.452, 2.433, 2.408, 2.387, 2.361, 2.346, 2.318, 2.299, 2.277,
-        2.261, 2.233, 2.207, 2.18, 2.155, 2.133, 2.103, 2.084, 2.058, 2.034,
-        2.011, 1.988, 1.964, 1.93, 1.911, 1.884, 1.858, 1.836, 1.807, 1.781,
-        1.761, 1.734, 1.704, 1.681, 1.654, 1.643,
-    };
-
-    // HYTE SmartDeviceMethods._fanTempToVoltageMapping.
-    private static readonly double[] FanTempVoltage =
-    {
-        3.22, 3.21, 3.2, 3.19, 3.181, 3.17, 3.159, 3.146, 3.133, 3.125,
-        3.104, 3.099, 3.088, 3.075, 3.063, 3.05, 3.034, 3.023, 3.012, 2.999,
-        2.984, 2.968, 2.952, 2.94, 2.921, 2.904, 2.886, 2.872, 2.852, 2.837,
-        2.816, 2.798, 2.783, 2.761, 2.745, 2.729, 2.7, 2.684, 2.666, 2.635,
-        2.624, 2.603, 2.58, 2.558, 2.538, 2.515, 2.492, 2.472, 2.449, 2.427,
-        2.404, 2.383, 2.363, 2.338, 2.311, 2.29, 2.264, 2.241, 2.217, 2.194,
-        2.168, 2.143, 2.115, 2.093, 2.066, 2.042, 2.02, 1.998, 1.976, 1.947,
-        1.927, 1.902, 1.876, 1.853, 1.828, 1.803,
-    };
+    /// <summary>
+    /// Decode the firmware curve's two voltage bytes back to the nearest °C. No saturation
+    /// rejection: these are values we wrote, so they are in range by construction.
+    /// </summary>
+    public static int DecodeCurveTemp(byte high, byte low, bool fan) =>
+        HyteThermistor.NearestIndex(high / 10.0 + low / 1000.0, fan);
 }
 
 /// <summary>
