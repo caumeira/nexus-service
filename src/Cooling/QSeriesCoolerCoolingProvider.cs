@@ -141,6 +141,7 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
         Category = "Cooler",
         Value = value,
         DeviceId = _hub.DeviceId,
+        DeviceName = _hub.ProductName,
     };
 
     public float? ReadTemperature(string sensorId)

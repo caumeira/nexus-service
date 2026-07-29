@@ -136,6 +136,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
                 Category = "Hub",
                 Value = cableC,
                 DeviceId = deviceId,
+                DeviceName = Np50Hub.ProductName,
             });
         }
 
@@ -153,6 +154,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
                     Category = "Hub",
                     Value = t,
                     DeviceId = deviceId,
+                    DeviceName = Np50Hub.ProductName,
                 });
             }
         }

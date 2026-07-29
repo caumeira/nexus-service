@@ -167,6 +167,9 @@ public sealed class TemperatureSource
 
     /// <summary>Stable per-device id when this sensor lives on an external device (e.g. NP50 per-fan probe). Null for motherboard/CPU/GPU.</summary>
     public string? DeviceId { get; set; }
+
+    /// <summary>Product name of the owning device, for grouping these into the monitoring "Cooler" category. Null when DeviceId is.</summary>
+    public string? DeviceName { get; set; }
 }
 
 // ----- Device warnings (AmpScale / device-count / LED-count overloads) -----

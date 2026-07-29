@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Activity;
+using Nexus.Service.Cooling;
 using Nexus.Service.Fps;
 using Nexus.Service.Models.Activity;
 using Nexus.Service.Models.Monitoring;
@@ -32,6 +33,8 @@ public sealed class MonitoringBroadcaster : BackgroundService
     private readonly IScreenTimeProvider _screenTime;
     private readonly IVolumeProvider _volume;
     private readonly IFpsProvider _fps;
+    // Cooling-hub probes are not visible to the platform sensor provider; null in tests that don't need them.
+    private readonly IFanControlProvider? _fans;
     private readonly MultiplexHub _hub;
     private readonly TimeProvider _timeProvider;
 
@@ -72,8 +75,9 @@ public sealed class MonitoringBroadcaster : BackgroundService
         IScreenTimeProvider screenTime,
         IVolumeProvider volume,
         IFpsProvider fps,
-        MultiplexHub hub)
-        : this(sensors, processes, gpuProcesses, network, performance, screenTime, volume, fps, hub, TimeProvider.System)
+        MultiplexHub hub,
+        IFanControlProvider? fans = null)
+        : this(sensors, processes, gpuProcesses, network, performance, screenTime, volume, fps, hub, TimeProvider.System, fans)
     {
     }
 
@@ -87,7 +91,8 @@ public sealed class MonitoringBroadcaster : BackgroundService
         IVolumeProvider volume,
         IFpsProvider fps,
         MultiplexHub hub,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IFanControlProvider? fans = null)
     {
         _sensors = sensors;
         _processes = processes;
@@ -98,6 +103,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
         _volume = volume;
         _fps = fps;
         _hub = hub;
+        _fans = fans;
         _timeProvider = timeProvider;
         _hub.OnTopicFirstSubscriber += OnTopicFirstSubscriber;
         _hub.OnTopicLastUnsubscriber += OnTopicLastUnsubscriber;
@@ -210,6 +216,8 @@ public sealed class MonitoringBroadcaster : BackgroundService
             ? BuildSummaryComponent(cpuComponent!, gpuComponents!, memoryComponent!)
             : null;
         SensorExtras? extras = needExtras ? _sensors.GetSensorExtras() : null;
+        if (extras is not null && _fans is not null)
+            extras.Coolers.AddRange(HubCoolerSensors.Build(_fans.GetTemperatureSources()));
         string cpuModel = cpuComponent?.Name ?? "";
         _gpuModelsBuf.Clear();
         if (gpuComponents is not null)

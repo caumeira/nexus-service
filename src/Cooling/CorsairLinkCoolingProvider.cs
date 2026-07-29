@@ -96,6 +96,7 @@ public sealed class CorsairLinkCoolingProvider : IFanControlProvider, ICoolingPr
                 Category = "Hub",
                 Value = d.TempC,
                 DeviceId = deviceId,
+                DeviceName = d.Name,
             });
         }
         return result;
