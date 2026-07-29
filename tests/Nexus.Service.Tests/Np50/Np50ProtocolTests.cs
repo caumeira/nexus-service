@@ -392,18 +392,18 @@ public class Np50ProtocolTests
         resp[3] = 0x02;       // LS30
         resp[4] = 0x10;       // hw version
         resp[5] = 62;         // led count
-        resp[6] = 0x0B; resp[7] = 0x05; // temp 28.21°C
+        resp[6] = 0x0B; resp[7] = 0x05; // floating probe input - 0.890V, off-table
         resp[8] = 0x05; resp[9] = 0x00; // rpm 3000
         resp[10] = 0x02;      // orientation Up
         resp[11] = 0x01;      // touch byte ignored for LS30
 
-        // Slot 1: FP12 fan, touching, no temp probe (0,0 sentinel).
+        // Slot 1: FP12 fan, touching, probe reading 2.717V → 35°C.
         resp[12] = 0x00; resp[13] = 0x00;
         resp[14] = 0x02;
         resp[15] = 0x03;      // FP12
         resp[16] = 0x05;
         resp[17] = 20;        // 20 LEDs reported (unusual for FP12 but we honor the wire)
-        resp[18] = 0; resp[19] = 0; // no probe
+        resp[18] = 33; resp[19] = 72;
         resp[20] = 0x02; resp[21] = 0x00;
         resp[22] = 0x00;      // orientation Back
         resp[23] = 0x00;      // touching
@@ -421,14 +421,13 @@ public class Np50ProtocolTests
 
         Assert.Equal("LS30", port.Devices[0].Model);
         Assert.Equal(62, port.Devices[0].LedCount);
-        Assert.NotNull(port.Devices[0].TempC);
-        Assert.Equal(28.21f, port.Devices[0].TempC!.Value, 2);
+        Assert.Null(port.Devices[0].TempC);       // light strips carry no probe
         Assert.Equal(3000, port.Devices[0].Rpm);
         Assert.Equal("Up", port.Devices[0].Orientation);
         Assert.False(port.Devices[0].Touching);   // LS30 ignores touch byte
 
         Assert.Equal("FP12", port.Devices[1].Model);
-        Assert.Null(port.Devices[1].TempC);       // no probe
+        Assert.Equal(35f, port.Devices[1].TempC);
         Assert.True(port.Devices[1].Touching);    // FP12 + 0x00 touch byte
     }
 
@@ -445,7 +444,7 @@ public class Np50ProtocolTests
         resp[3] = typeByte;
         resp[4] = 0x10;            // hw version
         resp[5] = (byte)ledCount;
-        // resp[6..7] left at 0 → DecodeFanTempC sentinel for "no probe".
+        // resp[6..7] left at 0 → 0V, outside the thermistor table = "no probe".
         // resp[15] (next slot's type byte) stays 0 → parser stops.
 
         var port = new Np50Port { Index = 3 };
@@ -475,21 +474,27 @@ public class Np50ProtocolTests
         Assert.Equal("LS10", port.Devices[0].Model);
     }
 
-    [Fact]
-    public void DecodeFanTempC_returns_null_for_no_probe_sentinel()
+    [Theory]
+    [InlineData(0x0B, 0x05)]   // observed: LS10 on Port 1 → 0.890V, under the table floor
+    [InlineData(0x08, 0x16)]   // observed: LS10 on Port 2 #2 → 0.662V
+    [InlineData(0x0E, 0x22)]   // observed: LS10 on Port 1 → 1.157V
+    public void ParseChannelInfo_drops_probeless_module_readings(byte high, byte low)
     {
-        Assert.Null(Np50Protocol.DecodeFanTempC(0, 0));
+        // LS/LN modules float the probe input; the voltage lands outside the
+        // thermistor table, which is not a temperature.
+        Assert.Null(Np50Protocol.TryDecodeTempC(high, low, Np50Protocol.FanOrPump.Fan));
     }
 
     [Theory]
-    [InlineData(0x0B, 0x05, 28.21f)]   // observed: LS10 on Port 1
-    [InlineData(0x08, 0x16, 20.70f)]   // observed: LS10 on Port 2 #2
-    [InlineData(0x0E, 0x22, 36.18f)]   // observed: LS10 on Port 1 (warmer)
-    public void DecodeFanTempC_decodes_uint16_in_hundredths_of_C(byte high, byte low, float expected)
+    [InlineData(33, 72, 35)]   // reported by a user's FP12s at idle (Port 1 #1)
+    [InlineData(34, 6, 34)]    // Port 1 #2
+    [InlineData(36, 24, 24)]   // Port 3 #3
+    public void TryDecodeTempC_decodes_FP12_probe_bytes_as_ADC_voltage(byte high, byte low, float expected)
     {
-        var t = Np50Protocol.DecodeFanTempC(high, low);
+        // V = 3.3 * (high*100 + low) / 4096 → fan thermistor table.
+        var t = Np50Protocol.TryDecodeTempC(high, low, Np50Protocol.FanOrPump.Fan);
         Assert.NotNull(t);
-        Assert.Equal(expected, t!.Value, 2);
+        Assert.Equal(expected, t!.Value);
     }
 
     [Fact]
@@ -565,5 +570,37 @@ public class Np50ProtocolTests
         var t = Np50Protocol.TryDecodeTempC(28, 6, Np50Protocol.FanOrPump.Pump);
         Assert.NotNull(t);
         Assert.InRange(t!.Value, 48, 52);
+    }
+
+    [Theory]
+    [InlineData(40, 95)]  // 3.30V, above the fan table's 0°C entry
+    [InlineData(5, 0)]    // 0.40V, below its 75°C entry
+    public void TryDecodeTempC_returns_null_outside_the_thermistor_table(byte high, byte low)
+    {
+        Assert.Null(Np50Protocol.TryDecodeTempC(high, low, Np50Protocol.FanOrPump.Fan));
+    }
+
+    [Theory]
+    // Fan table ends: 3.22V = 0°C, 1.803V = 75°C. Bytes chosen to land ON each end.
+    [InlineData(39, 96, Np50Protocol.FanOrPump.Fan)]  // 3.2200V
+    [InlineData(22, 38, Np50Protocol.FanOrPump.Fan)]  // 1.8033V
+    // Pump table ends: 3.04V = 0°C, 1.643V = 75°C.
+    [InlineData(37, 74, Np50Protocol.FanOrPump.Pump)] // 3.0400V
+    [InlineData(20, 40, Np50Protocol.FanOrPump.Pump)] // 1.6430V
+    public void TryDecodeTempC_rejects_a_reading_that_saturates_either_table_end(
+        byte high, byte low, Np50Protocol.FanOrPump kind)
+    {
+        // Saturation means the probe is outside its calibrated span, not that it is 0°C or 75°C.
+        Assert.Null(Np50Protocol.TryDecodeTempC(high, low, kind));
+    }
+
+    [Theory]
+    [InlineData(39, 84, Np50Protocol.FanOrPump.Fan, 1f)]   // 3.2098V → one step in from the cold end
+    [InlineData(22, 69, Np50Protocol.FanOrPump.Fan, 74f)]  // 1.8281V → one step in from the hot end
+    public void TryDecodeTempC_still_reads_the_entries_adjacent_to_each_end(
+        byte high, byte low, Np50Protocol.FanOrPump kind, float expected)
+    {
+        // The rejection must be exactly the two end entries, not a wider band.
+        Assert.Equal(expected, Np50Protocol.TryDecodeTempC(high, low, kind));
     }
 }

@@ -38,4 +38,10 @@ public sealed class QSeriesCoolerState
 
     /// <summary>Turbo state from the last Port-0 poll.</summary>
     public bool TurboOn { get; set; }
+
+    /// <summary>Coolant inlet temperature (°C) from the last Port-0 poll. Null when no probe reads in range.</summary>
+    public float? CoolantTempInC { get; set; }
+
+    /// <summary>Coolant outlet temperature (°C) from the last Port-0 poll. Null when no probe reads in range.</summary>
+    public float? CoolantTempOutC { get; set; }
 }

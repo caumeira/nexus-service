@@ -240,6 +240,37 @@ public static class QSeriesCoolerProtocol
     }
 
     /// <summary>
+    /// Decode a live thermistor reading from its two ADC bytes: V = 3.3 * (high*100 + low) / 4096,
+    /// mapped to the nearest °C in the pump table. Distinct from <see cref="DecodeCurveTemp"/>,
+    /// which reads the EEPROM curve's own millivolt byte packing. Returns null when the voltage
+    /// saturates either end of the table, which is how an unpopulated sensor input reads.
+    /// </summary>
+    public static float? TryDecodeLiveTempC(byte high, byte low)
+    {
+        var voltage = 3.3 * (high * 100 + low) / 4096.0;
+        var best = -1;
+        var bestErr = double.MaxValue;
+        for (var i = 0; i < PumpTempVoltage.Length; i++)
+        {
+            var err = Math.Abs(PumpTempVoltage[i] - voltage);
+            if (err < bestErr) { bestErr = err; best = i; }
+        }
+        if (best <= 0 || best >= PumpTempVoltage.Length - 1) return null;
+        return best;
+    }
+
+    /// <summary>
+    /// Coolant temperatures from the 20-byte Port-0 status response: inlet in bytes [5..6],
+    /// outlet in [7..8]. Null per side when the response is short or the probe reads out of
+    /// range. Mirrors HYTE PQSeriesPumpHead.PumpTempIn / PumpTempOut.
+    /// </summary>
+    public static (float? inC, float? outC) CoolantTempsOf(ReadOnlySpan<byte> port0)
+    {
+        if (port0.Length < Port0ResponseLength) return (null, null);
+        return (TryDecodeLiveTempC(port0[5], port0[6]), TryDecodeLiveTempC(port0[7], port0[8]));
+    }
+
+    /// <summary>
     /// Parse the Q80 second-pump RPM from the 7-byte response (tach in bytes
     /// [3..4]). Returns false on a short or mis-echoed reply; pumpRpm is 0 when
     /// no second pump is present.

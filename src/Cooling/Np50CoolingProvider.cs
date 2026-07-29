@@ -87,9 +87,8 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         {
             foreach (var fan in port.Devices)
             {
-                // Only FP12 is a real fan. LS10/LS30 are light strips -
-                // they carry a temp probe (surfaced as a sensor below) but
-                // no fan blade and no RPM, so they don't belong here.
+                // Only FP12 is a real fan. LS10/LS30 are light strips - no
+                // fan blade and no RPM, so they don't belong here.
                 if (!IsFanModule(fan.Model)) continue;
 
                 var id = $"np50:{serial}:port{port.Index}:dev{fan.Index}";
@@ -140,7 +139,8 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
             });
         }
 
-        // Per-fan probes from each LS10/LS30 module that reports one.
+        // Per-fan probes. Only FP12 carries a thermistor; other modules
+        // decode out of table range and are dropped by the parser.
         foreach (var port in _hub.State.Ports)
         {
             foreach (var fan in port.Devices)

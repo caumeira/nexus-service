@@ -433,13 +433,10 @@ public static class Np50Protocol
                 },
                 HardwareVersion = response[off + 4],
                 LedCount = response[off + 5],
-                // Temperature: bytes 6-7 as big-endian uint16 / 100. The
-                // spec doc shows these as ADC voltage bytes for a lookup
-                // table, but observed bytes on firmware 2.0.3.1 match a
-                // direct °C × 100 encoding instead. Real LS10s on the
-                // bench produce 28.21°C and 20.7°C from raw 0x0B05 and
-                // 0x0816, which lines up with hub cable temp and ambient.
-                TempC = DecodeFanTempC(response[off + 6], response[off + 7]),
+                // Bytes 6-7 are thermistor ADC voltage, not °C. Only FP12
+                // carries a probe; LS/LN modules float this input and decode
+                // out of table range, which TryDecodeTempC rejects as null.
+                TempC = TryDecodeTempC(response[off + 6], response[off + 7], FanOrPump.Fan),
                 Rpm = DecodeFanRpm(response[off + 8], response[off + 9]),
                 Orientation = response[off + 10] switch
                 {
@@ -524,20 +521,9 @@ public static class Np50Protocol
     public static double DecodeVoltage(byte high, byte low) => 3.3 * (high * 100.0 + low) / 4096.0;
 
     /// <summary>
-    /// Per-fan temperature decode for the "Get Channel Info" response (bytes
-    /// 6-7 of each 12-byte slot). Empirically firmware 2.0.3.1 encodes the
-    /// reading as a big-endian uint16 in hundredths of °C; (0, 0) means "no
-    /// probe present" on this module. Returns null in that case.
-    /// </summary>
-    public static float? DecodeFanTempC(byte high, byte low)
-    {
-        if (high == 0 && low == 0) return null;
-        return ((high << 8) | low) / 100f;
-    }
-
-    /// <summary>
     /// Convert ADC voltage bytes to °C using the right lookup table. Returns null when the
-    /// reading is the hub's "no probe" sentinel (high=0, low=1 for fan probes; both 0 for pump).
+    /// reading is the hub's "no probe" sentinel (high=0, low=1 for fan probes; both 0 for pump)
+    /// or when the voltage saturates either end of the thermistor table.
     /// </summary>
     public static float? TryDecodeTempC(byte high, byte low, FanOrPump kind)
     {
@@ -546,21 +532,25 @@ public static class Np50Protocol
         // Pump cable probe absent: both zero (rough heuristic; the WPF reference treats it as 0°C).
         if (kind == FanOrPump.Pump && high == 0 && low == 0) return null;
         var voltage = DecodeVoltage(high, low);
-        return (float)NearestTempByVoltage(voltage, kind);
+        return NearestTempByVoltage(voltage, kind);
     }
 
-    private static double NearestTempByVoltage(double voltage, FanOrPump kind)
+    private static float? NearestTempByVoltage(double voltage, FanOrPump kind)
     {
         var table = kind == FanOrPump.Pump ? PumpTempToVoltage : FanTempToVoltage;
         // Linear scan - table is 76 entries, no need for a binary search.
-        var bestTemp = 0.0;
+        var best = -1;
         var bestDelta = double.MaxValue;
-        foreach (var (temp, refV) in table)
+        for (var i = 0; i < table.Length; i++)
         {
-            var delta = Math.Abs(voltage - refV);
-            if (delta < bestDelta) { bestDelta = delta; bestTemp = temp; }
+            var delta = Math.Abs(voltage - table[i].Value);
+            if (delta < bestDelta) { bestDelta = delta; best = i; }
         }
-        return bestTemp;
+        // Landing on either end means the voltage saturated the thermistor's calibrated span,
+        // which is how an input with no probe wired to it reads. The reference discards the hot
+        // end the same way (CoolingHubBaseController: `temp == 75 ? previous : temp`).
+        if (best <= 0 || best >= table.Length - 1) return null;
+        return (float)table[best].Key;
     }
 
     private static void DecodePortWarning(byte raw, Np50PortWarning target)

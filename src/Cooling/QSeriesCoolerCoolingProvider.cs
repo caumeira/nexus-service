@@ -19,7 +19,8 @@ namespace Nexus.Service.Cooling;
 /// mode the engine must not override: while it is a non-software mode, duty writes
 /// are swallowed so the engine doesn't flip a user-chosen BIOS/FW mode back to
 /// software. Mirrors <see cref="Np50CoolingProvider"/>. A Q80 second pump is
-/// surfaced read-only. Channel ids: <c>qseries:&lt;serial&gt;:pump</c> / <c>:pump2</c> / <c>:fans</c>.
+/// surfaced read-only. Channel ids: <c>qseries:&lt;serial&gt;:pump</c> / <c>:pump2</c> / <c>:fans</c>;
+/// coolant sensor ids: <c>:coolant-in</c> / <c>:coolant-out</c>.
 /// </summary>
 public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICoolingProvider
 {
@@ -119,9 +120,36 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
         return result;
     }
 
-    public IReadOnlyList<TemperatureSource> GetTemperatureSources() => Array.Empty<TemperatureSource>();
+    public IReadOnlyList<TemperatureSource> GetTemperatureSources()
+    {
+        var serial = _hub.State.Serial;
+        if (!_hub.IsConnected || string.IsNullOrEmpty(serial)) return Array.Empty<TemperatureSource>();
 
-    public float? ReadTemperature(string sensorId) => null;
+        // A probeless input saturates the thermistor table, which the decode already drops.
+        var result = new List<TemperatureSource>(2);
+        if (_hub.State.CoolantTempInC is { } inC)
+            result.Add(CoolantSource(serial, "coolant-in", "Coolant in", inC));
+        if (_hub.State.CoolantTempOutC is { } outC)
+            result.Add(CoolantSource(serial, "coolant-out", "Coolant out", outC));
+        return result;
+    }
+
+    private TemperatureSource CoolantSource(string serial, string suffix, string name, float value) => new()
+    {
+        Id = PumpId(serial, suffix),
+        Name = name,
+        Category = "Cooler",
+        Value = value,
+        DeviceId = _hub.DeviceId,
+    };
+
+    public float? ReadTemperature(string sensorId)
+    {
+        if (!IsQSeriesId(sensorId)) return null;
+        foreach (var s in GetTemperatureSources())
+            if (s.Id == sensorId) return s.Value;
+        return null;
+    }
 
     public int SetFanSpeed(string channelId, int dutyPercent)
     {
@@ -171,7 +199,16 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
 
         var devices = new List<CoolingDevice>(3)
         {
-            new CoolingDevice { Id = PumpId(serial, "pump"), Name = "Pump", Type = "Pump", Rpm = _hub.State.PumpRpm },
+            new CoolingDevice
+            {
+                Id = PumpId(serial, "pump"),
+                Name = "Pump",
+                Type = "Pump",
+                Rpm = _hub.State.PumpRpm,
+                Temperature = _hub.State.CoolantTempInC,
+                PumpTempIn = _hub.State.CoolantTempInC,
+                PumpTempOut = _hub.State.CoolantTempOutC,
+            },
         };
         if (_hub.State.HasPump2)
             devices.Add(new CoolingDevice { Id = PumpId(serial, "pump2"), Name = "Pump 2", Type = "Pump", Rpm = _hub.State.Pump2Rpm });

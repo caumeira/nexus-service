@@ -249,6 +249,7 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                 State.PumpRpm = pumpRpm;
                 State.ControlMode = QSeriesCoolerProtocol.ControlModeOf(buf);
                 State.TurboOn = QSeriesCoolerProtocol.TurboOnOf(buf);
+                (State.CoolantTempInC, State.CoolantTempOutC) = QSeriesCoolerProtocol.CoolantTempsOf(buf);
 
                 // Q80 has a single pump, same as Q60 - the second-pump port is
                 // not queried, so HasPump2 stays false and no Pump 2 is shown.

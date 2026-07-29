@@ -180,6 +180,49 @@ public class QSeriesCoolerProtocolTests
     }
 
     [Fact]
+    public void CoolantTempsOf_reads_inlet_from_5_6_and_outlet_from_7_8()
+    {
+        var resp = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+        resp[0] = 0xFF; resp[1] = 0xCC;
+        // V = 3.3 * (high*100 + low) / 4096. Pump table: 2.261V → 50°C, 2.755V → 25°C.
+        resp[5] = 28; resp[6] = 6;    // 2.261V
+        resp[7] = 34; resp[8] = 20;   // 2.755V
+        var (inC, outC) = QSeriesCoolerProtocol.CoolantTempsOf(resp);
+        Assert.Equal(50f, inC);
+        Assert.Equal(25f, outC);
+    }
+
+    [Fact]
+    public void CoolantTempsOf_returns_null_for_out_of_range_and_short_responses()
+    {
+        var resp = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+        resp[0] = 0xFF; resp[1] = 0xCC;
+        // Both pairs left at 0 → 0V, under the table's hottest entry.
+        var (inC, outC) = QSeriesCoolerProtocol.CoolantTempsOf(resp);
+        Assert.Null(inC);
+        Assert.Null(outC);
+
+        Assert.Equal((null, null), QSeriesCoolerProtocol.CoolantTempsOf(new byte[8]));
+    }
+
+    [Theory]
+    // Pump table ends: 3.04V = 0°C, 1.643V = 75°C. A saturated reading is not a temperature.
+    [InlineData(37, 73)]   // 3.0398V
+    [InlineData(20, 39)]   // 1.6427V
+    public void TryDecodeLiveTempC_rejects_a_reading_that_saturates_either_table_end(byte high, byte low)
+    {
+        Assert.Null(QSeriesCoolerProtocol.TryDecodeLiveTempC(high, low));
+    }
+
+    [Theory]
+    [InlineData(37, 65, 1f)]    // 3.0333V → one step in from the cold end
+    [InlineData(20, 53, 74f)]   // 1.6540V → one step in from the hot end
+    public void TryDecodeLiveTempC_still_reads_the_entries_adjacent_to_each_end(byte high, byte low, float expected)
+    {
+        Assert.Equal(expected, QSeriesCoolerProtocol.TryDecodeLiveTempC(high, low));
+    }
+
+    [Fact]
     public void TryParsePump2Rpm_reads_bytes_3_and_4()
     {
         var resp = new byte[QSeriesCoolerProtocol.Pump2ResponseLength];
