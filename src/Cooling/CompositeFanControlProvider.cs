@@ -101,6 +101,19 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         return combined;
     }
 
+    /// <summary>
+    /// Skips the motherboard provider, whose <see cref="GetTemperatureSources"/> refreshes the
+    /// platform sensor library and then yields only sources this caller discards.
+    /// </summary>
+    public IReadOnlyList<TemperatureSource> GetDeviceTemperatureSources()
+    {
+        var combined = new List<TemperatureSource>(_np50.GetTemperatureSources());
+        combined.AddRange(_miniHub.GetTemperatureSources());
+        foreach (var e in Extras())
+            combined.AddRange(e.Provider.GetTemperatureSources());
+        return combined;
+    }
+
     public float? ReadTemperature(string sensorId)
     {
         if (IsNp50Id(sensorId)) return _np50.ReadTemperature(sensorId);

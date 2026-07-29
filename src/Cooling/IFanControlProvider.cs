@@ -22,6 +22,19 @@ public interface IFanControlProvider
     /// <summary>All available temperature sensors that can serve as curve input.</summary>
     IReadOnlyList<TemperatureSource> GetTemperatureSources();
 
+    /// <summary>
+    /// Only the sources owned by an external device (hub probes), for callers that must not pay
+    /// for a platform sensor refresh. The default filters the full list; the composite overrides
+    /// it to skip the motherboard provider entirely.
+    /// </summary>
+    IReadOnlyList<TemperatureSource> GetDeviceTemperatureSources()
+    {
+        var result = new List<TemperatureSource>();
+        foreach (var s in GetTemperatureSources())
+            if (!string.IsNullOrEmpty(s.DeviceId)) result.Add(s);
+        return result;
+    }
+
     /// <summary>Read current temperature by sensor ID. Returns null if sensor not found.</summary>
     float? ReadTemperature(string sensorId);
 

@@ -189,12 +189,43 @@ internal sealed class ManualTimeProvider : TimeProvider
 /// </summary>
 public class MonitoringBroadcastTests
 {
+    /// <summary>Fan provider exposing one hub-owned probe plus one motherboard source that must be filtered out.</summary>
+    private sealed class StubHubFanProvider : Nexus.Service.Cooling.IFanControlProvider
+    {
+        public IReadOnlyList<Nexus.Service.Models.Cooling.FanChannel> GetFanChannels() => System.Array.Empty<Nexus.Service.Models.Cooling.FanChannel>();
+
+        public IReadOnlyList<Nexus.Service.Models.Cooling.TemperatureSource> GetTemperatureSources() => new[]
+        {
+            new Nexus.Service.Models.Cooling.TemperatureSource
+            {
+                Id = "board-cpu", Name = "CPU", Category = "Motherboard", Value = 53f,
+            },
+            new Nexus.Service.Models.Cooling.TemperatureSource
+            {
+                Id = "np50:A:port1:dev1:temp", Name = "FP12 probe (Port 1 #1)", Category = "Hub",
+                Value = 35f, DeviceId = "np50:A", DeviceName = "HYTE NP50",
+            },
+        };
+
+        public float? ReadTemperature(string sensorId) => null;
+        public int SetFanSpeed(string channelId, int dutyPercent) => dutyPercent;
+        public void DriveFanSpeed(string channelId, int dutyPercent) { }
+        public void ReleaseFan(string channelId) { }
+        public void ReleaseAll() { }
+        public Task<IReadOnlyList<Nexus.Service.Models.Cooling.FanCalibration>> CalibrateAsync(
+            IReadOnlyList<string> fanIds,
+            IProgress<Nexus.Service.Models.Cooling.FanCalibrationProgress> progress,
+            CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<Nexus.Service.Models.Cooling.FanCalibration>>(System.Array.Empty<Nexus.Service.Models.Cooling.FanCalibration>());
+    }
+
     private static MonitoringBroadcaster BuildBroadcaster(
         MultiplexHub hub,
         StubSensorProvider? sensors = null,
         TrackingFpsProvider? fps = null,
         TimeProvider? timeProvider = null,
-        ProcessMonitor? processes = null)
+        ProcessMonitor? processes = null,
+        Nexus.Service.Cooling.IFanControlProvider? fans = null)
     {
         // Stub providers for every dependency so Tick can run end-to-end
         // without touching hardware.
@@ -207,8 +238,8 @@ public class MonitoringBroadcastTests
         var gpuProcesses = new GpuProcessMonitor(hub, new InMemoryConfigStore());
         var volume = new StubVolumeProvider();
         return timeProvider is null
-            ? new MonitoringBroadcaster(sensors, processes, gpuProcesses, network, performance, screenTime, volume, fps, hub)
-            : new MonitoringBroadcaster(sensors, processes, gpuProcesses, network, performance, screenTime, volume, fps, hub, timeProvider);
+            ? new MonitoringBroadcaster(sensors, processes, gpuProcesses, network, performance, screenTime, volume, fps, hub, fans)
+            : new MonitoringBroadcaster(sensors, processes, gpuProcesses, network, performance, screenTime, volume, fps, hub, timeProvider, fans);
     }
 
     [Fact]
@@ -505,6 +536,42 @@ public class MonitoringBroadcastTests
         Assert.DoesNotContain("cpu", captured.Select(c => c.Topic));
         Assert.Equal(1, sensors.ExtrasReads);
         Assert.Equal(0, sensors.CpuSensorReads);
+    }
+
+    [Fact]
+    public async Task Tick_ExtrasCarriesCoolingHubProbes()
+    {
+        // Pins the wiring, not just the projection: hub probes reach the extras topic that the
+        // monitoring sensor picker's Cooler category reads.
+        var hub = new MultiplexHub();
+        var broadcaster = BuildBroadcaster(hub, fans: new StubHubFanProvider());
+        var captured = new List<(string Topic, string Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) =>
+            captured.Add((topic, System.Text.Encoding.UTF8.GetString(payload.Span)));
+
+        using var sub = hub.AddTestSubscription("extras");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var extras = captured.First(c => c.Topic == "extras");
+        Assert.Contains("HYTE NP50", extras.Payload);
+        Assert.Contains("np50:A:port1:dev1:temp", extras.Payload);
+        // The motherboard source has no DeviceId, so it must not be duplicated into coolers.
+        Assert.DoesNotContain("board-cpu", extras.Payload);
+    }
+
+    [Fact]
+    public async Task Tick_WithoutAFanProvider_StillBroadcastsExtras()
+    {
+        var hub = new MultiplexHub();
+        var broadcaster = BuildBroadcaster(hub);
+        var captured = new List<(string Topic, string Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) =>
+            captured.Add((topic, System.Text.Encoding.UTF8.GetString(payload.Span)));
+
+        using var sub = hub.AddTestSubscription("extras");
+        await broadcaster.Tick(CancellationToken.None);
+
+        Assert.Contains(captured, c => c.Topic == "extras");
     }
 
     [Fact]

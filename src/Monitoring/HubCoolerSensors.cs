@@ -45,12 +45,10 @@ internal static class HubCoolerSensors
                 Name = s.Name,
                 Type = "Temperature",
                 Value = s.Value,
-                Min = s.Value,
-                Max = s.Value,
                 Units = "°C",
                 Formatted = $"{s.Value:F1} °C",
-                FormattedMin = $"{s.Value:F1} °C",
-                FormattedMax = $"{s.Value:F1} °C",
+                // Min/Max stay at their defaults: the cooling providers track no session extremes,
+                // and echoing the live value here would read as one.
                 Parent = new SensorParent { Id = component.Id, Name = component.Name },
             });
         }
