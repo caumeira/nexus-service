@@ -32,6 +32,8 @@ public static partial class DevicesRoutes
                 HasPump2 = hub.State.HasPump2,
                 ControlMode = hub.State.ControlMode,
                 TurboOn = hub.State.TurboOn,
+                FwAnimationSupported = hub.SupportsFirmwareAnimation,
+                FwAnimationBrightnessSupported = hub.SupportsFirmwareAnimationBrightness,
             }));
 
         // Switch the hub control mode: Software (host drives), Motherboard
@@ -57,6 +59,51 @@ public static partial class DevicesRoutes
                 return Results.Conflict(new { error = "Q-series cooler not connected" });
             if (!hub.SetTurbo(body.On))
                 return Results.Problem("Failed to set Q-series turbo.");
+            return Results.Ok(ApiResponse.Ok());
+        });
+
+        // Read the firmware-driven LED animation (effect + RGB + brightness). What
+        // the pump-head/strip LEDs show when the firmware is driving them directly.
+        app.MapGet("/devices/qseries/firmware-animation", (QSeriesCoolerHub hub) =>
+        {
+            if (!hub.IsConnected)
+                return Results.Conflict(new { error = "Q-series cooler not connected" });
+            var a = hub.TryReadFirmwareAnimation();
+            if (a is null)
+                return Results.Problem("Failed to read firmware animation from Q-series cooler.");
+            return Results.Ok(new QSeriesFirmwareAnimationResponse
+            {
+                Supported = hub.SupportsFirmwareAnimation,
+                Animation = a.Value.Animation,
+                R = a.Value.R,
+                G = a.Value.G,
+                B = a.Value.B,
+                Brightness = a.Value.Brightness,
+            });
+        });
+
+        // Write the firmware-driven LED animation. Read-before-write + readback-verify
+        // inside SetFirmwareAnimation; opcode 0x0C carries the SAVE byte and updates
+        // both EEPROM and the live MCU animation in one shot.
+        app.MapPut("/devices/qseries/firmware-animation", (QSeriesFirmwareAnimationRequest body, QSeriesCoolerHub hub) =>
+        {
+            if (!hub.IsConnected)
+                return Results.Conflict(new { error = "Q-series cooler not connected" });
+            if (!hub.SupportsFirmwareAnimation)
+                return Results.Conflict(new { error = "Firmware animation not supported on this cooler firmware" });
+            if (body.Animation < QSeriesCoolerProtocol.FwAnimationColor
+                || body.Animation > QSeriesCoolerProtocol.FwAnimationRainbowGradient)
+            {
+                return Results.BadRequest(new { error = "animation must be 1 (Color), 2 (Rainbow), 3 (Breathe), or 4 (Rainbow Gradient)" });
+            }
+            if (body.R < 0 || body.R > 255 || body.G < 0 || body.G > 255 || body.B < 0 || body.B > 255)
+                return Results.BadRequest(new { error = "r, g, and b must be 0-255" });
+            if (body.Brightness < 0 || body.Brightness > 100)
+                return Results.BadRequest(new { error = "brightness must be 0-100" });
+            var ok = hub.SetFirmwareAnimation(
+                (byte)body.Animation, (byte)body.R, (byte)body.G, (byte)body.B, (byte)body.Brightness);
+            if (!ok)
+                return Results.Problem("Failed to write firmware animation to Q-series cooler.");
             return Results.Ok(ApiResponse.Ok());
         });
 
@@ -134,6 +181,10 @@ public sealed class QSeriesCoolerStateResponse
     /// <summary>1=Software, 2=Motherboard, 3=Firmware, 4=Mix.</summary>
     public int ControlMode { get; set; }
     public bool TurboOn { get; set; }
+    /// <summary>False on firmware too old for the FF CC 0C firmware-animation write.</summary>
+    public bool FwAnimationSupported { get; set; }
+    /// <summary>False on firmware too old for the firmware-animation brightness field.</summary>
+    public bool FwAnimationBrightnessSupported { get; set; }
 }
 
 /// <summary>Body for PUT /devices/qseries/control-mode.</summary>
@@ -146,6 +197,29 @@ public sealed class QSeriesControlModeRequest
 public sealed class QSeriesTurboRequest
 {
     public bool On { get; set; }
+}
+
+/// <summary>Shape returned by GET /devices/qseries/firmware-animation.</summary>
+public sealed class QSeriesFirmwareAnimationResponse
+{
+    /// <summary>False on firmware below the animation gate; the bytes are then raw Port-0 state, not a settable animation.</summary>
+    public bool Supported { get; set; }
+    /// <summary>1=Color, 2=Rainbow, 3=Breathe, 4=Rainbow Gradient.</summary>
+    public byte Animation { get; set; }
+    public byte R { get; set; }
+    public byte G { get; set; }
+    public byte B { get; set; }
+    public byte Brightness { get; set; }
+}
+
+/// <summary>Body for PUT /devices/qseries/firmware-animation.</summary>
+public sealed class QSeriesFirmwareAnimationRequest
+{
+    public int Animation { get; set; }
+    public int R { get; set; }
+    public int G { get; set; }
+    public int B { get; set; }
+    public int Brightness { get; set; }
 }
 
 /// <summary>One firmware-curve point: coolant temperature (°C) → duty (%).</summary>

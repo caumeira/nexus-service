@@ -286,6 +286,68 @@ public class QSeriesCoolerProtocolTests
         Assert.Equal(expected, QSeriesCoolerProtocol.MapPumpDutyToWire(duty, turboOn: false));
     }
 
+    // ── Firmware animation (FF CC 0C write; Port-0 [15..19] readback) ──
+    // Reference: SmartHubCommandBase.WriteFwAnimationToMcu, PQSeriesHubInfo (Port-0
+    // [15]=anim, [16..18]=RGB, [19]=brightness), FirmwareFunctionCheckManager.
+
+    [Fact]
+    public void BuildWriteFirmwareAnimation_emits_FF_CC_0C_anim_rgb_brightness_save()
+    {
+        var cmd = QSeriesCoolerProtocol.BuildWriteFirmwareAnimation(
+            QSeriesCoolerProtocol.FwAnimationBreathe, 0x11, 0x22, 0x33, 75);
+        Assert.Equal(
+            new byte[] { 0xFF, 0xCC, 0x0C, QSeriesCoolerProtocol.FwAnimationBreathe, 0x11, 0x22, 0x33, 75, 0x01 },
+            cmd);
+    }
+
+    [Fact]
+    public void TryParseFirmwareAnimation_reads_bytes_15_to_19()
+    {
+        var port0 = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+        port0[0] = 0xFF; port0[1] = 0xCC;
+        port0[15] = QSeriesCoolerProtocol.FwAnimationRainbow;
+        port0[16] = 0xAA; port0[17] = 0xBB; port0[18] = 0xCC; port0[19] = 42;
+
+        Assert.True(QSeriesCoolerProtocol.TryParseFirmwareAnimation(port0, out var anim));
+        Assert.Equal(QSeriesCoolerProtocol.FwAnimationRainbow, anim.Animation);
+        Assert.Equal(0xAA, anim.R);
+        Assert.Equal(0xBB, anim.G);
+        Assert.Equal(0xCC, anim.B);
+        Assert.Equal(42, anim.Brightness);
+    }
+
+    [Fact]
+    public void TryParseFirmwareAnimation_rejects_short_or_misframed()
+    {
+        Assert.False(QSeriesCoolerProtocol.TryParseFirmwareAnimation(new byte[19], out _));
+        var wrongHeader = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+        wrongHeader[0] = 0xFF; wrongHeader[1] = 0xDD;
+        Assert.False(QSeriesCoolerProtocol.TryParseFirmwareAnimation(wrongHeader, out _));
+    }
+
+    [Theory]
+    [InlineData("q60", "2.0.0.1", true)]    // exactly the Q60 threshold
+    [InlineData("q60", "1.9.9.9", false)]   // below threshold
+    [InlineData("q80", "1.0.5.1", true)]    // exactly the Q80 threshold
+    [InlineData("q80", "1.0.5.0", false)]   // below threshold
+    [InlineData("q60", "", false)]          // no version polled yet
+    [InlineData("unknown", "9.9.9.9", false)] // unrecognized variant never supports it
+    public void SupportsFirmwareAnimation_gates_on_version(string variant, string version, bool expected)
+    {
+        Assert.Equal(expected, QSeriesCoolerProtocol.SupportsFirmwareAnimation(variant, version));
+    }
+
+    [Theory]
+    [InlineData("q60", "2.0.3.1", true)]    // exactly the Q60 threshold
+    [InlineData("q60", "2.0.2.9", false)]   // below threshold
+    [InlineData("q80", "1.0.5.1", true)]    // exactly the Q80 threshold
+    [InlineData("q80", "1.0.5.0", false)]   // below threshold
+    [InlineData("q80", "", false)]          // no version polled yet
+    public void SupportsFirmwareAnimationBrightness_gates_on_version(string variant, string version, bool expected)
+    {
+        Assert.Equal(expected, QSeriesCoolerProtocol.SupportsFirmwareAnimationBrightness(variant, version));
+    }
+
     // ── Firmware temperature curve (FF CC 03 / FF CC 04) ──
 
     [Theory]

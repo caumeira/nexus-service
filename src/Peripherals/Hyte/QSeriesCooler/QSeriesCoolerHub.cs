@@ -66,6 +66,14 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     public bool SupportsFirmwareCurve =>
         IsConnected && QSeriesCoolerProtocol.SupportsFirmwareCurve(Variant, State.FirmwareVersion);
 
+    /// <summary>True when the connected cooler's firmware supports the firmware-driven LED animation.</summary>
+    public bool SupportsFirmwareAnimation =>
+        IsConnected && QSeriesCoolerProtocol.SupportsFirmwareAnimation(Variant, State.FirmwareVersion);
+
+    /// <summary>True when the connected cooler's firmware supports the firmware-animation brightness field.</summary>
+    public bool SupportsFirmwareAnimationBrightness =>
+        IsConnected && QSeriesCoolerProtocol.SupportsFirmwareAnimationBrightness(Variant, State.FirmwareVersion);
+
     /// <summary>
     /// LEDs addressed per Q-series lighting card. One 90-byte port frame carries
     /// <see cref="QSeriesCoolerProtocol.MaxLedsPerPort"/> (27) LEDs; surfaces a single
@@ -471,6 +479,96 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
         }
     }
 
+    /// <summary>
+    /// Read the current firmware-driven LED animation from a fresh Port-0 poll (bytes
+    /// [15..19]). Null when disconnected or the reply is short / mis-framed.
+    /// </summary>
+    public QSeriesCoolerProtocol.QSeriesFwAnimation? TryReadFirmwareAnimation()
+    {
+        lock (_lock)
+        {
+            if (!EnsureConnected()) return null;
+            var t = _transport;
+            if (t is null) return null;
+            try
+            {
+                var port0 = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+                if (!ReadPort0(port0)) return null;
+                return QSeriesCoolerProtocol.TryParseFirmwareAnimation(port0, out var animation) ? animation : null;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] read firmware animation failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Persist the firmware-driven LED animation (FF CC 0C: effect, RGB, brightness). False
+    /// when disconnected or the connected firmware predates <see cref="SupportsFirmwareAnimation"/>
+    /// (brightness is one field of the same frame, so it rides along even on firmware below
+    /// <see cref="SupportsFirmwareAnimationBrightness"/> - the caller uses that flag to decide
+    /// whether to surface a brightness control at all, not to gate this write). Reads Port-0
+    /// first and skips the write entirely when the requested block already matches - ROM-write
+    /// endurance, and at most one write per call. Re-reads Port-0 after writing and logs a
+    /// warning (does not fail the call) when the readback disagrees: a successful serial write
+    /// is not evidence the firmware accepted it.
+    /// </summary>
+    public bool SetFirmwareAnimation(byte animation, byte r, byte g, byte b, byte brightness)
+    {
+        lock (_lock)
+        {
+            if (!EnsureConnected() || !SupportsFirmwareAnimation) return false;
+            var t = _transport;
+            if (t is null) return false;
+            try
+            {
+                var port0 = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+                if (!ReadPort0(port0)) return false;
+                if (QSeriesCoolerProtocol.TryParseFirmwareAnimation(port0, out var current)
+                    && current.Animation == animation && current.R == r && current.G == g
+                    && current.B == b && current.Brightness == brightness)
+                {
+                    return true;
+                }
+
+                t.Write(QSeriesCoolerProtocol.BuildWriteFirmwareAnimation(animation, r, g, b, brightness));
+
+                Thread.Sleep(FwAnimationVerifySettleMs);
+                var verify = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+                if (ReadPort0(verify)
+                    && QSeriesCoolerProtocol.TryParseFirmwareAnimation(verify, out var applied))
+                {
+                    if (applied.Animation != animation || applied.R != r || applied.G != g
+                        || applied.B != b || applied.Brightness != brightness)
+                    {
+                        ServiceLog.Warn(
+                            $"[qseries-cooler] firmware animation readback mismatch: wanted " +
+                            $"{animation:X2}/{r:X2}{g:X2}{b:X2}/{brightness}, read " +
+                            $"{applied.Animation:X2}/{applied.R:X2}{applied.G:X2}{applied.B:X2}/{applied.Brightness}");
+                    }
+                }
+                else
+                {
+                    ServiceLog.Warn("[qseries-cooler] firmware animation write unverified: readback unavailable");
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] set firmware animation failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    // HYTE MCUs drop reads armed while flash-committing a just-written block and no
+    // completion signal exists; settle matches the keeb bench window (failure log 2026-07-12).
+    private const int FwAnimationVerifySettleMs = 50;
+
     // EEPROM curve read deadline. The default-mode response comes back in a few
     // ms; kept under the fw-version poll's 400 ms but above the 150 ms telemetry
     // ceiling since this is a user-initiated read, not the hot lighting path.
@@ -517,12 +615,13 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
             if (t is null) return false;
             try
             {
-                // Read back the current default mode so the write preserves it.
-                var mode = TryReadFirmwareCurveLocked(t, out _, out var current)
-                    ? current
-                    : QSeriesCoolerProtocol.FwDefaultModeMotherboard;
+                // Read back the current default mode + curve: preserves the mode, and
+                // skips the EEPROM write entirely when the curve already matches (ROM endurance).
+                var hasCurrent = TryReadFirmwareCurveLocked(t, out var current, out var currentMode);
                 var arr = new QSeriesFirmwareCurvePoint[points.Count];
                 for (var i = 0; i < points.Count; i++) arr[i] = points[i];
+                if (hasCurrent && CurveEquals(current, arr)) return true;
+                var mode = hasCurrent ? currentMode : QSeriesCoolerProtocol.FwDefaultModeMotherboard;
                 t.Write(QSeriesCoolerProtocol.BuildSetFirmwareMode(mode, arr));
                 return true;
             }
@@ -533,6 +632,21 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                 return false;
             }
         }
+    }
+
+    // Field-by-field curve compare (no derived equality on the mutable QSeriesFirmwareCurvePoint struct).
+    private static bool CurveEquals(QSeriesFirmwareCurvePoint[] a, QSeriesFirmwareCurvePoint[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (var i = 0; i < a.Length; i++)
+        {
+            if (a[i].PumpTempC != b[i].PumpTempC || a[i].PumpDutyPercent != b[i].PumpDutyPercent
+                || a[i].FanTempC != b[i].FanTempC || a[i].FanDutyPercent != b[i].FanDutyPercent)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Caller holds _lock. Reads FF CC 04 into a parsed curve + the current default

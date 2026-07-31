@@ -53,6 +53,7 @@ public static class QSeriesCoolerProtocol
     private const byte SubSetFirmwareMode = 0x03;   // write EEPROM default mode + temperature curve (36-byte frame)
     private const byte SubGetFirmwareDefault = 0x04; // read EEPROM default mode + temperature curve
     private const byte SubSetTurboMcu = 0x0A;   // persist turbo state to the MCU
+    private const byte SubWriteFirmwareAnimation = 0x0C; // write MCU + EEPROM firmware LED animation
     private const byte Port0 = 0x00;
 
     /// <summary>Hub control mode (Port-0 byte [12]; SetControl byte [4]).</summary>
@@ -76,6 +77,12 @@ public static class QSeriesCoolerProtocol
     public const byte FwDefaultModeMotherboard = 0x01;
     public const byte FwDefaultModeTemperature = 0x02; // onboard pump+fan temperature curve
     public const byte FwDefaultModeMix = 0x03;
+
+    /// <summary>Firmware-driven LED animation byte (FF CC 0C [3]; Port-0 [15]). No Off value, no speed param.</summary>
+    public const byte FwAnimationColor = 0x01;
+    public const byte FwAnimationRainbow = 0x02;
+    public const byte FwAnimationBreathe = 0x03;
+    public const byte FwAnimationRainbowGradient = 0x04;
 
     public const int SetControlFrameLength = 15;
 
@@ -318,6 +325,23 @@ public static class QSeriesCoolerProtocol
     public static bool TurboOnOf(ReadOnlySpan<byte> port0) =>
         port0.Length >= Port0ResponseLength && port0[14] == TurboOnByte;
 
+    /// <summary>Firmware-driven LED animation state, decoded from Port-0 response bytes [15..19].</summary>
+    public readonly record struct QSeriesFwAnimation(byte Animation, byte R, byte G, byte B, byte Brightness);
+
+    /// <summary>
+    /// Parse the firmware-animation block from a 20-byte Port-0 status response. There is
+    /// no dedicated get-animation opcode on Q-series (unlike NP50's FF CC 0D); this is the
+    /// only readback available. False on a short or mis-echoed reply.
+    /// </summary>
+    public static bool TryParseFirmwareAnimation(ReadOnlySpan<byte> port0, out QSeriesFwAnimation animation)
+    {
+        animation = default;
+        if (port0.Length < Port0ResponseLength) return false;
+        if (port0[0] != Frame0 || port0[1] != OpCooler) return false;
+        animation = new QSeriesFwAnimation(port0[15], port0[16], port0[17], port0[18], port0[19]);
+        return true;
+    }
+
     // ── Control builders ──
 
     /// <summary>
@@ -349,6 +373,16 @@ public static class QSeriesCoolerProtocol
 
     /// <summary>Build the turbo-persist MCU write (FF CC 0A &lt;turbo&gt;).</summary>
     public static byte[] BuildSetTurboMcu(byte turboByte) => new byte[] { Frame0, OpCooler, SubSetTurboMcu, turboByte };
+
+    /// <summary>
+    /// Build the "Write Firmware Animation to MCU" request (9 bytes): FF CC 0C animation R G B
+    /// brightness SAVE(0x01). Byte-identical to Np50Protocol.BuildWriteFirmwareAnimationToMcu -
+    /// same HYTE SmartHubCommandBase.WriteFwAnimationToMcu reference, sibling opcode family.
+    /// Unlike NP50 there is no separate get-animation opcode, so callers verify this took by
+    /// re-reading Port-0 rather than a dedicated response.
+    /// </summary>
+    public static byte[] BuildWriteFirmwareAnimation(byte animation, byte r, byte g, byte b, byte brightness) =>
+        new byte[] { Frame0, OpCooler, SubWriteFirmwareAnimation, animation, r, g, b, brightness, 0x01 };
 
     /// <summary>
     /// Fan duty ceiling (%) the firmware enforces when turbo is off. HYTE's client
@@ -465,6 +499,24 @@ public static class QSeriesCoolerProtocol
             : variant == VariantQ60 ? "2.0.0.1"
             : "1.0.2.1";
         return CompareFwVersionAtLeast(fwVersion, threshold);
+    }
+
+    /// <summary>True when the connected variant's firmware supports the FF CC 0C firmware-animation write.</summary>
+    public static bool SupportsFirmwareAnimation(string variant, string fwVersion)
+    {
+        if (string.IsNullOrEmpty(fwVersion)) return false;
+        if (variant == VariantQ80) return CompareFwVersionAtLeast(fwVersion, "1.0.5.1");
+        if (variant == VariantQ60) return CompareFwVersionAtLeast(fwVersion, "2.0.0.1");
+        return false;
+    }
+
+    /// <summary>True when the connected variant's firmware supports the firmware-animation brightness byte.</summary>
+    public static bool SupportsFirmwareAnimationBrightness(string variant, string fwVersion)
+    {
+        if (string.IsNullOrEmpty(fwVersion)) return false;
+        if (variant == VariantQ80) return CompareFwVersionAtLeast(fwVersion, "1.0.5.1");
+        if (variant == VariantQ60) return CompareFwVersionAtLeast(fwVersion, "2.0.3.1");
+        return false;
     }
 
     // fwVersion >= reference, comparing dotted numeric parts left-to-right.

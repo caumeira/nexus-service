@@ -4354,6 +4354,38 @@
         }
       }
     },
+    "/devices/qseries/firmware-animation": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QSeriesFirmwareAnimationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/devices/qseries/firmware-curve": {
       "get": {
         "tags": [
@@ -17625,6 +17657,51 @@
           }
         }
       },
+      "QSeriesFirmwareAnimationRequest": {
+        "type": "object",
+        "properties": {
+          "animation": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "r": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "g": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "b": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "brightness": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "QSeriesFirmwareCurveRequest": {
         "type": "object",
         "properties": {
@@ -19892,6 +19969,12 @@
             "format": "float"
           },
           "deviceId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "deviceName": {
             "type": [
               "null",
               "string"
