@@ -59,9 +59,10 @@ public sealed class ProcessMonitor : BackgroundService
     private readonly Dictionary<string, (string Path, int Pid)> _pathCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Queue<string> _pathCacheOrder = new();
 
-    // Delta tracking for CPU time (Windows uses TimeSpan, macOS uses nanoseconds).
+    // Delta tracking for CPU time (Windows uses TimeSpan, macOS uses mach
+    // absolute-time ticks, converted via MacProcInfo.MachTicksToNs at read time).
     private readonly Dictionary<int, (TimeSpan cpuTime, DateTime when)> _winPrev = new();
-    private readonly Dictionary<int, (ulong cpuNs, DateTime when)> _macPrev = new();
+    private readonly Dictionary<int, (ulong cpuTicks, DateTime when)> _macPrev = new();
 
     // Delta tracking for cumulative storage I/O bytes, read and write kept
     // separate so a reset in one direction does not suppress the other;
@@ -531,19 +532,19 @@ public sealed class ProcessMonitor : BackgroundService
             if (string.IsNullOrEmpty(name))
                 continue;
 
-            var cpuNs = ti.TotalUser + ti.TotalSystem;
+            var cpuTicks = ti.TotalUser + ti.TotalSystem;
             double cpuPercent = 0;
             if (_macPrev.TryGetValue(pid, out var prev))
             {
                 var elapsedMs = (now - prev.when).TotalMilliseconds;
                 if (elapsedMs > 50)
                 {
-                    var deltaNs = cpuNs > prev.cpuNs ? cpuNs - prev.cpuNs : 0;
-                    var deltaMs = deltaNs / 1_000_000.0;
+                    var deltaTicks = cpuTicks > prev.cpuTicks ? cpuTicks - prev.cpuTicks : 0;
+                    var deltaMs = Platform.Mac.MacProcInfo.MachTicksToNs(deltaTicks) / 1_000_000.0;
                     cpuPercent = Math.Clamp(deltaMs / elapsedMs / ProcessorCount * 100.0, 0, 100);
                 }
             }
-            _macPrev[pid] = (cpuNs, now);
+            _macPrev[pid] = (cpuTicks, now);
 
             double storageBytesPerSec = 0;
             double storageReadBytesPerSec = 0;
@@ -580,7 +581,7 @@ public sealed class ProcessMonitor : BackgroundService
                 Name = name,
                 CpuPercent = Math.Round(cpuPercent, 1),
                 MemoryMb = Math.Round(ti.ResidentSize / (1024.0 * 1024.0), 1),
-                CpuTimeSeconds = Math.Round((ti.TotalUser + ti.TotalSystem) / 1_000_000_000.0, 1),
+                CpuTimeSeconds = Math.Round(Platform.Mac.MacProcInfo.MachTicksToNs(cpuTicks) / 1_000_000_000.0, 1),
                 StorageBytesPerSec = Math.Round(storageBytesPerSec, 1),
                 StorageReadBytesPerSec = Math.Round(storageReadBytesPerSec, 1),
                 StorageWriteBytesPerSec = Math.Round(storageWriteBytesPerSec, 1),

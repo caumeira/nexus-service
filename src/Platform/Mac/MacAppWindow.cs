@@ -39,6 +39,7 @@ internal static class MacAppWindow
     private const double TopBarLeftPad = 8;             // .topBar padding-left (0.5rem)
     private const double TopBarRightPad = 8;            // .topBar padding-right (0.5rem)
     private const double TopBarIconButton = 32;         // .iconButton width
+    private const double TopBarLeftClusterGap = 2.4;    // .leftCluster gap (0.15rem)
     private const double TopBarGearButton = 34;         // .pageSettingsButton width
     private const double TopBarArrowsGroup = 64;        // two history arrows
     private const double TopBarPillGap = 7;             // arrows -> pill gap (0.4rem)
@@ -510,19 +511,27 @@ internal static class MacAppWindow
     }
 
     // True when x (points from the bar's left edge, bar width w) falls in a
-    // control column that must stay clickable: the collapse toggle (left), the
-    // history arrows just left of the centered search pill, the page-settings
-    // gear just right of it, or the "..." menu + profile cluster (right). Mirrors
-    // the layout in TopBar.module.scss; a small margin pads each column so the
-    // whole hit-target clears the drag region.
-    private static bool IsTopBarButtonColumn(double x, double w)
+    // control column that must stay clickable: the left cluster (collapse
+    // toggle + Focus toggle), the history arrows just left of the centered
+    // search pill, the page-settings gear just right of it, or the "..." menu
+    // + profile cluster (right). Mirrors the layout in TopBar.module.scss; a
+    // small margin pads each column so the whole hit-target clears the drag
+    // region. Any control added to the web top bar needs its column carved
+    // out here or it is click-dead in the mac shell (the strip wins the hit
+    // test and starts a window drag). Internal so the geometry is unit-tested
+    // without an NSWindow.
+    internal static bool IsTopBarButtonColumn(double x, double w)
     {
         const double m = 4; // safety margin around each column
         double center = w / 2.0;
 
-        // Collapse toggle: bar left pad + macOS traffic-light inset, one button wide.
-        double collapseL = TopBarLeftPad + TrafficLightInsetMac;
-        if (x >= collapseL - m && x <= collapseL + TopBarIconButton + m) return true;
+        // Left cluster: bar left pad + macOS traffic-light inset, then the
+        // collapse toggle and the Focus toggle (monitoring page) with the
+        // cluster gap between. Carved at its two-button width even where only
+        // one renders - a sliver of lost drag area, never a dead button.
+        double clusterL = TopBarLeftPad + TrafficLightInsetMac;
+        double clusterW = TopBarIconButton * 2 + TopBarLeftClusterGap;
+        if (x >= clusterL - m && x <= clusterL + clusterW + m) return true;
 
         // History arrows: TopBarArrowsGroup wide, a gap left of the pill's left edge.
         double pillLeft = center - TopBarSearchPillWidth / 2.0;

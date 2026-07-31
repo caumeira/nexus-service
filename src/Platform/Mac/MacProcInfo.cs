@@ -57,6 +57,41 @@ internal static class MacProcInfo
         return ret == 96;
     }
 
+    // ProcTaskInfo.TotalUser/TotalSystem are mach absolute-time ticks, not
+    // nanoseconds: ns = ticks * (1e9 / hw.tbfrequency). The tick rate is 1 GHz
+    // on Intel but not on Apple Silicon, where reading ticks as ns
+    // under-reports CPU time by more than an order of magnitude. The factor
+    // comes from the hw.tbfrequency sysctl rather than mach_timebase_info:
+    // under Rosetta 2 the latter reports 1/1 (the translated-process view of
+    // mach_absolute_time) while the kernel's per-task counters stay in native
+    // ticks; the sysctl reports the native tick rate in both worlds. Lazy so
+    // the P/Invoke never runs at type-init on the RID-less Windows/Linux
+    // builds that keep this class compiled.
+    private static readonly Lazy<double> MachTicksToNsFactor = new(ReadTimebaseFactor);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MachTimebaseInfo
+    {
+        public uint Numer;
+        public uint Denom;
+    }
+
+    private static double ReadTimebaseFactor()
+    {
+        nuint size = 8;
+        long freq = 0;
+        if (sysctlbyname("hw.tbfrequency", ref freq, ref size, IntPtr.Zero, 0) == 0 && freq > 0)
+            return 1e9 / freq;
+        var info = default(MachTimebaseInfo);
+        return mach_timebase_info(ref info) == 0 && info.Denom != 0
+            ? (double)info.Numer / info.Denom
+            : 1.0;
+    }
+
+    /// <summary>Converts mach absolute-time ticks (the unit of
+    /// ProcTaskInfo.TotalUser/TotalSystem) to nanoseconds.</summary>
+    public static double MachTicksToNs(ulong ticks) => ticks * MachTicksToNsFactor.Value;
+
     public static string GetProcessName(int pid, byte[] pathBuf)
     {
         int len = proc_pidpath(pid, pathBuf, (uint)pathBuf.Length);
@@ -138,4 +173,10 @@ internal static class MacProcInfo
 
     [DllImport("libproc.dylib")]
     private static extern int proc_pid_rusage(int pid, int flavor, ref RUsageInfoV2 buffer);
+
+    [DllImport("libSystem.dylib")]
+    private static extern int mach_timebase_info(ref MachTimebaseInfo info);
+
+    [DllImport("libSystem.dylib")]
+    private static extern int sysctlbyname(string name, ref long oldp, ref nuint oldlenp, IntPtr newp, nuint newlen);
 }
