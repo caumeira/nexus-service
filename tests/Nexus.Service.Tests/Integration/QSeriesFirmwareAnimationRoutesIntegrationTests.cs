@@ -57,6 +57,11 @@ public sealed class QSeriesFirmwareAnimationRoutesIntegrationTests
         {
             var res = await client.GetAsync("/devices/qseries/firmware-animation");
             Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+            // Error bodies must be a source-gen-registered type: an anonymous body
+            // serializes under JIT reflection but throws 500 on the AOT binary.
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.True(doc.RootElement.GetProperty("error").GetBoolean());
+            Assert.False(string.IsNullOrEmpty(doc.RootElement.GetProperty("msg").GetString()));
         }
     }
 

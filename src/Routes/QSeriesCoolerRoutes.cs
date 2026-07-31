@@ -41,11 +41,11 @@ public static partial class DevicesRoutes
         app.MapPut("/devices/qseries/control-mode", (QSeriesControlModeRequest body, QSeriesCoolerHub hub) =>
         {
             if (!hub.IsConnected)
-                return Results.Conflict(new { error = "Q-series cooler not connected" });
+                return Results.Conflict(ApiResponse.Fail("Q-series cooler not connected"));
             if (body.Mode < QSeriesCoolerProtocol.ControlModeSoftware
                 || body.Mode > QSeriesCoolerProtocol.ControlModeMix)
             {
-                return Results.BadRequest(new { error = "mode must be 1 (Software), 2 (Motherboard), 3 (Firmware), or 4 (Mix)" });
+                return Results.BadRequest(ApiResponse.Fail("mode must be 1 (Software), 2 (Motherboard), 3 (Firmware), or 4 (Mix)"));
             }
             if (!hub.SetControlMode((byte)body.Mode))
                 return Results.Problem("Failed to set Q-series control mode.");
@@ -56,7 +56,7 @@ public static partial class DevicesRoutes
         app.MapPut("/devices/qseries/turbo", (QSeriesTurboRequest body, QSeriesCoolerHub hub) =>
         {
             if (!hub.IsConnected)
-                return Results.Conflict(new { error = "Q-series cooler not connected" });
+                return Results.Conflict(ApiResponse.Fail("Q-series cooler not connected"));
             if (!hub.SetTurbo(body.On))
                 return Results.Problem("Failed to set Q-series turbo.");
             return Results.Ok(ApiResponse.Ok());
@@ -67,7 +67,7 @@ public static partial class DevicesRoutes
         app.MapGet("/devices/qseries/firmware-animation", (QSeriesCoolerHub hub) =>
         {
             if (!hub.IsConnected)
-                return Results.Conflict(new { error = "Q-series cooler not connected" });
+                return Results.Conflict(ApiResponse.Fail("Q-series cooler not connected"));
             var a = hub.TryReadFirmwareAnimation();
             if (a is null)
                 return Results.Problem("Failed to read firmware animation from Q-series cooler.");
@@ -88,18 +88,18 @@ public static partial class DevicesRoutes
         app.MapPut("/devices/qseries/firmware-animation", (QSeriesFirmwareAnimationRequest body, QSeriesCoolerHub hub) =>
         {
             if (!hub.IsConnected)
-                return Results.Conflict(new { error = "Q-series cooler not connected" });
+                return Results.Conflict(ApiResponse.Fail("Q-series cooler not connected"));
             if (!hub.SupportsFirmwareAnimation)
-                return Results.Conflict(new { error = "Firmware animation not supported on this cooler firmware" });
+                return Results.Conflict(ApiResponse.Fail("Firmware animation not supported on this cooler firmware"));
             if (body.Animation < QSeriesCoolerProtocol.FwAnimationColor
                 || body.Animation > QSeriesCoolerProtocol.FwAnimationRainbowGradient)
             {
-                return Results.BadRequest(new { error = "animation must be 1 (Color), 2 (Rainbow), 3 (Breathe), or 4 (Rainbow Gradient)" });
+                return Results.BadRequest(ApiResponse.Fail("animation must be 1 (Color), 2 (Rainbow), 3 (Breathe), or 4 (Rainbow Gradient)"));
             }
             if (body.R < 0 || body.R > 255 || body.G < 0 || body.G > 255 || body.B < 0 || body.B > 255)
-                return Results.BadRequest(new { error = "r, g, and b must be 0-255" });
+                return Results.BadRequest(ApiResponse.Fail("r, g, and b must be 0-255"));
             if (body.Brightness < 0 || body.Brightness > 100)
-                return Results.BadRequest(new { error = "brightness must be 0-100" });
+                return Results.BadRequest(ApiResponse.Fail("brightness must be 0-100"));
             var ok = hub.SetFirmwareAnimation(
                 (byte)body.Animation, (byte)body.R, (byte)body.G, (byte)body.B, (byte)body.Brightness);
             if (!ok)
@@ -138,12 +138,12 @@ public static partial class DevicesRoutes
         app.MapPut("/devices/qseries/firmware-curve", (QSeriesFirmwareCurveRequest body, QSeriesCoolerHub hub) =>
         {
             if (!hub.IsConnected)
-                return Results.Conflict(new { error = "Q-series cooler not connected" });
+                return Results.Conflict(ApiResponse.Fail("Q-series cooler not connected"));
             if (!hub.SupportsFirmwareCurve)
-                return Results.Conflict(new { error = "Firmware curve not supported on this cooler firmware" });
+                return Results.Conflict(ApiResponse.Fail("Firmware curve not supported on this cooler firmware"));
             var n = QSeriesCoolerProtocol.FirmwareCurvePointCount;
             if (body.Pump.Count != n || body.Fan.Count != n)
-                return Results.BadRequest(new { error = $"pump and fan each require exactly {n} points" });
+                return Results.BadRequest(ApiResponse.Fail($"pump and fan each require exactly {n} points"));
 
             int ClampTemp(int c) => Math.Clamp(c, QSeriesCoolerProtocol.FirmwareCurveTempMin, QSeriesCoolerProtocol.FirmwareCurveTempMax);
             int ClampDuty(int d) => Math.Clamp(d, 0, 100);
