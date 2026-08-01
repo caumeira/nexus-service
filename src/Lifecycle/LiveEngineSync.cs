@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using Nexus.Service.Cooling;
 using Nexus.Service.Lighting;
@@ -69,6 +70,28 @@ public static class LiveEngineSync
                     var mediaId = s.LastMediaId;
                     if (!string.IsNullOrEmpty(mediaId)) lighting.StartMedia(mediaId);
                     break;
+                case "static":
+                {
+                    // Without this the profile falls to the default arm and starts
+                    // an effect literally named "static", which resolves to rainbow.
+                    var key = s.Static.Effect;
+                    if (!s.Static.States.TryGetValue(key, out var look) || look is null)
+                    {
+                        look = Nexus.Service.Lighting.AnimateTemplateDefaults.ResolveSelected(s.Animate.Templates, key)
+                            ?? new AnimateEffectState();
+                    }
+                    lighting.StartStatic(new StaticHeadlessStart
+                    {
+                        Effect = key,
+                        Intensity = look.Intensity,
+                        Hue = look.Hue,
+                        Colorize = look.Colorize,
+                        Saturation = look.Saturation,
+                        Contrast = look.Contrast,
+                        Params = look.Params.Select(kv => new ShaderParam { Name = kv.Key, Value = kv.Value }).ToList(),
+                    });
+                    break;
+                }
                 default:
                     // Animate: Sync is the shader effect name. States holds
                     // only deltas from the selected preset look; an absent

@@ -71,6 +71,26 @@ vec3 tintedPalette(float t) {
     return rainbowPalette(t + u_hue);
 }
 
+// 0..1 sweep across the frame along an axis rotated `deg` degrees, covering the
+// full rotated bounding box so a gradient reaches both edges at any angle.
+float axis01(float deg) {
+    float a = deg * 0.01745329;
+    float ar = u_resolution.x / u_resolution.y;
+    vec2 p = uv01() - 0.5;
+    p.x *= ar;
+    float d = p.x * cos(a) + p.y * sin(a);
+    float halfExtent = 0.5 * (abs(cos(a)) * ar + abs(sin(a)));
+    return clamp(d / (2.0 * halfExtent) + 0.5, 0.0, 1.0);
+}
+
+// Angle around the frame centre, 0..1.
+float sweep01() {
+    float ar = u_resolution.x / u_resolution.y;
+    vec2 p = uv01() - 0.5;
+    p.x *= ar;
+    return fract(atan(p.y, p.x) / 6.28318 + 1.0);
+}
+
 // Soft-knee tonemap to keep HDR highlights from clipping.
 vec3 tonemap(vec3 c) {
     return c / (1.0 + c);

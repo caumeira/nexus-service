@@ -14,6 +14,11 @@ public sealed class LightingEngine : IDisposable
     private volatile IEffect? _currentEffect;
     private volatile DeviceFrame[] _devices = Array.Empty<DeviceFrame>();
     private volatile bool _paused;
+    private volatile bool _frozen;
+    // Bumped by every invalidate; the loop latches it before rendering and only
+    // marks the frame current if no invalidate landed mid-render.
+    private int _frozenEpoch;
+    private int _frozenRenderedEpoch = -1;
     private byte[] _frameBuffer = Array.Empty<byte>();
 
     public LightingEngine() { _canvas = new CanvasBuffer(160, 90); }
@@ -36,6 +41,7 @@ public sealed class LightingEngine : IDisposable
     public IEffect? CurrentEffect => _currentEffect;
     public DeviceFrame[] Devices => _devices;
     public bool Paused => _paused;
+    public bool Frozen => _frozen;
     public void UpdateDevices(DeviceFrame[] devices) { _devices = devices; }
 
     /// <summary>
@@ -56,6 +62,29 @@ public sealed class LightingEngine : IDisposable
         }
     }
 
+    /// <summary>
+    /// Marks the current effect as time-invariant, so the loop renders one frame
+    /// and then reuses the canvas instead of re-running the shader every tick.
+    /// Device sampling and broadcast continue, so layout, brightness and
+    /// device-arrival changes still reach hardware while frozen. Cleared by
+    /// <see cref="SetEffect"/>; callers that mutate uniforms in place must call
+    /// <see cref="InvalidateFrozenFrame"/>.
+    /// </summary>
+    public void SetFrozen(bool frozen)
+    {
+        lock (_lock)
+        {
+            if (_currentEffect is null)
+            {
+                return;
+            }
+            _frozen = frozen;
+            Interlocked.Increment(ref _frozenEpoch);
+        }
+    }
+
+    public void InvalidateFrozenFrame() => Interlocked.Increment(ref _frozenEpoch);
+
     public void SetEffect(IEffect effect)
     {
         lock (_lock)
@@ -63,6 +92,8 @@ public sealed class LightingEngine : IDisposable
             var old = _currentEffect;
             _currentEffect = effect;
             _paused = false;
+            _frozen = false;
+            Interlocked.Increment(ref _frozenEpoch);
             try
             { old?.Dispose(); }
             catch { }
@@ -80,6 +111,8 @@ public sealed class LightingEngine : IDisposable
             var old = _currentEffect;
             _currentEffect = null;
             _paused = false;
+            _frozen = false;
+            Interlocked.Increment(ref _frozenEpoch);
             try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
             try
             { old?.Dispose(); }
@@ -122,7 +155,15 @@ public sealed class LightingEngine : IDisposable
                     // keep receiving frames without the effect clock advancing.
                     if (!_paused)
                     {
-                        effect.RenderFrame(_canvas, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                        // A frozen effect paints the same canvas every tick, so
+                        // the shader render and its readback run once; sampling
+                        // still runs so device changes reach hardware.
+                        var epoch = Volatile.Read(ref _frozenEpoch);
+                        if (!_frozen || Volatile.Read(ref _frozenRenderedEpoch) != epoch)
+                        {
+                            effect.RenderFrame(_canvas, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                            Volatile.Write(ref _frozenRenderedEpoch, epoch);
+                        }
                         SampleDevicesFromCanvas();
                         if (effect is GameSyncEffect gs)
                         {

@@ -96,6 +96,7 @@ internal static class McpTestHarness
     internal sealed class StubLightingProvider : ILightingProvider
     {
         public List<AnimateHeadlessStart> StartAnimateCalls { get; } = new();
+        public List<StaticHeadlessStart> StartStaticCalls { get; } = new();
         public int StopAllCallCount { get; private set; }
 
         public string GetSync() => "none";
@@ -109,6 +110,7 @@ internal static class McpTestHarness
         public AudioSyncOptions GetAudioSyncOptions() => new();
         public ScreenSyncOptions GetScreenSyncOptions() => new();
         public void StartAnimate(AnimateHeadlessStart body) => StartAnimateCalls.Add(body);
+        public void StartStatic(StaticHeadlessStart body) => StartStaticCalls.Add(body);
         public void StartMusic(MusicHeadlessStart body) { }
         public void StartScreen(ScreenHeadlessStart body) { }
         public void ReselectScreen() { }
@@ -118,7 +120,7 @@ internal static class McpTestHarness
         public Nexus.Service.Lighting.Engine.Effects.GameSyncEffect? ActiveGameSyncEffect() => null;
         public void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist, bool reactive = false, float reactivity = 0.5f, float intensity = 0.5f) { }
         public void UpdateMediaEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist) { }
-        public (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false) => null;
+        public (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false, bool frozen = false) => null;
         public void SaveAnimateTemplates(Dictionary<string, AnimateEffectTemplates> templates) { }
         public void SetMusicReactive(bool enabled) { }
         public void ReconcileAudioCapture() { }

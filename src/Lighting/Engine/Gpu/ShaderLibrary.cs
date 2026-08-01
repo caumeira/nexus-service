@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Linq;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -89,7 +90,7 @@ internal static class ShaderLibrary
 
     /// <summary>Every registered effect key. Most match a .frag filename; the
     /// "simple*" keys all alias the shared simple.frag (see Get above).</summary>
-    public static IReadOnlyList<string> AllEffectKeys { get; } = new[]
+    private static readonly string[] AnimateEffectKeys = new[]
     {
         // Simple solid-colour fills.
         "simplewhite",
@@ -120,6 +121,15 @@ internal static class ShaderLibrary
         "beatstrobe", "harmonicstar", "audiotunnel", "bassbloom",
         "beatbuilder",
     };
+
+    /// <summary>
+    /// Every key with its own .frag, animate plus the static catalog. The client
+    /// fetches sources through /lighting/shaders/{name}, which gates on this, so
+    /// a key missing here renders server-side only and the local preview falls
+    /// back to the streamed canvas.
+    /// </summary>
+    public static IReadOnlyList<string> AllEffectKeys { get; } =
+        AnimateEffectKeys.Concat(Nexus.Service.Lighting.StaticEffectCatalog.Patterns).ToArray();
 
     // Mirrors the audio-reactive block of AllEffectKeys above; keep the two in sync.
     public static readonly HashSet<string> AudioEffectKeys = new(System.StringComparer.Ordinal)

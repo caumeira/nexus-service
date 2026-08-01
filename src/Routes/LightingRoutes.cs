@@ -25,6 +25,8 @@ public static class LightingRoutes
         }).AllowPanel();
         app.MapGet("/lighting/animate/settings", (Nexus.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.Animate).AllowPanel();
+        app.MapGet("/lighting/static/settings", (Nexus.Service.Persistence.IConfigStore store) =>
+            store.Load().Lighting.Static).AllowPanel();
         // Canonical default template bundles. The web keeps no copy of these
         // tables; it merges this over the sparse user deltas from
         // /lighting/animate/settings. Static per binary, so clients revalidate
@@ -55,7 +57,7 @@ public static class LightingRoutes
             // content-bust token for the browser cache; the ETag below is the
             // service's own freshness check.
             var slot = int.TryParse(req.Query["slot"], out var sv) ? sv : 0;
-            var result = l.CaptureAnimateThumbnail(key, slot, skipCache: fresh);
+            var result = l.CaptureAnimateThumbnail(key, slot, skipCache: fresh, frozen: req.Query.ContainsKey("frozen"));
             if (result is null) return Results.NotFound();
             var (bytes, tag) = result.Value;
             var etag = $"\"{tag}\"";
@@ -157,6 +159,12 @@ public static class LightingRoutes
         app.MapPost("/lighting/animate/headless-start", (AnimateHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
         {
             l.StartAnimate(body);
+            PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        }).AllowPanel();
+        app.MapPost("/lighting/static/headless-start", (StaticHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
+        {
+            l.StartStatic(body);
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();

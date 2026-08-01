@@ -29,6 +29,9 @@ public interface ILightingProvider
     ScreenSyncOptions GetScreenSyncOptions();
 
     void StartAnimate(AnimateHeadlessStart body);
+
+    /// <summary>Runs a catalog effect at speed 0 as a held still frame.</summary>
+    void StartStatic(StaticHeadlessStart body);
     void StartMusic(MusicHeadlessStart body);
     void StartScreen(ScreenHeadlessStart body);
     void ReselectScreen();
@@ -57,7 +60,7 @@ public interface ILightingProvider
     /// of the slot's saved look) for the HTTP ETag; the render is re-cached
     /// whenever that tag changes, so an edit is never served stale.
     /// </summary>
-    (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false);
+    (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false, bool frozen = false);
 
     /// <summary>
     /// Persist the universal preset templates and, if the saved change altered

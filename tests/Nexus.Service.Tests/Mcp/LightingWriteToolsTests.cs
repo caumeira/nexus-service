@@ -67,8 +67,9 @@ public sealed class LightingWriteToolsTests : IDisposable
 
         Assert.False(result.IsError);
         // Pure red must select the red preset, not the white one - selecting the
-        // real preset is what makes the change show in the lighting page.
-        var call = Assert.Single(lighting.StartAnimateCalls);
+        // real preset is what makes the change show in the lighting page, and
+        // the fills live in Static mode.
+        var call = Assert.Single(lighting.StartStaticCalls);
         Assert.Equal("simplered", call.Effect);
         Assert.True(call.Persist);
 
@@ -94,7 +95,7 @@ public sealed class LightingWriteToolsTests : IDisposable
         var result = await tool.ExecuteAsync(JsonSerializer.SerializeToElement(new { color }), CancellationToken.None);
 
         Assert.False(result.IsError);
-        Assert.Equal(expectedEffect, Assert.Single(lighting.StartAnimateCalls).Effect);
+        Assert.Equal(expectedEffect, Assert.Single(lighting.StartStaticCalls).Effect);
     }
 
     [Theory]

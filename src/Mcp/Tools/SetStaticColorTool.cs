@@ -86,11 +86,10 @@ public sealed class SetStaticColorTool : IMcpTool
         // Apply the preset's own default look, so the persisted state matches
         // the template (no stray delta) and the lighting page shows the preset
         // exactly as a manual pick would.
-        var start = new AnimateHeadlessStart { Effect = key, Persist = true };
+        var start = new StaticHeadlessStart { Effect = key, Persist = true };
         var slot = AnimateTemplateDefaults.Slot(key, 0);
         if (slot is not null)
         {
-            start.Speed = slot.Speed;
             start.Intensity = slot.Intensity;
             start.Hue = slot.Hue;
             start.Colorize = slot.Colorize;
@@ -104,7 +103,7 @@ public sealed class SetStaticColorTool : IMcpTool
                 }
             }
         }
-        _lighting.StartAnimate(start);
+        _lighting.StartStatic(start);
         PanelTopics.BroadcastLighting(_hub);
 
         var result = new McpSetStaticColorResult { Color = $"#{r:x2}{g:x2}{b:x2}", Preset = name };

@@ -154,6 +154,28 @@ internal sealed class AutoRestoreOnStart : BackgroundService
                 Console.WriteLine("[auto-restore] lighting: gamesync");
                 return true;
 
+            case "static":
+            {
+                var staticEffect = s.Static.Effect;
+                if (!s.Static.States.TryGetValue(staticEffect, out var look) || look is null)
+                {
+                    look = Nexus.Service.Lighting.AnimateTemplateDefaults.ResolveSelected(s.Animate.Templates, staticEffect)
+                        ?? new AnimateEffectState();
+                }
+                _lighting.StartStatic(new StaticHeadlessStart
+                {
+                    Effect = staticEffect,
+                    Intensity = look.Intensity,
+                    Hue = look.Hue,
+                    Colorize = look.Colorize,
+                    Saturation = look.Saturation,
+                    Contrast = look.Contrast,
+                    Params = AnimateParamsToList(look.Params),
+                });
+                Console.WriteLine($"[auto-restore] lighting: static/{staticEffect}");
+                return true;
+            }
+
             case "media":
                 var mediaId = s.LastMediaId;
                 if (!string.IsNullOrEmpty(mediaId))

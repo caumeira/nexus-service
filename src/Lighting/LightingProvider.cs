@@ -99,7 +99,17 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// </summary>
     private void EnsureRgbActive() => _rgb?.Activate();
 
-    public string GetSync() => _engine.CurrentEffectName == "none" ? _store.Load().Lighting.Sync : _engine.CurrentEffectName;
+    // A running effect reports itself, except in Static: there the engine name is
+    // the catalog shader driving the held frame, while the mode is what callers
+    // classify on.
+    public string GetSync()
+    {
+        if (_engine.CurrentEffectName == "none")
+        {
+            return _store.Load().Lighting.Sync;
+        }
+        return _engine.Frozen ? "static" : _engine.CurrentEffectName;
+    }
 
     public void SetSync(string sync) => _store.Update(s => s.Lighting.Sync = sync);
 
@@ -183,6 +193,26 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     {
         EnsureRgbActive();
         var name = (body.Effect ?? "rainbow").ToLowerInvariant();
+        // The static catalog lives in Static mode now. Callers that predate it -
+        // restored settings written before the split, Stream Deck rgbEffect
+        // Deck rgbEffect buttons, MCP scenarios, set_static_color - still name one
+        // here, and must
+        // land in Static so the UI reflects where the look actually lives.
+        if (StaticEffectCatalog.Contains(name))
+        {
+            StartStatic(new StaticHeadlessStart
+            {
+                Effect = name,
+                Intensity = body.Intensity,
+                Hue = body.Hue,
+                Colorize = body.Colorize,
+                Saturation = body.Saturation,
+                Contrast = body.Contrast,
+                Params = body.Params,
+                Persist = body.Persist,
+            });
+            return;
+        }
         // Speed is bipolar: negative values run the effect in reverse. 50 = 1x
         // forward, -50 = 1x reverse, 100 = 2x forward, 0 = frozen.
         var speed = (float)(body.Speed / 50.0);
@@ -212,6 +242,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             cur.Saturation = saturation;
             cur.Contrast = contrast;
             cur.ExtraParams = extras;
+            // Reusing the running shader skips SetEffect, which is what clears
+            // the hold. Leaving it set after a static->animate switch freezes
+            // the animation on its first frame and keeps GetSync reporting
+            // static, so the UI snaps back.
+            _engine.SetFrozen(false);
         }
         else
         {
@@ -276,6 +311,80 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         });
     }
 
+    public void StartStatic(StaticHeadlessStart body)
+    {
+        EnsureRgbActive();
+        var name = (body.Effect ?? "").ToLowerInvariant();
+        if (!StaticEffectCatalog.Contains(name))
+        {
+            name = StaticEffectCatalog.Fills[0];
+        }
+        var intensity = body.Intensity > 0 ? body.Intensity : 1f;
+        var extras = ParamsToDict(body.Params);
+
+        // Speed 0 for the fills, which share the animate tint pipeline; the
+        // patterns read no clock at all.
+        if (_engine.CurrentEffect is ShaderEffect cur && cur.Name == name)
+        {
+            cur.Speed = 0f;
+            cur.Intensity = intensity;
+            cur.Hue = body.Hue;
+            cur.Colorize = body.Colorize;
+            cur.Saturation = body.Saturation;
+            cur.Contrast = body.Contrast;
+            cur.ExtraParams = extras;
+        }
+        else
+        {
+            _engine.SetEffect(BuildAnimateEffect(name, 0f, intensity, body.Hue, body.Colorize, body.Saturation, body.Contrast, extras));
+        }
+        _engine.SetFrozen(true);
+
+        if (!body.Persist)
+        {
+            return;
+        }
+        var incoming = new Nexus.Service.Persistence.AnimateEffectState
+        {
+            Speed = 0,
+            Intensity = intensity,
+            Hue = body.Hue,
+            Colorize = body.Colorize,
+            Saturation = body.Saturation,
+            Contrast = body.Contrast,
+            Params = extras is not null
+                ? new System.Collections.Generic.Dictionary<string, float>(extras)
+                : new(),
+        };
+        _store.Update(s =>
+        {
+            s.Lighting.Sync = "static";
+            s.Lighting.Static.Effect = name;
+            var slot = AnimateTemplateDefaults.ResolveSelected(s.Lighting.Animate.Templates, name);
+            // The slot carries an animate speed and may carry intensity 0; both
+            // are coerced here so an untouched look still compares equal and
+            // stays out of settings.json.
+            var baseline = slot is null ? null : new Nexus.Service.Persistence.AnimateEffectState
+            {
+                Speed = 0,
+                Intensity = slot.Intensity <= 0 ? 1f : slot.Intensity,
+                Hue = slot.Hue,
+                Colorize = slot.Colorize,
+                Saturation = slot.Saturation,
+                Contrast = slot.Contrast,
+                Params = slot.Params,
+            };
+            if (baseline is not null && AnimateTemplateDefaults.StateEquals(incoming, baseline))
+            {
+                s.Lighting.Static.States.Remove(name);
+            }
+            else
+            {
+                s.Lighting.Static.States[name] = incoming;
+            }
+        });
+    }
+
     private static System.Collections.Generic.Dictionary<string, float>? ParamsToDict(List<ShaderParam>? list)
     {
         if (list is null || list.Count == 0)
@@ -317,7 +426,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // t=0 would leave ramp-up effects (fire, starfield, matrix) cold or black.
     private const double ThumbnailFrameTimeMs = 957.0;
 
-    public (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false)
+    public (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false, bool frozen = false)
     {
         // Shader thumbnails are GPU-rendered; with no usable GPU the render is a
         // no-op and the frame stays black, so skip it and let the caller 404 -
@@ -337,15 +446,15 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // token), so a surface that keeps requesting the same token still
         // re-renders once the slot's saved look changes.
         var state = ResolveSlotLook(name, slot);
-        var tag = state is null ? "sig" : HashSlot(state);
-        var cacheKey = name + ":" + slot;
+        var tag = (state is null ? "sig" : HashSlot(state)) + (frozen ? ":f" : "");
+        var cacheKey = name + ":" + slot + (frozen ? ":f" : "");
         if (!skipCache && _thumbnailCache.TryGetValue(cacheKey, out var cached) && cached.Tag == tag)
         {
             return (cached.Bytes, tag);
         }
 
         var canvas = new Engine.CanvasBuffer(160, 90);
-        var effect = BuildThumbnailEffect(name, defaults, state);
+        var effect = BuildThumbnailEffect(name, defaults, state, frozen);
         try
         {
             effect.RenderFrame(canvas, ThumbnailFrameTimeMs);
@@ -462,7 +571,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// playing the effect shows), else the signature look. Both paths mirror the
     /// live <see cref="StartAnimate"/> uniform mapping (speed/50, params over defaults).
     /// </summary>
-    private IEffect BuildThumbnailEffect(string name, System.Collections.Generic.Dictionary<string, float> defaults, Nexus.Service.Persistence.AnimateEffectState? slot)
+    private IEffect BuildThumbnailEffect(string name, System.Collections.Generic.Dictionary<string, float> defaults, Nexus.Service.Persistence.AnimateEffectState? slot, bool frozen = false)
     {
         if (slot is not null)
         {
@@ -474,7 +583,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
                     extras[kv.Key] = kv.Value;
                 }
             }
-            return BuildAnimateEffect(name, slot.Speed / 50f, slot.Intensity, slot.Hue, slot.Colorize, slot.Saturation, slot.Contrast, extras);
+            return BuildAnimateEffect(name, frozen ? 0f : slot.Speed / 50f, slot.Intensity, slot.Hue, slot.Colorize, slot.Saturation, slot.Contrast, extras);
         }
 
         // Signature hue + colorize + speed give the iconic look (fire orange,
@@ -482,7 +591,9 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // signature table mirrors SIGNATURES in
         // nexus-web/src/types/lightingTemplates.ts.
         var sig = SignatureFor(name);
-        var thumbSpeed = sig.Speed / 50f;
+        // Static mode renders at speed 0, so its tile must too or the grid
+        // advertises a frame the LEDs never show.
+        var thumbSpeed = frozen ? 0f : sig.Speed / 50f;
         if (name == "pulse")
         {
             thumbSpeed *= 0.5f;
@@ -513,6 +624,14 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "simpleblue"   => new(0.62f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "simpleviolet" => new(0.75f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "simplepink"   => new(0.92f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        // Static patterns paint their own colours; a neutral signature keeps the
+        // tint post-process from recolouring the thumbnail.
+        "gradientlinear" or "gradientradial" or "gradienttri" or "gradientconic"
+            or "mirror" or "corners"
+            or "splitsharp" or "stripes" or "checker" or "border"
+            or "rings" or "dots" or "wedges"
+            or "spectrumramp" or "spectrumbands" or "huewheel"
+            => new(0.00f, 0.00f, 0f, 1.00f, 1.00f, 1f),
         "rainbow" => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "fire" => new(0.03f, 0.80f, 70f, 1.10f, 1.05f, 1f),
         "plasma" => new(0.85f, 0.30f, 60f, 1.00f, 1.00f, 1f),
@@ -611,6 +730,25 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "simplewhite" or "simplered" or "simpleorange" or "simpleyellow" or "simplegreen"
             or "simplecyan" or "simpleblue" or "simpleviolet"
             or "simplepink" => new() { ["u_hueShift"] = 0f, ["u_warmth"] = 0f },
+        // Static patterns: colours are HSV triples carried as ordinary float
+        // params, so they need no separate wire or storage shape. Mirrors the
+        // EFFECTS param defaults in nexus-web/src/types/lighting.ts.
+        "gradientlinear" => new() { ["u_aHue"] = 0.58f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.88f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_angle"] = 0f, ["u_midpoint"] = 0.5f, ["u_softness"] = 1f },
+        "gradientradial" => new() { ["u_aHue"] = 0.12f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.75f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_radius"] = 0.45f, ["u_softness"] = 0.8f },
+        "gradienttri" => new() { ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.33f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_cHue"] = 0.62f, ["u_cSat"] = 1f, ["u_cVal"] = 1f, ["u_angle"] = 0f, ["u_midpoint"] = 0.5f },
+        "gradientconic" => new() { ["u_aHue"] = 0.55f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.92f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_offset"] = 0f },
+        "splitsharp" => new() { ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.62f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_angle"] = 0f, ["u_position"] = 0.5f },
+        "stripes" => new() { ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.58f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_count"] = 3f, ["u_angle"] = 0f, ["u_softness"] = 0.02f, ["u_balance"] = 0.5f },
+        "checker" => new() { ["u_aHue"] = 0f, ["u_aSat"] = 0f, ["u_aVal"] = 1f, ["u_bHue"] = 0f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_size"] = 4f },
+        "border" => new() { ["u_aHue"] = 0f, ["u_aSat"] = 0f, ["u_aVal"] = 1f, ["u_bHue"] = 0.55f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_thickness"] = 0.18f, ["u_softness"] = 0.05f },
+        "corners" => new() { ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.15f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_cHue"] = 0.55f, ["u_cSat"] = 1f, ["u_cVal"] = 1f, ["u_dHue"] = 0.8f, ["u_dSat"] = 1f, ["u_dVal"] = 1f },
+        "rings" => new() { ["u_aHue"] = 0.55f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.88f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_count"] = 3f, ["u_softness"] = 0.05f },
+        "dots" => new() { ["u_aHue"] = 0.12f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.62f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_spacing"] = 4f, ["u_size"] = 0.36f, ["u_softness"] = 0.1f },
+        "wedges" => new() { ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.5f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_count"] = 4f, ["u_offset"] = 0f },
+        "mirror" => new() { ["u_aHue"] = 0.02f, ["u_aSat"] = 1f, ["u_aVal"] = 1f, ["u_bHue"] = 0.6f, ["u_bSat"] = 1f, ["u_bVal"] = 1f, ["u_angle"] = 0f, ["u_softness"] = 0.6f },
+        "spectrumramp" => new() { ["u_angle"] = 0f, ["u_density"] = 1f, ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f },
+        "spectrumbands" => new() { ["u_count"] = 5f, ["u_angle"] = 0f, ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f },
+        "huewheel" => new() { ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f },
         "rainbow" => new() { ["u_density"] = 1f, ["u_rotation"] = 0f },
         "fire" => new() { ["u_turbulence"] = 1.6f },
         "plasma" => new() { ["u_warp"] = 1f, ["u_zoom"] = 1f },
@@ -709,6 +847,13 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // Simple solid-colour fills all share one cheap shader; the colour is
         // carried by the post-process tint, not the GLSL.
         if (name.StartsWith("simple", System.StringComparison.Ordinal))
+        {
+            return MakeShader(name, ShaderLibrary.Get(name), effectSpeed, intensity, hue, colorize, saturation, contrast, extras);
+        }
+        // Static patterns load their own .frag by name. Without this they fall
+        // through the switch below to its rainbow default and every one of them
+        // renders as rainbow, which no gate would catch.
+        if (StaticEffectCatalog.Contains(name))
         {
             return MakeShader(name, ShaderLibrary.Get(name), effectSpeed, intensity, hue, colorize, saturation, contrast, extras);
         }

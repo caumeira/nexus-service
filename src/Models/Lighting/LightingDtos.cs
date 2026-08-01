@@ -120,6 +120,26 @@ public class ShaderParam
     public float Value { get; set; }
 }
 
+/// <summary>
+/// POST body for /lighting/static/headless-start. Same look controls as
+/// <see cref="AnimateHeadlessStart"/> minus speed: the shader runs at speed 0,
+/// so its output is a still frame the engine renders once and holds.
+/// </summary>
+public class StaticHeadlessStart
+{
+    public string Effect { get; set; } = "";
+    public float Intensity { get; set; }
+    public float Hue { get; set; }
+    public float Colorize { get; set; }
+    /// <summary>0 = grayscale, 1 = unchanged, 2 = oversaturated.</summary>
+    public float Saturation { get; set; } = 1f;
+    /// <summary>0 = flat middle gray, 1 = unchanged, 2 = hard contrast.</summary>
+    public float Contrast { get; set; } = 1f;
+    public List<ShaderParam> Params { get; set; } = new();
+    /// <summary>False while the user drags a slider: updates the live uniforms but skips the settings write.</summary>
+    public bool Persist { get; set; } = true;
+}
+
 public class MusicHeadlessStart
 {
     public string Effect { get; set; } = "CircleRamp";

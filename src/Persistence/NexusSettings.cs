@@ -296,6 +296,12 @@ public sealed class LightingSettings
     public string? ActiveLayoutPresetId { get; set; }
     public string LastMediaId { get; set; } = "";
     public AnimateSettings Animate { get; set; } = new();
+    /// <summary>Static-mode selection and per-key looks. Baselines resolve from
+    /// <see cref="AnimateSettings.Templates"/> - template slots are keyed by effect
+    /// and shared across modes, so a fill keeps the colours it had before Static
+    /// existed - while States here stays separate, letting a pattern hold a
+    /// different look frozen than it does animated.</summary>
+    public StaticSettings Static { get; set; } = new();
     /// <summary>Last static colour the user picked (r,g,b 0..255).</summary>
     public StaticColorSettings StaticColor { get; set; } = new();
     /// <summary>When true, BeatsProvider runs audio capture + spectrum analysis and
@@ -356,6 +362,15 @@ public sealed class AnimateSettings
     /// mirrors States[effect] for the currently-selected template; the other slots persist
     /// across sessions so the user can round-trip between their own presets.</summary>
     public Dictionary<string, AnimateEffectTemplates> Templates { get; set; } = new();
+}
+
+public sealed class StaticSettings
+{
+    /// <summary>Key of the last-selected static fill or pattern.</summary>
+    public string Effect { get; set; } = "simplewhite";
+    /// <summary>Sparse per-key look, same delta-from-resolved-slot rule as
+    /// <see cref="AnimateSettings.States"/>. Speed is unused - static runs at 0.</summary>
+    public Dictionary<string, AnimateEffectState> States { get; set; } = new();
 }
 
 public sealed class AnimateEffectState
