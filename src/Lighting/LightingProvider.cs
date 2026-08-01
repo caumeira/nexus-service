@@ -317,6 +317,12 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         var name = (body.Effect ?? "").ToLowerInvariant();
         if (!StaticEffectCatalog.Contains(name))
         {
+            // Coercing a wrong key to a fill hid caller bugs behind a 200 and
+            // persisted the wrong selection; an empty key still gets the default.
+            if (name.Length > 0)
+            {
+                throw new System.ArgumentException($"'{name}' is not a static effect", nameof(body));
+            }
             name = StaticEffectCatalog.Fills[0];
         }
         var intensity = body.Intensity > 0 ? body.Intensity : 1f;

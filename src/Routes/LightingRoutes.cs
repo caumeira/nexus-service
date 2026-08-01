@@ -11,6 +11,14 @@ namespace Nexus.Service.Routes;
 
 public static class LightingRoutes
 {
+    // Presence alone made ?frozen=0 and ?frozen=false freeze the render.
+    private static bool IsTruthy(Microsoft.Extensions.Primitives.StringValues v)
+    {
+        if (v.Count == 0) return false;
+        var s = v.ToString();
+        return s.Length == 0 || !(s is "0" or "false" or "False" or "FALSE");
+    }
+
     public static void MapLightingEndpoints(this WebApplication app)
     {
         app.MapPost("/lighting/stop", (ILightingProvider l, MultiplexHub hub) => { l.StopAll(); PanelTopics.BroadcastLighting(hub); return ApiResponse.Ok(); }).AllowPanel();
@@ -57,7 +65,7 @@ public static class LightingRoutes
             // content-bust token for the browser cache; the ETag below is the
             // service's own freshness check.
             var slot = int.TryParse(req.Query["slot"], out var sv) ? sv : 0;
-            var result = l.CaptureAnimateThumbnail(key, slot, skipCache: fresh, frozen: req.Query.ContainsKey("frozen"));
+            var result = l.CaptureAnimateThumbnail(key, slot, skipCache: fresh, frozen: IsTruthy(req.Query["frozen"]));
             if (result is null) return Results.NotFound();
             var (bytes, tag) = result.Value;
             var etag = $"\"{tag}\"";
@@ -164,7 +172,8 @@ public static class LightingRoutes
         }).AllowPanel();
         app.MapPost("/lighting/static/headless-start", (StaticHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
         {
-            l.StartStatic(body);
+            try { l.StartStatic(body); }
+            catch (System.ArgumentException ex) { return ApiResponse.Fail(ex.Message); }
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();

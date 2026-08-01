@@ -101,15 +101,16 @@ public class StaticEffectCatalogTests
         Assert.False(StaticEffectCatalog.Contains("fire"));
     }
 
+    // The prelude is shared and grows over time, so key off its end marker
+    // rather than a specific helper name: a function added after the marker
+    // would otherwise leak prelude text into every assertion below.
+    private const string PreludeEndMarker = "// ---- effect body ----";
+
     private static string ShaderBody(string key)
     {
-        // ShaderLibrary prepends the shared prelude, which declares u_time and
-        // carries helpers for the animate set; only the effect's own body is
-        // under test here.
         var src = ShaderLibrary.Get(key);
-        var marker = src.LastIndexOf("float fbm3(vec2 p)", StringComparison.Ordinal);
-        var body = marker < 0 ? src : src[marker..];
-        var close = body.IndexOf("\n}", StringComparison.Ordinal);
-        return close < 0 ? body : body[(close + 2)..];
+        var marker = src.IndexOf(PreludeEndMarker, StringComparison.Ordinal);
+        Assert.True(marker >= 0, $"prelude end marker missing; {PreludeEndMarker} must terminate _prelude.frag");
+        return src[(marker + PreludeEndMarker.Length)..];
     }
 }
