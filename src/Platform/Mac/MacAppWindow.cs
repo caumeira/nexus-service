@@ -646,6 +646,8 @@ internal static class MacAppWindow
         // createWebView callback.
         MsgSend(webView, SelRegister("setUIDelegate:"), _targetObj);
 
+        EnableWebInspector(webView, config);
+
         // ── Container + drag strip ──────────────────────────────────────────
         // The window's content view is a plain NSView holding the WKWebView
         // plus a transparent drag strip pinned to the top. The strip restores
@@ -847,6 +849,28 @@ internal static class MacAppWindow
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    // Enable Safari Web Inspector on the dashboard web view (right-click ->
+    // "Inspect Element"), matching the overlay helper's widget-overlay and
+    // panel-kiosk web views. -setInspectable: needs macOS 13.3, so probe for it
+    // and fall back to the KVC knob WebKit has honoured since well before that.
+    private static void EnableWebInspector(IntPtr webView, IntPtr config)
+    {
+        try
+        {
+            IntPtr selInspectable = SelRegister("setInspectable:");
+            if (MsgSendPtr_RetBool(webView, SelRegister("respondsToSelector:"), selInspectable))
+            {
+                MsgSendVoidBool(webView, selInspectable, true);
+                return;
+            }
+            IntPtr prefs = MsgSend(config, SelRegister("preferences"));
+            if (prefs == IntPtr.Zero) return;
+            IntPtr yes = MsgSendRetBool(ClassGet("NSNumber"), SelRegister("numberWithBool:"), true);
+            MsgSend(prefs, SelRegister("setValue:forKey:"), yes, NsString("developerExtrasEnabled"));
+        }
+        catch { }
+    }
 
     // Add a document-start user script that defines window.nexusShellPlatform
     // before any page script runs, so nexus-web can branch its layout the same
@@ -1088,6 +1112,11 @@ internal static class MacAppWindow
 
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSendVoidBool(IntPtr receiver, IntPtr sel, [MarshalAs(UnmanagedType.I1)] bool arg1);
+
+    // respondsToSelector: -> (SEL) returning BOOL.
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool MsgSendPtr_RetBool(IntPtr receiver, IntPtr sel, IntPtr arg1);
 
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSendVoidLong(IntPtr receiver, IntPtr sel, long arg1);
