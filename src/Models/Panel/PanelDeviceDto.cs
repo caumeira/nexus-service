@@ -45,8 +45,10 @@ public sealed class PanelDeviceRecord
     /// video element.</summary>
     public string? BackgroundMediaType { get; set; }
     /// <summary>Frosted-glass blur over the background layer (shader / media /
-    /// desktop wallpaper): "light" or "heavy". Null = none.</summary>
-    public string? BackgroundFrost { get; set; }
+    /// desktop wallpaper), percent 0-100. Null is unset; the client applies its
+    /// own default. Never rename this to "backgroundFrost": stored records hold
+    /// a string under that key, which would not deserialize here.</summary>
+    public double? BackgroundFrostLevel { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
     /// <summary>Percent 0-100. Null is unset; the client applies its own default.</summary>
@@ -167,7 +169,7 @@ public sealed class PanelDevicePatch
     public bool? BackgroundEnabled { get; set; }
     public string? BackgroundMediaId { get; set; }
     public string? BackgroundMediaType { get; set; }
-    public string? BackgroundFrost { get; set; }
+    public double? BackgroundFrostLevel { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
     public double? WidgetPadding { get; set; }

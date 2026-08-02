@@ -336,4 +336,43 @@ public class JsonConfigStoreMigrationTests : IDisposable
             store.Dispose();
         }
     }
+
+    /// <summary>
+    /// The frost slider replaced the "backgroundFrost" step with the numeric
+    /// BackgroundFrostLevel and drops the old value instead of migrating it.
+    /// That is only safe while unmapped members are skipped: switching
+    /// PersistenceJsonContext to UnmappedMemberHandling.Disallow would throw
+    /// here, and JsonConfigStore.Load treats a throw as a corrupt file - it
+    /// snapshots and resets the WHOLE settings file, not just the panel record.
+    /// </summary>
+    [Fact]
+    public void Load_PanelDeviceWithDroppedFrostStep_LoadsAndIgnoresIt()
+    {
+        var json = """
+        {
+          "schemaVersion": 11,
+          "panelDevices": {
+            "abc123": {
+              "id": "abc123",
+              "displayName": "My Panel",
+              "backgroundFrost": "heavy"
+            }
+          }
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            var record = Assert.Contains("abc123", s.PanelDevices);
+            Assert.Equal("My Panel", record.DisplayName);
+            Assert.Null(record.BackgroundFrostLevel);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
 }

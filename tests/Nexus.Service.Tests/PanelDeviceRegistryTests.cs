@@ -142,20 +142,21 @@ public sealed class PanelDeviceRegistryTests : IDisposable
     }
 
     [Fact]
-    public void Patch_BackgroundFrost_RoundTripsAndEmptyClears()
+    public void Patch_BackgroundFrostLevel_RoundTripsAndSurvivesUnrelatedPatch()
     {
         var record = _registry.Allocate(null, Caps(PanelSurfaces.Phone));
-        Assert.Null(record.BackgroundFrost);
+        Assert.Null(record.BackgroundFrostLevel);
 
-        var patched = _registry.Patch(record.Id, new PanelDevicePatch { BackgroundFrost = "heavy" });
-        Assert.Equal("heavy", patched!.BackgroundFrost);
-        Assert.Equal("heavy", _registry.Get(record.Id)!.BackgroundFrost);
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { BackgroundFrostLevel = 75 });
+        Assert.Equal(75, patched!.BackgroundFrostLevel);
+        Assert.Equal(75, _registry.Get(record.Id)!.BackgroundFrostLevel);
 
         var renamed = _registry.Patch(record.Id, new PanelDevicePatch { DisplayName = "Renamed" });
-        Assert.Equal("heavy", renamed!.BackgroundFrost);
+        Assert.Equal(75, renamed!.BackgroundFrostLevel);
 
-        var cleared = _registry.Patch(record.Id, new PanelDevicePatch { BackgroundFrost = "" });
-        Assert.Null(cleared!.BackgroundFrost);
+        // 0 is a real value (frost off), not "no change".
+        var off = _registry.Patch(record.Id, new PanelDevicePatch { BackgroundFrostLevel = 0 });
+        Assert.Equal(0, off!.BackgroundFrostLevel);
     }
 
     [Fact]
@@ -177,7 +178,7 @@ public sealed class PanelDeviceRegistryTests : IDisposable
             BackgroundEnabled = false,
             BackgroundMediaId = "asset-1",
             BackgroundMediaType = "static",
-            BackgroundFrost = "heavy",
+            BackgroundFrostLevel = 100,
             WidgetOpacity = 0.7,
             WidgetLabels = true,
             WidgetPadding = 25,
@@ -205,7 +206,7 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         Assert.Null(reset.BackgroundEnabled);
         Assert.Null(reset.BackgroundMediaId);
         Assert.Null(reset.BackgroundMediaType);
-        Assert.Null(reset.BackgroundFrost);
+        Assert.Null(reset.BackgroundFrostLevel);
         Assert.Null(reset.WidgetOpacity);
         Assert.Null(reset.WidgetLabels);
         Assert.Null(reset.WidgetPadding);
@@ -218,7 +219,7 @@ public sealed class PanelDeviceRegistryTests : IDisposable
     public void ResetToDefaults_DisplayBound_KeepsBindingEnabledAndMonitorSettings()
     {
         var (record, _) = _registry.AllocateForDisplay("DISPLAY-1", "Edge", Caps(PanelSurfaces.Monitor));
-        _registry.Patch(record.Id, new PanelDevicePatch { ReserveMonitor = false, AutoOrient = false, BackgroundFrost = "light" });
+        _registry.Patch(record.Id, new PanelDevicePatch { ReserveMonitor = false, AutoOrient = false, BackgroundFrostLevel = 25 });
 
         var reset = _registry.ResetToDefaults(record.Id);
 
@@ -228,14 +229,14 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         // Monitor behavior is hardware scope; personalization keeps it.
         Assert.False(reset.ReserveMonitor);
         Assert.False(reset.AutoOrient);
-        Assert.Null(reset.BackgroundFrost);
+        Assert.Null(reset.BackgroundFrostLevel);
     }
 
     [Fact]
     public void ResetHardwareSettings_ClearsMonitorBehavior_KeepsPersonalization()
     {
         var (record, _) = _registry.AllocateForDisplay("DISPLAY-1", "Edge", Caps(PanelSurfaces.Monitor));
-        _registry.Patch(record.Id, new PanelDevicePatch { ReserveMonitor = false, AutoOrient = false, BackgroundFrost = "light" });
+        _registry.Patch(record.Id, new PanelDevicePatch { ReserveMonitor = false, AutoOrient = false, BackgroundFrostLevel = 25 });
         _registry.UpdateXeneonEdgeSettings("DISPLAY-1", new XeneonEdgeSettingsDto { Brightness = 5 });
 
         var reset = _registry.ResetHardwareSettings(record.Id);
@@ -245,7 +246,7 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         Assert.Null(reset.AutoOrient);
         Assert.Null(reset.XeneonEdgeSettings);
         // Personalization is the other scope; hardware reset keeps it.
-        Assert.Equal("light", reset.BackgroundFrost);
+        Assert.Equal(25, reset.BackgroundFrostLevel);
         Assert.Equal("DISPLAY-1", reset.DisplayId);
     }
 
