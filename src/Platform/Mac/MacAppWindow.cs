@@ -646,7 +646,7 @@ internal static class MacAppWindow
         // createWebView callback.
         MsgSend(webView, SelRegister("setUIDelegate:"), _targetObj);
 
-        EnableWebInspector(webView, config);
+        EnableWebInspector(webView);
 
         // ── Container + drag strip ──────────────────────────────────────────
         // The window's content view is a plain NSView holding the WKWebView
@@ -852,24 +852,24 @@ internal static class MacAppWindow
 
     // Enable Safari Web Inspector on the dashboard web view (right-click ->
     // "Inspect Element"), matching the overlay helper's widget-overlay and
-    // panel-kiosk web views. -setInspectable: needs macOS 13.3, so probe for it
-    // and fall back to the KVC knob WebKit has honoured since well before that.
-    private static void EnableWebInspector(IntPtr webView, IntPtr config)
+    // panel-kiosk web views. -setInspectable: needs macOS 13.3; below that the
+    // knob is the private _developerExtrasEnabled KVC key on the WEB VIEW, not
+    // on the configuration - a WKWebViewConfiguration is copied at init, so a
+    // post-init write to its preferences is silently dropped. Same receiver and
+    // key the Swift helper uses (overlay-helper/main.swift).
+    private static void EnableWebInspector(IntPtr webView)
     {
-        try
+        IntPtr selInspectable = SelRegister("setInspectable:");
+        if (MsgSendPtr_RetBool(webView, SelRegister("respondsToSelector:"), selInspectable))
         {
-            IntPtr selInspectable = SelRegister("setInspectable:");
-            if (MsgSendPtr_RetBool(webView, SelRegister("respondsToSelector:"), selInspectable))
-            {
-                MsgSendVoidBool(webView, selInspectable, true);
-                return;
-            }
-            IntPtr prefs = MsgSend(config, SelRegister("preferences"));
-            if (prefs == IntPtr.Zero) return;
-            IntPtr yes = MsgSendRetBool(ClassGet("NSNumber"), SelRegister("numberWithBool:"), true);
-            MsgSend(prefs, SelRegister("setValue:forKey:"), yes, NsString("developerExtrasEnabled"));
+            MsgSendVoidBool(webView, selInspectable, true);
+            return;
         }
-        catch { }
+        // No try/catch: an ObjC exception from setValue:forKey: aborts the
+        // process rather than unwinding into managed code, so a catch here
+        // would be theatre. respondsToSelector: above is the real guard.
+        IntPtr yes = MsgSendRetBool(ClassGet("NSNumber"), SelRegister("numberWithBool:"), true);
+        MsgSend(webView, SelRegister("setValue:forKey:"), yes, NsString("_developerExtrasEnabled"));
     }
 
     // Add a document-start user script that defines window.nexusShellPlatform
