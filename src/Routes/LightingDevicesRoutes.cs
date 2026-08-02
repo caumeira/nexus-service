@@ -49,6 +49,11 @@ public static partial class DevicesRoutes
         Nexus.Service.Persistence.IConfigStore store,
         Nexus.Service.Lighting.ILightingProvider lighting)
     {
+        // Runs for every mode, including the Off / Game Sync arms below that
+        // never reach LiveEngineSync, so a later switch to Mirror or Media picks
+        // up this preset's filter rather than the outgoing one.
+        Nexus.Service.Lifecycle.LiveEngineSync.ApplyPostProcess(store, lighting);
+
         var sync = (look.Sync ?? "").ToLowerInvariant();
         if (sync.Length == 0)
         {

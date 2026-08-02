@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Nexus.Service.Defaults;
 using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Lighting;
@@ -32,6 +33,8 @@ public static class LightingPresetLooks
             StaticSlot = SelectedSlot(templates, still),
             GlobalBrightness = lighting.GlobalBrightness,
             LastMediaId = lighting.LastMediaId ?? "",
+            ScreenEffect = ClonePostProcess(lighting.ScreenEffect),
+            MediaEffect = ClonePostProcess(lighting.MediaEffect),
         };
     }
 
@@ -78,7 +81,40 @@ public static class LightingPresetLooks
         {
             lighting.LastMediaId = look.LastMediaId;
         }
+        if (ClonePostProcess(look.ScreenEffect) is { } screen)
+        {
+            lighting.ScreenEffect = screen;
+        }
+        if (ClonePostProcess(look.MediaEffect) is { } media)
+        {
+            lighting.MediaEffect = media;
+        }
     }
+
+    // A non-finite filter value reaches the shader uniforms and renders black.
+    // Same treatment as the master-brightness route, which substitutes the
+    // default; the effect routes themselves pass their body through unguarded.
+    private static PostProcessSettings? ClonePostProcess(PostProcessSettings? pp)
+    {
+        if (pp is null)
+        {
+            return null;
+        }
+        return new PostProcessSettings
+        {
+            Hue = Finite(pp.Hue, InstallDefaults.Lighting.PostProcess.Hue),
+            Colorize = Finite(pp.Colorize, InstallDefaults.Lighting.PostProcess.Colorize),
+            Saturation = Finite(pp.Saturation, InstallDefaults.Lighting.PostProcess.Saturation),
+            Contrast = Finite(pp.Contrast, InstallDefaults.Lighting.PostProcess.Contrast),
+            FlipX = pp.FlipX,
+            FlipY = pp.FlipY,
+            Reactive = pp.Reactive,
+            Reactivity = Finite(pp.Reactivity, InstallDefaults.Lighting.PostProcess.Reactivity),
+            Intensity = Finite(pp.Intensity, InstallDefaults.Lighting.PostProcess.Intensity),
+        };
+    }
+
+    private static float Finite(float value, float fallback) => float.IsFinite(value) ? value : fallback;
 
     private static AnimateEffectState? Resolve(
         Dictionary<string, AnimateEffectTemplates>? templates,

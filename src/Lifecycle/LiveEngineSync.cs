@@ -54,6 +54,7 @@ public static class LiveEngineSync
     {
         try
         {
+            ApplyPostProcess(store, lighting);
             var s = store.Load().Lighting;
             var sync = (s.Sync ?? "").ToLowerInvariant();
             if (string.IsNullOrEmpty(sync) || sync == "none") return;
@@ -123,6 +124,23 @@ public static class LiveEngineSync
         {
             Console.Error.WriteLine($"[live-sync] lighting failed: {ex.Message}");
         }
+    }
+
+    /// <summary>Push the persisted Mirror/Media filters into the provider's live
+    /// holders. A running effect samples those holders, and they are otherwise
+    /// only loaded at construction and mutated by the effect endpoints - so any
+    /// flow that swaps settings underneath the engine (profile switch, profile
+    /// reset, boot, preset activation) renders the previous filter without this.
+    /// persist:false - the store is the source here, not the destination.</summary>
+    public static void ApplyPostProcess(IConfigStore store, ILightingProvider lighting)
+    {
+        var s = store.Load().Lighting;
+        var screen = s.ScreenEffect;
+        lighting.UpdateScreenEffect(screen.Hue, screen.Colorize, screen.Saturation, screen.Contrast,
+            screen.FlipX, screen.FlipY, persist: false, screen.Reactive, screen.Reactivity, screen.Intensity);
+        var media = s.MediaEffect;
+        lighting.UpdateMediaEffect(media.Hue, media.Colorize, media.Saturation, media.Contrast,
+            media.FlipX, media.FlipY, persist: false);
     }
 
     private static List<ShaderParam> AnimateParamsToList(Dictionary<string, float>? d)

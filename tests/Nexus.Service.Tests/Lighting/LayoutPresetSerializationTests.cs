@@ -95,6 +95,8 @@ public sealed class LayoutPresetSerializationTests
                             StaticSlot = 1,
                             GlobalBrightness = 0.35f,
                             LastMediaId = "clip-7",
+                            ScreenEffect = new PostProcessSettings { Hue = 0.2f, Reactive = true },
+                            MediaEffect = new PostProcessSettings { Hue = 0.6f, FlipY = true },
                             AnimateState = new AnimateEffectState
                             {
                                 Speed = 40,
@@ -120,6 +122,10 @@ public sealed class LayoutPresetSerializationTests
         Assert.Equal(1, look.StaticSlot);
         Assert.Equal(0.35f, look.GlobalBrightness);
         Assert.Equal("clip-7", look.LastMediaId);
+        Assert.Equal(0.2f, look.ScreenEffect!.Hue);
+        Assert.True(look.ScreenEffect.Reactive);
+        Assert.Equal(0.6f, look.MediaEffect!.Hue);
+        Assert.True(look.MediaEffect.FlipY);
         Assert.NotNull(look.AnimateState);
         Assert.Equal(40, look.AnimateState.Speed);
         Assert.Equal(0.25f, look.AnimateState.Hue);
