@@ -32,10 +32,16 @@ public sealed class PanelDeviceRecord
     /// </summary>
     public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
-    /// <summary>Background layer on/off. False renders the panel page fully
-    /// transparent so a kiosk-hosted panel (y70 / promoted monitor) shows the
-    /// Windows desktop through. Null = enabled.</summary>
+    /// <summary>Background layer on/off. Superseded by <see cref="Backdrop"/>,
+    /// which encodes the same choice plus the see-through mode; retained so a
+    /// stored record still round-trips.</summary>
     public bool? BackgroundEnabled { get; set; }
+    /// <summary>What renders behind the widgets: "theme" (the panel's own
+    /// background layer), "wallpaper" (the desktop wallpaper redrawn in-page),
+    /// or "desktop" (the kiosk window itself is transparent, so the live
+    /// desktop shows through). Null = the client's per-surface default.
+    /// Only kiosk-hosted panels offer wallpaper/desktop.</summary>
+    public string? Backdrop { get; set; }
     /// <summary>Selected background-media asset id (PanelBgLibrary) for THIS
     /// panel; null = none. Only set for local panels (y70 / q-series).</summary>
     public string? BackgroundMediaId { get; set; }
@@ -167,6 +173,8 @@ public sealed class PanelDevicePatch
     public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
     public bool? BackgroundEnabled { get; set; }
+    /// <summary>"theme", "wallpaper", or "desktop"; see the record.</summary>
+    public string? Backdrop { get; set; }
     public string? BackgroundMediaId { get; set; }
     public string? BackgroundMediaType { get; set; }
     public double? BackgroundFrostLevel { get; set; }

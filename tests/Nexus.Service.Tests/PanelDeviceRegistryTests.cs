@@ -142,6 +142,53 @@ public sealed class PanelDeviceRegistryTests : IDisposable
     }
 
     [Fact]
+    public void Patch_Backdrop_RoundTripsThroughGet()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+        Assert.Null(record.Backdrop);
+
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { Backdrop = "desktop" });
+        var fetched = _registry.Get(record.Id);
+
+        Assert.Equal("desktop", patched!.Backdrop);
+        Assert.Equal("desktop", fetched!.Backdrop);
+    }
+
+    [Fact]
+    public void Patch_Backdrop_NormalizesCaseAndSurroundingSpace()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { Backdrop = "  Wallpaper " });
+
+        Assert.Equal("wallpaper", patched!.Backdrop);
+    }
+
+    // An unrecognised value must not clear the stored mode: the client would
+    // silently fall back to its per-surface default on the next read.
+    [Fact]
+    public void Patch_UnknownBackdrop_LeavesTheStoredValue()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+        _registry.Patch(record.Id, new PanelDevicePatch { Backdrop = "desktop" });
+
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { Backdrop = "nonsense" });
+
+        Assert.Equal("desktop", patched!.Backdrop);
+    }
+
+    [Fact]
+    public void Patch_OmittedBackdrop_DoesNotClobberStoredValue()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+        _registry.Patch(record.Id, new PanelDevicePatch { Backdrop = "theme" });
+
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { DisplayName = "Renamed" });
+
+        Assert.Equal("theme", patched!.Backdrop);
+    }
+
+    [Fact]
     public void Patch_BackgroundFrostLevel_RoundTripsAndSurvivesUnrelatedPatch()
     {
         var record = _registry.Allocate(null, Caps(PanelSurfaces.Phone));

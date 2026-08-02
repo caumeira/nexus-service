@@ -382,6 +382,10 @@ public sealed class PanelDeviceRegistry
                 record.BackgroundOpacity = patch.BackgroundOpacity.Value;
             if (patch.BackgroundEnabled.HasValue)
                 record.BackgroundEnabled = patch.BackgroundEnabled.Value;
+            // An unrecognised value is ignored rather than stored: clearing
+            // would silently drop the panel's current mode on a client typo.
+            if (NormalizeBackdrop(patch.Backdrop) is { } backdrop)
+                record.Backdrop = backdrop;
             if (patch.BackgroundMediaId is not null)
                 record.BackgroundMediaId = NullIfEmpty(patch.BackgroundMediaId);
             if (patch.BackgroundMediaType is not null)
@@ -463,6 +467,7 @@ public sealed class PanelDeviceRegistry
             record.BackgroundTemplates = null;
             record.BackgroundOpacity = null;
             record.BackgroundEnabled = null;
+            record.Backdrop = null;
             record.BackgroundMediaId = null;
             record.BackgroundMediaType = null;
             record.BackgroundFrostLevel = null;
@@ -527,6 +532,16 @@ public sealed class PanelDeviceRegistry
         return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
+    /// <summary>Unknown values store as null so the client falls back to its
+    /// per-surface default rather than to a mode the panel cannot render.</summary>
+    private static string? NormalizeBackdrop(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "theme" => "theme",
+        "wallpaper" => "wallpaper",
+        "desktop" => "desktop",
+        _ => null,
+    };
+
     private static string NewId()
     {
         return Convert.ToBase64String(RandomNumberGenerator.GetBytes(9))
@@ -554,6 +569,7 @@ public sealed class PanelDeviceRegistry
                 : new Dictionary<string, int>(r.BackgroundTemplates),
             BackgroundOpacity = r.BackgroundOpacity,
             BackgroundEnabled = r.BackgroundEnabled,
+            Backdrop = r.Backdrop,
             BackgroundMediaId = r.BackgroundMediaId,
             BackgroundMediaType = r.BackgroundMediaType,
             BackgroundFrostLevel = r.BackgroundFrostLevel,
