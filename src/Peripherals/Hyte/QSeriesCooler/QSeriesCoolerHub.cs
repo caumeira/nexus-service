@@ -206,7 +206,12 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                 transport.Write(QSeriesCoolerProtocol.BuildGetFirmwareVersion());
                 var buf = new byte[QSeriesCoolerProtocol.FirmwareVersionResponseLength];
                 var n = transport.Read(buf, 400);
-                if (n < QSeriesCoolerProtocol.FirmwareVersionResponseLength) { Disconnect(); return false; }
+                if (n < QSeriesCoolerProtocol.FirmwareVersionResponseLength)
+                {
+                    ServiceLog.Warn($"[qseries-cooler] fw-version short read ({n} bytes) - dropping transport");
+                    Disconnect();
+                    return false;
+                }
                 var v = QSeriesCoolerProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
                 if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
                 return true;

@@ -125,7 +125,12 @@ public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
                 transport.Write(Y70DisplayProtocol.BuildGetFirmwareVersion());
                 var buf = new byte[Y70DisplayProtocol.FirmwareVersionResponseLength];
                 var n = transport.Read(buf, 400);
-                if (n < Y70DisplayProtocol.FirmwareVersionResponseLength) { Disconnect(); return false; }
+                if (n < Y70DisplayProtocol.FirmwareVersionResponseLength)
+                {
+                    ServiceLog.Warn($"[y70-display] fw-version short read ({n} bytes) - dropping transport");
+                    Disconnect();
+                    return false;
+                }
                 var v = Y70DisplayProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
                 if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
                 return true;

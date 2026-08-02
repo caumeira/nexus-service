@@ -177,6 +177,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     public bool PollHubInfo()
     {
         return Exchange(
+            "hub-info",
             Np50Protocol.BuildGetInfo(),
             expectedLength: 20,
             timeoutMs: 250,
@@ -192,6 +193,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
         var p = State.Ports.FirstOrDefault(x => x.Index == port);
         if (p is null) return false;
         return Exchange(
+            $"port{port}",
             Np50Protocol.BuildGetChannelInfo(port),
             expectedLength: 240,
             timeoutMs: 400,
@@ -230,6 +232,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     public bool PollWarningDetail()
     {
         return Exchange(
+            "warning-detail",
             Np50Protocol.BuildGetWarningDetail(),
             expectedLength: 6,
             timeoutMs: 200,
@@ -239,6 +242,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     public bool PollFirmwareVersion()
     {
         return Exchange(
+            "fw-version",
             Np50Protocol.BuildGetFirmwareVersion(),
             expectedLength: 7,
             timeoutMs: 300,
@@ -317,6 +321,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     {
         byte[]? result = null;
         var ok = Exchange(
+            "fw-default-mode",
             Np50Protocol.BuildGetFirmwareDefaultMode(),
             expectedLength: 17,
             timeoutMs: 300,
@@ -368,6 +373,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     {
         byte[]? result = null;
         var ok = Exchange(
+            "fw-animation",
             Np50Protocol.BuildGetFirmwareAnimation(),
             expectedLength: 9,
             timeoutMs: 300,
@@ -431,10 +437,43 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     /// heartbeat re-discovers; returns false on any error rather than throwing
     /// so the worker loop stays tick-clean.
     /// </summary>
-    private bool Exchange(byte[] request, int expectedLength, int timeoutMs, Action<ReadOnlySpan<byte>> parse)
+    private bool Exchange(string operation, byte[] request, int expectedLength, int timeoutMs, Action<ReadOnlySpan<byte>> parse)
     {
         if (!EnsureConnected()) return false;
         var transport = _transport!;
+        if (!SendRequest(transport, operation, request)) return false;
+
+        try
+        {
+            var buf = new byte[expectedLength];
+            var n = transport.Read(buf, timeoutMs);
+            if (n < 2)
+            {
+                return FailPoll(operation, $"short read ({n} bytes)");
+            }
+            parse(buf.AsSpan(0, n));
+            State.LastPollMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            _pollFailures.Reset();
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            // Port was torn down by Dispose/Disconnect from another thread.
+            return false;
+        }
+        catch (Exception ex)
+        {
+            return FailPoll(operation, $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Issue a poll request. A write that throws never reached the hub, so its
+    /// software-control watchdog goes unfed: drop the port now rather than
+    /// spending <see cref="Np50Protocol.HeartbeatRevertMs"/> on retries.
+    /// </summary>
+    private bool SendRequest(INp50Transport transport, string operation, byte[] request)
+    {
         try
         {
             // Drain stale bytes from any prior short read so the response we're
@@ -444,24 +483,27 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
             // the next 12-byte-slot parse to nonsense.
             transport.DiscardInput();
             transport.Write(request);
-            var buf = new byte[expectedLength];
-            var n = transport.Read(buf, timeoutMs);
-            if (n < 2)
-            {
-                Console.Error.WriteLine($"[np50] short read ({n} bytes); dropping connection");
-                Disconnect();
-                return false;
-            }
-            parse(buf.AsSpan(0, n));
-            State.LastPollMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[np50] exchange failed: {ex.GetType().Name}: {ex.Message}");
+            ServiceLog.Warn($"[np50] {operation} request failed: {ex.GetType().Name}: {ex.Message}");
             Disconnect();
             return false;
         }
+    }
+
+    private bool FailPoll(string operation, string detail)
+    {
+        if (_pollFailures.ShouldDisconnect(operation, detail))
+        {
+            Disconnect();
+        }
+        return false;
     }
 
     private bool SendOnly(byte[] request)
@@ -500,6 +542,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
         }
     }
 
+    private readonly PollFailureTracker _pollFailures = new("np50");
     private int _consecutiveWriteFailures;
     private const int ConsecutiveWriteFailureThreshold = 5;
 }
