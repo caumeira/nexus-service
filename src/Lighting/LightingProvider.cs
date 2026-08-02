@@ -150,7 +150,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     public void StopAll()
     {
         _engine.Stop();
-        _store.Update(s => s.Lighting.Sync = "none");
+        _store.Update(s =>
+        {
+            s.Lighting.Sync = "none";
+            LightingPresetLooks.CaptureIntoActive(s);
+        });
         _rgb?.Deactivate();
         _rgb?.AwaitShutdown();
     }
@@ -308,6 +312,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             {
                 s.Lighting.Animate.States[name] = incoming;
             }
+            LightingPresetLooks.CaptureIntoActive(s);
         });
     }
 
@@ -388,6 +393,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             {
                 s.Lighting.Static.States[name] = incoming;
             }
+            LightingPresetLooks.CaptureIntoActive(s);
         });
     }
 
@@ -498,7 +504,14 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     {
         var before = ActiveLookTag();
         var pruned = AnimateTemplateDefaults.Prune(templates ?? new());
-        _store.Update(s => s.Lighting.Animate.Templates = pruned);
+        _store.Update(s =>
+        {
+            s.Lighting.Animate.Templates = pruned;
+            // Templates carry the per-effect selected slot, so a slot edit moves
+            // the live look; without this the active preset keeps the pre-edit
+            // snapshot and re-activating it reverts the user's edit.
+            LightingPresetLooks.CaptureIntoActive(s);
+        });
         if (before != ActiveLookTag())
         {
             ReapplyActiveLook();
@@ -947,7 +960,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     {
         // No audio capture impl yet. Persist intent so the SPA can reflect it,
         // but the engine doesn't render anything.
-        _store.Update(s => s.Lighting.Sync = "music");
+        _store.Update(s =>
+        {
+            s.Lighting.Sync = "music";
+            LightingPresetLooks.CaptureIntoActive(s);
+        });
     }
 
     public void StartScreen(ScreenHeadlessStart body)
@@ -961,7 +978,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // fetched the current values, overwriting here would silently clobber
         // the user's saved look back to identity on every mode swap.
         _engine.SetEffect(new ScreenMirrorEffect(body.Monitor, _screenPP, _frameSource, _gpu));
-        _store.Update(s => s.Lighting.Sync = "screen");
+        _store.Update(s =>
+        {
+            s.Lighting.Sync = "screen";
+            LightingPresetLooks.CaptureIntoActive(s);
+        });
     }
 
     /// <summary>
@@ -1067,7 +1088,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // Clear per-session signal so a stale app name or last-seen time
         // from a previous Game Sync session does not bleed into the new one.
         _gameSyncEffect.Reset();
-        _store.Update(s => s.Lighting.Sync = "gamesync");
+        _store.Update(s =>
+        {
+            s.Lighting.Sync = "gamesync";
+            LightingPresetLooks.CaptureIntoActive(s);
+        });
 
         // Deploy shim DLLs into System32/SysWOW64. Idempotent and guarded by
         // an elevation check; skipped on macOS/Linux (NotApplicable).
@@ -1129,6 +1154,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         {
             s.Lighting.Sync = "media";
             s.Lighting.LastMediaId = mediaId;
+            LightingPresetLooks.CaptureIntoActive(s);
         });
         return true;
     }
@@ -1137,7 +1163,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     {
         EnsureRgbActive();
         _engine.SetEffect(new Engine.Effects.BlackEffect());
-        _store.Update(s => s.Lighting.Sync = "media");
+        _store.Update(s =>
+        {
+            s.Lighting.Sync = "media";
+            LightingPresetLooks.CaptureIntoActive(s);
+        });
     }
 
     public void Dispose()

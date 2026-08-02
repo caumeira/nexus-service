@@ -140,7 +140,11 @@ public static class LightingRoutes
             // as "no change requested" - fall back to the documented default.
             var safe = float.IsFinite(body.Value) ? body.Value : 1.0f;
             var clamped = Math.Clamp(safe, 0f, 1f);
-            store.Update(s => s.Lighting.GlobalBrightness = clamped);
+            store.Update(s =>
+            {
+                s.Lighting.GlobalBrightness = clamped;
+                Nexus.Service.Lighting.LightingPresetLooks.CaptureIntoActive(s);
+            });
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();

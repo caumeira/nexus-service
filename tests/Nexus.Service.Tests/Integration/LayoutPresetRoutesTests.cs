@@ -402,4 +402,233 @@ public sealed class LayoutPresetRoutesTests : IDisposable
         var stored = Store.Load();
         Assert.Equal(new List<string> { "dev-b" }, stored.Devices.DisabledLightingDevices);
     }
+
+    // ---- ignore (uncontrolled) state capture and restore ----
+
+    [Fact]
+    public async Task Create_captures_uncontrolled_devices_into_preset()
+    {
+        Store.Update(s =>
+        {
+            s.Devices.UncontrolledLightingDevices = new List<string> { "dev-ignored" };
+        });
+
+        var id = await CreatePreset("Ignoring");
+
+        var preset = Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!;
+        Assert.Equal(new List<string> { "dev-ignored" }, preset.UncontrolledDevices);
+    }
+
+    [Fact]
+    public async Task Activate_restores_uncontrolled_devices_from_preset()
+    {
+        Store.Update(s =>
+        {
+            s.Devices.UncontrolledLightingDevices = new List<string> { "dev-a" };
+        });
+        var id = await CreatePreset("P1");
+
+        Store.Update(s =>
+        {
+            s.Devices.UncontrolledLightingDevices = new List<string> { "dev-b" };
+        });
+
+        var res = await _client.PostAsync(
+            $"/devices/lighting-devices/layout-presets/{id}/activate", null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        Assert.Equal(new List<string> { "dev-a" }, Store.Load().Devices.UncontrolledLightingDevices);
+    }
+
+    [Fact]
+    public async Task Activate_legacy_preset_without_ignore_state_leaves_the_live_list_untouched()
+    {
+        Store.Update(s =>
+        {
+            s.Lighting.LayoutPresets.Add(new Nexus.Service.Persistence.LayoutPreset
+            {
+                Id = "legacy",
+                Name = "Legacy",
+            });
+            s.Devices.UncontrolledLightingDevices = new List<string> { "dev-b" };
+        });
+
+        var res = await _client.PostAsync(
+            "/devices/lighting-devices/layout-presets/legacy/activate", null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        Assert.Equal(new List<string> { "dev-b" }, Store.Load().Devices.UncontrolledLightingDevices);
+    }
+
+    [Fact]
+    public async Task Toggling_ignore_updates_the_active_preset()
+    {
+        var id = await CreatePreset("P");
+
+        var res = await _client.PostAsync(
+            "/devices/lighting-devices/controlled",
+            Json("""{"id":"dev-x","controlled":false}"""));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var preset = Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!;
+        Assert.Equal(new List<string> { "dev-x" }, preset.UncontrolledDevices);
+    }
+
+    [Fact]
+    public async Task Toggling_power_updates_the_active_preset()
+    {
+        var id = await CreatePreset("P");
+
+        var res = await _client.PostAsync(
+            "/devices/lighting-devices/power",
+            Json("""{"id":"dev-x","on":false}"""));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var preset = Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!;
+        Assert.Contains("dev-x", preset.DisabledDevices!);
+    }
+
+    // ---- mode + effect capture and restore ----
+
+    private async Task<string> CreatePreset(string name)
+    {
+        var res = await _client.PostAsync(
+            "/devices/lighting-devices/layout-presets",
+            Json($$"""{"name":"{{name}}"}"""));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        return doc.RootElement.GetProperty("preset").GetProperty("id").GetString()!;
+    }
+
+    private void SetLiveLook(string effect, float hue)
+    {
+        Store.Update(s =>
+        {
+            s.Lighting.Sync = effect;
+            s.Lighting.Animate.Effect = effect;
+            s.Lighting.Animate.States[effect] = new AnimateEffectState
+            {
+                Speed = 50,
+                Intensity = 1f,
+                Hue = hue,
+                Colorize = 0f,
+                Saturation = 1f,
+                Contrast = 1f,
+            };
+        });
+    }
+
+    [Fact]
+    public async Task Create_captures_the_live_mode_and_effect()
+    {
+        SetLiveLook("jellyfish", 0.25f);
+
+        var id = await CreatePreset("Gaming");
+
+        var preset = Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!;
+        Assert.NotNull(preset.Look);
+        Assert.Equal("jellyfish", preset.Look.Sync);
+        Assert.Equal("jellyfish", preset.Look.AnimateEffect);
+        Assert.Equal(0.25f, preset.Look.AnimateState!.Hue);
+    }
+
+    [Fact]
+    public async Task SaveCurrent_recaptures_the_live_effect()
+    {
+        SetLiveLook("jellyfish", 0.25f);
+        var id = await CreatePreset("P");
+
+        SetLiveLook("aurora", 0.5f);
+        var res = await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{id}",
+            Json("""{"saveCurrent":true}"""));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var preset = Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!;
+        Assert.Equal("aurora", preset.Look!.AnimateEffect);
+    }
+
+    [Fact]
+    public async Task Activate_restores_the_preset_effect()
+    {
+        SetLiveLook("jellyfish", 0.25f);
+        var first = await CreatePreset("Jelly");
+        SetLiveLook("aurora", 0.5f);
+        await CreatePreset("Aurora");
+
+        var res = await _client.PostAsync(
+            $"/devices/lighting-devices/layout-presets/{first}/activate",
+            null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var stored = Store.Load();
+        Assert.Equal("jellyfish", stored.Lighting.Sync);
+        Assert.Equal("jellyfish", stored.Lighting.Animate.Effect);
+    }
+
+    // NEX-51: two presets on one effect differing only by colour. States is
+    // keyed by effect, so the preset must carry its own copy.
+    [Fact]
+    public async Task Activate_restores_the_colour_of_a_shared_effect()
+    {
+        SetLiveLook("jellyfish", 0.2f);
+        var blue = await CreatePreset("Blue");
+        SetLiveLook("jellyfish", 0.8f);
+        var orange = await CreatePreset("Orange");
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{blue}/activate", null);
+        Assert.Equal(0.2f, Store.Load().Lighting.Animate.States["jellyfish"].Hue);
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{orange}/activate", null);
+        Assert.Equal(0.8f, Store.Load().Lighting.Animate.States["jellyfish"].Hue);
+    }
+
+    [Fact]
+    public async Task Activate_restores_the_master_brightness()
+    {
+        Store.Update(s => s.Lighting.GlobalBrightness = 0.3f);
+        var dim = await CreatePreset("Dim");
+        Store.Update(s => s.Lighting.GlobalBrightness = 1f);
+        var bright = await CreatePreset("Bright");
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{dim}/activate", null);
+        Assert.Equal(0.3f, Store.Load().Lighting.GlobalBrightness);
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{bright}/activate", null);
+        Assert.Equal(1f, Store.Load().Lighting.GlobalBrightness);
+    }
+
+    [Fact]
+    public async Task Setting_master_brightness_updates_the_active_preset()
+    {
+        var id = await CreatePreset("P");
+
+        var res = await _client.PostAsync(
+            "/lighting/global-brightness", Json("""{"value":0.42}"""));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var preset = Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!;
+        Assert.Equal(0.42f, preset.Look!.GlobalBrightness);
+    }
+
+    [Fact]
+    public async Task Activate_legacy_preset_without_a_look_leaves_the_live_effect_untouched()
+    {
+        SetLiveLook("jellyfish", 0.25f);
+        Store.Update(s =>
+        {
+            s.Lighting.LayoutPresets.Add(new Nexus.Service.Persistence.LayoutPreset
+            {
+                Id = "legacy",
+                Name = "Legacy",
+            });
+        });
+
+        var res = await _client.PostAsync(
+            "/devices/lighting-devices/layout-presets/legacy/activate",
+            null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        Assert.Equal("jellyfish", Store.Load().Lighting.Sync);
+    }
 }

@@ -32,6 +32,7 @@ public sealed class LayoutPresetSerializationTests
                             ["openrgb-0"] = new() { X = 10, Y = 20, W = 80, H = 40, Rotation = 90 },
                         },
                         DisabledDevices = new List<string> { "dev-off-1", "dev-off-2" },
+                        UncontrolledDevices = new List<string> { "dev-ignored-1" },
                     },
                     new LayoutPreset
                     {
@@ -63,11 +64,86 @@ public sealed class LayoutPresetSerializationTests
         Assert.Equal(40f, layout0.H);
         Assert.Equal(90, layout0.Rotation);
         Assert.Equal(new List<string> { "dev-off-1", "dev-off-2" }, a.DisabledDevices);
+        Assert.Equal(new List<string> { "dev-ignored-1" }, a.UncontrolledDevices);
 
         var b = loaded.Lighting.LayoutPresets[1];
         Assert.Equal("preset-b", b.Id);
         Assert.Equal("Work", b.Name);
         Assert.Null(b.DisabledDevices);
+        Assert.Null(b.UncontrolledDevices);
+    }
+
+    [Fact]
+    public void Preset_look_round_trips_through_source_gen_context()
+    {
+        var settings = new NexusSettings
+        {
+            Lighting = new LightingSettings
+            {
+                LayoutPresets =
+                {
+                    new LayoutPreset
+                    {
+                        Id = "preset-a",
+                        Name = "Gaming",
+                        Look = new LightingPresetLook
+                        {
+                            Sync = "jellyfish",
+                            AnimateEffect = "jellyfish",
+                            StaticEffect = "simplered",
+                            AnimateSlot = 2,
+                            StaticSlot = 1,
+                            GlobalBrightness = 0.35f,
+                            LastMediaId = "clip-7",
+                            AnimateState = new AnimateEffectState
+                            {
+                                Speed = 40,
+                                Intensity = 0.8f,
+                                Hue = 0.25f,
+                                Params = new Dictionary<string, float> { ["u_zoom"] = 1.5f },
+                            },
+                        },
+                    },
+                },
+            },
+        };
+
+        var json = JsonSerializer.Serialize(settings, PersistenceJsonContext.Default.NexusSettings);
+        var loaded = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings);
+
+        var look = Assert.Single(loaded!.Lighting.LayoutPresets).Look;
+        Assert.NotNull(look);
+        Assert.Equal("jellyfish", look.Sync);
+        Assert.Equal("jellyfish", look.AnimateEffect);
+        Assert.Equal("simplered", look.StaticEffect);
+        Assert.Equal(2, look.AnimateSlot);
+        Assert.Equal(1, look.StaticSlot);
+        Assert.Equal(0.35f, look.GlobalBrightness);
+        Assert.Equal("clip-7", look.LastMediaId);
+        Assert.NotNull(look.AnimateState);
+        Assert.Equal(40, look.AnimateState.Speed);
+        Assert.Equal(0.25f, look.AnimateState.Hue);
+        Assert.Equal(1.5f, look.AnimateState.Params["u_zoom"]);
+        Assert.Null(look.StaticState);
+    }
+
+    [Fact]
+    public void Look_defaults_to_null_when_field_absent_in_json()
+    {
+        const string json = """
+        {
+          "schemaVersion": 7,
+          "lighting": {
+            "layoutPresets": [
+              { "id": "p1", "name": "Old Preset", "layouts": {} }
+            ]
+          }
+        }
+        """;
+
+        var loaded = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings);
+
+        Assert.Null(Assert.Single(loaded!.Lighting.LayoutPresets).Look);
     }
 
     [Fact]

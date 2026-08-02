@@ -42,6 +42,78 @@ public static partial class DevicesRoutes
         }
     }
 
+    // LiveEngineSync covers every mode a profile switch can restore; a preset
+    // can additionally carry Off or Game Sync, which it has no arm for.
+    private static void EngageLook(
+        Nexus.Service.Persistence.LightingPresetLook look,
+        Nexus.Service.Persistence.IConfigStore store,
+        Nexus.Service.Lighting.ILightingProvider lighting)
+    {
+        var sync = (look.Sync ?? "").ToLowerInvariant();
+        if (sync.Length == 0)
+        {
+            // Matches LiveEngineSync: only "none" means off, a blank mode is inert.
+            return;
+        }
+        if (sync == "none")
+        {
+            lighting.StopAll();
+            return;
+        }
+        if (sync == "gamesync")
+        {
+            lighting.StartGameSync();
+            return;
+        }
+        Nexus.Service.Lifecycle.LiveEngineSync.ApplyLighting(store, lighting);
+    }
+
+    // Mirror the live per-device power + ignore state into the active preset so
+    // a toggle from any surface lands in the preset the user is sitting on.
+    private static void CaptureDeviceStateIntoActive(Nexus.Service.Persistence.IConfigStore store)
+    {
+        store.Update(s =>
+        {
+            var id = s.Lighting.ActiveLayoutPresetId;
+            if (string.IsNullOrEmpty(id))
+            {
+                return;
+            }
+            var preset = s.Lighting.LayoutPresets.Find(p => p.Id == id);
+            if (preset is null)
+            {
+                return;
+            }
+            // Only on an actual change: undo/redo replays every device's power
+            // before switching preset, which would otherwise rewrite the
+            // outgoing preset's state on the way past.
+            if (!SameIds(preset.DisabledDevices, s.Devices.DisabledLightingDevices))
+            {
+                preset.DisabledDevices = new List<string>(s.Devices.DisabledLightingDevices);
+            }
+            if (!SameIds(preset.UncontrolledDevices, s.Devices.UncontrolledLightingDevices))
+            {
+                preset.UncontrolledDevices = new List<string>(s.Devices.UncontrolledLightingDevices);
+            }
+        });
+    }
+
+    private static bool SameIds(List<string>? stored, List<string> live)
+    {
+        if (stored is null || stored.Count != live.Count)
+        {
+            return false;
+        }
+        for (var i = 0; i < live.Count; i++)
+        {
+            if (stored[i] != live[i])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static LayoutPresetDto ToDto(Nexus.Service.Persistence.LayoutPreset p) =>
         new() { Id = p.Id, Name = p.Name, Layouts = p.Layouts };
 
@@ -155,6 +227,8 @@ public static partial class DevicesRoutes
                     Name = body.Name,
                     Layouts = DeepCopyLayouts(s.Lighting.DeviceLayouts),
                     DisabledDevices = new List<string>(s.Devices.DisabledLightingDevices),
+                    UncontrolledDevices = new List<string>(s.Devices.UncontrolledLightingDevices),
+                    Look = Nexus.Service.Lighting.LightingPresetLooks.Capture(s.Lighting),
                 };
                 s.Lighting.LayoutPresets.Add(created);
                 s.Lighting.ActiveLayoutPresetId = id;
@@ -212,6 +286,8 @@ public static partial class DevicesRoutes
                 {
                     p.Layouts = DeepCopyLayouts(settings.Lighting.DeviceLayouts);
                     p.DisabledDevices = new List<string>(settings.Devices.DisabledLightingDevices);
+                    p.UncontrolledDevices = new List<string>(settings.Devices.UncontrolledLightingDevices);
+                    p.Look = Nexus.Service.Lighting.LightingPresetLooks.Capture(settings.Lighting);
                 }
             });
             return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
@@ -241,6 +317,9 @@ public static partial class DevicesRoutes
             Nexus.Service.Persistence.IConfigStore store,
             Nexus.Service.Sockets.MultiplexHub hub,
             ILightingDeviceProvider lightingProvider,
+            Nexus.Service.Lighting.ILightingProvider lighting,
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+            Nexus.Service.Lighting.Smart.SmartLightProvider smart,
             Nexus.Service.Lighting.Engine.LightingEngine engine) =>
         {
             var s = store.Load();
@@ -255,6 +334,13 @@ public static partial class DevicesRoutes
 
             var layouts = new Dictionary<string, Nexus.Service.Persistence.DeviceLayout>(preset.Layouts);
             var disabled = preset.DisabledDevices is null ? null : new List<string>(preset.DisabledDevices);
+            var uncontrolled = preset.UncontrolledDevices is null ? null : new List<string>(preset.UncontrolledDevices);
+            var look = preset.Look;
+            // Ids the preset re-enables. Smart lights re-push their static colour
+            // on re-enable, mirroring POST /devices/lighting-devices/controlled.
+            var reControlled = uncontrolled is null
+                ? new List<string>()
+                : s.Devices.UncontrolledLightingDevices.FindAll(x => !uncontrolled.Contains(x));
             store.Update(settings =>
             {
                 settings.Lighting.DeviceLayouts.Clear();
@@ -267,15 +353,41 @@ public static partial class DevicesRoutes
                 {
                     settings.Devices.DisabledLightingDevices = new List<string>(disabled);
                 }
+                if (uncontrolled is not null)
+                {
+                    // Replaced, not mutated: the frame writers read this list
+                    // lock-free and must never observe a torn state.
+                    settings.Devices.UncontrolledLightingDevices = new List<string>(uncontrolled);
+                }
+                if (look is not null)
+                {
+                    Nexus.Service.Lighting.LightingPresetLooks.Apply(settings.Lighting, look);
+                }
             });
+            if (uncontrolled is not null)
+            {
+                bridge?.RequestTopologyRefresh();
+                foreach (var reEnabled in reControlled)
+                {
+                    smart.RestoreStatic(reEnabled);
+                }
+            }
             MirrorLayoutsToEngine(layouts, lightingProvider, engine);
+            if (look is not null)
+            {
+                EngageLook(look, store, lighting);
+            }
             Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
         });
 
-        app.MapPost("/devices/lighting-devices/power", (SetLightingDevicePowerBody body, ILightingDeviceProvider ld) =>
+        app.MapPost("/devices/lighting-devices/power", (
+            SetLightingDevicePowerBody body,
+            ILightingDeviceProvider ld,
+            Nexus.Service.Persistence.IConfigStore store) =>
         {
             ld.SetPower(body.Id, body.On);
+            CaptureDeviceStateIntoActive(store);
             return ApiResponse.Ok();
         });
         // Uncontrolled ids are pure persisted state - no provider owns a "not
@@ -295,6 +407,7 @@ public static partial class DevicesRoutes
             Nexus.Service.Lighting.Smart.SmartLightProvider smart) =>
         {
             Nexus.Service.Lighting.LightingControlledState.SetControlled(body.Id, body.Controlled, store);
+            CaptureDeviceStateIntoActive(store);
             bridge?.RequestTopologyRefresh();
             if (body.Controlled)
             {

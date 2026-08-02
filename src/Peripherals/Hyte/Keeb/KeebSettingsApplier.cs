@@ -112,7 +112,11 @@ public sealed class KeebSettingsApplier
             var pct = KeebSettingsCodec.BrightnessPercentFromByte(raw[brightIndex]);
             if (pct == _lastKnobPct) return;
             _lastKnobPct = pct;
-            _store.Update(s => s.Lighting.GlobalBrightness = pct / 100f);
+            _store.Update(s =>
+            {
+                s.Lighting.GlobalBrightness = pct / 100f;
+                Nexus.Service.Lighting.LightingPresetLooks.CaptureIntoActive(s);
+            });
             changed = true;
         }
         if (changed) PanelTopics.BroadcastLighting(_panel);

@@ -47,7 +47,10 @@ public static class LiveEngineSync
         }
     }
 
-    private static void ApplyLighting(IConfigStore store, ILightingProvider lighting)
+    /// <summary>Engage the lighting engine from the persisted sync mode. Layout
+    /// preset activation reuses this so a preset switch and a profile switch
+    /// engage identically.</summary>
+    public static void ApplyLighting(IConfigStore store, ILightingProvider lighting)
     {
         try
         {

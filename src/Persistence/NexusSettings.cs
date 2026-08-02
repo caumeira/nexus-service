@@ -413,6 +413,39 @@ public sealed class LayoutPreset
     // preset saved before per-preset power existed - activate then leaves the
     // global disabled list untouched (old behavior) instead of wiping it.
     public List<string>? DisabledDevices { get; set; }
+    // Per-device ignore flag captured at save time: ids Nexus does not drive.
+    // Null on a preset saved before per-preset ignore state existed - activate
+    // then leaves the live list untouched.
+    public List<string>? UncontrolledDevices { get; set; }
+    // Mode + effect selection captured at save time. Null on a preset saved
+    // before per-preset looks - activate then leaves the live look untouched.
+    public LightingPresetLook? Look { get; set; }
+}
+
+/// <summary>Lighting selection a preset restores, captured whenever the active
+/// preset is set and a mode starts.</summary>
+public sealed class LightingPresetLook
+{
+    /// <summary><see cref="LightingSettings.Sync"/> at capture time: an animate
+    /// effect key, or "static" / "screen" / "media" / "music" / "gamesync" / "none".</summary>
+    public string Sync { get; set; } = "";
+    public string AnimateEffect { get; set; } = "";
+    public string StaticEffect { get; set; } = "";
+    /// <summary>Resolved look for <see cref="AnimateEffect"/>, stored dense.
+    /// <see cref="AnimateSettings.States"/> is keyed by effect and shared by every
+    /// preset, so a reference would collide between two presets on one effect.</summary>
+    public AnimateEffectState? AnimateState { get; set; }
+    public AnimateEffectState? StaticState { get; set; }
+    /// <summary>Selected template slot, or -1 when the effect has no slots.</summary>
+    public int AnimateSlot { get; set; } = -1;
+    public int StaticSlot { get; set; } = -1;
+    /// <summary>Master brightness cap, 0..1. Null on a look captured before this
+    /// was part of a preset - activate then leaves the live level alone rather
+    /// than defaulting to 0 and blacking every device out.</summary>
+    public float? GlobalBrightness { get; set; }
+    /// <summary>Media-mode clip. Without it two Media presets restore whichever
+    /// clip was selected last, globally.</summary>
+    public string LastMediaId { get; set; } = "";
 }
 
 public sealed class KeebSettings
