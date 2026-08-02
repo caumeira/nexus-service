@@ -24,7 +24,9 @@ namespace Nexus.Service.Peripherals.Hyte.Np50;
 ///
 /// On first connect it also reads the firmware version (one-shot). Tick
 /// failures don't throw out of <see cref="ExecuteAsync"/>; the hub class
-/// drops the transport on IO errors and the next tick re-discovers.
+/// drops the transport when a request fails to reach the hub, or after
+/// <see cref="PollFailureTracker.Threshold"/> desynced replies, and the next
+/// tick re-discovers.
 /// </summary>
 public sealed class Np50HeartbeatWorker : BackgroundService
 {
@@ -94,7 +96,14 @@ public sealed class Np50HeartbeatWorker : BackgroundService
         // or the hub reverts. PollHubInfo also opens the port if needed.
         if (!_hub.PollHubInfo())
         {
-            BroadcastIfConnectionChanged(connectedBefore: connectedBefore, connectedAfter: false);
+            // PollHubInfo tolerates a desync for a few ticks, so a failed poll
+            // only means "disconnected" once the transport is actually gone.
+            // Staying silent otherwise keeps the connect broadcast for the
+            // first tick that carries real hub data.
+            if (!_hub.IsConnected)
+            {
+                BroadcastIfConnectionChanged(connectedBefore: connectedBefore, connectedAfter: false);
+            }
             return;
         }
 

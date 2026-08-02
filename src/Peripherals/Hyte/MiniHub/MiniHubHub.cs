@@ -134,20 +134,22 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
         var transport = _transport!;
         try
         {
-            transport.DiscardInput();
-            transport.Write(MiniHubProtocol.BuildGetFirmwareVersion());
+            if (!SendRequest(transport, "fw-version", MiniHubProtocol.BuildGetFirmwareVersion())) return false;
             var buf = new byte[7];
             var n = transport.Read(buf, 300);
-            if (n < 7) { Disconnect(); return false; }
+            if (n < 7) return FailPoll("fw-version", $"short read ({n} bytes)");
             var v = MiniHubProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
             if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
+            _pollFailures.Reset();
             return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[minihub] fw-version exchange failed: {ex.GetType().Name}: {ex.Message}");
-            Disconnect();
-            return false;
+            return FailPoll("fw-version", $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -188,21 +190,23 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
         var transport = _transport!;
         try
         {
-            transport.DiscardInput();
-            transport.Write(MiniHubProtocol.BuildGetFanSpeed());
+            if (!SendRequest(transport, "fan-speed", MiniHubProtocol.BuildGetFanSpeed())) return false;
             var buf = new byte[MiniHubProtocol.GetFanSpeedResponseLength];
             var n = transport.Read(buf, 300);
-            if (n < MiniHubProtocol.GetFanSpeedResponseLength) { Disconnect(); return false; }
+            if (n < MiniHubProtocol.GetFanSpeedResponseLength) return FailPoll("fan-speed", $"short read ({n} bytes)");
             if (!MiniHubProtocol.TryParseFanSpeeds(buf.AsSpan(0, n), out var rpm1, out var rpm2)) return false;
             State.Port1Rpm = rpm1;
             State.Port2Rpm = rpm2;
+            _pollFailures.Reset();
             return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[minihub] get-fan-speed exchange failed: {ex.GetType().Name}: {ex.Message}");
-            Disconnect();
-            return false;
+            return FailPoll("fan-speed", $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -245,6 +249,42 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
         }
     }
 
+
+    /// <summary>
+    /// Issue a poll request. A write that throws never reached the hub, so a
+    /// retry would spend the software-control budget on a port that is not
+    /// carrying our frames; drop it now.
+    /// </summary>
+    private bool SendRequest(INp50Transport transport, string operation, byte[] request)
+    {
+        try
+        {
+            transport.DiscardInput();
+            transport.Write(request);
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[minihub] {operation} request failed: {ex.GetType().Name}: {ex.Message}");
+            Disconnect();
+            return false;
+        }
+    }
+
+    private bool FailPoll(string operation, string detail)
+    {
+        if (_pollFailures.ShouldDisconnect(operation, detail))
+        {
+            Disconnect();
+        }
+        return false;
+    }
+
+    private readonly PollFailureTracker _pollFailures = new("minihub");
     private int _consecutiveWriteFailures;
     private const int ConsecutiveWriteFailureThreshold = 5;
 }

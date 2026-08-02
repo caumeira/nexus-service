@@ -46,6 +46,7 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
     // the other's reply. Write-only frames (duty, LEDs) stay outside it.
     private readonly object _exchangeLock = new();
 
+    private readonly PollFailureTracker _pollFailures = new("smarthub");
     private int _consecutiveWriteFailures;
     private const int ConsecutiveWriteFailureThreshold = 5;
 
@@ -132,21 +133,23 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
         {
             lock (_exchangeLock)
             {
-                transport.DiscardInput();
-                transport.Write(SmartHubProtocol.BuildGetFirmwareVersion());
+                if (!SendRequest(transport, "fw-version", SmartHubProtocol.BuildGetFirmwareVersion())) return false;
                 var buf = new byte[SmartHubProtocol.FirmwareVersionResponseLength];
                 var n = transport.Read(buf, 300);
-                if (n < SmartHubProtocol.FirmwareVersionResponseLength) { Disconnect(); return false; }
+                if (n < SmartHubProtocol.FirmwareVersionResponseLength) return FailPoll("fw-version", $"short read ({n} bytes)");
                 var v = SmartHubProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
                 if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
+                _pollFailures.Reset();
                 return true;
             }
         }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[smarthub] fw-version exchange failed: {ex.GetType().Name}: {ex.Message}");
-            Disconnect();
-            return false;
+            return FailPoll("fw-version", $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -163,11 +166,10 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
         {
             lock (_exchangeLock)
             {
-                transport.DiscardInput();
-                transport.Write(SmartHubProtocol.BuildGetInfo());
+                if (!SendRequest(transport, "get-info", SmartHubProtocol.BuildGetInfo())) return false;
                 var buf = new byte[SmartHubProtocol.GetInfoResponseLength];
                 var n = transport.Read(buf, 300);
-                if (n < SmartHubProtocol.GetInfoResponseLength) { Disconnect(); return false; }
+                if (n < SmartHubProtocol.GetInfoResponseLength) return FailPoll("get-info", $"short read ({n} bytes)");
                 if (!SmartHubProtocol.TryParseChannelInfo(buf.AsSpan(0, n), out var channels) || channels is null)
                     return false;
                 for (var i = 0; i < State.Fans.Length && i < channels.Length; i++)
@@ -176,14 +178,17 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
                     State.Fans[i].Enabled = channels[i].Enabled;
                     if (channels[i].Rpm > 0) State.Fans[i].SeenFan = true;
                 }
+                _pollFailures.Reset();
                 return true;
             }
         }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[smarthub] get-info exchange failed: {ex.GetType().Name}: {ex.Message}");
-            Disconnect();
-            return false;
+            return FailPoll("get-info", $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -202,22 +207,24 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
         {
             lock (_exchangeLock)
             {
-                transport.DiscardInput();
-                transport.Write(SmartHubProtocol.BuildGetMcuSetting());
+                if (!SendRequest(transport, "fw-setting", SmartHubProtocol.BuildGetMcuSetting())) return false;
                 var buf = new byte[SmartHubProtocol.McuSettingResponseLength];
                 var n = transport.Read(buf, 300);
-                if (n < SmartHubProtocol.McuSettingResponseLength) { Disconnect(); return false; }
+                if (n < SmartHubProtocol.McuSettingResponseLength) return FailPoll("fw-setting", $"short read ({n} bytes)");
                 if (!SmartHubProtocol.TryParseMcuSetting(buf.AsSpan(0, n), out var parsed) || parsed is null)
                     return false;
                 setting = parsed.Value;
+                _pollFailures.Reset();
                 return true;
             }
         }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[smarthub] fw-setting exchange failed: {ex.GetType().Name}: {ex.Message}");
-            Disconnect();
-            return false;
+            return FailPoll("fw-setting", $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -255,6 +262,41 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
         if (_disposed) return;
         _disposed = true;
         Disconnect();
+    }
+
+
+    /// <summary>
+    /// Issue a poll request. A write that throws never reached the hub, so a
+    /// retry would spend the software-control budget on a port that is not
+    /// carrying our frames; drop it now.
+    /// </summary>
+    private bool SendRequest(INp50Transport transport, string operation, byte[] request)
+    {
+        try
+        {
+            transport.DiscardInput();
+            transport.Write(request);
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[smarthub] {operation} request failed: {ex.GetType().Name}: {ex.Message}");
+            Disconnect();
+            return false;
+        }
+    }
+
+    private bool FailPoll(string operation, string detail)
+    {
+        if (_pollFailures.ShouldDisconnect(operation, detail))
+        {
+            Disconnect();
+        }
+        return false;
     }
 
     private bool SendOnly(byte[] request)
