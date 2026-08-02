@@ -162,7 +162,7 @@ public class StaticModeTests : IDisposable
         // The engine runs a catalog shader by name, so reporting the engine
         // verbatim (as animate does) would classify a frozen pattern as
         // Animation on every surface that reads /lighting/current.
-        _provider.StartStatic(BodyFrom("rainbow", AnimateTemplateDefaults.Slot("rainbow", 0)!));
+        _provider.StartStatic(new StaticHeadlessStart { Effect = "gradientlinear", Persist = true });
 
         Assert.Equal("static", _provider.GetSync());
     }
@@ -190,9 +190,17 @@ public class StaticModeTests : IDisposable
     }
 
     [Fact]
-    public void An_unknown_key_falls_back_to_a_catalog_fill()
+    public void An_unknown_key_is_rejected_rather_than_coerced()
     {
-        _provider.StartStatic(new StaticHeadlessStart { Effect = "fire", Persist = true });
+        Assert.Throws<System.ArgumentException>(() =>
+            _provider.StartStatic(new StaticHeadlessStart { Effect = "fire", Persist = true }));
+        Assert.False(_store.Load().Lighting.Static.States.ContainsKey("fire"));
+    }
+
+    [Fact]
+    public void An_empty_key_still_gets_the_default_fill()
+    {
+        _provider.StartStatic(new StaticHeadlessStart { Effect = "", Persist = true });
 
         Assert.Equal(StaticEffectCatalog.Fills[0], _store.Load().Lighting.Static.Effect);
     }

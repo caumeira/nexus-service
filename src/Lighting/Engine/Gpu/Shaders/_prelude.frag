@@ -150,3 +150,5 @@ float fbm3(vec2 p) {
     }
     return v;
 }
+
+// ---- effect body ----

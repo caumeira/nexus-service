@@ -1302,6 +1302,25 @@
         }
       }
     },
+    "/lighting/static/settings": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaticSettings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/lighting/animate/defaults": {
       "get": {
         "tags": [
@@ -1573,6 +1592,35 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AnimateHeadlessStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/lighting/static/headless-start": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaticHeadlessStart"
               }
             }
           },
@@ -16602,11 +16650,14 @@
               "string"
             ]
           },
-          "backgroundFrost": {
+          "backgroundFrostLevel": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
             "type": [
               "null",
+              "number",
               "string"
-            ]
+            ],
+            "format": "double"
           },
           "widgetOpacity": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
@@ -18992,6 +19043,77 @@
         "properties": {
           "autoStart": {
             "type": "boolean"
+          }
+        }
+      },
+      "StaticHeadlessStart": {
+        "type": "object",
+        "properties": {
+          "effect": {
+            "type": "string"
+          },
+          "intensity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "hue": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "colorize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "saturation": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "contrast": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShaderParam"
+            }
+          },
+          "persist": {
+            "type": "boolean"
+          }
+        }
+      },
+      "StaticSettings": {
+        "type": "object",
+        "properties": {
+          "effect": {
+            "type": "string"
+          },
+          "states": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AnimateEffectState"
+            }
           }
         }
       },
