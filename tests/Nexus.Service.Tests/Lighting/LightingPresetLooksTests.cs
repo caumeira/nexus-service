@@ -213,6 +213,70 @@ public sealed class LightingPresetLooksTests
     }
 
     [Fact]
+    public void Capture_and_apply_carry_the_screen_and_media_filters()
+    {
+        var lighting = Live("screen", "jellyfish");
+        lighting.ScreenEffect = new PostProcessSettings { Hue = 0.3f, Saturation = 1.4f, Reactive = true };
+        lighting.MediaEffect = new PostProcessSettings { Hue = 0.7f, FlipX = true };
+
+        var look = LightingPresetLooks.Capture(lighting);
+        lighting.ScreenEffect = new PostProcessSettings { Hue = 0.9f };
+        lighting.MediaEffect = new PostProcessSettings { Hue = 0.1f };
+        LightingPresetLooks.Apply(lighting, look);
+
+        Assert.Equal(0.3f, lighting.ScreenEffect.Hue);
+        Assert.Equal(1.4f, lighting.ScreenEffect.Saturation);
+        Assert.True(lighting.ScreenEffect.Reactive);
+        Assert.Equal(0.7f, lighting.MediaEffect.Hue);
+        Assert.True(lighting.MediaEffect.FlipX);
+    }
+
+    [Fact]
+    public void Capture_copies_the_filters_so_a_later_live_edit_does_not_leak_in()
+    {
+        var lighting = Live("screen", "jellyfish");
+        lighting.ScreenEffect = new PostProcessSettings { Hue = 0.3f };
+
+        var look = LightingPresetLooks.Capture(lighting);
+        lighting.ScreenEffect.Hue = 0.9f;
+
+        Assert.Equal(0.3f, look.ScreenEffect!.Hue);
+    }
+
+    // A look captured before the filters joined the preset carries null; the
+    // live filter must survive rather than resetting to defaults.
+    [Fact]
+    public void Apply_leaves_the_filters_alone_when_the_look_predates_them()
+    {
+        var lighting = Live("screen", "jellyfish");
+        lighting.ScreenEffect = new PostProcessSettings { Hue = 0.6f };
+
+        LightingPresetLooks.Apply(lighting, new LightingPresetLook
+        {
+            Sync = "screen",
+            ScreenEffect = null,
+            MediaEffect = null,
+        });
+
+        Assert.Equal(0.6f, lighting.ScreenEffect.Hue);
+    }
+
+    [Fact]
+    public void Apply_rejects_a_non_finite_filter_value()
+    {
+        var lighting = Live("screen", "jellyfish");
+
+        LightingPresetLooks.Apply(lighting, new LightingPresetLook
+        {
+            Sync = "screen",
+            ScreenEffect = new PostProcessSettings { Hue = float.NaN, Saturation = float.PositiveInfinity },
+        });
+
+        Assert.True(float.IsFinite(lighting.ScreenEffect.Hue));
+        Assert.True(float.IsFinite(lighting.ScreenEffect.Saturation));
+    }
+
+    [Fact]
     public void Apply_restores_the_static_selection()
     {
         var lighting = Live("jellyfish", "jellyfish");

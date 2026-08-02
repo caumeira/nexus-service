@@ -612,6 +612,73 @@ public sealed class LayoutPresetRoutesTests : IDisposable
     }
 
     [Fact]
+    public async Task Activate_restores_the_screen_filter()
+    {
+        Store.Update(s => s.Lighting.ScreenEffect.Hue = 0.2f);
+        var cool = await CreatePreset("Cool");
+        Store.Update(s => s.Lighting.ScreenEffect.Hue = 0.8f);
+        var warm = await CreatePreset("Warm");
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{cool}/activate", null);
+        Assert.Equal(0.2f, Store.Load().Lighting.ScreenEffect.Hue);
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{warm}/activate", null);
+        Assert.Equal(0.8f, Store.Load().Lighting.ScreenEffect.Hue);
+    }
+
+    // The running Mirror effect samples the provider's holder, not the store, so
+    // a preset that only persisted the filter would keep rendering the old one.
+    [Fact]
+    public async Task Activate_pushes_the_screen_filter_into_the_live_holder()
+    {
+        var provider = (Nexus.Service.Lighting.LightingProvider)
+            _factory.Services.GetRequiredService<Nexus.Service.Lighting.ILightingProvider>();
+
+        Store.Update(s => s.Lighting.ScreenEffect.Hue = 0.2f);
+        var cool = await CreatePreset("Cool");
+        Store.Update(s => s.Lighting.ScreenEffect.Hue = 0.8f);
+        var warm = await CreatePreset("Warm");
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{cool}/activate", null);
+        Assert.Equal(0.2f, provider.ScreenPostProcess.Hue);
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{warm}/activate", null);
+        Assert.Equal(0.8f, provider.ScreenPostProcess.Hue);
+    }
+
+    [Fact]
+    public async Task Activate_pushes_the_media_filter_into_the_live_holder()
+    {
+        var provider = (Nexus.Service.Lighting.LightingProvider)
+            _factory.Services.GetRequiredService<Nexus.Service.Lighting.ILightingProvider>();
+
+        Store.Update(s => s.Lighting.MediaEffect.Hue = 0.15f);
+        var first = await CreatePreset("First");
+        Store.Update(s => s.Lighting.MediaEffect.Hue = 0.75f);
+        var second = await CreatePreset("Second");
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{first}/activate", null);
+        Assert.Equal(0.15f, provider.MediaPostProcess.Hue);
+
+        await _client.PostAsync($"/devices/lighting-devices/layout-presets/{second}/activate", null);
+        Assert.Equal(0.75f, provider.MediaPostProcess.Hue);
+    }
+
+    [Fact]
+    public async Task Setting_the_screen_filter_updates_the_active_preset()
+    {
+        var id = await CreatePreset("P");
+
+        var res = await _client.PostAsync(
+            "/lighting/screen/effect",
+            Json("""{"hue":0.45,"colorize":0,"saturation":1,"contrast":1,"persist":true}"""));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var preset = Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!;
+        Assert.Equal(0.45f, preset.Look!.ScreenEffect!.Hue);
+    }
+
+    [Fact]
     public async Task Activate_legacy_preset_without_a_look_leaves_the_live_effect_untouched()
     {
         SetLiveLook("jellyfish", 0.25f);

@@ -1024,6 +1024,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             s.Lighting.ScreenEffect.Reactive = reactive;
             s.Lighting.ScreenEffect.Reactivity = reactivity;
             s.Lighting.ScreenEffect.Intensity = intensity;
+            LightingPresetLooks.CaptureIntoActive(s);
         });
     }
 
@@ -1040,6 +1041,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             s.Lighting.MediaEffect.Contrast = contrast;
             s.Lighting.MediaEffect.FlipX = flipX;
             s.Lighting.MediaEffect.FlipY = flipY;
+            LightingPresetLooks.CaptureIntoActive(s);
         });
     }
 

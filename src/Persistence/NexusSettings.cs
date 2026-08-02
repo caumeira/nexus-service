@@ -446,6 +446,12 @@ public sealed class LightingPresetLook
     /// <summary>Media-mode clip. Without it two Media presets restore whichever
     /// clip was selected last, globally.</summary>
     public string LastMediaId { get; set; } = "";
+    /// <summary>Mirror-mode post-process. Null on a look captured before this was
+    /// part of a preset - activate then leaves the live filter alone.</summary>
+    public PostProcessSettings? ScreenEffect { get; set; }
+    /// <summary>Media-mode post-process, tracked separately from
+    /// <see cref="ScreenEffect"/> the same way the live settings are.</summary>
+    public PostProcessSettings? MediaEffect { get; set; }
 }
 
 public sealed class KeebSettings
