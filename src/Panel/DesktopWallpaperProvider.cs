@@ -11,14 +11,19 @@ namespace Nexus.Service.Panel;
 
 /// <summary>
 /// Resolves the console user's current desktop wallpaper file for panel
-/// backgrounds. The service runs as LocalSystem, whose own profile has no
-/// wallpaper - resolution goes through the active console user's profile,
-/// never HKCU (the LocalSystem HKCU is the SYSTEM hive).
+/// backgrounds. On Windows the service runs as LocalSystem, whose own profile
+/// has no wallpaper - resolution goes through the active console user's
+/// profile, never HKCU (the LocalSystem HKCU is the SYSTEM hive). macOS
+/// resolution lives in <see cref="MacDesktopWallpaperProvider"/>.
 /// </summary>
 public static class DesktopWallpaperProvider
 {
     public static string? TryResolve(int width, int height)
     {
+        // macOS has no per-monitor crop cache; the client cover-fits the one
+        // still WallpaperAgent rendered for the active wallpaper.
+        if (OperatingSystem.IsMacOS()) return MacDesktopWallpaperProvider.TryResolve();
+
         var themes = ResolveThemesDir();
         if (themes is null) return null;
         // The shell caches a per-monitor crop of that monitor's own wallpaper
@@ -58,6 +63,28 @@ public static class DesktopWallpaperProvider
         }
         var transcoded = Path.Combine(themes, "TranscodedWallpaper");
         return File.Exists(transcoded) ? transcoded : null;
+    }
+
+    /// <summary>Directory whose writes mean the wallpaper changed: the shell's
+    /// Themes dir on Windows, the wallpaper store on macOS.</summary>
+    internal static string? ResolveWatchDir()
+    {
+        if (OperatingSystem.IsMacOS())
+        {
+            var store = MacDesktopWallpaperProvider.StoreDir();
+            return Directory.Exists(store) ? store : null;
+        }
+        return ResolveThemesDir();
+    }
+
+    /// <summary>True when a write to <paramref name="name"/> under the watched
+    /// directory changes what the endpoint serves.</summary>
+    internal static bool IsServedFile(string? name)
+    {
+        var file = name is null ? "" : Path.GetFileName(name);
+        if (OperatingSystem.IsMacOS()) return file.Equals("Index.plist", StringComparison.OrdinalIgnoreCase);
+        return file.Equals("TranscodedWallpaper", StringComparison.OrdinalIgnoreCase)
+            || file.StartsWith("CachedImage_", StringComparison.OrdinalIgnoreCase);
     }
 
     internal static string? ResolveThemesDir()
@@ -103,8 +130,8 @@ public static class DesktopWallpaperProvider
 
 /// <summary>
 /// Broadcasts <see cref="PanelTopics.DesktopWallpaper"/> when the console
-/// user's wallpaper changes. The themes dir only resolves once a user is
-/// logged on, and can move on a console-user switch, so every poll pass
+/// user's wallpaper changes. The watched directory only resolves once a user
+/// is logged on, and can move on a console-user switch, so every poll pass
 /// re-resolves and re-arms when the dir changed or the watcher faulted
 /// (FileSystemWatcher stops raising events permanently after an Error).
 /// </summary>
@@ -123,22 +150,22 @@ public sealed class DesktopWallpaperWatcher : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!OperatingSystem.IsWindows()) return;
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return;
         _debounce = new Timer(_ => PanelTopics.BroadcastDesktopWallpaper(_hub));
         while (!stoppingToken.IsCancellationRequested)
         {
-            var themes = DesktopWallpaperProvider.ResolveThemesDir();
-            if (themes is not null
+            var watchDir = DesktopWallpaperProvider.ResolveWatchDir();
+            if (watchDir is not null
                 && (_watcher is null || _watcherFaulted
-                    || !string.Equals(_watchedDir, themes, StringComparison.OrdinalIgnoreCase)))
+                    || !string.Equals(_watchedDir, watchDir, StringComparison.OrdinalIgnoreCase)))
             {
                 try
                 {
                     _watcher?.Dispose();
-                    _watcher = Arm(themes);
-                    _watchedDir = themes;
+                    _watcher = Arm(watchDir);
+                    _watchedDir = watchDir;
                     _watcherFaulted = false;
-                    ServiceLog.Info($"[wallpaper-watch] armed on {themes}");
+                    ServiceLog.Info($"[wallpaper-watch] armed on {watchDir}");
                 }
                 catch (Exception ex)
                 {
@@ -150,16 +177,16 @@ public sealed class DesktopWallpaperWatcher : BackgroundService
         }
     }
 
-    private FileSystemWatcher Arm(string themes)
+    private FileSystemWatcher Arm(string watchDir)
     {
-        var watcher = new FileSystemWatcher(themes)
+        var watcher = new FileSystemWatcher(watchDir)
         {
             IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
         };
-        watcher.Changed += (_, e) => OnThemesMutated(e.Name);
-        watcher.Created += (_, e) => OnThemesMutated(e.Name);
-        watcher.Renamed += (_, e) => OnThemesMutated(e.Name);
+        watcher.Changed += (_, e) => OnWatchedMutated(e.Name);
+        watcher.Created += (_, e) => OnWatchedMutated(e.Name);
+        watcher.Renamed += (_, e) => OnWatchedMutated(e.Name);
         watcher.Error += (_, _) => { _watcherFaulted = true; };
         watcher.EnableRaisingEvents = true;
         return watcher;
@@ -171,14 +198,9 @@ public sealed class DesktopWallpaperWatcher : BackgroundService
     // the wallpaper write and made the panel lag the desktop (bench-hit).
     // Filtered to the served files, the trailing window only has to outlast
     // one file's write.
-    private void OnThemesMutated(string? name)
+    private void OnWatchedMutated(string? name)
     {
-        var file = name is null ? "" : Path.GetFileName(name);
-        if (!file.Equals("TranscodedWallpaper", StringComparison.OrdinalIgnoreCase)
-            && !file.StartsWith("CachedImage_", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
+        if (!DesktopWallpaperProvider.IsServedFile(name)) return;
         // FSW handlers run on threadpool threads and Dispose does not wait for
         // them, so a late event can race the timer's disposal at shutdown.
         try { _debounce?.Change(TimeSpan.FromMilliseconds(600), Timeout.InfiniteTimeSpan); }
