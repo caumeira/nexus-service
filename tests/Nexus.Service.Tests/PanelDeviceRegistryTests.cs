@@ -188,6 +188,23 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         Assert.Equal("theme", patched!.Backdrop);
     }
 
+    // The Y70 kiosk opens from hardware detection, so the host reads its
+    // backdrop off this lookup rather than a display assignment.
+    [Fact]
+    public void GetY70Backdrop_ReturnsTheY70RecordsBackdrop()
+    {
+        Assert.Equal("", _registry.GetY70Backdrop());
+
+        var monitor = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+        _registry.Patch(monitor.Id, new PanelDevicePatch { Backdrop = "desktop" });
+        Assert.Equal("", _registry.GetY70Backdrop());
+
+        var y70 = _registry.Allocate(null, Caps(PanelSurfaces.Y70));
+        _registry.Patch(y70.Id, new PanelDevicePatch { Backdrop = "desktop" });
+
+        Assert.Equal("desktop", _registry.GetY70Backdrop());
+    }
+
     [Fact]
     public void Patch_BackgroundFrostLevel_RoundTripsAndSurvivesUnrelatedPatch()
     {

@@ -127,6 +127,9 @@ public sealed class DisplayAssignmentDto
     public string PanelDeviceId { get; set; } = "";
     /// <summary>Per-panel "keep panel clear of other windows" (record setting; default true).</summary>
     public bool ReserveMonitor { get; set; } = true;
+    /// <summary>Panel backdrop; "desktop" tells the overlay to host this kiosk
+    /// as a transparent window so the live desktop shows through.</summary>
+    public string Backdrop { get; set; } = "";
 }
 
 /// <summary>Body for POST /displays/{id}/rotation.</summary>
@@ -140,4 +143,8 @@ public sealed class DisplayRotationBody
 public sealed class DisplayAssignmentsResponse
 {
     public List<DisplayAssignmentDto> Assignments { get; set; } = new();
+    /// <summary>Backdrop of the Y70's own panel record. The Y70 kiosk opens
+    /// from hardware detection rather than a display assignment, so the host
+    /// has no entry above to read it from.</summary>
+    public string PanelBackdrop { get; set; } = "";
 }

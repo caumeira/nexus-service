@@ -293,15 +293,31 @@ public sealed class PanelDeviceRegistry
 
     /// <summary>Active displayId -> panelDeviceId bindings (kiosk reconcile
     /// input). Disabled panels keep their record but host no kiosk.</summary>
-    public IReadOnlyList<(string DisplayId, string PanelDeviceId, bool ReserveMonitor)> ListAssignments()
+    public IReadOnlyList<(string DisplayId, string PanelDeviceId, bool ReserveMonitor, string Backdrop)> ListAssignments()
     {
-        var assignments = new List<(string, string, bool)>();
+        var assignments = new List<(string, string, bool, string)>();
         foreach (var record in _store.Load().PanelDevices.Values)
         {
             if (!string.IsNullOrEmpty(record.DisplayId) && record.Enabled != false)
-                assignments.Add((record.DisplayId, record.Id, record.ReserveMonitor ?? true));
+                assignments.Add((record.DisplayId, record.Id, record.ReserveMonitor ?? true, record.Backdrop ?? ""));
         }
         return assignments;
+    }
+
+    /// <summary>
+    /// Backdrop of the Y70's own record, or "" when it has never registered.
+    /// The Y70 kiosk is opened from hardware detection rather than a display
+    /// assignment, so the host has no device id to read it from.
+    /// </summary>
+    public string GetY70Backdrop()
+    {
+        PanelDeviceRecord? newest = null;
+        foreach (var record in _store.Load().PanelDevices.Values)
+        {
+            if (!string.Equals(record.Capabilities?.Surface, PanelSurfaces.Y70, StringComparison.Ordinal)) continue;
+            if (newest is null || record.LastSeenAt > newest.LastSeenAt) newest = record;
+        }
+        return newest?.Backdrop ?? "";
     }
 
     public IReadOnlyList<PanelDeviceRecord> List()

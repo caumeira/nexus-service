@@ -113,14 +113,15 @@ public static class DisplayRoutes
         {
             if (!ServiceTokenRequests.HasServiceToken(ctx, tokens))
                 return Results.Unauthorized();
-            var response = new DisplayAssignmentsResponse();
-            foreach (var (displayId, panelDeviceId, reserveMonitor) in registry.ListAssignments())
+            var response = new DisplayAssignmentsResponse { PanelBackdrop = registry.GetY70Backdrop() };
+            foreach (var (displayId, panelDeviceId, reserveMonitor, backdrop) in registry.ListAssignments())
             {
                 response.Assignments.Add(new DisplayAssignmentDto
                 {
                     DisplayId = displayId,
                     PanelDeviceId = panelDeviceId,
                     ReserveMonitor = reserveMonitor,
+                    Backdrop = backdrop,
                 });
             }
             return Results.Json(response, AppJsonContext.Default.DisplayAssignmentsResponse);
