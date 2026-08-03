@@ -11,11 +11,13 @@ using Nexus.Service.Security;
 namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 
 /// <summary>
-/// Philips Hue driver. Discovers bridges (Philips cloud + mDNS), pairs via the
-/// link-button flow, and controls/streams lights over CLIP v2. Hue bulbs are
-/// single-color, so frames are averaged from a small canvas grid; the bridge
-/// throttles REST, so we cap sends at ~10/s (Entertainment streaming is out of
-/// scope - see plans/smart-lights-integration.md).
+/// Philips Hue driver. Discovers bridges (Philips cloud + mDNS) and pairs via
+/// the link-button flow, capturing the DTLS clientkey needed for Entertainment
+/// streaming. Manual color/brightness updates go over CLIP v2 REST, rate-capped
+/// per bridge to stay under the bridge's throttle. Effect frames instead route
+/// through <see cref="ISessionStreamer"/> into a
+/// <see cref="HueEntertainmentSession"/>, which requires an existing
+/// Entertainment Area created in the Hue app.
 /// </summary>
 public sealed class HueDriver : ILightDriver, ISessionStreamer
 {

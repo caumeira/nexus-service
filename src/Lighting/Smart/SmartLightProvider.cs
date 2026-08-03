@@ -170,9 +170,10 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     public void SetDisabled(IReadOnlyList<string> ids) => _store.Update(s =>
     {
         // ids = the complete set of MY devices that should be disabled. Replace
-        // only my entries in the shared list; leave other providers' ids alone.
+        // only entries Owns() claims; leave other providers' ids AND an
+        // orphaned brand's (no registered driver) persisted state untouched.
         var set = new HashSet<string>(s.Devices.DisabledLightingDevices, StringComparer.Ordinal);
-        foreach (var cfg in s.SmartLights.Devices) set.Remove(cfg.Id);
+        foreach (var cfg in s.SmartLights.Devices) if (Owns(cfg.Id)) set.Remove(cfg.Id);
         foreach (var id in ids) if (Owns(id)) set.Add(id);
         s.Devices.DisabledLightingDevices = new List<string>(set);
     });

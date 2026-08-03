@@ -415,6 +415,26 @@ public class SmartLightProviderTests : IDisposable
     }
 
     [Fact]
+    public void SetDisabled_leavesAnOrphanedBrandsDisabledState_untouched()
+    {
+        // A device paired under a brand whose driver has since been unregistered
+        // (e.g. Nanoleaf) keeps whatever disabled flag it already had; SetDisabled
+        // only owns ids Owns() claims.
+        _store.Update(s =>
+        {
+            s.SmartLights.Devices.Add(new SmartLightConfig
+            {
+                Id = "nanoleaf:panel1", Brand = "nanoleaf", Name = "Nanoleaf Panel", Host = "5.6.7.8",
+            });
+            s.Devices.DisabledLightingDevices = new List<string> { "nanoleaf:panel1" };
+        });
+
+        _provider.SetDisabled(Array.Empty<string>());
+
+        Assert.Contains("nanoleaf:panel1", _store.Load().Devices.DisabledLightingDevices);
+    }
+
+    [Fact]
     public async Task ScanBrand_prunesUnreachableLight_butKeepsItsMapping()
     {
         await _provider.PairAsync(
