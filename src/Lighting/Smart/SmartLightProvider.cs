@@ -73,7 +73,15 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         _throttle = throttle;
     }
 
-    public bool IsConnected => _store.Load().SmartLights.Devices.Count > 0;
+    public bool IsConnected
+    {
+        get
+        {
+            foreach (var cfg in _store.Load().SmartLights.Devices)
+                if (_drivers.ContainsKey(cfg.Brand)) return true;
+            return false;
+        }
+    }
 
     /// <summary>True when the id belongs to a paired smart light (brand prefix
     /// matches a registered driver and the device is configured).</summary>
@@ -119,7 +127,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         for (var i = 0; i < devices.Count; i++)
         {
             var cfg = devices[i];
-            if (!cfg.Enabled || !BrandOn(brandEnabled, cfg.Brand)) continue;
+            if (!cfg.Enabled || !BrandOn(brandEnabled, cfg.Brand) || !_drivers.ContainsKey(cfg.Brand)) continue;
             // Hide a known-offline light's card; absent/true keeps it shown
             // (optimistic). Reachability is owned by the probe poll
             // (ProbeReachabilityAsync); reconnect is detected there, not from the
@@ -255,7 +263,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         for (var i = 0; i < devices.Count; i++)
         {
             var cfg = devices[i];
-            if (!cfg.Enabled || !BrandOn(brandEnabled, cfg.Brand)) continue;
+            if (!cfg.Enabled || !BrandOn(brandEnabled, cfg.Brand) || !_drivers.ContainsKey(cfg.Brand)) continue;
             _cache[cfg.Id] = ToSmartLight(cfg);
             live.Add(cfg.Id);
 
@@ -550,7 +558,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         // (plan.StaticNeedsStreaming, e.g. Govee) can't hold a single-color
         // command while a built-in scene runs - only a per-segment frame takes
         // over. Send a solid zoned frame and mark it for the writer's keep-alive.
-        // Devices that hold a manual color (bulbs, Nanoleaf) get the single path.
+        // Devices that hold a manual color (bulbs) get the single path.
         byte[]? zones = null;
         // Prefer the cached plan (BuildFrames) - PlanFrames allocates a sample
         // map, and this runs every writer tick for a streamed-static device.
@@ -575,12 +583,24 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     {
         var resp = new GetSmartLightsResponse();
         var smart = _store.Load().SmartLights;
-        resp.BrandEnabled = new Dictionary<string, bool>(smart.BrandEnabled);
+        // Persisted entries outlive an unregistered driver, so every read of
+        // them skips a brand absent from _drivers rather than surfacing it.
+        foreach (var kv in smart.BrandEnabled)
+        {
+            if (_drivers.ContainsKey(kv.Key)) resp.BrandEnabled[kv.Key] = kv.Value;
+        }
         var devices = smart.Devices;
         if (devices.Count == 0) return resp;
 
-        var hostOnline = await ProbeReachabilityAsync(devices, ct).ConfigureAwait(false);
+        var registered = new List<SmartLightConfig>(devices.Count);
         foreach (var cfg in devices)
+        {
+            if (_drivers.ContainsKey(cfg.Brand)) registered.Add(cfg);
+        }
+        if (registered.Count == 0) return resp;
+
+        var hostOnline = await ProbeReachabilityAsync(registered, ct).ConfigureAwait(false);
+        foreach (var cfg in registered)
         {
             resp.Devices.Add(new SmartLightDto
             {
@@ -599,8 +619,8 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     // Probe reachability ONCE per (brand, host) - a transient streaming 429
     // doesn't strand a whole bridge's lights - then sync _online and broadcast
     // once on any transition. Brand-neutral: each driver's PingAsync is the
-    // active liveness check its transport allows (Govee UDP devStatus, Hue/
-    // Nanoleaf HTTP). Hue lights share their bridge's host, so the probe is
+    // active liveness check its transport allows (Govee UDP devStatus, Hue
+    // HTTP). Hue lights share their bridge's host, so the probe is
     // bridge-level for Hue and per-device for Govee.
     private async Task<Dictionary<(string brand, string host), bool>> ProbeReachabilityAsync(
         IReadOnlyList<SmartLightConfig> devices, CancellationToken ct)
@@ -609,7 +629,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         var hostOnline = new Dictionary<(string brand, string host), bool>();
         foreach (var cfg in devices)
         {
-            if (!BrandOn(brandEnabled, cfg.Brand)) continue; // off brands are never probed
+            if (!BrandOn(brandEnabled, cfg.Brand) || !_drivers.ContainsKey(cfg.Brand)) continue; // off or unregistered brands are never probed
             var key = (cfg.Brand, cfg.Host);
             if (hostOnline.ContainsKey(key)) continue;
             var driver = DriverForId(cfg.Id);
@@ -624,7 +644,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         var changed = false;
         foreach (var cfg in devices)
         {
-            if (!BrandOn(brandEnabled, cfg.Brand)) continue;
+            if (!BrandOn(brandEnabled, cfg.Brand) || !_drivers.ContainsKey(cfg.Brand)) continue;
             changed |= SetOnline(cfg.Id, hostOnline.TryGetValue((cfg.Brand, cfg.Host), out var on) && on);
         }
         if (changed) RaiseOnlineChanged();
@@ -813,6 +833,11 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     /// so re-adding restores the mapping. Returns discovery candidates.</summary>
     public async Task<DiscoverSmartLightsResponse> ScanBrandAsync(string brand, CancellationToken ct)
     {
+        // An unregistered brand has no driver to probe, so every one of its
+        // lights would read as unreachable and get pruned; reject before that.
+        if (!_drivers.ContainsKey(brand))
+            return new DiscoverSmartLightsResponse { Error = "unknown-brand" };
+
         var brandLights = new List<SmartLightConfig>();
         foreach (var c in _store.Load().SmartLights.Devices)
             if (c.Brand == brand) brandLights.Add(c);

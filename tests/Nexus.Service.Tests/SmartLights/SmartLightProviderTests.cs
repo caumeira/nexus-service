@@ -334,6 +334,87 @@ public class SmartLightProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task GetSmartLightDtos_omitsBrandEnabledEntry_forAnUnregisteredDriver()
+    {
+        // A brand toggled on before its driver was unregistered (e.g. Nanoleaf)
+        // stays in settings, but the response must not advertise it as a brand.
+        _provider.SetBrandEnabled("nanoleaf", true);
+
+        var resp = await _provider.GetSmartLightDtosAsync(CancellationToken.None);
+
+        Assert.True(resp.BrandEnabled["fake"]);
+        Assert.False(resp.BrandEnabled.ContainsKey("nanoleaf"));
+        Assert.True(_store.Load().SmartLights.BrandEnabled["nanoleaf"]);   // persisted key untouched
+    }
+
+    [Fact]
+    public void IsConnected_ignoresDevicesOfAnUnregisteredBrand()
+    {
+        // Reporting connected while GetAll returns nothing drives the lighting
+        // routes' Scanning flag off a device no surface can show.
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "nanoleaf:panel1", Brand = "nanoleaf", Name = "Nanoleaf Panel", Host = "5.6.7.8",
+        }));
+
+        Assert.False(_provider.IsConnected);
+    }
+
+    [Fact]
+    public async Task UnregisteredBrandDevice_isOmittedFromEverySurface_butStaysInStore()
+    {
+        // A device paired under a brand whose driver has since been unregistered
+        // (e.g. Nanoleaf) must not surface in the DTO list, GetAll, or a canvas
+        // frame, while the persisted entry survives for a later re-registration.
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "nanoleaf:panel1", Brand = "nanoleaf", Name = "Nanoleaf Panel", Host = "5.6.7.8",
+        }));
+        _provider.SetBrandEnabled("nanoleaf", true);
+
+        var resp = await _provider.GetSmartLightDtosAsync(CancellationToken.None);
+        Assert.DoesNotContain(resp.Devices, d => d.Id == "nanoleaf:panel1");
+        Assert.DoesNotContain(_provider.BuildFrames(0), f => f.Id == "nanoleaf:panel1");
+        Assert.DoesNotContain(_provider.GetAll().Devices, d => d.Id == "nanoleaf:panel1");
+        Assert.Contains(_store.Load().SmartLights.Devices, d => d.Id == "nanoleaf:panel1");
+    }
+
+    [Fact]
+    public async Task GetSmartLightDtos_doesNotProbeOrRaiseOnlineChanged_forUnregisteredBrand()
+    {
+        // ProbeReachabilityAsync must skip an orphaned brand entirely: a
+        // driver-less probe would default it unreachable and fire OnlineChanged.
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "nanoleaf:panel1", Brand = "nanoleaf", Name = "Nanoleaf Panel", Host = "5.6.7.8",
+        }));
+        _provider.SetBrandEnabled("nanoleaf", true);
+        var raised = false;
+        _provider.OnlineChanged += () => raised = true;
+
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None);
+
+        Assert.False(raised);
+    }
+
+    [Fact]
+    public async Task ScanBrand_rejectsUnregisteredBrand_withoutPruningItsDevices()
+    {
+        // Without the guard, ScanBrandAsync's driver-less probe defaults every
+        // host of an orphaned brand to unreachable and prunes it from disk.
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "nanoleaf:panel1", Brand = "nanoleaf", Name = "Nanoleaf Panel", Host = "5.6.7.8",
+        }));
+
+        var result = await _provider.ScanBrandAsync("nanoleaf", CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.Equal("unknown-brand", result.Error);
+        Assert.Contains(_store.Load().SmartLights.Devices, d => d.Id == "nanoleaf:panel1");
+    }
+
+    [Fact]
     public async Task ScanBrand_prunesUnreachableLight_butKeepsItsMapping()
     {
         await _provider.PairAsync(

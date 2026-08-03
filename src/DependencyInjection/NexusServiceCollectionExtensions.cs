@@ -707,9 +707,9 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingFrameWriter>());
         services.AddHostedService<Nexus.Service.Peripherals.Strimer.StrimerConnectionWorker>();
 
-        // Smart (network) lights - Philips Hue, Nanoleaf, Govee today; WLED /
-        // LIFX / Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral
-        // provider + frame writer + send throttle; per-brand behavior is an
+        // Smart (network) lights - Philips Hue, Govee today; WLED / LIFX /
+        // Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral provider
+        // + frame writer + send throttle; per-brand behavior is an
         // ILightDriver. Joins the composite by id prefix ("hue:", …).
         // Cross-platform (pure sockets), so it runs on macOS/Linux too. See
         // plans/smart-lights-integration.md.
@@ -720,13 +720,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Hue.HueDriver>();
         services.AddSingleton<Nexus.Service.Lighting.Smart.ILightDriver>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.Drivers.Hue.HueDriver>());
-        services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Nanoleaf.NanoleafClient>();
-        services.AddSingleton(sp => new Nexus.Service.Lighting.Smart.Drivers.Nanoleaf.NanoleafDriver(
-            sp.GetRequiredService<Nexus.Service.Lighting.Smart.Drivers.Nanoleaf.NanoleafClient>(),
-            sp.GetRequiredService<Nexus.Service.Lighting.Smart.Discovery.LanDiscovery>(),
-            sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>()));
-        services.AddSingleton<Nexus.Service.Lighting.Smart.ILightDriver>(
-            sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.Drivers.Nanoleaf.NanoleafDriver>());
+        // Nanoleaf is not registered because it is not supported yet.
         services.AddSingleton(_ => new Nexus.Service.Lighting.Smart.Drivers.Govee.GoveeLanClient());
         services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Govee.GoveeDriver>();
         services.AddSingleton<Nexus.Service.Lighting.Smart.ILightDriver>(
