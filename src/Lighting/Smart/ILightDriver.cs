@@ -58,6 +58,11 @@ public interface ILightDriver
 /// </summary>
 public interface ISessionStreamer
 {
+    /// <summary>Can this device stream right now (a session is active, starting,
+    /// or has never failed)? False routes the caller to <see cref="ILightDriver.SendAsync"/>
+    /// instead of <see cref="Accumulate"/> - e.g. Hue with no Entertainment Area.</summary>
+    bool CanStream(SmartLight dev);
+
     /// <summary>Buffer this device's color for the current frame (already
     /// brightness-applied; off = black).</summary>
     void Accumulate(SmartLight dev, byte r, byte g, byte b);

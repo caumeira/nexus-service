@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
@@ -39,6 +40,12 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
     private const long FailBackoffMs = 10_000;
     private readonly Dictionary<string, Dictionary<string, (byte r, byte g, byte b)>> _buffers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string appKey, string clientKey)> _creds = new(StringComparer.OrdinalIgnoreCase);
+
+    // dev.Id -> last state actually pushed over REST, so a held color (routed
+    // here every writer tick while streaming is unavailable) isn't re-sent
+    // unchanged at ~10Hz - a Hue bulb latches whatever it was last sent.
+    // Recorded only after a successful send, so a failed attempt still retries.
+    private readonly ConcurrentDictionary<string, (bool on, byte r, byte g, byte b, float bri)> _lastSent = new(StringComparer.Ordinal);
 
     public HueDriver(HueBridgeClient client, LanDiscovery lan)
     {
@@ -166,6 +173,9 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
         var (rid, _) = ParseExtra(dev.Extra);
         if (string.IsNullOrEmpty(appKey) || string.IsNullOrEmpty(rid)) return;
 
+        var state = (frame.On, frame.R, frame.G, frame.B, frame.Brightness01);
+        if (_lastSent.TryGetValue(dev.Id, out var prev) && prev == state) return;
+
         HueLightUpdate update;
         if (!frame.On)
         {
@@ -187,6 +197,7 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
             };
         }
         await _client.UpdateLightAsync(dev.Host, appKey, rid, update, ct).ConfigureAwait(false);
+        _lastSent[dev.Id] = state;
     }
 
     public async Task IdentifyAsync(SmartLight dev, CancellationToken ct)
@@ -198,6 +209,18 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
     }
 
     // ── ISessionStreamer (Hue Entertainment) ──────────────────────────────────
+
+    // False only during a failed session's retry backoff (no Entertainment
+    // Area, or a transient handshake loss) - the state SendAsync's REST
+    // fallback covers. Once the backoff elapses this flips true again so the
+    // next Flush retries the session, self-healing without a separate timer.
+    public bool CanStream(SmartLight dev)
+    {
+        lock (_sessLock)
+        {
+            return !_failedUntil.TryGetValue(dev.Host, out var until) || Environment.TickCount64 >= until;
+        }
+    }
 
     public void Accumulate(SmartLight dev, byte r, byte g, byte b)
     {
@@ -278,6 +301,9 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
             _starting.Clear();
             _failedUntil.Clear();
         }
+        // Cleared here too, so a re-pair or service restart can't suppress the
+        // first REST send with a stale state from a previous pairing.
+        _lastSent.Clear();
         foreach (var s in sessions) _ = s.StopAsync(CancellationToken.None);
     }
 

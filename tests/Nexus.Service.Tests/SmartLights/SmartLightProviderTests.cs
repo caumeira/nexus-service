@@ -169,6 +169,56 @@ public class SmartLightProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task AccumulateOrSubmit_routesToRest_withUnscaledFrame_whenStreamerCannotStream()
+    {
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "fake:bridge:1", Brand = "fake", Name = "L1", Host = "1.2.3.4", StableKey = "bridge", Extra = "1",
+        }));
+        _provider.BuildFrames(0); // populates the cache AccumulateOrSubmit reads
+
+        _driver.CanStreamResult = false;
+        var accumulated = false;
+        _driver.OnAccumulate = (_, _, _) => accumulated = true;
+        var tcs = new TaskCompletionSource<LightFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _driver.OnSend = f => tcs.TrySetResult(f);
+
+        _provider.AccumulateOrSubmit("fake:bridge:1", new LightFrame(On: true, 200, 100, 50, 0.5f));
+
+        var sent = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.False(accumulated);
+        // REST gets the frame as submitted - SendAsync applies Brightness01 itself.
+        Assert.Equal((byte)200, sent.R);
+        Assert.Equal((byte)100, sent.G);
+        Assert.Equal((byte)50, sent.B);
+        Assert.Equal(0.5f, sent.Brightness01);
+    }
+
+    [Fact]
+    public void AccumulateOrSubmit_routesToAccumulate_withPreScaledRgb_whenStreamerCanStream()
+    {
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "fake:bridge:1", Brand = "fake", Name = "L1", Host = "1.2.3.4", StableKey = "bridge", Extra = "1",
+        }));
+        _provider.BuildFrames(0);
+
+        _driver.CanStreamResult = true;
+        (byte r, byte g, byte b)? accumulated = null;
+        _driver.OnAccumulate = (r, g, b) => accumulated = (r, g, b);
+        var sent = false;
+        _driver.OnSend = _ => sent = true;
+
+        _provider.AccumulateOrSubmit("fake:bridge:1", new LightFrame(On: true, 200, 100, 50, 0.5f));
+
+        Assert.False(sent);
+        Assert.NotNull(accumulated);
+        Assert.Equal((byte)100, accumulated!.Value.r); // 200 * 0.5
+        Assert.Equal((byte)50, accumulated.Value.g);    // 100 * 0.5
+        Assert.Equal((byte)25, accumulated.Value.b);    // 50 * 0.5
+    }
+
+    [Fact]
     public async Task GetAll_hidesOfflineDevice_andRestoresOnReconnect()
     {
         await _provider.PairAsync(
@@ -473,10 +523,15 @@ public class SmartLightProviderTests : IDisposable
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
 
-    private sealed class FakeDriver : ILightDriver
+    // Also an ISessionStreamer (like Hue) so AccumulateOrSubmit's routing is
+    // testable; CanStreamResult defaults false so every pre-existing test here
+    // (which assumes the REST/OnSend path) keeps behaving unchanged.
+    private sealed class FakeDriver : ILightDriver, ISessionStreamer
     {
         public LightFramePlan Plan = new(16, true);
         public Action<LightFrame>? OnSend;
+        public Action<byte, byte, byte>? OnAccumulate;
+        public bool CanStreamResult;
         public bool PingResult = true;
         // What a scan discovers; defaults to the one paired light's host/key.
         public List<DiscoveredLight> DiscoverResult = new() { new DiscoveredLight("fake", "1.2.3.4", "Fake", "bridge") };
@@ -500,5 +555,10 @@ public class SmartLightProviderTests : IDisposable
         public int MinIntervalMs(SmartLight dev) => 10;
         public string RateLimitKey(SmartLight dev) => dev.Id;
         public Task<bool> PingAsync(SmartLight dev, CancellationToken ct) => Task.FromResult(PingResult);
+
+        public bool CanStream(SmartLight dev) => CanStreamResult;
+        public void Accumulate(SmartLight dev, byte r, byte g, byte b) => OnAccumulate?.Invoke(r, g, b);
+        public void Flush() { }
+        public void StopAll() { }
     }
 }

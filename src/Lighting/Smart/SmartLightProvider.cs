@@ -448,14 +448,16 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
             hostKey: driver.RateLimitKey(dev), hostIntervalMs: minInterval);
     }
 
-    /// <summary>Route an effect frame: session-streaming drivers (Hue
-    /// Entertainment) accumulate into a per-controller batch; others go through
-    /// the per-light throttle/REST path. Brightness is pre-applied for the
-    /// session path (its packet carries raw RGB); off = black.</summary>
+    /// <summary>Route an effect frame: a session-streaming driver (Hue
+    /// Entertainment) accumulates into its per-controller batch when it can
+    /// stream right now; otherwise (or for non-streaming drivers) the frame
+    /// falls through unmodified to the per-light throttle/REST path. Brightness
+    /// is pre-applied only on the session path (its packet carries raw RGB);
+    /// off = black.</summary>
     public void AccumulateOrSubmit(string id, LightFrame frame)
     {
         var driver = DriverForId(id);
-        if (driver is ISessionStreamer ss && _cache.TryGetValue(id, out var dev))
+        if (driver is ISessionStreamer ss && _cache.TryGetValue(id, out var dev) && ss.CanStream(dev))
         {
             byte r = 0, g = 0, b = 0;
             if (frame.On)
