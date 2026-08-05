@@ -119,29 +119,6 @@ public sealed class PanelDeviceRegistryTests : IDisposable
     }
 
     [Fact]
-    public void Patch_BackgroundEnabled_RoundTripsThroughGet()
-    {
-        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
-
-        var patched = _registry.Patch(record.Id, new PanelDevicePatch { BackgroundEnabled = false });
-        var fetched = _registry.Get(record.Id);
-
-        Assert.False(patched!.BackgroundEnabled);
-        Assert.False(fetched!.BackgroundEnabled);
-    }
-
-    [Fact]
-    public void Patch_OmittedBackgroundEnabled_DoesNotClobberStoredValue()
-    {
-        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
-        _registry.Patch(record.Id, new PanelDevicePatch { BackgroundEnabled = false });
-
-        var patched = _registry.Patch(record.Id, new PanelDevicePatch { DisplayName = "Renamed" });
-
-        Assert.False(patched!.BackgroundEnabled);
-    }
-
-    [Fact]
     public void Patch_Backdrop_RoundTripsThroughGet()
     {
         var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
@@ -239,7 +216,7 @@ public sealed class PanelDeviceRegistryTests : IDisposable
             BackgroundTemplate = 2,
             BackgroundTemplates = new Dictionary<string, int> { ["plasma"] = 2 },
             BackgroundOpacity = 0.3,
-            BackgroundEnabled = false,
+            Backdrop = "desktop",
             BackgroundMediaId = "asset-1",
             BackgroundMediaType = "static",
             BackgroundFrostLevel = 100,
@@ -267,7 +244,7 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         Assert.Null(reset.BackgroundTemplate);
         Assert.Null(reset.BackgroundTemplates);
         Assert.Null(reset.BackgroundOpacity);
-        Assert.Null(reset.BackgroundEnabled);
+        Assert.Null(reset.Backdrop);
         Assert.Null(reset.BackgroundMediaId);
         Assert.Null(reset.BackgroundMediaType);
         Assert.Null(reset.BackgroundFrostLevel);
@@ -321,13 +298,14 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         Assert.Null(_registry.ResetHardwareSettings("nope"));
     }
 
-    /// <summary>Null until explicitly patched; enabled is the client-side default.</summary>
+    /// <summary>Null until explicitly patched; the client resolves the default
+    /// per surface.</summary>
     [Fact]
-    public void Allocate_BackgroundEnabled_AbsentIsNullNotServerDefaulted()
+    public void Allocate_Backdrop_AbsentIsNullNotServerDefaulted()
     {
         var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
 
-        Assert.Null(record.BackgroundEnabled);
+        Assert.Null(record.Backdrop);
     }
 
     [Fact]

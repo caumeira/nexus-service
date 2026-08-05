@@ -16632,10 +16632,10 @@
             ],
             "format": "double"
           },
-          "backgroundEnabled": {
+          "backdrop": {
             "type": [
               "null",
-              "boolean"
+              "string"
             ]
           },
           "backgroundMediaId": {

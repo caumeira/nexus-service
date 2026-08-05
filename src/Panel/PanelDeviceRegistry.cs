@@ -396,8 +396,6 @@ public sealed class PanelDeviceRegistry
                 record.BackgroundTemplates = new Dictionary<string, int>(patch.BackgroundTemplates);
             if (patch.BackgroundOpacity.HasValue)
                 record.BackgroundOpacity = patch.BackgroundOpacity.Value;
-            if (patch.BackgroundEnabled.HasValue)
-                record.BackgroundEnabled = patch.BackgroundEnabled.Value;
             // An unrecognised value is ignored rather than stored: clearing
             // would silently drop the panel's current mode on a client typo.
             if (NormalizeBackdrop(patch.Backdrop) is { } backdrop)
@@ -482,7 +480,6 @@ public sealed class PanelDeviceRegistry
             record.BackgroundTemplate = null;
             record.BackgroundTemplates = null;
             record.BackgroundOpacity = null;
-            record.BackgroundEnabled = null;
             record.Backdrop = null;
             record.BackgroundMediaId = null;
             record.BackgroundMediaType = null;
@@ -584,7 +581,6 @@ public sealed class PanelDeviceRegistry
                 ? null
                 : new Dictionary<string, int>(r.BackgroundTemplates),
             BackgroundOpacity = r.BackgroundOpacity,
-            BackgroundEnabled = r.BackgroundEnabled,
             Backdrop = r.Backdrop,
             BackgroundMediaId = r.BackgroundMediaId,
             BackgroundMediaType = r.BackgroundMediaType,

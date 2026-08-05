@@ -32,10 +32,6 @@ public sealed class PanelDeviceRecord
     /// </summary>
     public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
-    /// <summary>Background layer on/off. Superseded by <see cref="Backdrop"/>,
-    /// which encodes the same choice plus the see-through mode; retained so a
-    /// stored record still round-trips.</summary>
-    public bool? BackgroundEnabled { get; set; }
     /// <summary>What renders behind the widgets: "theme" (the panel's own
     /// background layer), "wallpaper" (the desktop wallpaper redrawn in-page),
     /// or "desktop" (the kiosk window itself is transparent, so the live
@@ -172,7 +168,6 @@ public sealed class PanelDevicePatch
     /// (effect key → preset index). The client sends the whole map.</summary>
     public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
-    public bool? BackgroundEnabled { get; set; }
     /// <summary>"theme", "wallpaper", or "desktop"; see the record.</summary>
     public string? Backdrop { get; set; }
     public string? BackgroundMediaId { get; set; }
