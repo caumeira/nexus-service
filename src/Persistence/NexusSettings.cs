@@ -106,6 +106,13 @@ public sealed class NexusSettings
     /// wiped by factory reset so the screen reappears.</summary>
     public bool LightingOnboardingCompleted { get; set; }
 
+    /// <summary>True once at least one Nexus 2 personalization category has been
+    /// imported through the migration screen. Install-scoped like
+    /// <see cref="Nexus2MigrationOffered"/>: excluded from CloneSettings and
+    /// ProfileSharing, so it never rides a profile export/import or a cloud
+    /// push/pull, and a factory reset allows re-importing.</summary>
+    public bool Nexus2MigrationCompleted { get; set; }
+
     /// <summary>Physical Stream Deck bindings, keyed by device serial. Profile-scoped via the <see cref="ProfileSharing.Device"/> sharing category (defaults to Shared, so it behaves like a workstation-global setting until the user opts a profile out).</summary>
     public StreamDeckSettings StreamDeck { get; set; } = new();
 

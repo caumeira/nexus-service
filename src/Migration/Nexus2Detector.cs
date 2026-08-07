@@ -1,16 +1,22 @@
+using System.Threading.Tasks;
 #if WINDOWS
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using Microsoft.Win32;
 using Nexus.Service.Lifecycle;
 #endif
 
 namespace Nexus.Service.Migration;
 
-/// <summary>Detection ladder result for a Nexus 2 (legacy HYTE Nexus) install.</summary>
-public sealed record Nexus2DetectionResult(bool Detected, bool ImportAvailable, string? Version, bool AutostartTaskPresent)
+/// <summary>Detection ladder result for a Nexus 2 (legacy HYTE Nexus) install.
+/// InstallLocation is the ARP-reported install root, used to scope the
+/// close-app OpenRGB kill to Nexus 2's own bundled copy.</summary>
+public sealed record Nexus2DetectionResult(
+    bool Detected, bool ImportAvailable, string? Version, bool AutostartTaskPresent,
+    bool Running = false, string? InstallLocation = null)
 {
     public static readonly Nexus2DetectionResult None = new(false, false, null, false);
 }
@@ -29,6 +35,13 @@ public interface INexus2Detector
     /// <summary>Deletes the Nexus 2 autostart scheduled task. Returns true when
     /// the task was deleted or was already absent (idempotent).</summary>
     bool DisableAutostart();
+
+    /// <summary>Closes a running Nexus 2: graceful CloseMainWindow first (the
+    /// AW5 failure log entry - hard-killing a process that owns a device HID
+    /// can wedge the hardware until reboot), then kills any survivors plus
+    /// Nexus 2's own bundled OpenRGB.exe. Idempotent: true when nothing ends
+    /// up running, including when nothing was running to begin with.</summary>
+    Task<bool> CloseAppAsync();
 }
 
 #if WINDOWS
@@ -46,11 +59,13 @@ public sealed class Nexus2Detector : INexus2Detector
     private const string TaskName = "HYTE Nexus";
     private const string ConfigJsonRelativePath = @"AppData\Roaming\HYTE Nexus\config.json";
     private const string AppConfigJsonRelativePath = @"Documents\Hyte Nexus\appConfig.json";
+    // The Electron main process; the one that owns a top-level window CloseMainWindow can target.
+    private const string MainProcessName = "HYTE Nexus";
     private static readonly string[] ProcessNames = { "HYTE Nexus", "HYTE.Nexus.Service" };
 
     public Nexus2DetectionResult Detect()
     {
-        var (arpFound, version) = CheckArpUninstallKey();
+        var (arpFound, version, installLocation) = CheckArpUninstallKey();
         var configJsonFound = ResolveExistingProfileFile(ConfigJsonRelativePath, requireNonEmpty: true) is not null;
         var taskFileFound = ScheduledTaskFileExists();
         var hyteIoFound = CheckHyteIoService();
@@ -58,7 +73,7 @@ public sealed class Nexus2Detector : INexus2Detector
         var processFound = CheckProcessRunning();
 
         var detected = arpFound || configJsonFound || taskFileFound || hyteIoFound || appConfigFound || processFound;
-        return new Nexus2DetectionResult(detected, configJsonFound, version, taskFileFound);
+        return new Nexus2DetectionResult(detected, configJsonFound, version, taskFileFound, processFound, installLocation);
     }
 
     public bool DisableAutostart()
@@ -70,10 +85,105 @@ public sealed class Nexus2Detector : INexus2Detector
         return RunSchtasksDelete();
     }
 
-    private static (bool Found, string? Version) CheckArpUninstallKey()
+    public async Task<bool> CloseAppAsync()
+    {
+        try
+        {
+            await CloseGracefullyThenKillAsync(Process.GetProcessesByName(MainProcessName), TimeSpan.FromSeconds(10));
+
+            foreach (var name in ProcessNames)
+            {
+                KillSurvivors(Process.GetProcessesByName(name));
+            }
+
+            // Nexus's own bundled OpenRGB owns device HID too, so it gets the
+            // same graceful-first treatment as the main process (the AW5
+            // failure-log entry: a hard kill mid-transaction can wedge the
+            // hardware until reboot).
+            await CloseGracefullyThenKillAsync(BundledOpenRgbProcesses(), TimeSpan.FromSeconds(5));
+
+            var stillRunning = CheckProcessRunning();
+            var leftoverOpenRgb = BundledOpenRgbProcesses();
+            KillSurvivors(leftoverOpenRgb); // disposes; nothing left alive to kill at this point
+            return !stillRunning && leftoverOpenRgb.Length == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task CloseGracefullyThenKillAsync(Process[] processes, TimeSpan gracePeriod)
+    {
+        using (var cts = new CancellationTokenSource(gracePeriod))
+        {
+            foreach (var proc in processes)
+            {
+                try { if (!proc.HasExited) proc.CloseMainWindow(); }
+                catch { /* per-process swallow */ }
+            }
+            foreach (var proc in processes)
+            {
+                try { await proc.WaitForExitAsync(cts.Token); }
+                catch { /* timed out or already gone; killed as a survivor below */ }
+            }
+        }
+        KillSurvivors(processes);
+    }
+
+    private static void KillSurvivors(Process[] processes)
+    {
+        foreach (var proc in processes)
+        {
+            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); }
+            catch { /* per-process swallow */ }
+            finally { proc.Dispose(); }
+        }
+    }
+
+    // Only an OpenRGB.exe whose main module lives under Nexus 2's own install
+    // root - never a user's standalone OpenRGB or Nexus's own copy.
+    private static Process[] BundledOpenRgbProcesses()
+    {
+        var root = ResolveInstallRootPrefix();
+        if (root is null)
+        {
+            return Array.Empty<Process>();
+        }
+        var matches = new List<Process>();
+        foreach (var proc in Process.GetProcessesByName("OpenRGB"))
+        {
+            try
+            {
+                var modulePath = proc.MainModule?.FileName;
+                if (modulePath is not null && modulePath.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                {
+                    matches.Add(proc);
+                    continue;
+                }
+            }
+            catch { /* inaccessible module: not confirmed ours, leave it running */ }
+            proc.Dispose();
+        }
+        return matches.ToArray();
+    }
+
+    private static string? ResolveInstallRootPrefix()
+    {
+        var (_, _, installLocation) = CheckArpUninstallKey();
+        if (string.IsNullOrEmpty(installLocation))
+        {
+            return null;
+        }
+        return Path.GetFullPath(installLocation).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+    }
+
+    private static (bool Found, string? Version, string? InstallLocation) CheckArpUninstallKey()
     {
         var found = false;
         string? version = null;
+        string? installLocation = null;
 
         try
         {
@@ -85,6 +195,7 @@ public sealed class Nexus2Detector : INexus2Detector
                 {
                     found = true;
                     version = key.GetValue("DisplayVersion") as string;
+                    installLocation = key.GetValue("InstallLocation") as string;
                 }
             }
         }
@@ -97,6 +208,7 @@ public sealed class Nexus2Detector : INexus2Detector
             {
                 found = true;
                 version ??= key.GetValue("DisplayVersion") as string;
+                installLocation ??= key.GetValue("InstallLocation") as string;
             }
         }
         catch { /* per-check swallow */ }
@@ -108,11 +220,12 @@ public sealed class Nexus2Detector : INexus2Detector
             {
                 found = true;
                 version ??= key.GetValue("DisplayVersion") as string;
+                installLocation ??= key.GetValue("InstallLocation") as string;
             }
         }
         catch { /* per-check swallow */ }
 
-        return (found, version);
+        return (found, version, installLocation);
     }
 
     private static bool ScheduledTaskFileExists()
@@ -169,7 +282,7 @@ public sealed class Nexus2Detector : INexus2Detector
     {
         try
         {
-            foreach (var profileDir in CandidateProfileDirs())
+            foreach (var profileDir in Nexus2ProfileDirs.Candidates())
             {
                 var candidate = Path.Combine(profileDir, relativePath);
                 if (!SafeFileExists(candidate))
@@ -185,69 +298,6 @@ public sealed class Nexus2Detector : INexus2Detector
         }
         catch { /* per-check swallow */ }
         return null;
-    }
-
-    // Tries the resolved console user's own profile first, then falls back to
-    // the ElgatoProfileLocator-style scan of every real profile under
-    // <sysdrive>\Users (console user unresolvable, or Nexus 2 ran under a
-    // different account), since the service runs as LocalSystem.
-    private static IEnumerable<string> CandidateProfileDirs()
-    {
-        string? consoleProfile = null;
-        try
-        {
-            consoleProfile = ConsoleUserSid.ResolveProfilePath();
-        }
-        catch { /* fall through to scan */ }
-
-        if (!string.IsNullOrEmpty(consoleProfile))
-        {
-            yield return consoleProfile;
-        }
-
-        string? usersRoot = null;
-        try
-        {
-            var root = Path.GetPathRoot(Environment.SystemDirectory);
-            if (!string.IsNullOrEmpty(root))
-            {
-                usersRoot = Path.Combine(root, "Users");
-            }
-        }
-        catch { /* ignore */ }
-        if (usersRoot is null || !SafeDirExists(usersRoot))
-        {
-            yield break;
-        }
-
-        string[] profiles;
-        try
-        {
-            profiles = Directory.GetDirectories(usersRoot);
-        }
-        catch
-        {
-            yield break;
-        }
-
-        foreach (var profile in profiles)
-        {
-            var leaf = Path.GetFileName(profile);
-            if (leaf is "Public" or "Default" or "Default User" or "All Users")
-            {
-                continue;
-            }
-            if (string.Equals(profile, consoleProfile, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            yield return profile;
-        }
-    }
-
-    private static bool SafeDirExists(string path)
-    {
-        try { return Directory.Exists(path); } catch { return false; }
     }
 
     private static bool SafeFileExists(string path)
@@ -269,5 +319,7 @@ public sealed class Nexus2Detector : INexus2Detector
     public Nexus2DetectionResult Detect() => Nexus2DetectionResult.None;
 
     public bool DisableAutostart() => false;
+
+    public Task<bool> CloseAppAsync() => Task.FromResult(false);
 }
 #endif

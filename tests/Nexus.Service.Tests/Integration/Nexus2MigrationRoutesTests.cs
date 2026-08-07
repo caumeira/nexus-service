@@ -29,9 +29,11 @@ public sealed class Nexus2MigrationRoutesTests
     {
         public Nexus2DetectionResult Result = Nexus2DetectionResult.None;
         public bool DisableAutostartResult;
+        public bool CloseAppResult;
 
         public Nexus2DetectionResult Detect() => Result;
         public bool DisableAutostart() => DisableAutostartResult;
+        public System.Threading.Tasks.Task<bool> CloseAppAsync() => System.Threading.Tasks.Task.FromResult(CloseAppResult);
     }
 
     private readonly FakeNexus2Detector _detector = new();
@@ -86,6 +88,58 @@ public sealed class Nexus2MigrationRoutesTests
         {
             var res = await factory.CreateClient().PostAsync("/migration/nexus2/disable-autostart", null);
             Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task CloseApp_requires_a_token()
+    {
+        var (factory, _) = Boot();
+        using (factory)
+        {
+            var res = await factory.CreateClient().PostAsync("/migration/nexus2/close-app", null);
+            Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task CloseApp_success_reflects_the_detector()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            _detector.CloseAppResult = true;
+
+            var res = await client.PostAsync("/migration/nexus2/close-app", null);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.False(doc.RootElement.GetProperty("error").GetBoolean());
+        }
+    }
+
+    [Fact]
+    public async Task CloseApp_failure_reflects_the_detector()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            _detector.CloseAppResult = false;
+
+            var res = await client.PostAsync("/migration/nexus2/close-app", null);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.True(doc.RootElement.GetProperty("error").GetBoolean());
+        }
+    }
+
+    [Fact]
+    public async Task Status_reports_running_from_the_detector()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            _detector.Result = new Nexus2DetectionResult(true, true, "2.16.0", true, Running: true);
+
+            using var doc = JsonDocument.Parse(await (await client.GetAsync("/migration/nexus2")).Content.ReadAsStringAsync());
+            Assert.True(doc.RootElement.GetProperty("running").GetBoolean());
         }
     }
 
