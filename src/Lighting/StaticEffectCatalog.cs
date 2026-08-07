@@ -8,6 +8,10 @@ namespace Nexus.Service.Lighting;
 /// </summary>
 public static class StaticEffectCatalog
 {
+    /// <summary>Key Static mode lands on before the user picks anything. Mirrors
+    /// DEFAULT_STATIC_EFFECT in nexus-web/src/types/lighting.ts.</summary>
+    public const string DefaultEffect = "gradientlinear";
+
     /// <summary>Solid-colour fills; every key resolves to the one simple.frag fill shader.</summary>
     public static readonly string[] Fills =
     {

@@ -328,7 +328,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             {
                 throw new System.ArgumentException($"'{name}' is not a static effect", nameof(body));
             }
-            name = StaticEffectCatalog.Fills[0];
+            name = StaticEffectCatalog.DefaultEffect;
         }
         var intensity = body.Intensity > 0 ? body.Intensity : 1f;
         var extras = ParamsToDict(body.Params);

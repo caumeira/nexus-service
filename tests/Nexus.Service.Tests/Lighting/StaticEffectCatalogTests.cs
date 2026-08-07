@@ -14,6 +14,15 @@ namespace Nexus.Service.Tests.Lighting;
 public class StaticEffectCatalogTests
 {
     [Fact]
+    public void DefaultEffect_IsTheLinearGradient()
+    {
+        // A key outside the catalog would persist through StartStatic("") and
+        // render as rainbow via BuildAnimateEffect's fallthrough.
+        Assert.Equal("gradientlinear", StaticEffectCatalog.DefaultEffect);
+        Assert.True(StaticEffectCatalog.Contains(StaticEffectCatalog.DefaultEffect));
+    }
+
+    [Fact]
     public void Patterns_ReferenceNoTimeAtAll()
     {
         // These are purpose-built static shaders, not animate shaders held at

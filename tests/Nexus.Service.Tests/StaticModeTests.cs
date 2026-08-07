@@ -198,10 +198,16 @@ public class StaticModeTests : IDisposable
     }
 
     [Fact]
-    public void An_empty_key_still_gets_the_default_fill()
+    public void An_empty_key_still_gets_the_default_effect()
     {
         _provider.StartStatic(new StaticHeadlessStart { Effect = "", Persist = true });
 
-        Assert.Equal(StaticEffectCatalog.Fills[0], _store.Load().Lighting.Static.Effect);
+        Assert.Equal(StaticEffectCatalog.DefaultEffect, _store.Load().Lighting.Static.Effect);
+    }
+
+    [Fact]
+    public void A_fresh_profile_starts_on_the_default_effect()
+    {
+        Assert.Equal(StaticEffectCatalog.DefaultEffect, _store.Load().Lighting.Static.Effect);
     }
 }

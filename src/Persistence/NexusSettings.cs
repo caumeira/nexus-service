@@ -367,7 +367,7 @@ public sealed class AnimateSettings
 public sealed class StaticSettings
 {
     /// <summary>Key of the last-selected static fill or pattern.</summary>
-    public string Effect { get; set; } = "simplewhite";
+    public string Effect { get; set; } = Nexus.Service.Lighting.StaticEffectCatalog.DefaultEffect;
     /// <summary>Sparse per-key look, same delta-from-resolved-slot rule as
     /// <see cref="AnimateSettings.States"/>. Speed is unused - static runs at 0.</summary>
     public Dictionary<string, AnimateEffectState> States { get; set; } = new();
