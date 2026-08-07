@@ -160,6 +160,30 @@ public class JsonConfigStoreMigrationTests : IDisposable
         {
             Assert.Equal(NexusSettings.CurrentSchemaVersion, s.SchemaVersion);
             Assert.False(s.OnboardingCompleted);
+            Assert.False(s.LightingOnboardingCompleted);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_V12_MigratesLightingOnboardingCompletedForExistingInstall()
+    {
+        var json = """
+        {
+          "schemaVersion": 12
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.Equal(NexusSettings.CurrentSchemaVersion, s.SchemaVersion);
+            Assert.True(s.LightingOnboardingCompleted);
         }
         finally
         {

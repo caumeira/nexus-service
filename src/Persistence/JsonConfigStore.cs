@@ -122,6 +122,10 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// v12: the "device" sharing category (Stream Deck bindings) is added to
     /// SharedCategories so an upgrading install keeps today's
     /// workstation-global behavior instead of defaulting to per-profile.
+    /// v13: any pre-existing settings.json predates the lighting
+    /// device-selection onboarding, so it is marked already-complete; only a
+    /// fresh install (no settings.json) sees LightingOnboardingCompleted
+    /// default to false. Same shape as v8.
     /// </summary>
     private static void Migrate(NexusSettings doc)
     {
@@ -170,6 +174,10 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             {
                 doc.SharedCategories.Add(ProfileSharing.Device);
             }
+        }
+        if (doc.SchemaVersion < 13)
+        {
+            doc.LightingOnboardingCompleted = true;
         }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }

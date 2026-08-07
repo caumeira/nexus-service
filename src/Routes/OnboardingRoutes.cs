@@ -6,32 +6,50 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Routes;
 
 /// <summary>
-/// First-run welcome screen state (dashboard-only, loopback). The desktop
-/// dashboard shows a one-time welcome screen on first launch and marks it
-/// complete so it never reappears, unless a factory reset wipes settings.json.
-/// Dashboard-only by design - a paired phone has no welcome screen, so these
+/// First-run onboarding state (dashboard-only, loopback). The desktop
+/// dashboard shows a one-time welcome screen on first launch, then a one-time
+/// lighting device-selection screen, and marks each complete so it never
+/// reappears, unless a factory reset wipes settings.json.
+/// Dashboard-only by design - a paired phone has no onboarding, so these
 /// are <see cref="LocalhostOnlyEndpointExtensions.LocalhostOnly"/> (no
 /// .AllowPanel()).
-///   GET  /onboarding           -> { completed }
-///   POST /onboarding/complete  -> set true, return { completed: true }
+///   GET  /onboarding                    -> { completed, lightingCompleted }
+///   POST /onboarding/complete           -> set completed, return status
+///   POST /onboarding/lighting-complete  -> set lightingCompleted, return status
 /// </summary>
 internal static class OnboardingRoutes
 {
     public static void MapOnboardingEndpoints(this WebApplication app)
     {
         app.MapGet("/onboarding", (IConfigStore store) =>
-            Results.Ok(new OnboardingStatusDto { Completed = store.Load().OnboardingCompleted }))
-            .LocalhostOnly();
+            Results.Ok(Status(store))).LocalhostOnly();
 
         app.MapPost("/onboarding/complete", (IConfigStore store) =>
         {
             store.Update(s => s.OnboardingCompleted = true);
-            return Results.Ok(new OnboardingStatusDto
-            {
-                Completed = store.Load().OnboardingCompleted,
-            });
+            return Results.Ok(Status(store));
         }).LocalhostOnly();
+
+        app.MapPost("/onboarding/lighting-complete", (IConfigStore store) =>
+        {
+            store.Update(s => s.LightingOnboardingCompleted = true);
+            return Results.Ok(Status(store));
+        }).LocalhostOnly();
+    }
+
+    private static OnboardingStatusDto Status(IConfigStore store)
+    {
+        var s = store.Load();
+        return new OnboardingStatusDto
+        {
+            Completed = s.OnboardingCompleted,
+            LightingCompleted = s.LightingOnboardingCompleted,
+        };
     }
 }
 
-public sealed class OnboardingStatusDto { public bool Completed { get; set; } }
+public sealed class OnboardingStatusDto
+{
+    public bool Completed { get; set; }
+    public bool LightingCompleted { get; set; }
+}

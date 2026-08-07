@@ -186,7 +186,15 @@ internal static class FactoryReset
         setsid();
 #endif
         Console.Error.WriteLine($"[factory-reset] finalize: waiting for pid {parentPid} to exit");
+#if MACOS
+        // On the wipe path the parent frequently survives StopApplication (the
+        // NSApplication shell stays resident) and the kill below handles it, so
+        // a long wait only stalls the reset. The restart-only path has no kill
+        // backstop; it keeps the full grace.
+        WaitForProcessExit(parentPid, wipe ? TimeSpan.FromSeconds(5) : TimeSpan.FromSeconds(30));
+#else
         WaitForProcessExit(parentPid, TimeSpan.FromSeconds(30));
+#endif
 
         // macOS only: launchd would relaunch the service the instant it exits
         // (KeepAlive=true), and that new instance could flush its in-memory
@@ -197,6 +205,11 @@ internal static class FactoryReset
         if (wipe)
         {
             BootoutMacAgent();
+            // The macOS counterpart of the Windows taskkill below: an instance
+            // that survived StopApplication would flush its in-memory settings
+            // over the wiped data dir and steal the single-instance handshake
+            // from the relaunch.
+            KillOtherInstancesOfThisBinary();
         }
 #endif
 
@@ -292,6 +305,39 @@ internal static class FactoryReset
     }
 
 #if MACOS
+    /// SIGKILL (no flush, no teardown) every other live process running this
+    /// exact binary. Same-path match only, so a differently-located dev build
+    /// is left alone.
+    private static void KillOtherInstancesOfThisBinary()
+    {
+        // Never let the sweep abort Finalize: after BootoutMacAgent a throw
+        // here would strand the agent booted out with no RestartService.
+        try
+        {
+            var selfPath = Environment.ProcessPath ?? "";
+            if (selfPath.Length == 0) return;
+            foreach (var proc in Process.GetProcessesByName("Nexus"))
+            {
+                try
+                {
+                    if (proc.Id == Environment.ProcessId) continue;
+                    if (!string.Equals(proc.MainModule?.FileName, selfPath, StringComparison.Ordinal)) continue;
+                    proc.Kill();
+                    Console.Error.WriteLine($"[factory-reset] killed surviving instance pid {proc.Id}");
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[factory-reset] survivor check pid {proc.Id}: {ex.Message}");
+                }
+                finally { proc.Dispose(); }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[factory-reset] survivor sweep failed: {ex.Message}");
+        }
+    }
+
     private static void BootoutMacAgent()
     {
         var uid = ShellExecutor.Run("/usr/bin/id", "-u").Trim();

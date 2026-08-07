@@ -68,7 +68,7 @@ src/
   Sockets/            # multiplex WebSocket + topic auth
   Sensors/            # LibreHardwareMonitor (Win), IOKit (Mac), sysfs (Linux)
   Cooling/  QSeries/  # fan/pump drivers
-  Lighting/           # OpenRGB bridge, HYTE protocols, effects, screen+audio sync
+  Lighting/           # OpenRGB bridge, HYTE protocols, effects, screen+audio sync (DevTools builds: NEXUS_SIM_LIGHTING_DEVICES=<n> appends fake cards for UI testing)
   Peripherals/        # mouse/keyboard + USB hub drivers (Lian Li Uni/AIO/Strimer); Tryx/ = Panorama AIO screen (serial + ADB)
   Panel/              # /panel/* pairing + token endpoints; Streams/ = streamed-panel sessions + H.264 ingest + device transports
   Widgets/            # nexus.app/1 app host (manifest loader, data sources, worker sandbox)

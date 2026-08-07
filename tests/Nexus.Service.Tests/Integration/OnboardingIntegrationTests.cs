@@ -44,6 +44,7 @@ public sealed class OnboardingIntegrationTests : IClassFixture<NexusAppFactory>
     {
         var store = _factory.Services.GetRequiredService<IConfigStore>();
         Assert.False(store.Load().OnboardingCompleted);
+        Assert.False(store.Load().LightingOnboardingCompleted);
         Assert.Equal(StatusCodes.Status200OK, await Send("GET", "/onboarding"));
     }
 
@@ -54,6 +55,10 @@ public sealed class OnboardingIntegrationTests : IClassFixture<NexusAppFactory>
     [Fact]
     public async Task Complete_requires_a_token()
         => Assert.Equal(StatusCodes.Status401Unauthorized, await Send("POST", "/onboarding/complete", withToken: false));
+
+    [Fact]
+    public async Task LightingComplete_requires_a_token()
+        => Assert.Equal(StatusCodes.Status401Unauthorized, await Send("POST", "/onboarding/lighting-complete", withToken: false));
 }
 
 [Collection("NexusHost")]
@@ -79,5 +84,32 @@ public sealed class OnboardingCompleteIntegrationTests : IClassFixture<NexusAppF
 
         Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
         Assert.True(store.Load().OnboardingCompleted);
+    }
+}
+
+[Collection("NexusHost")]
+public sealed class OnboardingLightingCompleteIntegrationTests : IClassFixture<NexusAppFactory>
+{
+    private readonly NexusAppFactory _factory;
+
+    public OnboardingLightingCompleteIntegrationTests(NexusAppFactory factory) => _factory = factory;
+
+    [Fact]
+    public async Task LightingComplete_sets_only_the_lighting_flag()
+    {
+        var store = _factory.Services.GetRequiredService<IConfigStore>();
+        var token = _factory.Services.GetRequiredService<TokenService>().Token;
+
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "POST";
+            c.Request.Path = "/onboarding/lighting-complete";
+            c.Connection.RemoteIpAddress = IPAddress.Loopback;
+            c.Request.Headers.Authorization = "Bearer " + token;
+        });
+
+        Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
+        Assert.True(store.Load().LightingOnboardingCompleted);
+        Assert.False(store.Load().OnboardingCompleted);
     }
 }

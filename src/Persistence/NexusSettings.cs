@@ -19,9 +19,9 @@ public sealed class NexusSettings
     /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
     /// tests and tooling can reference "current" without bit-rotting.
     /// </summary>
-    public const int CurrentSchemaVersion = 12;
+    public const int CurrentSchemaVersion = 13;
 
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. v9 prunes <see cref="AnimateSettings.Templates"/> to user deltas against the canonical defaults (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults"/>). v10 prunes <see cref="AnimateSettings.States"/> entries equal to the effect's resolved selected-slot look. v11 rewrites the legacy <c>marketplace:</c> app-placement prefix to <c>app:</c> across all persisted widget types (see <see cref="Nexus.Service.Widgets.AppPrefixMigration"/>). v12 adds the <see cref="ProfileSharing.Device"/> sharing category (Stream Deck bindings), defaulted to Shared so an upgrading install keeps today's workstation-global behavior. The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. v9 prunes <see cref="AnimateSettings.Templates"/> to user deltas against the canonical defaults (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults"/>). v10 prunes <see cref="AnimateSettings.States"/> entries equal to the effect's resolved selected-slot look. v11 rewrites the legacy <c>marketplace:</c> app-placement prefix to <c>app:</c> across all persisted widget types (see <see cref="Nexus.Service.Widgets.AppPrefixMigration"/>). v12 adds the <see cref="ProfileSharing.Device"/> sharing category (Stream Deck bindings), defaulted to Shared so an upgrading install keeps today's workstation-global behavior. v13 marks any pre-existing settings.json as already lighting-onboarded (see <see cref="LightingOnboardingCompleted"/>) so the lighting device-selection screen only shows for fresh installs. The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public ThemeSettings Theme { get; set; } = new();
@@ -99,6 +99,12 @@ public sealed class NexusSettings
     /// rides a profile export/import or a cloud push/pull, and a factory
     /// reset re-offers the screen.</summary>
     public bool Nexus2MigrationOffered { get; set; }
+
+    /// <summary>True once the lighting device-selection onboarding screen (shown
+    /// right after the welcome screen) has been dismissed. Same scoping rules as
+    /// <see cref="OnboardingCompleted"/>: install-scoped, never profile-synced,
+    /// wiped by factory reset so the screen reappears.</summary>
+    public bool LightingOnboardingCompleted { get; set; }
 
     /// <summary>Physical Stream Deck bindings, keyed by device serial. Profile-scoped via the <see cref="ProfileSharing.Device"/> sharing category (defaults to Shared, so it behaves like a workstation-global setting until the user opts a profile out).</summary>
     public StreamDeckSettings StreamDeck { get; set; } = new();
