@@ -13,10 +13,12 @@ public readonly record struct DiskRate(double? ReadBytesPerSec, double? WriteByt
 /// <summary>
 /// System-wide disk byte-rate gauge sampled by MetricsSampler each tick.
 /// Windows: sums IOCTL_DISK_PERFORMANCE's cumulative BytesRead/BytesWritten
-/// counters across every \\.\PhysicalDriveN and diffs against the previous
-/// read using Environment.TickCount64 (monotonic, immune to wall-clock
-/// adjustments) - the same contract as NetworkRateReader. Unsupported off
-/// Windows: Read() always returns (null, null) there.
+/// counters across every \\.\PhysicalDriveN. macOS: sums the
+/// IOBlockStorageDriver Statistics counters via MacDiskStats. Both diff
+/// against the previous read using Environment.TickCount64 (monotonic,
+/// immune to wall-clock adjustments) - the same contract as
+/// NetworkRateReader. Unsupported on Linux: Read() always returns
+/// (null, null) there.
 /// </summary>
 public sealed class DiskRateReader
 {
@@ -26,7 +28,7 @@ public sealed class DiskRateReader
     // as a rate spike/trough.
     private const long MaxElapsedMs = 5000;
 
-#if WINDOWS
+#if WINDOWS || MACOS
     private long _lastTicks = -1;
     private long _lastBytesRead;
     private long _lastBytesWritten;
@@ -36,6 +38,20 @@ public sealed class DiskRateReader
     {
 #if WINDOWS
         var (bytesRead, bytesWritten) = ReadCumulativeCounters();
+        var nowTicks = Environment.TickCount64;
+        var rate = ComputeRate(_lastTicks, _lastBytesRead, _lastBytesWritten, nowTicks, bytesRead, bytesWritten);
+        _lastTicks = nowTicks;
+        _lastBytesRead = bytesRead;
+        _lastBytesWritten = bytesWritten;
+        return rate;
+#elif MACOS
+        // A failed pass keeps the previous baseline; the next successful
+        // read diffs across the real measured gap (discarded by ComputeRate
+        // only once it exceeds MaxElapsedMs).
+        if (!Platform.Mac.MacDiskStats.TryReadCumulativeBytes(out var bytesRead, out var bytesWritten))
+        {
+            return new DiskRate(null, null);
+        }
         var nowTicks = Environment.TickCount64;
         var rate = ComputeRate(_lastTicks, _lastBytesRead, _lastBytesWritten, nowTicks, bytesRead, bytesWritten);
         _lastTicks = nowTicks;
