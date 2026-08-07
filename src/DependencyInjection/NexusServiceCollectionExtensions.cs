@@ -1274,8 +1274,22 @@ public static class NexusServiceCollectionExtensions
         // + personalization import. Windows-only feature; each type's own
         // #if WINDOWS / #else split picks the right implementation, so the
         // registration itself needs no platform branch.
-        services.AddSingleton<Nexus.Service.Migration.INexus2Detector, Nexus.Service.Migration.Nexus2Detector>();
-        services.AddSingleton<Nexus.Service.Migration.INexus2ConfigReader, Nexus.Service.Migration.Nexus2ConfigReader>();
+#if DEV_TOOLS
+        // NEXUS_SIM_NEXUS2=1 swaps in a fake Nexus 2 install (detector,
+        // config source, and target panel records) so the returning-user
+        // screen and import run on machines without one.
+        if (Nexus.Service.Migration.SimulatedNexus2.Enabled)
+        {
+            services.AddSingleton<Nexus.Service.Migration.INexus2Detector, Nexus.Service.Migration.SimulatedNexus2Detector>();
+            services.AddSingleton<Nexus.Service.Migration.INexus2ConfigReader, Nexus.Service.Migration.SimulatedNexus2ConfigReader>();
+            services.AddHostedService<Nexus.Service.Migration.SimulatedNexus2Seeder>();
+        }
+        else
+#endif
+        {
+            services.AddSingleton<Nexus.Service.Migration.INexus2Detector, Nexus.Service.Migration.Nexus2Detector>();
+            services.AddSingleton<Nexus.Service.Migration.INexus2ConfigReader, Nexus.Service.Migration.Nexus2ConfigReader>();
+        }
         services.AddSingleton<Nexus.Service.Migration.Nexus2MigrationService>();
 
         // Replay persisted lighting + cooling state to hardware on startup.

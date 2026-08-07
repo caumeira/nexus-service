@@ -121,7 +121,11 @@ public static class LightingRoutes
                 Running = engine.CurrentEffectName != "none",
                 // Scanning covers both first-connect and subprocess bounces so the
                 // UI spinner tracks every phase where the device list is in flux.
-                Scanning = rescanning || (engine.CurrentEffectName != "none" && !devices.IsConnected),
+                // Gated on the daemon actually running: with no live subprocess
+                // (never started, launch-failed, or between backoff respawns)
+                // nothing is being scanned and the spinner would never resolve -
+                // the perpetual-scanning symptom on daemon-less machines.
+                Scanning = rescanning || (engine.CurrentEffectName != "none" && pm?.IsRunning == true && !devices.IsConnected),
                 RgbRunning = pm?.IsRunning ?? false,
                 GpuAvailable = gpu?.Available ?? false,
             };
