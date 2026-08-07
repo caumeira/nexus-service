@@ -1270,6 +1270,12 @@ public static class NexusServiceCollectionExtensions
         // drive the same OS-level actions headless (no loopback HTTP call).
         services.AddSingleton<Nexus.Service.Actions.SystemActions>();
 
+        // Nexus 2 (legacy HYTE Nexus) returning-user welcome screen detection.
+        // Windows-only feature; Nexus2Detector's own #if WINDOWS / #else split
+        // picks the right implementation, so the registration itself needs no
+        // platform branch.
+        services.AddSingleton<Nexus.Service.Migration.INexus2Detector, Nexus.Service.Migration.Nexus2Detector>();
+
         // Replay persisted lighting + cooling state to hardware on startup.
         // Lives in Lifecycle because it doesn't belong to a single domain.
         services.AddHostedService<AutoRestoreOnStart>();

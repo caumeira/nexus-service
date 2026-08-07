@@ -55,6 +55,26 @@ internal static class ConsoleUserSid
         return sid;
     }
 
+    /// <summary>Resolves the console user's profile directory (ProfileList's
+    /// ProfileImagePath) without the hardcoded-C:\Users\{user} shortcut. Null
+    /// under the same conditions as <see cref="Resolve"/>'s SID lookup.</summary>
+    public static string? ResolveProfilePath()
+    {
+        var username = UserHelperBootstrapper.ResolveActiveConsoleUsername();
+        if (string.IsNullOrEmpty(username))
+        {
+            return null;
+        }
+        var sid = ResolveForUsername(username);
+        if (sid is null)
+        {
+            return null;
+        }
+        using var profileList = Registry.LocalMachine.OpenSubKey(ProfileListPath);
+        using var profile = profileList?.OpenSubKey(sid);
+        return profile?.GetValue("ProfileImagePath") as string;
+    }
+
     // ProfileList maps a profile folder name (e.g. "C:\Users\Nicola") to the
     // SID that owns it; there is no direct username-to-SID registry value.
     internal static string? ResolveForUsername(string username)

@@ -560,6 +560,7 @@ app.MapSystemEndpoints();
 app.MapServiceControlEndpoints();
 app.MapTelemetryEndpoints();
 app.MapOnboardingEndpoints();
+app.MapNexus2MigrationEndpoints();
 app.MapCoolingEndpoints();
 app.MapBenchmarkEndpoints();
 app.MapLightingEndpoints();

@@ -43,6 +43,19 @@ public static class ConflictAppCatalog
     /// </summary>
     public static readonly IReadOnlyList<ConflictAppDefinition> All = new ConflictAppDefinition[]
     {
+        // ── HYTE Nexus 2 (legacy) ──────────────────────────────────────────
+        new()
+        {
+            Id = "hyte-nexus-2",
+            DisplayName = "HYTE Nexus 2",
+            Category = "lighting",
+            ProcessNames = new[] { "HYTE Nexus", "HYTE.Nexus.Service" },
+            // HYTEIO is the HYTE kernel IO driver the service holds hardware
+            // through; it survives an uninstall, so it must be stopped
+            // alongside the two processes for the conflict to fully clear.
+            WindowsServiceNames = new[] { "HYTEIO" },
+        },
+
         // ── NZXT ────────────────────────────────────────────────────────────
         new()
         {
