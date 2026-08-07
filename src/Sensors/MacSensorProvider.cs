@@ -15,12 +15,14 @@ namespace Nexus.Service.Sensors;
 /// <summary>
 /// macOS sensor provider. Every method returns well-formed data (never null,
 /// never throws); CPU load and VM stats come from Mach <c>host_statistics</c>
-/// syscalls via <see cref="Platform.Mac.MachStats"/>, CPU / GPU die
-/// temperatures from IOKit AppleSMC via <see cref="Platform.Mac.MacSmc"/>,
-/// and the remaining metadata is gathered from <c>sysctl</c>, <c>df</c>, and
-/// <c>system_profiler</c>. Windows uses LibreHardwareSensorProvider and Linux
-/// uses LinuxSensorProvider; this class is never constructed on those
-/// platforms (see AddNexusSensors in NexusServiceCollectionExtensions).
+/// syscalls via <see cref="Platform.Mac.MachStats"/>, CPU / GPU die and
+/// internal-SSD temperatures from IOKit AppleSMC via
+/// <see cref="Platform.Mac.MacSmc"/>, GPU utilization from IOAccelerator via
+/// <see cref="Platform.Mac.MacGpuStats"/>, and the remaining metadata is
+/// gathered from <c>sysctl</c>, <c>df</c>, and <c>system_profiler</c>.
+/// Windows uses LibreHardwareSensorProvider and Linux uses
+/// LinuxSensorProvider; this class is never constructed on those platforms
+/// (see AddNexusSensors in NexusServiceCollectionExtensions).
 /// </summary>
 public sealed class MacSensorProvider : ISensorProvider, IDisposable
 {
@@ -41,47 +43,53 @@ public sealed class MacSensorProvider : ISensorProvider, IDisposable
 
     public void Dispose() => _smc?.Dispose();
 
-    // Die temperatures move on a seconds scale while several consumers
-    // (broadcaster, summary topic, history sampler, HTTP) poll this provider
-    // independently, and a full SMC key sweep costs milliseconds of syscalls -
-    // serve a value cached for one consumer tick instead of re-sweeping per
-    // caller. The hardware test derives its expectation from these same
-    // methods, so it shares the cache and the SMC connection.
-    private const long DieTempCacheTtlMs = 1000;
-    private readonly object _dieTempLock = new();
-    private DieTempCache _cpuDieTemp;
-    private DieTempCache _gpuDieTemp;
+    // Polled hardware readings move on a seconds scale while several
+    // consumers (broadcaster, summary topic, history sampler, HTTP) poll this
+    // provider independently, and each underlying read costs syscalls (a full
+    // SMC key sweep is milliseconds) - serve values cached for one consumer
+    // tick instead of re-reading per caller. The hardware tests derive their
+    // expectations from these same methods, so they share the caches.
+    internal const long PollCacheTtlMs = 1000;
+    private readonly object _pollLock = new();
+    private PolledValueCache _cpuDieTemp;
+    private PolledValueCache _gpuDieTemp;
+    private PolledValueCache _ssdTemp;
+    private PolledValueCache _gpuUtilization;
 
-    private struct DieTempCache
+    private struct PolledValueCache
     {
         public long ReadAtMs;
         public float? Value;
     }
 
     internal float? ReadCpuDieTemperature()
-        => CachedDieTemperature(Platform.Mac.MacSmcTemperatures.CpuKeys, ref _cpuDieTemp);
+        => CachedPolledValue(ref _cpuDieTemp, static self =>
+            self._smcRead is null ? null : Platform.Mac.MacSmcTemperatures.Average(self._smcRead, Platform.Mac.MacSmcTemperatures.CpuKeys));
 
     internal float? ReadGpuDieTemperature()
-        => CachedDieTemperature(Platform.Mac.MacSmcTemperatures.GpuKeys, ref _gpuDieTemp);
+        => CachedPolledValue(ref _gpuDieTemp, static self =>
+            self._smcRead is null ? null : Platform.Mac.MacSmcTemperatures.Average(self._smcRead, Platform.Mac.MacSmcTemperatures.GpuKeys));
 
-    private float? CachedDieTemperature(string[] keys, ref DieTempCache cache)
+    internal float? ReadSsdTemperature()
+        => CachedPolledValue(ref _ssdTemp, static self =>
+            self._smcRead is null ? null : Platform.Mac.MacSmcTemperatures.Average(self._smcRead, Platform.Mac.MacSmcTemperatures.SsdKeys));
+
+    internal float? ReadGpuUtilization()
+        => CachedPolledValue(ref _gpuUtilization, static _ => Platform.Mac.MacGpuStats.TryReadDeviceUtilization());
+
+    private float? CachedPolledValue(ref PolledValueCache cache, Func<MacSensorProvider, float?> read)
     {
-        if (_smcRead is null)
-        {
-            return null;
-        }
-
         var now = Environment.TickCount64;
-        lock (_dieTempLock)
+        lock (_pollLock)
         {
-            if (cache.ReadAtMs != 0 && now - cache.ReadAtMs < DieTempCacheTtlMs)
+            if (cache.ReadAtMs != 0 && now - cache.ReadAtMs < PollCacheTtlMs)
             {
                 return cache.Value;
             }
         }
 
-        var value = Platform.Mac.MacSmcTemperatures.Average(_smcRead, keys);
-        lock (_dieTempLock)
+        var value = read(this);
+        lock (_pollLock)
         {
             cache.ReadAtMs = now;
             cache.Value = value;
@@ -102,9 +110,66 @@ public sealed class MacSensorProvider : ISensorProvider, IDisposable
     private string? _ramBrandModel;
     private string? _storageBrandModel;
 
-    // Mach CPU tick delta tracking (macOS only).
+    // Mach CPU tick delta tracking (macOS only). Guarded by _pollLock and
+    // cached for one tick: the broadcaster, summary topic, and history
+    // sampler all call GetCpuSensors, and an unsynchronized delta would hand
+    // each caller a window shortened by whichever caller read last.
     private Platform.Mac.MachStats.CpuLoadInfo _prevCpuTicks;
     private bool _hasPrevCpuTicks;
+    private CpuLoadCache _cpuLoad;
+
+    private struct CpuLoadCache
+    {
+        public long ReadAtMs;
+        public bool Available;
+        public float UserPct;
+        public float SysPct;
+    }
+
+    private bool TryGetCpuLoadPercents(out float userPct, out float sysPct)
+    {
+        var now = Environment.TickCount64;
+        lock (_pollLock)
+        {
+            if (_cpuLoad.ReadAtMs != 0 && now - _cpuLoad.ReadAtMs < PollCacheTtlMs)
+            {
+                userPct = _cpuLoad.UserPct;
+                sysPct = _cpuLoad.SysPct;
+                return _cpuLoad.Available;
+            }
+
+            // host_statistics is a microsecond syscall; holding the lock
+            // through it keeps the delta computation atomic per window.
+            if (!Platform.Mac.MachStats.TryGetCpuLoad(out var ticks))
+            {
+                _cpuLoad = new CpuLoadCache { ReadAtMs = now };
+                userPct = 0f;
+                sysPct = 0f;
+                return false;
+            }
+
+            if (_hasPrevCpuTicks)
+            {
+                uint du = ticks.UserTicks - _prevCpuTicks.UserTicks;
+                uint ds = ticks.SystemTicks - _prevCpuTicks.SystemTicks;
+                uint di = ticks.IdleTicks - _prevCpuTicks.IdleTicks;
+                uint dn = ticks.NiceTicks - _prevCpuTicks.NiceTicks;
+                uint dt = du + ds + di + dn;
+                userPct = dt > 0 ? du * 100f / dt : 0f;
+                sysPct = dt > 0 ? ds * 100f / dt : 0f;
+            }
+            else
+            {
+                uint dt = ticks.UserTicks + ticks.SystemTicks + ticks.IdleTicks + ticks.NiceTicks;
+                userPct = dt > 0 ? ticks.UserTicks * 100f / dt : 0f;
+                sysPct = dt > 0 ? ticks.SystemTicks * 100f / dt : 0f;
+            }
+            _prevCpuTicks = ticks;
+            _hasPrevCpuTicks = true;
+            _cpuLoad = new CpuLoadCache { ReadAtMs = now, Available = true, UserPct = userPct, SysPct = sysPct };
+            return true;
+        }
+    }
 
     // Mac hardware enumeration is shell-driven (sysctl / system_profiler) and
     // synchronous - Get* methods cache lazily on first call. No async warmup
@@ -137,28 +202,8 @@ public sealed class MacSensorProvider : ISensorProvider, IDisposable
         var model = GetCpuModel();
 
         // CPU load via Mach host_statistics (microsecond syscall, no subprocess).
-        if (Platform.Mac.MachStats.TryGetCpuLoad(out var ticks))
+        if (TryGetCpuLoadPercents(out var userPct, out var sysPct))
         {
-            float userPct, sysPct;
-            if (_hasPrevCpuTicks)
-            {
-                uint du = ticks.UserTicks - _prevCpuTicks.UserTicks;
-                uint ds = ticks.SystemTicks - _prevCpuTicks.SystemTicks;
-                uint di = ticks.IdleTicks - _prevCpuTicks.IdleTicks;
-                uint dn = ticks.NiceTicks - _prevCpuTicks.NiceTicks;
-                uint dt = du + ds + di + dn;
-                userPct = dt > 0 ? du * 100f / dt : 0f;
-                sysPct = dt > 0 ? ds * 100f / dt : 0f;
-            }
-            else
-            {
-                uint dt = ticks.UserTicks + ticks.SystemTicks + ticks.IdleTicks + ticks.NiceTicks;
-                userPct = dt > 0 ? ticks.UserTicks * 100f / dt : 0f;
-                sysPct = dt > 0 ? ticks.SystemTicks * 100f / dt : 0f;
-            }
-            _prevCpuTicks = ticks;
-            _hasPrevCpuTicks = true;
-
             sensors.Add(MakeSensor("cpu/load", "CPU Total", "Load", userPct + sysPct, "%", model));
             sensors.Add(MakeSensor("cpu/user", "CPU User", "Load", userPct, "%", model));
             sensors.Add(MakeSensor("cpu/system", "CPU System", "Load", sysPct, "%", model));
@@ -250,6 +295,7 @@ public sealed class MacSensorProvider : ISensorProvider, IDisposable
         // yields no adapters the reading is dropped here; the cooling surface
         // still carries it via MacFanControlProvider.
         var gpuTemp = ReadGpuDieTemperature();
+        var gpuUtil = ReadGpuUtilization();
         int primaryIdx = 0;
         for (int i = 0; i < models.Count; i++)
         {
@@ -268,6 +314,14 @@ public sealed class MacSensorProvider : ISensorProvider, IDisposable
             if (i == primaryIdx && gpuTemp.HasValue)
             {
                 sensors.Add(MakeSensor($"gpu/{i}/temp", "GPU Die", "Temperature", gpuTemp.Value, "°C", gpu));
+            }
+
+            // Named "GPU Core" so the summary (GpuUsage) and history (gpu
+            // load series) pickers match it the same way they match the
+            // Windows LHM sensor.
+            if (i == primaryIdx && gpuUtil.HasValue)
+            {
+                sensors.Add(MakeSensor($"gpu/{i}/load", "GPU Core", "Load", gpuUtil.Value, "%", gpu, theoreticalMax: 100f));
             }
 
             // Extract Total Number of Cores
@@ -366,6 +420,7 @@ public sealed class MacSensorProvider : ISensorProvider, IDisposable
     public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true)
     {
         var result = new Dictionary<string, StorageComponent>();
+        var ssdTemp = ReadSsdTemperature();
         foreach (var di in GetRealDrives())
         {
             var totalGb = di.TotalSize / (1024.0 * 1024.0 * 1024.0);
@@ -378,6 +433,20 @@ public sealed class MacSensorProvider : ISensorProvider, IDisposable
                 label = "/";
             }
 
+            var sensors = new List<HardwareSensor>
+            {
+                MakeSensor($"storage/{label}/used", "Used", "Data", (float)usedGb, "GB", label),
+                MakeSensor($"storage/{label}/free", "Free", "Data", (float)freeGb, "GB", label),
+                MakeSensor($"storage/{label}/usage", "Usage", "Level", (float)usePct, "%", label),
+            };
+
+            // The SMC NAND keys describe the internal SSD; external and
+            // secondary volumes get no temperature row.
+            if (ssdTemp.HasValue && IsInternalVolume(di.Name))
+            {
+                sensors.Add(MakeSensor($"storage/{label}/temp", "Drive Temperature", "Temperature", ssdTemp.Value, "°C", label));
+            }
+
             result[label] = new StorageComponent
             {
                 Id = label,
@@ -387,16 +456,14 @@ public sealed class MacSensorProvider : ISensorProvider, IDisposable
                 UsedSpace = FormatGb(usedGb),
                 UsedPercentage = $"{usePct:F0}%",
                 Format = di.DriveFormat,
-                Sensors = new List<HardwareSensor>
-                {
-                    MakeSensor($"storage/{label}/used", "Used", "Data", (float)usedGb, "GB", label),
-                    MakeSensor($"storage/{label}/free", "Free", "Data", (float)freeGb, "GB", label),
-                    MakeSensor($"storage/{label}/usage", "Usage", "Level", (float)usePct, "%", label),
-                },
+                Sensors = sensors,
             };
         }
         return result;
     }
+
+    private static bool IsInternalVolume(string mountName)
+        => mountName is "/" or "/System/Volumes/Data" or "/System/Volumes/Data/";
 
     public IReadOnlyList<string> GetStoragePartitions()
     {
