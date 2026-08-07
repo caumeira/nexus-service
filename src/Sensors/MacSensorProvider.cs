@@ -15,16 +15,79 @@ namespace Nexus.Service.Sensors;
 /// <summary>
 /// macOS sensor provider. Every method returns well-formed data (never null,
 /// never throws); CPU load and VM stats come from Mach <c>host_statistics</c>
-/// syscalls via <see cref="Platform.Mac.MachStats"/>, and the remaining
-/// metadata is gathered from <c>sysctl</c>, <c>df</c>, and <c>system_profiler</c>.
-/// Windows uses LibreHardwareSensorProvider and Linux uses
-/// LinuxSensorProvider; this class is never constructed on those platforms
-/// (see DI wiring in Program.cs).
+/// syscalls via <see cref="Platform.Mac.MachStats"/>, CPU / GPU die
+/// temperatures from IOKit AppleSMC via <see cref="Platform.Mac.MacSmc"/>,
+/// and the remaining metadata is gathered from <c>sysctl</c>, <c>df</c>, and
+/// <c>system_profiler</c>. Windows uses LibreHardwareSensorProvider and Linux
+/// uses LinuxSensorProvider; this class is never constructed on those
+/// platforms (see AddNexusSensors in NexusServiceCollectionExtensions).
 /// </summary>
-public sealed class MacSensorProvider : ISensorProvider
+public sealed class MacSensorProvider : ISensorProvider, IDisposable
 {
     private static readonly IReadOnlyList<HardwareSensor> EmptySensors = Array.Empty<HardwareSensor>();
     private static readonly IReadOnlyList<string> EmptyStrings = Array.Empty<string>();
+
+    private readonly Platform.Mac.MacSmc? _smc;
+    private readonly Func<string, float?>? _smcRead;
+
+    public MacSensorProvider()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            _smc = new Platform.Mac.MacSmc();
+            _smcRead = _smc.ReadFloatKey;
+        }
+    }
+
+    public void Dispose() => _smc?.Dispose();
+
+    // Die temperatures move on a seconds scale while several consumers
+    // (broadcaster, summary topic, history sampler, HTTP) poll this provider
+    // independently, and a full SMC key sweep costs milliseconds of syscalls -
+    // serve a value cached for one consumer tick instead of re-sweeping per
+    // caller. The hardware test derives its expectation from these same
+    // methods, so it shares the cache and the SMC connection.
+    private const long DieTempCacheTtlMs = 1000;
+    private readonly object _dieTempLock = new();
+    private DieTempCache _cpuDieTemp;
+    private DieTempCache _gpuDieTemp;
+
+    private struct DieTempCache
+    {
+        public long ReadAtMs;
+        public float? Value;
+    }
+
+    internal float? ReadCpuDieTemperature()
+        => CachedDieTemperature(Platform.Mac.MacSmcTemperatures.CpuKeys, ref _cpuDieTemp);
+
+    internal float? ReadGpuDieTemperature()
+        => CachedDieTemperature(Platform.Mac.MacSmcTemperatures.GpuKeys, ref _gpuDieTemp);
+
+    private float? CachedDieTemperature(string[] keys, ref DieTempCache cache)
+    {
+        if (_smcRead is null)
+        {
+            return null;
+        }
+
+        var now = Environment.TickCount64;
+        lock (_dieTempLock)
+        {
+            if (cache.ReadAtMs != 0 && now - cache.ReadAtMs < DieTempCacheTtlMs)
+            {
+                return cache.Value;
+            }
+        }
+
+        var value = Platform.Mac.MacSmcTemperatures.Average(_smcRead, keys);
+        lock (_dieTempLock)
+        {
+            cache.ReadAtMs = now;
+            cache.Value = value;
+        }
+        return value;
+    }
 
     // Cached static hardware data - fetched once, never changes at runtime.
     private string? _cpuModel;
@@ -101,6 +164,12 @@ public sealed class MacSensorProvider : ISensorProvider
             sensors.Add(MakeSensor("cpu/system", "CPU System", "Load", sysPct, "%", model));
         }
 
+        var cpuTemp = ReadCpuDieTemperature();
+        if (cpuTemp.HasValue)
+        {
+            sensors.Add(MakeSensor("cpu/temp", "CPU Die", "Temperature", cpuTemp.Value, "°C", model));
+        }
+
         // Core counts - static, cache on first call.
         if (_cpuCoreCount is null)
         {
@@ -175,10 +244,31 @@ public sealed class MacSensorProvider : ISensorProvider
         var models = ParseGpuModels(output);
         var gpus = new List<GpuReadout>();
 
+        // The SMC exposes one set of GPU die keys, not per-adapter readings -
+        // attach the temperature to the primary GPU only (discrete first,
+        // mirroring SummarySensors.PrimaryGpuSensors). When system_profiler
+        // yields no adapters the reading is dropped here; the cooling surface
+        // still carries it via MacFanControlProvider.
+        var gpuTemp = ReadGpuDieTemperature();
+        int primaryIdx = 0;
+        for (int i = 0; i < models.Count; i++)
+        {
+            if (!GpuClassifier.FromName(models[i]).Integrated)
+            {
+                primaryIdx = i;
+                break;
+            }
+        }
+
         for (int i = 0; i < models.Count; i++)
         {
             var gpu = models[i];
             var sensors = new List<HardwareSensor> { MakeSensor($"gpu/{i}/model", "Model", "Factor", 0, "", gpu) };
+
+            if (i == primaryIdx && gpuTemp.HasValue)
+            {
+                sensors.Add(MakeSensor($"gpu/{i}/temp", "GPU Die", "Temperature", gpuTemp.Value, "°C", gpu));
+            }
 
             // Extract Total Number of Cores
             var coresMatch = Regex.Match(output, @"Total Number of Cores:\s*(\d+)");
@@ -486,6 +576,7 @@ public sealed class MacSensorProvider : ISensorProvider
             "Load" or "Level" => $"{value:F1}{units}",
             "Data" or "SmallData" => $"{value:F2} {units}",
             "Clock" or "Frequency" => $"{value:F0} {units}",
+            "Temperature" => $"{value:F1} {units}",
             _ => value > 0 ? $"{value:F0}" : "",
         };
         return new HardwareSensor

@@ -18,22 +18,13 @@ namespace Nexus.Service.Cooling;
 public sealed class MacFanControlProvider : IFanControlProvider, ICoolingProvider, IDisposable
 {
     private readonly MacSmc _smc = new();
+    private readonly Func<string, float?> _readKey;
     private readonly int _fanCount;
     private bool _warnedOnWrite;
 
-    private static readonly string[] CpuTempKeys =
-    {
-        "Tp01", "Tp05", "Tp09", "Tp0D", "Tp02", "Tp06", "Tp0A", "Tp0E",
-        "Te05", "Te09", "TC0P", "TC0E", "TC0F",
-    };
-
-    private static readonly string[] GpuTempKeys =
-    {
-        "Tg05", "Tg0D", "Tg0H", "Tg0L", "Tg0P", "Tg0T", "TG0P", "TG0D",
-    };
-
     public MacFanControlProvider()
     {
+        _readKey = _smc.ReadFloatKey;
         _fanCount = _smc.IsOpen ? (_smc.ReadIntKey("FNum") ?? 0) : 0;
         if (!_smc.IsOpen)
             Console.Error.WriteLine("[cooling] AppleSMC unavailable - cooling reports no hardware");
@@ -73,10 +64,10 @@ public sealed class MacFanControlProvider : IFanControlProvider, ICoolingProvide
         // Same disconnected-channel gate as the Linux/Windows providers - an SMC
         // die key that reads 0 (sensor absent on this Mac) shouldn't become a
         // curve input. See TemperatureSourceFilter.
-        var cpu = Average(CpuTempKeys);
+        var cpu = MacSmcTemperatures.Average(_readKey, MacSmcTemperatures.CpuKeys);
         if (cpu.HasValue && TemperatureSourceFilter.IsPlausible(cpu.Value))
             sources.Add(new TemperatureSource { Id = "mac/cpu/die", Name = "CPU Die", Category = "CPU", Value = cpu.Value });
-        var gpu = Average(GpuTempKeys);
+        var gpu = MacSmcTemperatures.Average(_readKey, MacSmcTemperatures.GpuKeys);
         if (gpu.HasValue && TemperatureSourceFilter.IsPlausible(gpu.Value))
             sources.Add(new TemperatureSource { Id = "mac/gpu/die", Name = "GPU Die", Category = "GPU", Value = gpu.Value });
         return sources;
@@ -84,8 +75,8 @@ public sealed class MacFanControlProvider : IFanControlProvider, ICoolingProvide
 
     public float? ReadTemperature(string sensorId) => sensorId switch
     {
-        "mac/cpu/die" => Average(CpuTempKeys),
-        "mac/gpu/die" => Average(GpuTempKeys),
+        "mac/cpu/die" => MacSmcTemperatures.Average(_readKey, MacSmcTemperatures.CpuKeys),
+        "mac/gpu/die" => MacSmcTemperatures.Average(_readKey, MacSmcTemperatures.GpuKeys),
         _ => null,
     };
 
@@ -132,22 +123,6 @@ public sealed class MacFanControlProvider : IFanControlProvider, ICoolingProvide
                 }).ToList(),
             },
         };
-    }
-
-    private float? Average(string[] keys)
-    {
-        float sum = 0;
-        int n = 0;
-        foreach (var k in keys)
-        {
-            var v = _smc.ReadFloatKey(k);
-            if (v.HasValue && v.Value > 0 && v.Value < 150)
-            {
-                sum += v.Value;
-                n++;
-            }
-        }
-        return n == 0 ? null : sum / n;
     }
 
     private static string NameFor(int index, int count)
