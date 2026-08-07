@@ -11,10 +11,11 @@ namespace Nexus.Service.Models.Panel;
 public sealed class PanelLayoutDto
 {
     /// <summary>Schema version. v2 stores explicit (Col, Row) per
-    /// widget instead of a flat Position index; the web client
-    /// migrates v1 records on load. Default is 1 so JSON records
-    /// missing the field deserialize as legacy and get migrated -
-    /// new records explicitly set 2 in PanelLayoutDefaults.</summary>
+    /// widget instead of a flat Position index. No client migrates v1
+    /// coordinates: the web ignores Position and repacks v1 widgets in
+    /// list order on load. Default is 1 so JSON records missing the
+    /// field deserialize as legacy; new records explicitly set 2 in
+    /// PanelLayoutDefaults.</summary>
     public int LayoutSchemaVersion { get; set; } = 1;
 
     public string Surface { get; set; } = "y70";
