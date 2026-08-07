@@ -90,8 +90,16 @@ internal static class ServiceControlRoutes
             // Spawn the detached finalizer, then stop ourselves (same 200ms
             // response-flush delay as /service/stop). The finalizer waits for
             // this process to exit, wipes every Nexus data dir, then restarts
-            // the service from a clean slate.
-            Nexus.Service.Lifecycle.FactoryReset.Begin();
+            // the service from a clean slate. Begin refuses a second spawn
+            // (double-fired reset, or reset racing restart), so the repeat
+            // caller gets a conflict instead of a second finalizer.
+            if (!Nexus.Service.Lifecycle.FactoryReset.Begin())
+            {
+                return Results.Json(
+                    new ApiResponse { Error = true, Msg = "A reset or restart is already in progress." },
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 409);
+            }
             _ = Task.Run(async () =>
             {
                 await Task.Delay(200);
@@ -113,7 +121,13 @@ internal static class ServiceControlRoutes
                     Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
                     statusCode: 409);
             }
-            Nexus.Service.Lifecycle.FactoryReset.Begin(wipe: false);
+            if (!Nexus.Service.Lifecycle.FactoryReset.Begin(wipe: false))
+            {
+                return Results.Json(
+                    new ApiResponse { Error = true, Msg = "A reset or restart is already in progress." },
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 409);
+            }
             _ = Task.Run(async () =>
             {
                 await Task.Delay(200);

@@ -10,6 +10,10 @@ namespace Nexus.Service.Platform.Mac;
 // returns only when the user picks Quit from the status menu.
 internal static class MacAppBootstrap
 {
+    // Long enough for host disposal (store flush) to finish behind
+    // ApplicationStopped; short enough that a stop still reads as prompt.
+    private static readonly TimeSpan RunLoopExitGrace = TimeSpan.FromSeconds(5);
+
     private static string AbbreviateHome(string path)
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -29,6 +33,33 @@ internal static class MacAppBootstrap
         {
             try { MacAppWindow.OpenOrFocus(ServiceLaunchIntent.LocalDashboardUrl(servicePort)); }
             catch (Exception ex) { Console.Error.WriteLine($"[nexus-service] mac auto-open failed: {ex.Message}"); }
+        });
+
+        // /service/stop, factory reset, and SIGTERM stop the host through
+        // IHostApplicationLifetime without the status-bar Quit - previously the
+        // only caller of StopRunLoop - leaving the main thread parked in the
+        // AppKit loop after the host died: a headless shell that steals the
+        // single-instance mutex from the next launch and can flush stale
+        // settings over a factory-reset wipe. Unwind the loop on every host
+        // stop; the watchdog waits on the real unwind signal and hard-exits
+        // only when AppKit truly never unwound ([NSApp stop:] is advisory).
+        // A slow post-unwind disposal is left alone - Main's return ends the
+        // process at its own pace.
+        var runLoopExited = new ManualResetEventSlim(false);
+        app.Lifetime.ApplicationStopped.Register(() =>
+        {
+            MacStatusBar.StopRunLoop();
+            MacStatusBar.PostRunLoopWakeEvent();
+            var watchdog = new Thread(() =>
+            {
+                if (!runLoopExited.Wait(RunLoopExitGrace))
+                {
+                    Console.Error.WriteLine("[mac-app] run loop did not unwind after host stop; exiting");
+                    Environment.Exit(0);
+                }
+            })
+            { IsBackground = true, Name = "mac-exit-watchdog" };
+            watchdog.Start();
         });
 
         // Start web host on background thread - returns immediately.
@@ -93,6 +124,7 @@ internal static class MacAppBootstrap
         // Block main thread running CFRunLoop to pump AppKit events for the menu.
         // Exits when StopRunLoop() is called from the Quit action.
         MacStatusBar.RunLoop();
+        runLoopExited.Set();
 
         // After the run loop exits, wait for the web host to finish shutting down.
         try { webTask.GetAwaiter().GetResult(); }

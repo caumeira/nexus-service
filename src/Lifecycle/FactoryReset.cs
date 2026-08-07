@@ -139,13 +139,23 @@ internal static class FactoryReset
     /// Spawn the detached finalizer and return. The caller stops the service
     /// next; the finalizer waits for that, optionally wipes, and restarts.
     /// <paramref name="wipe"/> false = plain restart (no data wipe).
-    public static void Begin(bool wipe = true)
+    /// Returns false without spawning when a finalizer was already claimed by
+    /// this process: two live finalizers are both same-path kill targets of
+    /// each other's macOS survivor sweep, and a near-simultaneous mutual
+    /// SIGKILL would leave nothing to run RestartService.
+    public static bool Begin(bool wipe = true)
     {
+        if (Interlocked.Exchange(ref _finalizerClaimed, 1) != 0)
+        {
+            Console.Error.WriteLine("[factory-reset] finalizer already claimed; ignoring repeat request");
+            return false;
+        }
         var selfExe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(selfExe))
         {
             Console.Error.WriteLine("[factory-reset] cannot resolve own exe path; aborting");
-            return;
+            Interlocked.Exchange(ref _finalizerClaimed, 0);
+            return false;
         }
         var psi = new ProcessStartInfo
         {
@@ -159,12 +169,25 @@ internal static class FactoryReset
         {
             Process.Start(psi);
             Console.Error.WriteLine("[factory-reset] finalizer spawned");
+            return true;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[factory-reset] failed to spawn finalizer: {ex.Message}");
+            // Release so a later retry is possible; nothing was spawned.
+            Interlocked.Exchange(ref _finalizerClaimed, 0);
+            return false;
         }
     }
+
+    private static int _finalizerClaimed;
+
+    internal static void ResetFinalizerClaimForTests() => Interlocked.Exchange(ref _finalizerClaimed, 0);
+
+    internal static void ClaimFinalizerForTests() => Interlocked.Exchange(ref _finalizerClaimed, 1);
+
+    /// True once this process has successfully spawned a finalizer.
+    internal static bool FinalizerClaimed => Interlocked.CompareExchange(ref _finalizerClaimed, 0, 0) != 0;
 
 #if !WINDOWS
     [System.Runtime.InteropServices.DllImport("libc", SetLastError = true)]

@@ -189,6 +189,47 @@ internal static class MacStatusBar
         catch { /* shutting down */ }
     }
 
+    /// <summary>
+    /// Wake the NSApp event loop with a no-op application-defined event.
+    /// [NSApp stop:] only latches when the loop dequeues an NSEvent, so a
+    /// headless agent (no window, no pointer traffic) can sit parked past a
+    /// bare stop: indefinitely. Pair with <see cref="StopRunLoop"/> whenever
+    /// the stop originates off the main thread; the Quit menu action needs
+    /// neither because it already runs inside an event.
+    /// </summary>
+    public static void PostRunLoopWakeEvent()
+    {
+        if (!IsSupported)
+            return;
+        // Callers are threadpool threads with no autorelease pool; the event
+        // factory autoreleases, so scope a pool or the object leaks with a
+        // runtime complaint.
+        IntPtr pool = IntPtr.Zero;
+        try
+        {
+            pool = objc_autoreleasePoolPush();
+            const ulong NSEventTypeApplicationDefined = 15;
+            IntPtr eventClass = ClassGetPInvoke("NSEvent");
+            IntPtr selOther = SelRegister("otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:");
+            IntPtr evt = MsgSend_OtherEvent(eventClass, selOther,
+                NSEventTypeApplicationDefined, default, 0, 0.0, 0, IntPtr.Zero, 0, 0, 0);
+            if (evt != IntPtr.Zero)
+            {
+                IntPtr nsApp = MsgSend(_classNSApplication, _selSharedApplication);
+                IntPtr selPost = SelRegister("postEvent:atStart:");
+                MsgSend_PtrBool(nsApp, selPost, evt, true);
+            }
+        }
+        catch { /* shutting down */ }
+        finally
+        {
+            if (pool != IntPtr.Zero)
+            {
+                try { objc_autoreleasePoolPop(pool); } catch { /* shutting down */ }
+            }
+        }
+    }
+
     // ── Internal: bootstrap ──────────────────────────────────────────────────
 
     private static void CacheSelectors()
@@ -501,6 +542,24 @@ internal static class MacStatusBar
     // setEventHandler:andSelector:forEventClass:andEventID: - (id, SEL, AEEventClass, AEEventID)
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSend_SetEventHandler(IntPtr receiver, IntPtr sel, IntPtr handler, IntPtr handlerSelector, uint eventClass, uint eventID);
+
+    // NSEvent otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:
+    // (NSUInteger, NSPoint, NSUInteger, NSTimeInterval, NSInteger, id, short, NSInteger, NSInteger)
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NSPointValue { public double X; public double Y; }
+
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    private static extern IntPtr MsgSend_OtherEvent(IntPtr receiver, IntPtr sel, ulong type, NSPointValue location, ulong modifierFlags, double timestamp, long windowNumber, IntPtr context, short subtype, long data1, long data2);
+
+    // postEvent:atStart: - (id, BOOL)
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    private static extern void MsgSend_PtrBool(IntPtr receiver, IntPtr sel, IntPtr arg1, [MarshalAs(UnmanagedType.I1)] bool arg2);
+
+    [DllImport(Libobjc)]
+    private static extern IntPtr objc_autoreleasePoolPush();
+
+    [DllImport(Libobjc)]
+    private static extern void objc_autoreleasePoolPop(IntPtr pool);
 
     // ── CoreFoundation run loop ──────────────────────────────────────────────
 
