@@ -21,6 +21,11 @@ internal static class MacSmcTemperatures
         "Tg05", "Tg0D", "Tg0H", "Tg0L", "Tg0P", "Tg0T", "TG0P", "TG0D",
     };
 
+    public static readonly string[] SsdKeys =
+    {
+        "TH0a", "TH0b", "TH0c", "TH0x",
+    };
+
     /// <summary>
     /// Mean of the keys that read a physically plausible temperature; a key
     /// that reads as absent or outside the sensor's physical range must not
