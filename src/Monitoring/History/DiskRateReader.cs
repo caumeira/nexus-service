@@ -14,11 +14,11 @@ public readonly record struct DiskRate(double? ReadBytesPerSec, double? WriteByt
 /// System-wide disk byte-rate gauge sampled by MetricsSampler each tick.
 /// Windows: sums IOCTL_DISK_PERFORMANCE's cumulative BytesRead/BytesWritten
 /// counters across every \\.\PhysicalDriveN. macOS: sums the
-/// IOBlockStorageDriver Statistics counters via MacDiskStats. Both diff
-/// against the previous read using Environment.TickCount64 (monotonic,
+/// IOBlockStorageDriver Statistics counters via MacDiskStats. Linux: sums
+/// /proc/diskstats sectors across physical disks via LinuxDiskStats. All
+/// diff against the previous read using Environment.TickCount64 (monotonic,
 /// immune to wall-clock adjustments) - the same contract as
-/// NetworkRateReader. Unsupported on Linux: Read() always returns
-/// (null, null) there.
+/// NetworkRateReader.
 /// </summary>
 public sealed class DiskRateReader
 {
@@ -28,7 +28,7 @@ public sealed class DiskRateReader
     // as a rate spike/trough.
     private const long MaxElapsedMs = 5000;
 
-#if WINDOWS || MACOS
+#if WINDOWS || MACOS || LINUX
     private long _lastTicks = -1;
     private long _lastBytesRead;
     private long _lastBytesWritten;
@@ -44,11 +44,15 @@ public sealed class DiskRateReader
         _lastBytesRead = bytesRead;
         _lastBytesWritten = bytesWritten;
         return rate;
-#elif MACOS
+#elif MACOS || LINUX
         // A failed pass keeps the previous baseline; the next successful
         // read diffs across the real measured gap (discarded by ComputeRate
         // only once it exceeds MaxElapsedMs).
+#if MACOS
         if (!Platform.Mac.MacDiskStats.TryReadCumulativeBytes(out var bytesRead, out var bytesWritten))
+#else
+        if (!Platform.Linux.LinuxDiskStats.TryReadCumulativeBytes(out var bytesRead, out var bytesWritten))
+#endif
         {
             return new DiskRate(null, null);
         }
