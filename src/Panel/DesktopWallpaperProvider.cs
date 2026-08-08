@@ -14,7 +14,8 @@ namespace Nexus.Service.Panel;
 /// backgrounds. On Windows the service runs as LocalSystem, whose own profile
 /// has no wallpaper - resolution goes through the active console user's
 /// profile, never HKCU (the LocalSystem HKCU is the SYSTEM hive). macOS
-/// resolution lives in <see cref="MacDesktopWallpaperProvider"/>.
+/// resolution lives in <see cref="MacDesktopWallpaperProvider"/>, Linux in
+/// <see cref="LinuxDesktopWallpaperProvider"/>.
 /// </summary>
 public static class DesktopWallpaperProvider
 {
@@ -23,6 +24,9 @@ public static class DesktopWallpaperProvider
         // macOS has no per-monitor crop cache; the client cover-fits the one
         // still WallpaperAgent rendered for the active wallpaper.
         if (OperatingSystem.IsMacOS()) return MacDesktopWallpaperProvider.TryResolve();
+        // Linux has no per-monitor crop cache either - GNOME/KDE both resolve
+        // a single desktop-wide wallpaper file.
+        if (OperatingSystem.IsLinux()) return LinuxDesktopWallpaperProvider.TryResolve();
 
         var themes = ResolveThemesDir();
         if (themes is null) return null;
@@ -74,6 +78,7 @@ public static class DesktopWallpaperProvider
             var store = MacDesktopWallpaperProvider.StoreDir();
             return Directory.Exists(store) ? store : null;
         }
+        if (OperatingSystem.IsLinux()) return LinuxDesktopWallpaperProvider.WatchDir();
         return ResolveThemesDir();
     }
 
@@ -83,8 +88,17 @@ public static class DesktopWallpaperProvider
     {
         var file = name is null ? "" : Path.GetFileName(name);
         if (OperatingSystem.IsMacOS()) return file.Equals("Index.plist", StringComparison.OrdinalIgnoreCase);
+        if (OperatingSystem.IsLinux()) return LinuxDesktopWallpaperProvider.IsServedFile(file);
         return file.Equals("TranscodedWallpaper", StringComparison.OrdinalIgnoreCase)
             || file.StartsWith("CachedImage_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>No-op except on Linux, where TryResolve caches its result;
+    /// called from the same debounce signal that broadcasts the change so a
+    /// client refetch never hits a stale cache entry.</summary>
+    internal static void InvalidateCache()
+    {
+        if (OperatingSystem.IsLinux()) LinuxDesktopWallpaperProvider.InvalidateCache();
     }
 
     internal static string? ResolveThemesDir()
@@ -150,8 +164,12 @@ public sealed class DesktopWallpaperWatcher : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) return;
-        _debounce = new Timer(_ => PanelTopics.BroadcastDesktopWallpaper(_hub));
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux()) return;
+        _debounce = new Timer(_ =>
+        {
+            DesktopWallpaperProvider.InvalidateCache();
+            PanelTopics.BroadcastDesktopWallpaper(_hub);
+        });
         while (!stoppingToken.IsCancellationRequested)
         {
             var watchDir = DesktopWallpaperProvider.ResolveWatchDir();

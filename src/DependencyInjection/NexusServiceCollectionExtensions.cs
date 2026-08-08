@@ -1193,7 +1193,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
-        services.AddSingleton<IProcessIconProvider, StubProcessIconProvider>();
+        services.AddSingleton<IProcessIconProvider, LinuxProcessIconProvider>();
         services.AddSingleton<IProcessActionsProvider, DirectProcessActionsProvider>();
         services.AddSingleton<ISystemAccentProvider, Nexus.Service.Platform.Linux.LinuxSystemAccentProvider>();
         services.AddSingleton<IMediaProvider, LinuxMediaProvider>();

@@ -380,9 +380,18 @@ public sealed class SteamProvider : ISteamProvider
         return null;
     }
 
-    private static IEnumerable<string> GetLoginUsersPaths()
+    // Internal (not private), and homeOverride is a test seam: it lets a
+    // test enumerate the candidate list for an arbitrary home without
+    // mutating the process-wide HOME environment variable, which every
+    // concurrently running test that resolves SpecialFolder.UserProfile
+    // would also observe.
+    internal static IEnumerable<string> GetLoginUsersPaths(string? homeOverride = null)
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        // UserProfile already resolves to the logged-in session user's home
+        // when running as a root daemon (LinuxSession.AdoptActiveSessionEnv
+        // overrides HOME), never root's own - same pattern as
+        // SteamLibraryLocator's Linux arm.
+        var home = homeOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (OperatingSystem.IsMacOS())
         {
             yield return Path.Combine(home, "Library", "Application Support", "Steam", "config", "loginusers.vdf");
@@ -393,6 +402,11 @@ public sealed class SteamProvider : ISteamProvider
             var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
             yield return Path.Combine(programFilesX86, "Steam", "config", "loginusers.vdf");
             yield return Path.Combine(programFiles, "Steam", "config", "loginusers.vdf");
+        }
+        if (OperatingSystem.IsLinux())
+        {
+            yield return Path.Combine(home, ".local", "share", "Steam", "config", "loginusers.vdf");
+            yield return Path.Combine(home, ".var", "app", "com.valvesoftware.Steam", ".local", "share", "Steam", "config", "loginusers.vdf");
         }
         yield return Path.Combine(home, ".steam", "steam", "config", "loginusers.vdf");
     }

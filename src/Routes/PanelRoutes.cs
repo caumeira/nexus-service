@@ -1,3 +1,4 @@
+using System.IO;
 using Nexus.Service.Auth;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Panel;
@@ -257,7 +258,7 @@ public static class PanelRoutes
             if (path is null)
                 return Results.NotFound(ApiResponse.Fail("wallpaper unavailable"));
             ctx.Response.Headers.CacheControl = "no-cache";
-            return Results.File(path, "image/jpeg");
+            return Results.File(path, WallpaperContentTypeFor(path));
         }).AllowPanel();
 
         app.MapGet("/panel/devices", (PanelDeviceRegistry registry, Platform.Displays.DisplayTopologyService topology) =>
@@ -426,4 +427,16 @@ public static class PanelRoutes
 
     private static bool HasServiceToken(HttpContext ctx, TokenService tokens)
         => Auth.ServiceTokenRequests.HasServiceToken(ctx, tokens);
+
+    // Windows/macOS wallpapers are always jpg; Linux serves the file as-is
+    // (often png), so unmatched extensions keep defaulting to jpeg.
+    private static string WallpaperContentTypeFor(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            ".bmp" => "image/bmp",
+            ".gif" => "image/gif",
+            _ => "image/jpeg",
+        };
 }

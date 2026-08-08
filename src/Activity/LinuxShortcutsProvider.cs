@@ -22,8 +22,6 @@ public sealed class LinuxShortcutsProvider : IShortcutsProvider
     private readonly Dictionary<string, string> _iconNames = new();
     private readonly object _iconNameLock = new();
 
-    private static readonly string[] IconSizes = { "128x128", "96x96", "64x64", "48x48", "256x256" };
-
     public IReadOnlyList<Shortcut> GetAll()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
@@ -260,54 +258,36 @@ public sealed class LinuxShortcutsProvider : IShortcutsProvider
 
     private static byte[] ResolveIcon(string iconNameOrPath)
     {
-        // Absolute path
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var themeBases = LinuxIconThemeResolver.DefaultThemeBases(home);
+        var pixmapDirs = LinuxIconThemeResolver.DefaultPixmapDirs;
+
+        var png = LinuxIconThemeResolver.ResolvePng(iconNameOrPath, themeBases, pixmapDirs);
+        if (png.Length > 0)
+            return png;
+
+        // No PNG anywhere in the theme - fall back to rasterizing an SVG,
+        // which the shared PNG-only resolver deliberately never attempts.
         if (iconNameOrPath.StartsWith('/'))
         {
-            if (iconNameOrPath.EndsWith(".png", StringComparison.OrdinalIgnoreCase) && File.Exists(iconNameOrPath))
-                return File.ReadAllBytes(iconNameOrPath);
-
-            if (iconNameOrPath.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) && File.Exists(iconNameOrPath))
-                return ConvertSvgToPng(iconNameOrPath);
-
-            return Array.Empty<byte>();
+            return iconNameOrPath.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) && File.Exists(iconNameOrPath)
+                ? ConvertSvgToPng(iconNameOrPath)
+                : Array.Empty<byte>();
         }
 
-        // Theme icon name - search hicolor and pixmaps
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var searchBases = new[]
-        {
-            "/usr/share/icons/hicolor",
-            Path.Combine(home, ".local", "share", "icons", "hicolor"),
-            "/var/lib/flatpak/exports/share/icons/hicolor",
-        };
-
-        // Try PNG in preferred size order
-        foreach (var basePath in searchBases)
-        {
-            foreach (var size in IconSizes)
-            {
-                var pngPath = Path.Combine(basePath, size, "apps", $"{iconNameOrPath}.png");
-                if (File.Exists(pngPath))
-                    return File.ReadAllBytes(pngPath);
-            }
-        }
-
-        // Try pixmaps
-        var pixmapPath = $"/usr/share/pixmaps/{iconNameOrPath}.png";
-        if (File.Exists(pixmapPath))
-            return File.ReadAllBytes(pixmapPath);
-
-        // Try SVG as last resort
-        foreach (var basePath in searchBases)
+        foreach (var basePath in themeBases)
         {
             var svgPath = Path.Combine(basePath, "scalable", "apps", $"{iconNameOrPath}.svg");
             if (File.Exists(svgPath))
                 return ConvertSvgToPng(svgPath);
         }
 
-        var pixmapSvg = $"/usr/share/pixmaps/{iconNameOrPath}.svg";
-        if (File.Exists(pixmapSvg))
-            return ConvertSvgToPng(pixmapSvg);
+        foreach (var dir in pixmapDirs)
+        {
+            var svgPath = Path.Combine(dir, $"{iconNameOrPath}.svg");
+            if (File.Exists(svgPath))
+                return ConvertSvgToPng(svgPath);
+        }
 
         return Array.Empty<byte>();
     }
