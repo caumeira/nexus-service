@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -70,6 +72,7 @@ public sealed class ProcessMonitor : BackgroundService
     // pruned on the same seen-pid pass as _winPrev/_macPrev.
     private readonly Dictionary<int, (long readBytes, long writeBytes, DateTime when)> _winStoragePrev = new();
     private readonly Dictionary<int, (ulong readBytes, ulong writeBytes, DateTime when)> _macStoragePrev = new();
+    private readonly Dictionary<int, (long readBytes, long writeBytes, DateTime when)> _linuxStoragePrev = new();
 
     // Anchors a stable fallback timestamp per pid for when the real process
     // start time is unreadable (elevated/protected process under
@@ -738,6 +741,38 @@ public sealed class ProcessMonitor : BackgroundService
                     }
                     catch { }
                 }
+                else if (OperatingSystem.IsLinux())
+                {
+                    try
+                    {
+                        if (TryReadLinuxIoBytes(pid, out var readBytes, out var writeBytes))
+                        {
+                            if (_linuxStoragePrev.TryGetValue(pid, out var prevStorage))
+                            {
+                                var elapsedStorage = (now - prevStorage.when).TotalMilliseconds;
+                                if (elapsedStorage > 50)
+                                {
+                                    var storageBytes = readBytes + writeBytes;
+                                    var prevStorageBytes = prevStorage.readBytes + prevStorage.writeBytes;
+                                    if (storageBytes >= prevStorageBytes)
+                                    {
+                                        storageBytesPerSec = (storageBytes - prevStorageBytes) / (elapsedStorage / 1000.0);
+                                    }
+                                    if (readBytes >= prevStorage.readBytes)
+                                    {
+                                        storageReadBytesPerSec = (readBytes - prevStorage.readBytes) / (elapsedStorage / 1000.0);
+                                    }
+                                    if (writeBytes >= prevStorage.writeBytes)
+                                    {
+                                        storageWriteBytesPerSec = (writeBytes - prevStorage.writeBytes) / (elapsedStorage / 1000.0);
+                                    }
+                                }
+                            }
+                            _linuxStoragePrev[pid] = (readBytes, writeBytes, now);
+                        }
+                    }
+                    catch { }
+                }
 
                 // Running as LocalSystem denies StartTime for some processes
                 // (elevated/protected system processes); fall back to a
@@ -802,6 +837,21 @@ public sealed class ProcessMonitor : BackgroundService
                 _winStoragePrev.Remove(k);
             }
         }
+        if (_linuxStoragePrev.Count > seen.Count)
+        {
+            var toRemove = new List<int>(_linuxStoragePrev.Count - seen.Count);
+            foreach (var k in _linuxStoragePrev.Keys)
+            {
+                if (!seen.Contains(k))
+                {
+                    toRemove.Add(k);
+                }
+            }
+            foreach (var k in toRemove)
+            {
+                _linuxStoragePrev.Remove(k);
+            }
+        }
         // Unlike _winPrev/_macPrev (an entry per live process every tick, so
         // Count tracks seen.Count closely), _firstSeenAtMs only ever holds
         // the sparse subset whose StartTime read failed - Count can stay far
@@ -831,6 +881,53 @@ public sealed class ProcessMonitor : BackgroundService
             return c != 0 ? c : b.MemoryMb.CompareTo(a.MemoryMb);
         });
         _latest = result;
+    }
+
+    // /proc/pid/io read_bytes/write_bytes are actual block IO (unlike
+    // rchar/wchar, which also count page-cache hits and tty/pipe traffic -
+    // see LinuxNetworkProvider.ReadIoCounters for that pair).
+    private static bool TryReadLinuxIoBytes(int pid, out long readBytes, out long writeBytes)
+    {
+        readBytes = 0;
+        writeBytes = 0;
+        try
+        {
+            return TryParseLinuxIoBytes(File.ReadAllText($"/proc/{pid}/io"), out readBytes, out writeBytes);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Parses read_bytes/write_bytes out of /proc/pid/io text; a
+    /// field absent from the text leaves that output at zero. Internal (not
+    /// private) and OS-independent text parsing so it compiles and unit-tests
+    /// on any host, matching WaitForNextSampleAsync's test seam.</summary>
+    internal static bool TryParseLinuxIoBytes(string ioText, out long readBytes, out long writeBytes)
+    {
+        readBytes = 0;
+        writeBytes = 0;
+        var found = false;
+        foreach (var line in ioText.Split('\n'))
+        {
+            if (line.StartsWith("read_bytes:", StringComparison.Ordinal))
+            {
+                if (long.TryParse(line.AsSpan(11).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out readBytes))
+                {
+                    found = true;
+                }
+            }
+            else if (line.StartsWith("write_bytes:", StringComparison.Ordinal))
+            {
+                if (long.TryParse(line.AsSpan(12).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out writeBytes))
+                {
+                    found = true;
+                }
+                break; // read_bytes comes before write_bytes; safe to bail after write_bytes.
+            }
+        }
+        return found;
     }
 
     // Win32 P/Invoke for cumulative per-process I/O byte counters, same

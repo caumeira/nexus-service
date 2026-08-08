@@ -24,7 +24,9 @@ public sealed record DiagnosticIncident
     /// <summary>Channel + "/" + EventRecordID.</summary>
     public string Id { get; init; } = "";
     public DateTime TimeUtc { get; init; }
-    /// <summary>whea | bugcheck | dirtyShutdown | disk | tdr | gpuDriver | appCrash | liveKernel | memDiag.</summary>
+    /// <summary>Windows: whea | bugcheck | dirtyShutdown | disk | tdr | gpuDriver |
+    /// appCrash | liveKernel | memDiag. Linux: kernel | oomKill | segfault |
+    /// unitFailed, plus the shared disk/appCrash values.</summary>
     public string Source { get; init; } = "";
     /// <summary>info | warning | critical; see DiagnosticSeverity.</summary>
     public string Severity { get; init; } = "";

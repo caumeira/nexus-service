@@ -356,4 +356,39 @@ public class ProcessMonitorTests
         Assert.Same(waitTask, completed);
         Assert.True(await waitTask);
     }
+
+    // Fixture text mirrors the real /proc/pid/io field order (rchar, wchar,
+    // syscr, syscw, read_bytes, write_bytes, cancelled_write_bytes).
+    private const string SampleProcIo =
+        "rchar: 123456\n" +
+        "wchar: 654321\n" +
+        "syscr: 10\n" +
+        "syscw: 12\n" +
+        "read_bytes: 4096\n" +
+        "write_bytes: 8192\n" +
+        "cancelled_write_bytes: 0\n";
+
+    [Fact]
+    public void TryParseLinuxIoBytes_ReadsReadBytesAndWriteBytes_NotRcharWchar()
+    {
+        Assert.True(ProcessMonitor.TryParseLinuxIoBytes(SampleProcIo, out var read, out var written));
+        Assert.Equal(4096, read);
+        Assert.Equal(8192, written);
+    }
+
+    [Fact]
+    public void TryParseLinuxIoBytes_ReturnsFalse_WhenNeitherFieldIsPresent()
+    {
+        Assert.False(ProcessMonitor.TryParseLinuxIoBytes("rchar: 1\nwchar: 2\n", out var read, out var written));
+        Assert.Equal(0, read);
+        Assert.Equal(0, written);
+    }
+
+    [Fact]
+    public void TryParseLinuxIoBytes_ReadsWhicheverFieldIsPresent_WhenOnlyOneIs()
+    {
+        Assert.True(ProcessMonitor.TryParseLinuxIoBytes("read_bytes: 100\n", out var read, out var written));
+        Assert.Equal(100, read);
+        Assert.Equal(0, written);
+    }
 }

@@ -6,10 +6,11 @@
          macOS/Linux as plain net10.0. Lets the suite run on the Windows PC. -->
     <TargetFramework Condition="$(RuntimeIdentifier.StartsWith('win')) OR $([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows10.0.19041.0</TargetFramework>
     <TargetFramework Condition="!$(RuntimeIdentifier.StartsWith('win')) AND !$([MSBuild]::IsOSPlatform('Windows'))">net10.0</TargetFramework>
-    <!-- Mirror the service csproj's MACOS constant (RID wins over host OS)
-         so tests of MACOS-gated sources compile exactly where those sources
-         exist in the referenced assembly. -->
+    <!-- Mirror the service csproj's MACOS/LINUX constants (RID wins over host
+         OS) so tests of platform-gated sources compile exactly where those
+         sources exist in the referenced assembly. -->
     <DefineConstants Condition="$(RuntimeIdentifier.StartsWith('osx')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('OSX')))">$(DefineConstants);MACOS</DefineConstants>
+    <DefineConstants Condition="$(RuntimeIdentifier.StartsWith('linux')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('Linux')))">$(DefineConstants);LINUX</DefineConstants>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>

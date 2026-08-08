@@ -1,5 +1,7 @@
 using System;
+#if WINDOWS
 using System.Diagnostics;
+#endif
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -13,8 +15,12 @@ namespace Nexus.Service.Routes;
 
 /// <summary>
 /// Service-control surface. Five operations:
-///   GET  /service/startup-mode   -> current SCM start type (auto/demand)
-///   POST /service/startup-mode   -> change SCM start type for next boot
+///   GET  /service/startup-mode   -> current autostart state: Windows reads
+///                                   the SCM start type (auto/demand); mac
+///                                   and Linux read IStartupProvider
+///                                   (launchd agent / systemd unit)
+///   POST /service/startup-mode   -> change autostart state for next boot,
+///                                   same per-platform split as GET
 ///   POST /service/stop           -> graceful self-stop
 ///   POST /service/factory-reset  -> wipe all data dirs and restart fresh
 ///   POST /service/open-app       -> ensure dashboard is open
@@ -35,16 +41,21 @@ internal static class ServiceControlRoutes
 {
     public static void MapServiceControlEndpoints(this WebApplication app)
     {
-        app.MapGet("/service/startup-mode", () => Results.Ok(new StartupModeDto
+        app.MapGet("/service/startup-mode", (IStartupProvider startupProvider) => Results.Ok(new StartupModeDto
         {
-            AutoStart = ReadAutoStart(),
+            AutoStart = ReadAutoStart(startupProvider),
         })).LocalhostOnly();
 
-        app.MapPost("/service/startup-mode", (StartupModeBody body) =>
+        app.MapPost("/service/startup-mode", (StartupModeBody body, IStartupProvider startupProvider) =>
         {
-            var ok = WriteAutoStart(body.AutoStart);
-            return ok ? Results.Ok(new StartupModeDto { AutoStart = ReadAutoStart() })
-                      : Results.Problem("sc.exe config failed", statusCode: 500);
+            var ok = WriteAutoStart(body.AutoStart, startupProvider);
+#if WINDOWS
+            const string failureDetail = "sc.exe config failed";
+#else
+            const string failureDetail = "the startup provider rejected the change";
+#endif
+            return ok ? Results.Ok(new StartupModeDto { AutoStart = ReadAutoStart(startupProvider) })
+                      : Results.Problem(failureDetail, statusCode: 500);
         }).LocalhostOnly();
 
         app.MapPost("/service/stop", (IHostApplicationLifetime lifetime,
@@ -147,14 +158,18 @@ internal static class ServiceControlRoutes
             Nexus.Service.Lifecycle.UserHelperBootstrapper.LaunchOpenApp();
 #elif MACOS
             Nexus.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
+#elif LINUX
+            Nexus.Service.Platform.Linux.LinuxBrowsers.OpenUrl(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
 #endif
             return Results.Ok(ApiResponse.Ok());
         }).LocalhostOnly();
     }
 
+#if WINDOWS
     private const string ServiceName = "NexusService";
+#endif
 
-    private static bool ReadAutoStart()
+    internal static bool ReadAutoStart(IStartupProvider startupProvider)
     {
 #if WINDOWS
         // Registry Start DWORD is locale-neutral: 2=auto, 3=demand, 4=disabled.
@@ -162,16 +177,16 @@ internal static class ServiceControlRoutes
             @"SYSTEM\CurrentControlSet\Services\" + ServiceName);
         return key?.GetValue("Start") is int start && start == 2;
 #else
-        return false;
+        return startupProvider.IsEnabled();
 #endif
     }
 
-    private static bool WriteAutoStart(bool enable)
+    internal static bool WriteAutoStart(bool enable, IStartupProvider startupProvider)
     {
+#if WINDOWS
         var startMode = enable ? "auto" : "demand";
         var (code, _) = RunSc("config", ServiceName, $"start=", startMode);
         if (code != 0) return false;
-#if WINDOWS
         // The service start type only governs the LocalSystem daemon. The
         // helper (tray) also auto-launches from a per-user HKCU Run key, which
         // this Session 0 handler cannot write. Sync it in the console session so
@@ -183,10 +198,17 @@ internal static class ServiceControlRoutes
             var exe = System.IO.Path.Combine(AppContext.BaseDirectory, "Nexus.exe");
             UserHelperBootstrapper.RunInUserSession($"\"{exe}\" --sync-autostart", "sync-autostart", "NexusSyncAutostart");
         }
-#endif
         return true;
+#else
+        // No separate SCM concept off Windows: IStartupProvider toggles the
+        // daemon's own boot launcher directly (launchd agent on mac, systemd
+        // unit on Linux). LinuxStartupProvider ignores path/arguments - its
+        // unit file already encodes ExecStart.
+        return startupProvider.SetEnabled(enable, Environment.ProcessPath ?? string.Empty, "--service");
+#endif
     }
 
+#if WINDOWS
     private static (int code, string output) RunSc(params string[] args)
     {
         try
@@ -210,6 +232,7 @@ internal static class ServiceControlRoutes
             return (-1, string.Empty);
         }
     }
+#endif
 
 }
 

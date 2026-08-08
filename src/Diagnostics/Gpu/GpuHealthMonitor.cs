@@ -30,10 +30,10 @@ public sealed record GpuHealthSnapshot(bool Supported, IReadOnlyList<GpuInfo> Gp
 
 /// <summary>
 /// NVML-backed GPU health monitor: temperature, power draw, and clocks
-/// throttle/violation counters for every NVIDIA GPU. Windows-only (nvml.dll is
-/// the Windows driver's management library); self-gates via
-/// <see cref="OperatingSystem.IsWindows"/> so it is safe to construct and call
-/// unconditionally from cross-platform callers, same as
+/// throttle/violation counters for every NVIDIA GPU. Windows and Linux only
+/// (NVML is the NVIDIA driver's management library, not shipped for macOS);
+/// self-gates via <see cref="OperatingSystem"/> so it is safe to construct and
+/// call unconditionally from cross-platform callers, same as
 /// <see cref="Nexus.Service.Sensors.LibreHardwareSensorProvider"/>'s factory-gated
 /// pattern but folded into one class instead of a per-OS implementation.
 ///
@@ -61,7 +61,7 @@ public sealed class GpuHealthMonitor
 
     public GpuHealthSnapshot Snapshot(bool forceRefresh = false)
     {
-        if (!OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsLinux())
         {
             return GpuHealthSnapshot.Unsupported;
         }
