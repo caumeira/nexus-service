@@ -16,7 +16,8 @@ namespace Nexus.Service.Lighting.Rgb;
 /// re-enumerates.
 ///
 /// Windows: hooks <c>SystemEvents.PowerModeChanged</c> via Microsoft.Win32.
-/// Other platforms: no-op (the headless OpenRGB binary doesn't ship there).
+/// Linux has its own equivalent, <see cref="Nexus.Service.Platform.Linux.LinuxResumeListener"/>,
+/// subscribed to logind over D-Bus. macOS is a no-op here (no resume hook wired yet).
 /// </summary>
 public sealed class PowerEventListener : IHostedService, IDisposable
 {

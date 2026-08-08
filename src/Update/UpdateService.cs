@@ -264,6 +264,15 @@ public sealed class UpdateService : BackgroundService
     }
 
     /// <summary>
+    /// Whether a detected newer release should be surfaced as an installable
+    /// update. RunInstallAsync / RunLaunchStagedAsync only implement the
+    /// install handoff on Windows (PlatformNotSupportedException everywhere
+    /// else), so Linux suppresses both detection and auto-stage rather than
+    /// offering an update the dashboard cannot apply.
+    /// </summary>
+    internal static bool CanOfferUpdate(bool isNewer, bool isLinux) => isNewer && !isLinux;
+
+    /// <summary>
     /// Pure channel-derivation logic: given the persisted last-run version, the
     /// current build version, and the current channel, returns the channel that
     /// should be active and whether the settings need to be written.
@@ -543,13 +552,14 @@ public sealed class UpdateService : BackgroundService
 
             var snapshot = _store.Load();
             var isNewer = manifest is not null && VersionCompare.IsNewer(manifest.Version, BuildInfo.Version);
+            var offerUpdate = CanOfferUpdate(isNewer, OperatingSystem.IsLinux());
 
             var mode = snapshot.Update.UpdateMode;
             _status = new UpdateStatusResponse
             {
                 CurrentVersion = BuildInfo.Version,
                 LatestVersion = manifest?.Version ?? BuildInfo.Version,
-                UpdateAvailable = isNewer,
+                UpdateAvailable = offerUpdate,
                 Channel = channel,
                 UpdateMode = mode,
                 ReleaseNotes = manifest?.Notes ?? "",
@@ -571,7 +581,7 @@ public sealed class UpdateService : BackgroundService
             // it, so the staged installer + marker must follow the new version.
             var alreadyStaged = _updateReady
                 && string.Equals(_stagedVersion, manifest?.Version, StringComparison.OrdinalIgnoreCase);
-            if (isNewer && (mode is "download" or "always") && manifest is not null && !alreadyStaged)
+            if (offerUpdate && (mode is "download" or "always") && manifest is not null && !alreadyStaged)
             {
                 if (Interlocked.CompareExchange(ref _installing, 1, 0) == 0)
                 {
@@ -610,7 +620,9 @@ public sealed class UpdateService : BackgroundService
             {
                 CurrentVersion = BuildInfo.Version,
                 LatestVersion = _latestManifest?.Version ?? BuildInfo.Version,
-                UpdateAvailable = _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
+                UpdateAvailable = CanOfferUpdate(
+                    _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
+                    OperatingSystem.IsLinux()),
                 Channel = channel,
                 UpdateMode = snapshot.Update.UpdateMode,
                 ReleaseNotes = _latestManifest?.Notes ?? "",
@@ -630,7 +642,9 @@ public sealed class UpdateService : BackgroundService
         {
             CurrentVersion = BuildInfo.Version,
             LatestVersion = _latestManifest?.Version ?? BuildInfo.Version,
-            UpdateAvailable = _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
+            UpdateAvailable = CanOfferUpdate(
+                _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
+                OperatingSystem.IsLinux()),
             Channel = channel,
             UpdateMode = s.Update.UpdateMode,
             ReleaseNotes = _latestManifest?.Notes ?? "",

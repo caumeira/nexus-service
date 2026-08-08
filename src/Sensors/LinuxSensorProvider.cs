@@ -131,10 +131,13 @@ public sealed class LinuxSensorProvider : ISensorProvider
         }
 
         // Per-core current clock (MHz)
+        var coreClocks = new List<HardwareSensor>();
         foreach (var (coreIndex, mhz) in ReadPerCoreClock())
         {
-            sensors.Add(MakeSensor($"cpu/core/{coreIndex}/clock", $"Core {coreIndex} Clock", "Clock", mhz, "MHz", model));
+            coreClocks.Add(MakeSensor($"cpu/core/{coreIndex}/clock", $"Core {coreIndex} Clock", "Clock", mhz, "MHz", model));
         }
+        sensors.AddRange(coreClocks);
+        CpuClockAggregates.Append("cpu", model, coreClocks, sensors);
 
         // Package power (AMD hwmon `power1_average` or Intel RAPL `energy_uj` delta)
         var pkgPower = ReadCpuPackagePower();
@@ -331,9 +334,42 @@ public sealed class LinuxSensorProvider : ISensorProvider
             gpuIndex++;
         }
 
-        // No nvidia-smi telemetry (AMD/Intel GPU, or no driver): surface the
-        // controllers from the cached lspci/name list so the GPU still appears,
-        // with a name-based vendor guess and no live sensors.
+        // No nvidia-smi telemetry: try amdgpu sysfs (no vendor CLI tool the
+        // way NVIDIA has nvidia-smi) before falling back to a name-only row.
+        if (gpus.Count == 0)
+        {
+            gpus.AddRange(ReadAmdGpus());
+
+            // amdgpu cards found, but the box may also carry a non-AMD
+            // controller with no telemetry source (driverless NVIDIA, Intel
+            // iGPU): keep listing those as name-only rows so they do not
+            // vanish from the GPU list.
+            if (gpus.Count > 0)
+            {
+                var models = GetGpuModels();
+                var nextIndex = gpus.Count;
+                for (int i = 0; i < models.Count; i++)
+                {
+                    var (vendor, integrated) = GpuClassifier.FromName(models[i]);
+                    if (vendor == "amd")
+                        continue;
+                    gpus.Add(new GpuReadout
+                    {
+                        Id = $"gpu/{nextIndex}",
+                        Name = models[i],
+                        Vendor = vendor,
+                        Integrated = integrated,
+                        Sensors = new List<HardwareSensor>(),
+                    });
+                    nextIndex++;
+                }
+            }
+        }
+
+        // Still nothing (Intel GPU, unsupported AMD driver, or no driver at
+        // all): surface the controllers from the cached lspci/name list so
+        // the GPU still appears, with a name-based vendor guess and no live
+        // sensors.
         if (gpus.Count == 0)
         {
             var models = GetGpuModels();
@@ -352,6 +388,34 @@ public sealed class LinuxSensorProvider : ISensorProvider
         }
 
         return gpus;
+    }
+
+    private IEnumerable<GpuReadout> ReadAmdGpus()
+    {
+#if LINUX
+        // Pair enumerated cards with the AMD entries of the lspci name list
+        // by ordinal - a heuristic (drm and lspci order can differ) but it
+        // keeps a dual-AMD box (iGPU + dGPU) from rendering two cards under
+        // one shared name and one shared integrated flag.
+        var amdNames = new List<string>();
+        foreach (var candidate in GetGpuModels())
+        {
+            if (GpuClassifier.FromName(candidate).Vendor == "amd")
+                amdNames.Add(candidate);
+        }
+
+        var gpuIndex = 0;
+        foreach (var deviceDir in AmdGpuSysfs.EnumerateAmdCardDirs())
+        {
+            var name = gpuIndex < amdNames.Count ? amdNames[gpuIndex] : "AMD GPU";
+            var integrated = gpuIndex < amdNames.Count && GpuClassifier.FromName(name).Integrated;
+            var reading = AmdGpuSysfs.ReadCard(deviceDir);
+            yield return AmdGpuSysfs.BuildReadout(gpuIndex, name, "amd", integrated, reading);
+            gpuIndex++;
+        }
+#else
+        yield break;
+#endif
     }
 
     public IReadOnlyList<HardwareSensor> GetMemorySensors()
@@ -616,12 +680,109 @@ public sealed class LinuxSensorProvider : ISensorProvider
     public SensorExtras GetSensorExtras()
     {
         // Surfaces battery state from /sys/class/power_supply/BAT* (laptop main
-        // battery / UPS). TODO: PSU / Cooler / NIC / NVMe / EC; LHM is
-        // Windows-only and the equivalent sysfs reads need their own walkers.
+        // battery / UPS) and per-NIC throughput from /proc/net/dev. TODO: PSU
+        // / Cooler / NVMe / EC; LHM is Windows-only and the equivalent sysfs
+        // reads need their own walkers.
         var extras = new SensorExtras();
         extras.Batteries.AddRange(BuildLinuxBatteries());
+        extras.Nics.AddRange(BuildLinuxNics());
         return extras;
     }
+
+    // Independent of _prevNetStats (ReadNetRates' baseline for mobo/nic/*) so
+    // this and GetMotherboardSensors never perturb each other's rate window.
+    // Guarded by _nicExtrasLock: GetSensorExtras is reached concurrently by
+    // the monitoring broadcaster and the deck category resolver.
+    private readonly Dictionary<string, (ulong Rx, ulong Tx, DateTime At)> _prevNicExtrasStats = new();
+    private readonly object _nicExtrasLock = new();
+
+    private IEnumerable<HardwareComponent> BuildLinuxNics()
+    {
+        var now = DateTime.UtcNow;
+        var results = new List<HardwareComponent>();
+        string[] lines;
+        try
+        {
+            lines = File.ReadAllLines("/proc/net/dev");
+        }
+        catch
+        {
+            return results;
+        }
+
+        lock (_nicExtrasLock)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            // Skip the two header lines before the per-interface counter rows.
+            for (var i = 2; i < lines.Length; i++)
+            {
+                var line = lines[i];
+                var colonIdx = line.IndexOf(':');
+                if (colonIdx < 0)
+                    continue;
+                var iface = line.AsSpan(0, colonIdx).Trim().ToString();
+                if (iface == "lo")
+                    continue;
+
+                var parts = line.AsSpan(colonIdx + 1).ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 10 || !ulong.TryParse(parts[0], out var rxBytes) || !ulong.TryParse(parts[8], out var txBytes))
+                    continue;
+                seen.Add(iface);
+
+                var sensors = new List<HardwareSensor>();
+                // Counter reset (driver reload, interface recreated) makes the
+                // new value smaller than the baseline; skip the rate for that
+                // tick instead of shipping a wrapped ulong delta.
+                if (_prevNicExtrasStats.TryGetValue(iface, out var prev))
+                {
+                    var dtSec = (now - prev.At).TotalSeconds;
+                    if (dtSec > 0 && rxBytes >= prev.Rx && txBytes >= prev.Tx)
+                    {
+                        sensors.Add(MakeSensor($"nic/{Sanitize(iface)}/rx", $"{iface} RX", "Throughput", (float)((rxBytes - prev.Rx) / dtSec), "B/s", iface));
+                        sensors.Add(MakeSensor($"nic/{Sanitize(iface)}/tx", $"{iface} TX", "Throughput", (float)((txBytes - prev.Tx) / dtSec), "B/s", iface));
+                    }
+                }
+                _prevNicExtrasStats[iface] = (rxBytes, txBytes, now);
+
+                var speedMbps = ReadNicLinkSpeedMbps(iface);
+                if (speedMbps > 0)
+                {
+                    sensors.Add(MakeSensor($"nic/{Sanitize(iface)}/speed", "Link Speed", "Factor", speedMbps, "Mbps", iface));
+                }
+
+                if (sensors.Count == 0)
+                    continue;
+
+                results.Add(new HardwareComponent
+                {
+                    Id = $"nic/{Sanitize(iface)}",
+                    Name = iface,
+                    Sensors = sensors,
+                });
+            }
+
+            // Drop baselines for vanished interfaces (veth/docker churn) so the
+            // dictionary does not grow for the process lifetime.
+            if (_prevNicExtrasStats.Count > seen.Count)
+            {
+                var stale = new List<string>();
+                foreach (var key in _prevNicExtrasStats.Keys)
+                {
+                    if (!seen.Contains(key))
+                        stale.Add(key);
+                }
+                foreach (var key in stale)
+                    _prevNicExtrasStats.Remove(key);
+            }
+        }
+        return results;
+    }
+
+    private static int ReadNicLinkSpeedMbps(string iface)
+        => int.TryParse(TryRead($"/sys/class/net/{iface}/speed"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var mbps) && mbps > 0
+            ? mbps
+            : 0;
 
     private static IEnumerable<HardwareComponent> BuildLinuxBatteries()
     {
@@ -1087,7 +1248,9 @@ public sealed class LinuxSensorProvider : ISensorProvider
         return _gpuSmiCsv;
     }
 
-    private static HardwareSensor MakeSensor(string id, string name, string type, float value, string units, string parentName, float theoreticalMax = 0f)
+    // Internal (not private): AmdGpuSysfs.BuildReadout reuses this so its
+    // sensor formatting matches the rest of this provider exactly.
+    internal static HardwareSensor MakeSensor(string id, string name, string type, float value, string units, string parentName, float theoreticalMax = 0f)
     {
         var formatted = type switch
         {

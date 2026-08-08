@@ -26,7 +26,20 @@ internal static class LogsFolder
         else if (OperatingSystem.IsMacOS())
         { psi.FileName = "open"; psi.Arguments = $"\"{dir}\""; psi.UseShellExecute = false; }
         else
-        { psi.FileName = "xdg-open"; psi.Arguments = $"\"{dir}\""; psi.UseShellExecute = false; }
+        {
+            psi.UseShellExecute = false;
+#if LINUX
+            // Root daemon: xdg-open must run in the session user's context, not root's.
+            var (file, args) = Nexus.Service.Platform.Linux.LinuxSession.WrapSpawnAsSessionUser(
+                "xdg-open", new List<string> { dir });
+            psi.FileName = file;
+            foreach (var a in args)
+                psi.ArgumentList.Add(a);
+#else
+            psi.FileName = "xdg-open";
+            psi.Arguments = $"\"{dir}\"";
+#endif
+        }
         Process.Start(psi);
     }
 }

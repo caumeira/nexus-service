@@ -741,6 +741,7 @@
     <Compile Remove="src/Platform/Linux/LinuxNotify.cs" />
     <Compile Remove="src/Platform/Linux/LinuxPanelKioskHost.cs" />
     <Compile Remove="src/Platform/Linux/LinuxPerformanceProvider.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxResumeListener.cs" />
     <Compile Remove="src/Platform/Linux/LinuxSession.cs" />
     <Compile Remove="src/Platform/Linux/LinuxSysfs.cs" />
     <Compile Remove="src/Platform/Linux/LinuxSystemAccentProvider.cs" />
