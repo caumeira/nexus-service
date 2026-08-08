@@ -147,6 +147,8 @@ internal static class ServiceControlRoutes
             Nexus.Service.Lifecycle.UserHelperBootstrapper.LaunchOpenApp();
 #elif MACOS
             Nexus.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
+#elif LINUX
+            Nexus.Service.Platform.Linux.LinuxBrowsers.OpenUrl(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
 #endif
             return Results.Ok(ApiResponse.Ok());
         }).LocalhostOnly();

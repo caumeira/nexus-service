@@ -152,9 +152,29 @@ public sealed class SystemActions
             string[] linuxCandidates = ["gnome-control-center", "systemsettings5", "systemsettings"];
             foreach (var candidate in linuxCandidates)
             {
+#if LINUX
+                // setpriv (the session-user wrapper below) exists even when the
+                // wrapped candidate does not, so Process.Start would "succeed" on
+                // a missing candidate - probe PATH first to fall through properly.
+                if (!LinuxToolExists(candidate))
+                {
+                    continue;
+                }
+#endif
                 try
                 {
-                    Process.Start(new ProcessStartInfo(candidate) { UseShellExecute = false });
+#if LINUX
+                    // Root daemon: the settings app must run in the session user's
+                    // context, not root's.
+                    var (file, args) = Nexus.Service.Platform.Linux.LinuxSession.WrapSpawnAsSessionUser(
+                        candidate, new List<string>());
+                    var psi = new ProcessStartInfo(file) { UseShellExecute = false };
+                    foreach (var a in args)
+                        psi.ArgumentList.Add(a);
+#else
+                    var psi = new ProcessStartInfo(candidate) { UseShellExecute = false };
+#endif
+                    Process.Start(psi);
                     return ApiResponse.Ok("opened");
                 }
                 catch { /* launcher not installed - try the next */ }
@@ -198,7 +218,23 @@ public sealed class SystemActions
             }
 #endif
             await Task.CompletedTask.ConfigureAwait(false);
-            Process.Start(new ProcessStartInfo(parsed.AbsoluteUri) { UseShellExecute = true });
+#if LINUX
+            if (OperatingSystem.IsLinux())
+            {
+                // UseShellExecute's URL handoff has no session-aware spawn point to
+                // wrap, so a root daemon must invoke xdg-open explicitly instead.
+                var (file, args) = Nexus.Service.Platform.Linux.LinuxSession.WrapSpawnAsSessionUser(
+                    "xdg-open", new List<string> { parsed.AbsoluteUri });
+                var psi = new ProcessStartInfo(file) { UseShellExecute = false };
+                foreach (var a in args)
+                    psi.ArgumentList.Add(a);
+                Process.Start(psi);
+            }
+            else
+#endif
+            {
+                Process.Start(new ProcessStartInfo(parsed.AbsoluteUri) { UseShellExecute = true });
+            }
             return ApiResponse.Ok("opened");
         }
         catch (Exception ex)
@@ -249,7 +285,23 @@ public sealed class SystemActions
         await Task.CompletedTask.ConfigureAwait(false);
         try
         {
-            Process.Start(new ProcessStartInfo(trimmed) { UseShellExecute = true });
+#if LINUX
+            if (OperatingSystem.IsLinux())
+            {
+                // UseShellExecute's path handoff has no session-aware spawn point to
+                // wrap, so a root daemon must invoke xdg-open explicitly instead.
+                var (file, args) = Nexus.Service.Platform.Linux.LinuxSession.WrapSpawnAsSessionUser(
+                    "xdg-open", new List<string> { trimmed });
+                var psi = new ProcessStartInfo(file) { UseShellExecute = false };
+                foreach (var a in args)
+                    psi.ArgumentList.Add(a);
+                Process.Start(psi);
+            }
+            else
+#endif
+            {
+                Process.Start(new ProcessStartInfo(trimmed) { UseShellExecute = true });
+            }
             return ApiResponse.Ok("opened");
         }
         catch (Exception ex)
@@ -301,14 +353,49 @@ public sealed class SystemActions
         {
             return Nexus.Service.Platform.ShellExecutor.RunExit("open", 5000, "-a", "Activity Monitor") == 0;
         }
+        if (OperatingSystem.IsLinux())
+        {
+#if LINUX
+            // Try the GNOME and KDE system monitors in turn, then the generic
+            // KDE ksysguard; no single tool covers every desktop environment.
+            string[] candidates = ["gnome-system-monitor", "plasma-systemmonitor", "ksysguard"];
+            foreach (var candidate in candidates)
+            {
+                // setpriv (the session-user wrapper below) exists even when the
+                // wrapped candidate does not, so Process.Start would "succeed" on
+                // a missing candidate - probe PATH first to fall through properly.
+                if (!LinuxToolExists(candidate))
+                {
+                    continue;
+                }
+                try
+                {
+                    var (file, args) = Nexus.Service.Platform.Linux.LinuxSession.WrapSpawnAsSessionUser(
+                        candidate, new List<string>());
+                    var psi = new ProcessStartInfo(file) { UseShellExecute = false };
+                    foreach (var a in args)
+                        psi.ArgumentList.Add(a);
+                    Process.Start(psi);
+                    return true;
+                }
+                catch { /* launcher not installed - try the next */ }
+            }
+#endif
+        }
         return false;
     }
+
+#if LINUX
+    private static bool LinuxToolExists(string tool) =>
+        !string.IsNullOrWhiteSpace(Nexus.Service.Platform.ShellExecutor.Run("which", tool));
+#endif
 
     /// <summary>
     /// Opens (or focuses) the Nexus dashboard window, the same mechanism
     /// POST /service/open-app uses: the service runs headless in Session 0
-    /// (Windows) or has no window of its own yet (macOS on first launch), so
-    /// this delegates to the interactive-session launcher / app window owner.
+    /// (Windows), has no window of its own yet (macOS on first launch), or
+    /// has no embedded browser host at all (Linux), so this delegates to the
+    /// interactive-session launcher / app window owner / browser opener.
     /// </summary>
     public void OpenDashboard()
     {
@@ -323,6 +410,12 @@ public sealed class SystemActions
         if (OperatingSystem.IsMacOS())
         {
             Nexus.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
+        }
+#endif
+#if LINUX
+        if (OperatingSystem.IsLinux())
+        {
+            Nexus.Service.Platform.Linux.LinuxBrowsers.OpenUrl(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
         }
 #endif
     }

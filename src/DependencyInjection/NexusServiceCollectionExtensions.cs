@@ -1505,6 +1505,7 @@ public static class NexusServiceCollectionExtensions
 #if LINUX
         services.AddSingleton<Nexus.Service.Platform.Linux.DBus.DBusConnection>();
         services.AddHostedService<Nexus.Service.Platform.Linux.LinuxTrayService>();
+        services.AddHostedService<Nexus.Service.Platform.Linux.LinuxResumeListener>();
 #endif
         return services;
     }

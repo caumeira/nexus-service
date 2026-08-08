@@ -8,18 +8,33 @@ using System.Threading.Tasks;
 
 namespace Nexus.Service.Platform.Linux.DBus;
 
+/// <summary>Which bus a <see cref="DBusConnection"/> targets.</summary>
+public enum DBusBusKind
+{
+    /// <summary>The per-user session bus (tray, media, portals). Rejects root.</summary>
+    Session,
+
+    /// <summary>The machine-wide system bus (logind, udisks, ...). Accepts root directly.</summary>
+    System,
+}
+
 /// <summary>
-/// A pure-C# D-Bus session-bus client. Handles SASL EXTERNAL auth, message
-/// marshalling, method calls with reply matching, and dispatch of incoming
-/// method calls to registered path handlers.
+/// A pure-C# D-Bus client. Handles SASL EXTERNAL auth, message marshalling,
+/// method calls with reply matching, and dispatch of incoming method calls to
+/// registered path handlers.
 ///
-/// Shared across subsystems: one connection per process, multiple handlers
-/// for different object paths (tray SNI, screen-time receiver, etc.).
+/// Defaults to the session bus, shared across subsystems (one connection per
+/// process, multiple handlers for different object paths: tray SNI,
+/// screen-time receiver, etc.). A <see cref="DBusBusKind.System"/> instance is
+/// a private, single-purpose connection (e.g. logind PrepareForSleep) - the
+/// system bus authenticates a root daemon's own euid directly, so it skips
+/// the session bus's user-impersonation dance.
 /// </summary>
 public sealed class DBusConnection : IDisposable
 {
     private static int _instanceCounter;
     private readonly int _instanceId = Interlocked.Increment(ref _instanceCounter);
+    private readonly DBusBusKind _bus;
     private readonly CancellationTokenSource _cts = new();
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private Socket? _socket;
@@ -33,6 +48,11 @@ public sealed class DBusConnection : IDisposable
     private bool _started;
     private bool _hasConnectedBefore;
     private readonly object _connLock = new();
+
+    public DBusConnection(DBusBusKind bus = DBusBusKind.Session)
+    {
+        _bus = bus;
+    }
 
     public string UniqueName { get; private set; } = "";
     public bool Connected { get; private set; }
@@ -61,15 +81,28 @@ public sealed class DBusConnection : IDisposable
             var socketPath = ResolveSocketPath();
             if (!File.Exists(socketPath))
             {
-                throw new InvalidOperationException($"D-Bus session bus socket not found at {socketPath}");
+                throw new InvalidOperationException(
+                    $"D-Bus {(_bus == DBusBusKind.System ? "system" : "session")} bus socket not found at {socketPath}");
             }
             _socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            // The session bus authenticates by the peer's effective uid at
-            // connect time and rejects root, so a root daemon must connect as
-            // the session user. Synchronous connect (no await) keeps the
-            // process-wide euid drop tight around just this call. No-op as --user.
-            LinuxSession.ConnectAsSessionUser(
-                () => _socket.Connect(new UnixDomainSocketEndPoint(socketPath)));
+            if (_bus == DBusBusKind.System)
+            {
+                // The system bus authenticates the connecting process's own euid
+                // and accepts root directly, but a concurrent session-bus connect
+                // dropping euid process-wide would poison SO_PEERCRED for this
+                // socket too - serialize against that critical section.
+                LinuxSession.ConnectSerialized(
+                    () => _socket.Connect(new UnixDomainSocketEndPoint(socketPath)));
+            }
+            else
+            {
+                // The session bus authenticates by the peer's effective uid at
+                // connect time and rejects root, so a root daemon must connect as
+                // the session user. Synchronous connect (no await) keeps the
+                // process-wide euid drop tight around just this call. No-op as --user.
+                LinuxSession.ConnectAsSessionUser(
+                    () => _socket.Connect(new UnixDomainSocketEndPoint(socketPath)));
+            }
             _stream = new NetworkStream(_socket, ownsSocket: false);
 
             await AuthAsync();
@@ -221,19 +254,36 @@ public sealed class DBusConnection : IDisposable
         catch { }
     }
 
-    private static string ResolveSocketPath()
+    private string ResolveSocketPath() => ResolveSocketPath(
+        _bus,
+        Environment.GetEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"),
+        Environment.GetEnvironmentVariable("DBUS_SYSTEM_BUS_ADDRESS"),
+        GetUid());
+
+    /// <summary>
+    /// Pure socket-path resolution: env override first, per-bus well-known
+    /// default otherwise. Session default is the per-uid XDG runtime socket;
+    /// system default is the D-Bus spec's well-known path (unaffected by uid).
+    /// </summary>
+    internal static string ResolveSocketPath(DBusBusKind bus, string? sessionAddress, string? systemAddress, int uid)
     {
-        var address = Environment.GetEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS");
-        if (!string.IsNullOrEmpty(address))
+        if (bus == DBusBusKind.System)
         {
-            const string prefix = "unix:path=";
-            var idx = address.IndexOf(prefix, StringComparison.Ordinal);
-            if (idx >= 0)
-            {
-                return address[(idx + prefix.Length)..].Split(',')[0];
-            }
+            var fromEnv = ExtractUnixPath(systemAddress);
+            return fromEnv ?? "/run/dbus/system_bus_socket";
         }
-        return $"/run/user/{GetUid()}/bus";
+        return ExtractUnixPath(sessionAddress) ?? $"/run/user/{uid}/bus";
+    }
+
+    private static string? ExtractUnixPath(string? address)
+    {
+        if (string.IsNullOrEmpty(address))
+        {
+            return null;
+        }
+        const string prefix = "unix:path=";
+        var idx = address.IndexOf(prefix, StringComparison.Ordinal);
+        return idx >= 0 ? address[(idx + prefix.Length)..].Split(',')[0] : null;
     }
 
     private static int GetUid()
@@ -260,9 +310,13 @@ public sealed class DBusConnection : IDisposable
     {
         _stream!.WriteByte(0);
         // EXTERNAL auth must claim the uid the bus saw via SO_PEERCRED at
-        // connect. A root daemon connected as the session user (euid drop), so
-        // it must authenticate as that uid, not its real uid (0).
-        var uid = LinuxSession.SessionUid ?? (uint)GetUid();
+        // connect. A root daemon connected as the session user on the session
+        // bus (euid drop), so it must authenticate as that uid, not its real
+        // uid (0); the system bus connects (and so authenticates) as our own
+        // real uid, session-impersonation or not.
+        var uid = _bus == DBusBusKind.System
+            ? (uint)GetUid()
+            : LinuxSession.SessionUid ?? (uint)GetUid();
         var uidHex = ToHex(uid.ToString());
         await WriteLineAsync($"AUTH EXTERNAL {uidHex}");
         var line = await ReadLineAsync();

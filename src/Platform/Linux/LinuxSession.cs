@@ -216,6 +216,28 @@ public static partial class LinuxSession
         }
     }
 
+    /// <summary>
+    /// Run <paramref name="connect"/> serialized against
+    /// <see cref="ConnectAsSessionUser"/>'s critical section, without dropping
+    /// euid itself. A D-Bus system bus authenticates the caller's own (root)
+    /// euid directly and must not race a concurrent session-bus connect's
+    /// temporary euid drop - SO_PEERCRED would otherwise capture the dropped
+    /// uid instead of root's. No-op (calls <paramref name="connect"/>
+    /// directly) when not a root daemon, matching ConnectAsSessionUser.
+    /// </summary>
+    public static void ConnectSerialized(Action connect)
+    {
+        if (SessionUid is null || !OperatingSystem.IsLinux())
+        {
+            connect();
+            return;
+        }
+        lock (EuidGate)
+        {
+            connect();
+        }
+    }
+
     [LibraryImport("libc", SetLastError = true)]
     private static partial int seteuid(uint uid);
 }

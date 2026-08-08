@@ -264,8 +264,17 @@ public static class PanelBgRoutes
                     }
                     else
                     {
+#if LINUX
+                        // Root daemon: xdg-open must run in the session user's context, not root's.
+                        var (file, args) = Nexus.Service.Platform.Linux.LinuxSession.WrapSpawnAsSessionUser(
+                            "xdg-open", new List<string> { dir });
+                        psi.FileName = file;
+                        foreach (var a in args)
+                            psi.ArgumentList.Add(a);
+#else
                         psi.FileName = "xdg-open";
                         psi.Arguments = $"\"{dir}\"";
+#endif
                     }
 
                     System.Diagnostics.Process.Start(psi);
