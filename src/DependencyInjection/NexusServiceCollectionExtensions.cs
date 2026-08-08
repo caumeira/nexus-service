@@ -253,14 +253,16 @@ public static class NexusServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Diagnostics app: SMART/NVMe storage health, GPU health (NVML), cooling
-    /// stall detection, memory (SMBIOS + Windows Memory Diagnostic), pnp
-    /// problem scan, the Windows Event Log incident monitor, the health
-    /// aggregator, and its background alert poller. Every Windows-only
-    /// readout self-gates via OperatingSystem.IsWindows() inside its own
-    /// module; SmartHealthMonitor is the one type whose constructor itself
-    /// differs by platform (it holds the shared LhmComputer only on
-    /// Windows). Depends on IFanControlProvider (AddNexusCooling) and
+    /// Diagnostics app: SMART/NVMe storage health (LibreHardwareMonitor on
+    /// Windows, smartctl on Linux), GPU health (NVML, Windows + Linux),
+    /// cooling stall detection, memory (SMBIOS + Windows Memory Diagnostic),
+    /// pnp problem scan, the event-log incident monitor (Windows Event Log via
+    /// wevtapi, or journalctl on Linux), the health aggregator, and its
+    /// background alert poller. Every platform-specific readout self-gates via
+    /// OperatingSystem.IsWindows()/IsLinux() inside its own module;
+    /// SmartHealthMonitor is the one type whose constructor itself differs by
+    /// platform (it holds the shared LhmComputer only on Windows). Depends on
+    /// IFanControlProvider (AddNexusCooling) and
     /// ISensorProvider (AddNexusSensors) having already been registered.
     /// DiagnosticsHealthModel additionally takes IMetricsHistoryStore
     /// (AddNexusMonitoringHistory, called after this) - registration order

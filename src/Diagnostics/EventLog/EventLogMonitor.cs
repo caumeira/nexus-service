@@ -14,9 +14,12 @@ namespace Nexus.Service.Diagnostics.EventLog;
 
 /// <summary>
 /// Backfills, then live-tails, every DiagnosticEventCatalog source into a
-/// capped in-memory incident store. Windows-only: on other platforms
-/// ExecuteAsync no-ops and Snapshot/CountsSince stay empty, the same gating
-/// pattern LibreHardwareSensorProvider's callers use.
+/// capped in-memory incident store. Windows watches the Event Log via
+/// wevtapi; Linux polls journalctl (backfill, then a repeating poll since the
+/// last-seen entry - journalctl has no push subscription API comparable to
+/// EvtSubscribe). Every other platform's ExecuteAsync no-ops and
+/// Snapshot/CountsSince stay empty, the same gating pattern
+/// LibreHardwareSensorProvider's callers use.
 /// </summary>
 public sealed class EventLogMonitor : BackgroundService
 {
@@ -25,6 +28,30 @@ public sealed class EventLogMonitor : BackgroundService
     private readonly object _lock = new();
     private readonly List<DiagnosticIncident> _incidents = new();
     private int _generation;
+    // DiagnosticsShell (not ShellExecutor) specifically for its bounded
+    // output - a runaway err-level burst on a noisy box must not buffer
+    // unbounded journalctl output in memory. The ShellResult return (not
+    // just Stdout) is load-bearing: it is the only way to tell "journalctl
+    // is missing" from "journalctl ran and found nothing" once both produce
+    // empty output.
+    private readonly Func<string[], Nexus.Service.Diagnostics.ShellResult> _runJournalctl;
+    private volatile bool _linuxSupported;
+
+    public EventLogMonitor()
+        : this(args => Nexus.Service.Diagnostics.DiagnosticsShell.Run("journalctl", JournalctlTimeoutMs, args))
+    {
+    }
+
+    // Injected journalctl seam for tests (no real journalctl needed).
+    internal EventLogMonitor(Func<string[], Nexus.Service.Diagnostics.ShellResult> runJournalctl)
+    {
+        _runJournalctl = runJournalctl;
+    }
+
+    /// <summary>True once a journalctl query has run and returned parseable
+    /// output on Linux. Stays false on every other platform and before the
+    /// first successful Linux poll.</summary>
+    public bool IsLinuxSupported => _linuxSupported;
 
     public IReadOnlyList<DiagnosticIncident> Snapshot(int days)
     {
@@ -164,8 +191,158 @@ public sealed class EventLogMonitor : BackgroundService
 #if WINDOWS
         return RunWindowsAsync(stoppingToken);
 #else
-        return Task.CompletedTask;
+        return OperatingSystem.IsLinux() ? RunLinuxAsync(stoppingToken) : Task.CompletedTask;
 #endif
+    }
+
+    // ── Linux (journalctl) ──
+    // Plain C# (no #if LINUX): journalctl is invoked via Process.Start, which
+    // has no Windows/Linux-exclusive API surface, so this compiles and is
+    // unit-testable (via the injected _runJournalctl seam) on every platform.
+    // At runtime it only ever executes when OperatingSystem.IsLinux() is true.
+
+    private const int JournalctlTimeoutMs = 15_000;
+    private static readonly TimeSpan LinuxBackfillWindow = TimeSpan.FromDays(30);
+    private static readonly TimeSpan LinuxPollInterval = TimeSpan.FromMinutes(2);
+
+    private async Task RunLinuxAsync(CancellationToken stoppingToken)
+    {
+        await Task.Yield();
+        if (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        var watermark = DateTimeOffset.UtcNow - LinuxBackfillWindow;
+        watermark = PollJournalOnceSafe(watermark);
+        Nexus.Service.Platform.ServiceLog.Info($"[event-log-monitor] linux journalctl backfill complete, watermark={watermark:o}");
+
+        using var timer = new PeriodicTimer(LinuxPollInterval);
+        while (await WaitForNextTickSafe(timer, stoppingToken).ConfigureAwait(false))
+        {
+            watermark = PollJournalOnceSafe(watermark);
+        }
+    }
+
+    private static async Task<bool> WaitForNextTickSafe(PeriodicTimer timer, CancellationToken ct)
+    {
+        try
+        {
+            return await timer.WaitForNextTickAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    private DateTimeOffset PollJournalOnceSafe(DateTimeOffset sinceUtc)
+    {
+        try
+        {
+            return PollJournalOnce(sinceUtc);
+        }
+        catch (Exception ex)
+        {
+            Nexus.Service.Platform.ServiceLog.Warn($"[event-log-monitor] journalctl poll failed: {ex.Message}");
+            return sinceUtc;
+        }
+    }
+
+    /// <summary>Runs both journalctl queries since `sinceUtc`, adds every
+    /// newly classified incident under the generation current at call time,
+    /// and returns the watermark to poll from next: the newest entry
+    /// actually observed in either raw response, whether or not it
+    /// classified into an incident (or sinceUtc unchanged if journalctl
+    /// produced no output at all). Internal so EventLogMonitorTests can
+    /// exercise it with an injected journalctl seam.</summary>
+    internal DateTimeOffset PollJournalOnce(DateTimeOffset sinceUtc)
+    {
+        int generation;
+        lock (_lock)
+        {
+            generation = _generation;
+        }
+
+        // The epoch form is timezone-unambiguous. A plain "yyyy-MM-dd
+        // HH:mm:ss" --since value is parsed in the system's LOCAL timezone
+        // regardless of any output-formatting flag, so rendering a UTC clock
+        // string there queries the wrong window on any box not set to UTC.
+        var sinceArg = $"@{sinceUtc.ToUnixTimeSeconds()}";
+
+        // General query: everything at "err" or worse, across every
+        // transport/syslog identifier - covers unitFailed/appCrash/diskError/
+        // generic kernel errors.
+        var generalResult = _runJournalctl(new[] { "--output=json", "--priority=err", "--since", sinceArg, "--no-pager" });
+
+        // The kernel logs segfaults below "err", and the OOM killer isn't
+        // guaranteed to be at "err" on every kernel either - both would be
+        // missed by the --priority=err query above, so match them by message
+        // pattern instead, with no priority filter.
+        var kernelResult = _runJournalctl(new[]
+        {
+            "--output=json", "--grep", "Killed process|segfault at", "--since", sinceArg, "--no-pager",
+        });
+
+        // Either result's exit code being the DiagnosticsShell spawn/timeout
+        // sentinel means journalctl never ran; any other exit code (including
+        // a journalctl-reported failure) means the binary is present and
+        // usable, which alone is enough to call it supported - zero matching
+        // entries is not distinguishable from "missing" by output alone.
+        if (generalResult.ExitCode != -1 || kernelResult.ExitCode != -1)
+        {
+            _linuxSupported = true;
+        }
+
+        var general = generalResult.Stdout;
+        var kernelPatterns = kernelResult.Stdout;
+
+        // The watermark tracks the newest entry actually seen in either raw
+        // response, not the newest CLASSIFIED incident - a window with only
+        // unrecognized err lines must still advance, or the same window gets
+        // re-fetched forever and, with journalctl's oldest-first ordering and
+        // a bounded response, the newest entries can become permanently
+        // unreachable.
+        var newest = sinceUtc;
+        if (LinuxJournalIncidentParser.GetNewestTimestamp(general) is { } generalNewest && generalNewest > newest.UtcDateTime)
+        {
+            newest = new DateTimeOffset(generalNewest, TimeSpan.Zero);
+        }
+        if (LinuxJournalIncidentParser.GetNewestTimestamp(kernelPatterns) is { } kernelNewest && kernelNewest > newest.UtcDateTime)
+        {
+            newest = new DateTimeOffset(kernelNewest, TimeSpan.Zero);
+        }
+
+        // The two queries can both match the same journal entry (an
+        // err-priority OOM kill, for instance) - merge by Id (the journal
+        // cursor) so it is added once, not twice. No per-query take-N cap
+        // here: journalctl returns oldest-first, so capping the parsed list
+        // would drop the newest incidents while the watermark above (scanned
+        // from the full raw response) still advances past them - permanent
+        // loss. DiagnosticsShell already bounds the raw response size, and
+        // the store's own MaxIncidents/Trim bounds what accumulates across
+        // polls, so no further cap is needed here.
+        var merged = new Dictionary<string, DiagnosticIncident>(StringComparer.Ordinal);
+        foreach (var incident in LinuxJournalIncidentParser.ParseLines(general))
+        {
+            merged[incident.Id] = incident;
+        }
+        foreach (var incident in LinuxJournalIncidentParser.ParseLines(kernelPatterns))
+        {
+            merged[incident.Id] = incident;
+        }
+
+        foreach (var incident in merged.Values)
+        {
+            // journalctl's --since is inclusive, so entries at exactly the
+            // watermark were already added on the previous poll.
+            if (incident.TimeUtc <= sinceUtc.UtcDateTime)
+            {
+                continue;
+            }
+            TryAddIncident(incident, generation);
+        }
+        return newest;
     }
 
 #if WINDOWS

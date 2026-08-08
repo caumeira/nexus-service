@@ -368,7 +368,7 @@ public static class DiagnosticsHealthRoutes
         var decorated = DecorateGameCrashes(incidents, steamCache);
         return new IncidentsResponse
         {
-            Supported = OperatingSystem.IsWindows(),
+            Supported = OperatingSystem.IsWindows() || events.IsLinuxSupported,
             WindowDays = windowDays,
             Incidents = group ? GroupRepeats(decorated) : decorated,
         };

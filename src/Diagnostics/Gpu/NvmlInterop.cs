@@ -6,23 +6,35 @@ using System.Text;
 namespace Nexus.Service.Diagnostics.Gpu;
 
 /// <summary>
-/// Dynamic NVML (nvml.dll) interop for GPU health readout: name, driver version,
+/// Dynamic NVML interop for GPU health readout: name, driver version,
 /// temperature, power draw, clocks event/throttle reasons, and per-policy
-/// violation-time counters. Separate from <see cref="Nexus.Service.Cooling.Nvml"/>
-/// (Linux libnvidia-ml.so fan control): this loads the Windows driver's nvml.dll,
-/// which is not on the default library search path for every install, so symbols
-/// are resolved through <see cref="NativeLibrary"/> and invoked via function
-/// pointers rather than static [LibraryImport] (AOT-safe, no marshalling stubs).
-/// Every call returns the raw nvmlReturn_t int; nonzero means the caller skips
-/// the value and keeps going - a partially-populated snapshot beats none.
+/// violation-time counters. Windows loads nvml.dll; Linux loads
+/// libnvidia-ml.so.1 (same library <see cref="Nexus.Service.Cooling.Nvml"/>
+/// uses for fan control, kept separate here since that wrapper is a distinct,
+/// smaller symbol set for a different consumer). Neither is on the default
+/// library search path for every install, so symbols are resolved through
+/// <see cref="NativeLibrary"/> and invoked via function pointers rather than
+/// static [LibraryImport] (AOT-safe, no marshalling stubs) - the
+/// unmanaged[Stdcall] calling convention modifier only affects x86 name
+/// mangling and is a no-op on x64, so the same function pointer declarations
+/// are ABI-correct calling into either the Windows x64 or Linux x64 (System V)
+/// NVML build. Every call returns the raw nvmlReturn_t int; nonzero means the
+/// caller skips the value and keeps going - a partially-populated snapshot
+/// beats none.
 /// </summary>
 internal static unsafe class NvmlInterop
 {
     public const int Success = 0;               // NVML_SUCCESS
     public const int NotSupported = 3;           // NVML_ERROR_NOT_SUPPORTED
 
-    private const string DefaultLibraryName = "nvml.dll";
-    private const string FallbackPath = @"C:\Program Files\NVIDIA Corporation\NVSMI\nvml.dll";
+    private const string WindowsLibraryName = "nvml.dll";
+    private const string WindowsFallbackPath = @"C:\Program Files\NVIDIA Corporation\NVSMI\nvml.dll";
+    // Same candidates Nexus.Service.Cooling.Nvml (the separate Linux fan-control
+    // wrapper) loads: the driver package always installs the versioned .so.1
+    // symlink; the unversioned name is a fallback for a dev-only libnvidia-ml
+    // without the packaged symlink.
+    private const string LinuxLibraryName = "libnvidia-ml.so.1";
+    private const string LinuxFallbackLibraryName = "libnvidia-ml.so";
 
     private const uint TemperatureGpu = 0;       // NVML_TEMPERATURE_GPU
     private const int NameBufferSize = 96;       // NVML_DEVICE_NAME_V2_BUFFER_SIZE
@@ -70,9 +82,9 @@ internal static unsafe class NvmlInterop
         public ulong ViolationTimeUs;
     }
 
-    /// <summary>Loads nvml.dll and resolves every symbol once. Returns false (and
-    /// stays false) when the driver isn't present or lacks the core enumeration
-    /// entry points; never throws.</summary>
+    /// <summary>Loads the platform NVML library and resolves every symbol once.
+    /// Returns false (and stays false) when the driver isn't present or lacks
+    /// the core enumeration entry points; never throws.</summary>
     public static bool TryLoad()
     {
         lock (Gate)
@@ -85,8 +97,7 @@ internal static unsafe class NvmlInterop
             _attempted = true;
             try
             {
-                if (!NativeLibrary.TryLoad(DefaultLibraryName, out _handle) &&
-                    !NativeLibrary.TryLoad(FallbackPath, out _handle))
+                if (!TryLoadPlatformLibrary())
                 {
                     _loaded = false;
                     return false;
@@ -120,6 +131,21 @@ internal static unsafe class NvmlInterop
                 return false;
             }
         }
+    }
+
+    private static bool TryLoadPlatformLibrary()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return NativeLibrary.TryLoad(WindowsLibraryName, out _handle) ||
+                   NativeLibrary.TryLoad(WindowsFallbackPath, out _handle);
+        }
+        if (OperatingSystem.IsLinux())
+        {
+            return NativeLibrary.TryLoad(LinuxLibraryName, out _handle) ||
+                   NativeLibrary.TryLoad(LinuxFallbackLibraryName, out _handle);
+        }
+        return false;
     }
 
     private static IntPtr Export(string name) =>

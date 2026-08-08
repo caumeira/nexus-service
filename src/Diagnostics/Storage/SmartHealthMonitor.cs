@@ -289,13 +289,16 @@ public sealed class SmartHealthMonitor : ISmartHealthSource
     };
 }
 #else
-/// <summary>Non-Windows stub: SMART/NVMe health has no cross-platform reader, so every call reports unsupported.</summary>
+/// <summary>Non-Windows: delegates to <see cref="LinuxSmartHealthMonitor"/>
+/// (smartctl-backed) at runtime on Linux; every other platform reports
+/// unsupported, since there is no cross-platform SMART reader.</summary>
 public sealed class SmartHealthMonitor : ISmartHealthSource
 {
-    public SmartSnapshot Snapshot() => new() { Supported = false, Drives = Array.Empty<SmartDriveInfo>() };
+    private readonly LinuxSmartHealthMonitor? _linux = OperatingSystem.IsLinux() ? new LinuxSmartHealthMonitor() : null;
 
-    public void ForceRefresh()
-    {
-    }
+    public SmartSnapshot Snapshot() =>
+        _linux?.Snapshot() ?? new SmartSnapshot { Supported = false, Drives = Array.Empty<SmartDriveInfo>() };
+
+    public void ForceRefresh() => _linux?.ForceRefresh();
 }
 #endif
