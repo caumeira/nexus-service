@@ -235,16 +235,6 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         // this call already loads.
         var settings = _store.Load();
         var uncontrolled = settings.Devices.UncontrolledLightingDevices;
-
-#if DEV_TOOLS
-        // Appended before the Controlled/layout stamping below so sim cards
-        // toggle and lay out like real ones. See SimulatedLightingDevices.
-        if (SimulatedLightingDevices.Count > 0)
-        {
-            rgb.IsInit = true;
-            rgb.Devices.AddRange(SimulatedLightingDevices.Build(settings));
-        }
-#endif
         foreach (var dev in rgb.Devices)
         {
             if (dev.DeviceId.Length == 0)
