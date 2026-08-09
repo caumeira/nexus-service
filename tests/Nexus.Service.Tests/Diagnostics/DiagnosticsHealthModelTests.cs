@@ -193,10 +193,98 @@ public class DiagnosticsHealthModelTests
             windowsSupported: false,
             generatedAtUtc: T0);
 
-        Assert.False(result.Supported);
+        // A working sub-domain (cooling) produced a component, so the grid is
+        // supported off-Windows too.
+        Assert.True(result.Supported);
         Assert.Single(result.Components, c => c.Kind == "cooling" && c.Status == HealthStatuses.Act);
         Assert.DoesNotContain(result.Components, c => c.Kind is "storage" or "gpu" or "memory" or "system");
         Assert.Equal(HealthStatuses.Act, result.Overall);
+    }
+
+    [Fact]
+    public void StorageAndGpu_ContributeOffWindows_WhenTheirSnapshotsAreSupported()
+    {
+        var smart = new SmartSnapshot
+        {
+            Supported = true,
+            Drives = new List<SmartDriveInfo>
+            {
+                new() { Id = "storage:NVME0", Name = "Linux NVMe", Status = "good", DetailedReasons = new List<SmartReason>() },
+            },
+        };
+        var gpu = new GpuHealthSnapshot(true, new List<GpuInfo>
+        {
+            new("Linux GPU", "1.0", 50, 100, new GpuThrottleInfo(Array.Empty<string>(), null, null, null, null)),
+        });
+
+        var result = DiagnosticsHealthModel.Compute(
+            smart: smart,
+            cooling: EmptyCooling,
+            gpu: gpu,
+            counts30d: new Dictionary<string, int>(),
+            lastMemoryTest: null,
+            pnp: EmptyPnp,
+            knownGpuModels: Array.Empty<string>(),
+            windowsSupported: false,
+            generatedAtUtc: T0);
+
+        // SMART (smartctl) and GPU (NVML) health surface off Windows; memory
+        // and system/pnp stay Windows-only, so no tile appears for them.
+        Assert.True(result.Supported);
+        Assert.Single(result.Components, c => c.Kind == "storage");
+        Assert.Single(result.Components, c => c.Kind == "gpu");
+        Assert.DoesNotContain(result.Components, c => c.Kind is "memory" or "system");
+    }
+
+    [Fact]
+    public void GpuPlaceholder_FromKnownModels_StaysWindowsOnly()
+    {
+        // Off Windows with no live GPU health (NVML unsupported) but a model
+        // name present (system_profiler/lspci), the Unknown placeholder tile
+        // must NOT appear - it would flip Supported true with no real signal.
+        var offWindows = DiagnosticsHealthModel.Compute(
+            smart: SmartSnapshotUnsupported(),
+            cooling: new CoolingStallSnapshot(true, new List<CoolingStallDevice>()),
+            gpu: GpuHealthSnapshot.Unsupported,
+            counts30d: new Dictionary<string, int>(),
+            lastMemoryTest: null,
+            pnp: PnpProblemSnapshot.Unsupported,
+            knownGpuModels: new[] { "Apple M1 Max" },
+            windowsSupported: false,
+            generatedAtUtc: T0);
+        Assert.DoesNotContain(offWindows.Components, c => c.Kind == "gpu");
+        Assert.False(offWindows.Supported);
+
+        // On Windows the same inputs still produce the Unknown placeholder.
+        var onWindows = DiagnosticsHealthModel.Compute(
+            smart: SmartSnapshotUnsupported(),
+            cooling: new CoolingStallSnapshot(true, new List<CoolingStallDevice>()),
+            gpu: GpuHealthSnapshot.Unsupported,
+            counts30d: new Dictionary<string, int>(),
+            lastMemoryTest: null,
+            pnp: PnpProblemSnapshot.Unsupported,
+            knownGpuModels: new[] { "NVIDIA GeForce RTX 4080" },
+            windowsSupported: true,
+            generatedAtUtc: T0);
+        Assert.Single(onWindows.Components, c => c.Kind == "gpu");
+    }
+
+    [Fact]
+    public void NotSupported_OffWindows_WhenNoSubDomainProducedAComponent()
+    {
+        var result = DiagnosticsHealthModel.Compute(
+            smart: SmartSnapshotUnsupported(),
+            cooling: new CoolingStallSnapshot(true, new List<CoolingStallDevice>()),
+            gpu: GpuHealthSnapshot.Unsupported,
+            counts30d: new Dictionary<string, int>(),
+            lastMemoryTest: null,
+            pnp: PnpProblemSnapshot.Unsupported,
+            knownGpuModels: Array.Empty<string>(),
+            windowsSupported: false,
+            generatedAtUtc: T0);
+
+        Assert.False(result.Supported);
+        Assert.Empty(result.Components);
     }
 
     [Fact]

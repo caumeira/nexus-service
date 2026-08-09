@@ -267,10 +267,10 @@ public sealed class UpdateService : BackgroundService
     /// Whether a detected newer release should be surfaced as an installable
     /// update. RunInstallAsync / RunLaunchStagedAsync only implement the
     /// install handoff on Windows (PlatformNotSupportedException everywhere
-    /// else), so Linux suppresses both detection and auto-stage rather than
-    /// offering an update the dashboard cannot apply.
+    /// else), so macOS and Linux suppress both detection and auto-stage
+    /// rather than offering an update the dashboard cannot apply.
     /// </summary>
-    internal static bool CanOfferUpdate(bool isNewer, bool isLinux) => isNewer && !isLinux;
+    internal static bool CanOfferUpdate(bool isNewer, bool canInstall) => isNewer && canInstall;
 
     /// <summary>
     /// Pure channel-derivation logic: given the persisted last-run version, the
@@ -552,7 +552,7 @@ public sealed class UpdateService : BackgroundService
 
             var snapshot = _store.Load();
             var isNewer = manifest is not null && VersionCompare.IsNewer(manifest.Version, BuildInfo.Version);
-            var offerUpdate = CanOfferUpdate(isNewer, OperatingSystem.IsLinux());
+            var offerUpdate = CanOfferUpdate(isNewer, OperatingSystem.IsWindows());
 
             var mode = snapshot.Update.UpdateMode;
             _status = new UpdateStatusResponse
@@ -622,7 +622,7 @@ public sealed class UpdateService : BackgroundService
                 LatestVersion = _latestManifest?.Version ?? BuildInfo.Version,
                 UpdateAvailable = CanOfferUpdate(
                     _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
-                    OperatingSystem.IsLinux()),
+                    OperatingSystem.IsWindows()),
                 Channel = channel,
                 UpdateMode = snapshot.Update.UpdateMode,
                 ReleaseNotes = _latestManifest?.Notes ?? "",
@@ -644,7 +644,7 @@ public sealed class UpdateService : BackgroundService
             LatestVersion = _latestManifest?.Version ?? BuildInfo.Version,
             UpdateAvailable = CanOfferUpdate(
                 _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
-                OperatingSystem.IsLinux()),
+                OperatingSystem.IsWindows()),
             Channel = channel,
             UpdateMode = s.Update.UpdateMode,
             ReleaseNotes = _latestManifest?.Notes ?? "",

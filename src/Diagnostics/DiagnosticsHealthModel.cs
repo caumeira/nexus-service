@@ -157,11 +157,13 @@ public sealed class DiagnosticsHealthModel
     }
 
     /// <summary>
-    /// Pure aggregation: every module's own Windows-gating already collapses to
-    /// unsupported/empty data on non-Windows, so the only extra gate needed
-    /// here is skipping storage/gpu/memory/system entirely when
-    /// <paramref name="windowsSupported"/> is false - cooling stays evaluated
-    /// on every platform (IFanControlProvider exists cross-platform).
+    /// Pure aggregation. Storage (SMART), GPU, and cooling are evaluated on
+    /// every platform - each self-guards on its own snapshot's Supported flag,
+    /// so on Linux/macOS they contribute only when the underlying source
+    /// (smartctl, NVML, IFanControlProvider) produced real data. Memory and
+    /// system/pnp are Windows-only diagnostics (Windows Memory Diagnostic,
+    /// Win32_PnPEntity) with no cross-platform data, so they stay behind
+    /// <paramref name="windowsSupported"/>.
     ///
     /// Every component reflects current state only: SMART classification,
     /// active GPU throttle, last memory test result, live pnp problems, and
@@ -188,16 +190,27 @@ public sealed class DiagnosticsHealthModel
         var diag = diagnostics ?? new DiagnosticsSettings();
         var components = new List<HealthComponent>();
 
+        // Storage surfaces off Windows too: AddStorageComponents returns early
+        // on !smart.Supported, so it contributes only where a real source
+        // produced data (LHM on Windows, smartctl on Linux).
+        if (diag.Components.Storage)
+        {
+            AddStorageComponents(components, smart);
+        }
+        // GPU off Windows only when a live health source (NVML) reported.
+        // AddGpuComponents' known-models fallback adds an Unknown placeholder
+        // tile whenever a model name exists (system_profiler on every Mac,
+        // lspci on any Linux with a display adapter) - a meaningless tile off
+        // Windows, so require gpu.Supported there and keep the Windows path
+        // (placeholder included) unchanged.
+        if (diag.Components.Gpu && (windowsSupported || gpu.Supported))
+        {
+            AddGpuComponents(components, gpu, knownGpuModels);
+        }
+        // Memory and system/pnp have no non-Windows data source and their
+        // Add* helpers do not self-guard, so keep them Windows-only.
         if (windowsSupported)
         {
-            if (diag.Components.Storage)
-            {
-                AddStorageComponents(components, smart);
-            }
-            if (diag.Components.Gpu)
-            {
-                AddGpuComponents(components, gpu, knownGpuModels);
-            }
             if (diag.Components.Ram)
             {
                 AddMemoryComponent(components, lastMemoryTest);
@@ -209,10 +222,14 @@ public sealed class DiagnosticsHealthModel
         }
         AddCoolingComponents(components, cooling, tempEpisodes ?? Array.Empty<TemperatureEpisode>(), generatedAtUtc, diag);
 
+        // Windows always reports the grid (its per-domain scanners exist even
+        // when a domain is empty). Elsewhere the grid is meaningful only when
+        // a working sub-domain (SMART, GPU, cooling) produced a component -
+        // otherwise the tab is hidden client-side.
         return new DiagnosticsHealthResponse
         {
             GeneratedAt = generatedAtUtc,
-            Supported = windowsSupported,
+            Supported = windowsSupported || components.Count > 0,
             Overall = WorstStatus(components.Select(c => c.Status)),
             Components = components,
         };

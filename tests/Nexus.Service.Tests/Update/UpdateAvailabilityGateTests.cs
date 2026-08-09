@@ -1,35 +1,35 @@
 using Nexus.Service.Update;
-using Xunit;
 
 namespace Nexus.Service.Tests.Update;
 
 /// <summary>
 /// Tests for UpdateService.CanOfferUpdate, the platform gate that keeps
-/// Linux (no install path) from surfacing an update it cannot apply.
+/// the dashboard from offering an update the OTA cannot install (the install
+/// handoff exists only on Windows, so macOS and Linux never offer one).
 /// </summary>
-public sealed class UpdateAvailabilityGateTests
+public class UpdateAvailabilityGateTests
 {
     [Fact]
-    public void NewerRelease_NonLinux_IsOffered()
+    public void OffersUpdate_WhenNewerAndPlatformCanInstall()
     {
-        Assert.True(UpdateService.CanOfferUpdate(isNewer: true, isLinux: false));
+        Assert.True(UpdateService.CanOfferUpdate(isNewer: true, canInstall: true));
     }
 
     [Fact]
-    public void NewerRelease_Linux_IsSuppressed()
+    public void SuppressesUpdate_WhenNewerButPlatformCannotInstall()
     {
-        Assert.False(UpdateService.CanOfferUpdate(isNewer: true, isLinux: true));
+        Assert.False(UpdateService.CanOfferUpdate(isNewer: true, canInstall: false));
     }
 
     [Fact]
-    public void NoNewerRelease_NonLinux_IsNotOffered()
+    public void NoUpdate_WhenNotNewerEvenIfInstallable()
     {
-        Assert.False(UpdateService.CanOfferUpdate(isNewer: false, isLinux: false));
+        Assert.False(UpdateService.CanOfferUpdate(isNewer: false, canInstall: true));
     }
 
     [Fact]
-    public void NoNewerRelease_Linux_IsNotOffered()
+    public void NoUpdate_WhenNotNewerAndNotInstallable()
     {
-        Assert.False(UpdateService.CanOfferUpdate(isNewer: false, isLinux: true));
+        Assert.False(UpdateService.CanOfferUpdate(isNewer: false, canInstall: false));
     }
 }
