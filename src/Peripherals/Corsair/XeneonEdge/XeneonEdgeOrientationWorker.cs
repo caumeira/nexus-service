@@ -125,7 +125,7 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
         _registry.DisplayRecordReady += OnDisplayRecordReady;
 #if WINDOWS
         _helpers = helpers;
-        if (_helpers is not null) _helpers.Connected += OnHelperConnected;
+        _helpers?.Connected += OnHelperConnected;
 #endif
     }
 
@@ -174,7 +174,7 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
     {
         _registry.DisplayRecordReady -= OnDisplayRecordReady;
 #if WINDOWS
-        if (_helpers is not null) _helpers.Connected -= OnHelperConnected;
+        _helpers?.Connected -= OnHelperConnected;
 #endif
         _settingsSemaphore.Dispose();
         base.Dispose();
