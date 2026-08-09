@@ -150,6 +150,8 @@ public sealed class UpdateService : BackgroundService
             UpdateReady = snap.UpdateReady,
             JustUpdatedTo = justUpdated,
             PublishedAtUnix = snap.PublishedAtUnix,
+            DownloadUrl = snap.DownloadUrl,
+            CanAutoInstall = snap.CanAutoInstall,
         };
     }
 
@@ -264,13 +266,22 @@ public sealed class UpdateService : BackgroundService
     }
 
     /// <summary>
-    /// Whether a detected newer release should be surfaced as an installable
-    /// update. RunInstallAsync / RunLaunchStagedAsync only implement the
-    /// install handoff on Windows (PlatformNotSupportedException everywhere
-    /// else), so macOS and Linux suppress both detection and auto-stage
-    /// rather than offering an update the dashboard cannot apply.
+    /// Whether a detected newer release should be surfaced to the dashboard.
+    /// Asset selection already filters by OS, so any resolved manifest carries
+    /// a download link installable on this platform; the offer itself is not
+    /// gated by whether the service can apply it (see <see cref="ShouldAutoStage"/>).
     /// </summary>
-    internal static bool CanOfferUpdate(bool isNewer, bool canInstall) => isNewer && canInstall;
+    internal static bool CanOfferUpdate(bool isNewer) => isNewer;
+
+    /// <summary>
+    /// Whether a background auto-stage (download+verify, mode "download" or
+    /// "always") should start. RunInstallAsync / RunLaunchStagedAsync only
+    /// implement the install handoff on Windows (PlatformNotSupportedException
+    /// everywhere else), so macOS and Linux never background-download; they
+    /// only ever offer the manual DownloadUrl.
+    /// </summary>
+    internal static bool ShouldAutoStage(bool offerUpdate, string mode, bool alreadyStaged, bool isWindows) =>
+        offerUpdate && (mode is "download" or "always") && !alreadyStaged && isWindows;
 
     /// <summary>
     /// Pure channel-derivation logic: given the persisted last-run version, the
@@ -354,6 +365,7 @@ public sealed class UpdateService : BackgroundService
             LastCheckError = $"Install of {marker.Version} did not complete.",
             State = "failed",
             UpdateReady = false,
+            CanAutoInstall = OperatingSystem.IsWindows(),
         };
     }
 
@@ -405,6 +417,7 @@ public sealed class UpdateService : BackgroundService
                 LastCheckError = "",
                 State = "installing",
                 UpdateReady = false,
+                CanAutoInstall = true,
             };
 
             var launched = UpdateInstaller.LaunchViaSchtasks(marker.InstallerPath, marker.Version);
@@ -435,6 +448,7 @@ public sealed class UpdateService : BackgroundService
                 LastCheckError = $"Auto-apply failed: {ex.GetType().Name}: {ex.Message}",
                 State = "failed",
                 UpdateReady = false,
+                CanAutoInstall = true,
             };
         }
 #else
@@ -552,7 +566,7 @@ public sealed class UpdateService : BackgroundService
 
             var snapshot = _store.Load();
             var isNewer = manifest is not null && VersionCompare.IsNewer(manifest.Version, BuildInfo.Version);
-            var offerUpdate = CanOfferUpdate(isNewer, OperatingSystem.IsWindows());
+            var offerUpdate = CanOfferUpdate(isNewer);
 
             var mode = snapshot.Update.UpdateMode;
             _status = new UpdateStatusResponse
@@ -568,6 +582,8 @@ public sealed class UpdateService : BackgroundService
                 State = _installing == 1 ? GetInstallStateString() : (_updateReady ? "ready" : "idle"),
                 UpdateReady = _updateReady,
                 PublishedAtUnix = manifest?.PublishedAt?.ToUnixTimeSeconds() ?? 0,
+                DownloadUrl = manifest?.AssetUrl ?? "",
+                CanAutoInstall = OperatingSystem.IsWindows(),
             };
 
             // "download" stages a download+verify but does not install.
@@ -581,7 +597,7 @@ public sealed class UpdateService : BackgroundService
             // it, so the staged installer + marker must follow the new version.
             var alreadyStaged = _updateReady
                 && string.Equals(_stagedVersion, manifest?.Version, StringComparison.OrdinalIgnoreCase);
-            if (offerUpdate && (mode is "download" or "always") && manifest is not null && !alreadyStaged)
+            if (ShouldAutoStage(offerUpdate, mode, alreadyStaged, OperatingSystem.IsWindows()) && manifest is not null)
             {
                 if (Interlocked.CompareExchange(ref _installing, 1, 0) == 0)
                 {
@@ -621,8 +637,7 @@ public sealed class UpdateService : BackgroundService
                 CurrentVersion = BuildInfo.Version,
                 LatestVersion = _latestManifest?.Version ?? BuildInfo.Version,
                 UpdateAvailable = CanOfferUpdate(
-                    _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
-                    OperatingSystem.IsWindows()),
+                    _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version)),
                 Channel = channel,
                 UpdateMode = snapshot.Update.UpdateMode,
                 ReleaseNotes = _latestManifest?.Notes ?? "",
@@ -631,6 +646,8 @@ public sealed class UpdateService : BackgroundService
                 State = _installing == 1 ? GetInstallStateString() : (_updateReady ? "ready" : "idle"),
                 UpdateReady = _updateReady,
                 PublishedAtUnix = _latestManifest?.PublishedAt?.ToUnixTimeSeconds() ?? 0,
+                DownloadUrl = _latestManifest?.AssetUrl ?? "",
+                CanAutoInstall = OperatingSystem.IsWindows(),
             };
             Console.Error.WriteLine($"[update] check failed: {ex.GetType().Name}: {ex.Message}");
         }
@@ -643,8 +660,7 @@ public sealed class UpdateService : BackgroundService
             CurrentVersion = BuildInfo.Version,
             LatestVersion = _latestManifest?.Version ?? BuildInfo.Version,
             UpdateAvailable = CanOfferUpdate(
-                _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
-                OperatingSystem.IsWindows()),
+                _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version)),
             Channel = channel,
             UpdateMode = s.Update.UpdateMode,
             ReleaseNotes = _latestManifest?.Notes ?? "",
@@ -653,6 +669,8 @@ public sealed class UpdateService : BackgroundService
             State = "checking",
             UpdateReady = _updateReady,
             PublishedAtUnix = _latestManifest?.PublishedAt?.ToUnixTimeSeconds() ?? 0,
+            DownloadUrl = _latestManifest?.AssetUrl ?? "",
+            CanAutoInstall = OperatingSystem.IsWindows(),
         };
     }
 
@@ -951,6 +969,8 @@ public sealed class UpdateService : BackgroundService
             State = state,
             UpdateReady = _updateReady,
             PublishedAtUnix = _status.PublishedAtUnix,
+            DownloadUrl = _status.DownloadUrl,
+            CanAutoInstall = _status.CanAutoInstall,
         };
     }
 
@@ -991,6 +1011,8 @@ public sealed class UpdateService : BackgroundService
             State = _status.State,
             UpdateReady = ready,
             PublishedAtUnix = _status.PublishedAtUnix,
+            DownloadUrl = _status.DownloadUrl,
+            CanAutoInstall = _status.CanAutoInstall,
         };
     }
 }

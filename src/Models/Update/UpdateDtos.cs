@@ -26,6 +26,10 @@ public sealed class UpdateStatusResponse
     public string JustUpdatedTo { get; set; } = "";
     /// <summary>Unix seconds when the latest release was published on GitHub. 0 when unknown.</summary>
     public long PublishedAtUnix { get; set; }
+    /// <summary>Browser download URL for this platform's release asset. Empty when no manifest.</summary>
+    public string DownloadUrl { get; set; } = "";
+    /// <summary>True when the service can stage and apply the update itself; false means the dashboard offers DownloadUrl instead.</summary>
+    public bool CanAutoInstall { get; set; }
 }
 
 /// <summary>GET /update/progress response.</summary>

@@ -101,31 +101,88 @@ public sealed class GitHubReleaseProviderTests
     private static GitHubReleaseAsset Asset(string name) => new() { Name = name };
 
     [Fact]
-    public void SelectInstallerAsset_matches_versioned_name()
+    public void SelectInstallerAsset_windows_matches_versioned_name()
     {
         var assets = new[] { Asset("SHA256SUMS"), Asset("Nexus-Setup-3.0.0-beta.2.exe") };
-        var picked = GitHubReleaseProvider.SelectInstallerAsset(assets);
+        var picked = GitHubReleaseProvider.SelectInstallerAsset(assets, RuntimePlatform.Windows);
         Assert.Equal("Nexus-Setup-3.0.0-beta.2.exe", picked?.Name);
     }
 
     [Fact]
-    public void SelectInstallerAsset_matches_legacy_bare_name()
+    public void SelectInstallerAsset_windows_matches_legacy_bare_name()
     {
         var assets = new[] { Asset("Nexus-Setup.exe"), Asset("Nexus.dmg") };
-        var picked = GitHubReleaseProvider.SelectInstallerAsset(assets);
+        var picked = GitHubReleaseProvider.SelectInstallerAsset(assets, RuntimePlatform.Windows);
         Assert.Equal("Nexus-Setup.exe", picked?.Name);
     }
 
     [Fact]
-    public void SelectInstallerAsset_ignores_dmg_tarball_and_sums()
+    public void SelectInstallerAsset_windows_ignores_dmg_tarball_and_sums()
     {
         var assets = new[] { Asset("Nexus-3.0.0.dmg"), Asset("Nexus-Linux-x64-3.0.0.tar.gz"), Asset("SHA256SUMS") };
-        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(assets));
+        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(assets, RuntimePlatform.Windows));
     }
 
     [Fact]
-    public void SelectInstallerAsset_null_when_no_installer()
+    public void SelectInstallerAsset_windows_null_when_no_installer()
     {
-        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(System.Array.Empty<GitHubReleaseAsset>()));
+        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(System.Array.Empty<GitHubReleaseAsset>(), RuntimePlatform.Windows));
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_macos_matches_dmg()
+    {
+        var assets = new[] { Asset("SHA256SUMS"), Asset("Nexus-3.0.0.dmg") };
+        var picked = GitHubReleaseProvider.SelectInstallerAsset(assets, RuntimePlatform.MacOS);
+        Assert.Equal("Nexus-3.0.0.dmg", picked?.Name);
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_macos_matches_legacy_bare_name()
+    {
+        var assets = new[] { Asset("Nexus-Setup.exe"), Asset("Nexus.dmg") };
+        var picked = GitHubReleaseProvider.SelectInstallerAsset(assets, RuntimePlatform.MacOS);
+        Assert.Equal("Nexus.dmg", picked?.Name);
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_macos_ignores_exe_tarball_and_sums()
+    {
+        var assets = new[] { Asset("Nexus-Setup-3.0.0.exe"), Asset("Nexus-Linux-x64-3.0.0.tar.gz"), Asset("SHA256SUMS") };
+        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(assets, RuntimePlatform.MacOS));
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_macos_null_when_no_installer()
+    {
+        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(System.Array.Empty<GitHubReleaseAsset>(), RuntimePlatform.MacOS));
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_linux_matches_tarball()
+    {
+        var assets = new[] { Asset("SHA256SUMS"), Asset("Nexus-Linux-x64-3.0.0.tar.gz") };
+        var picked = GitHubReleaseProvider.SelectInstallerAsset(assets, RuntimePlatform.Linux);
+        Assert.Equal("Nexus-Linux-x64-3.0.0.tar.gz", picked?.Name);
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_linux_ignores_exe_dmg_and_sums()
+    {
+        var assets = new[] { Asset("Nexus-Setup-3.0.0.exe"), Asset("Nexus-3.0.0.dmg"), Asset("SHA256SUMS") };
+        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(assets, RuntimePlatform.Linux));
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_linux_requires_linux_in_name()
+    {
+        var assets = new[] { Asset("Nexus-x64-3.0.0.tar.gz") };
+        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(assets, RuntimePlatform.Linux));
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_linux_null_when_no_installer()
+    {
+        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(System.Array.Empty<GitHubReleaseAsset>(), RuntimePlatform.Linux));
     }
 }

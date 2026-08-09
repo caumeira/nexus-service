@@ -10,6 +10,14 @@ using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Update;
 
+/// <summary>OS a release installer asset targets. Drives <see cref="GitHubReleaseProvider.SelectInstallerAsset"/>.</summary>
+public enum RuntimePlatform
+{
+    Windows,
+    MacOS,
+    Linux,
+}
+
 /// <summary>
 /// <see cref="IUpdateSource"/> backed by GitHub Releases. The only file in the
 /// codebase that is aware of GitHub's REST shapes or snake_case DTOs.
@@ -46,7 +54,7 @@ public sealed class GitHubReleaseProvider : IUpdateSource
 
         if (release is null) return null;
 
-        var asset = SelectInstallerAsset(release.Assets);
+        var asset = SelectInstallerAsset(release.Assets, CurrentRuntimePlatform());
         if (asset is null) return null;
 
         var (sha256, fromSumsFile) = await ResolveHashAsync(client, release, asset, ct);
@@ -118,15 +126,33 @@ public sealed class GitHubReleaseProvider : IUpdateSource
     }
 
     /// <summary>
-    /// Selects the Windows installer asset. One Nexus-Setup*.exe per release,
-    /// so a prefix match resolves the versioned name (Nexus-Setup-3.0.0.exe)
-    /// and the legacy bare Nexus-Setup.exe.
+    /// Selects the installer asset for the given platform: Windows via a
+    /// Nexus-Setup prefix match (resolves both the versioned and legacy bare
+    /// name), macOS via .dmg, Linux via a name containing "linux" ending .tar.gz.
     /// </summary>
-    public static GitHubReleaseAsset? SelectInstallerAsset(IEnumerable<GitHubReleaseAsset> assets) =>
-        assets.FirstOrDefault(a =>
-            a.Name is not null
-            && a.Name.StartsWith("Nexus-Setup", StringComparison.OrdinalIgnoreCase)
-            && a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
+    public static GitHubReleaseAsset? SelectInstallerAsset(
+        IEnumerable<GitHubReleaseAsset> assets,
+        RuntimePlatform platform) =>
+        platform switch
+        {
+            RuntimePlatform.Windows => assets.FirstOrDefault(a =>
+                a.Name is not null
+                && a.Name.StartsWith("Nexus-Setup", StringComparison.OrdinalIgnoreCase)
+                && a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)),
+            RuntimePlatform.MacOS => assets.FirstOrDefault(a =>
+                a.Name is not null
+                && a.Name.EndsWith(".dmg", StringComparison.OrdinalIgnoreCase)),
+            RuntimePlatform.Linux => assets.FirstOrDefault(a =>
+                a.Name is not null
+                && a.Name.Contains("linux", StringComparison.OrdinalIgnoreCase)
+                && a.Name.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)),
+            _ => null,
+        };
+
+    private static RuntimePlatform CurrentRuntimePlatform() =>
+        OperatingSystem.IsWindows() ? RuntimePlatform.Windows :
+        OperatingSystem.IsMacOS() ? RuntimePlatform.MacOS :
+        RuntimePlatform.Linux;
 
     /// <summary>
     /// Parses a SHA256SUMS file of the form "{hash}  {filename}" per line.
