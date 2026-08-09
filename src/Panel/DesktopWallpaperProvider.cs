@@ -25,8 +25,11 @@ public static class DesktopWallpaperProvider
         // still WallpaperAgent rendered for the active wallpaper.
         if (OperatingSystem.IsMacOS()) return MacDesktopWallpaperProvider.TryResolve();
         // Linux has no per-monitor crop cache either - GNOME/KDE both resolve
-        // a single desktop-wide wallpaper file.
+        // a single desktop-wide wallpaper file. Compile-removed on non-Linux
+        // RIDs (references LinuxSession), so the reference is LINUX-gated too.
+#if LINUX
         if (OperatingSystem.IsLinux()) return LinuxDesktopWallpaperProvider.TryResolve();
+#endif
 
         var themes = ResolveThemesDir();
         if (themes is null) return null;
@@ -78,7 +81,9 @@ public static class DesktopWallpaperProvider
             var store = MacDesktopWallpaperProvider.StoreDir();
             return Directory.Exists(store) ? store : null;
         }
+#if LINUX
         if (OperatingSystem.IsLinux()) return LinuxDesktopWallpaperProvider.WatchDir();
+#endif
         return ResolveThemesDir();
     }
 
@@ -88,7 +93,9 @@ public static class DesktopWallpaperProvider
     {
         var file = name is null ? "" : Path.GetFileName(name);
         if (OperatingSystem.IsMacOS()) return file.Equals("Index.plist", StringComparison.OrdinalIgnoreCase);
+#if LINUX
         if (OperatingSystem.IsLinux()) return LinuxDesktopWallpaperProvider.IsServedFile(file);
+#endif
         return file.Equals("TranscodedWallpaper", StringComparison.OrdinalIgnoreCase)
             || file.StartsWith("CachedImage_", StringComparison.OrdinalIgnoreCase);
     }
@@ -98,7 +105,9 @@ public static class DesktopWallpaperProvider
     /// client refetch never hits a stale cache entry.</summary>
     internal static void InvalidateCache()
     {
+#if LINUX
         if (OperatingSystem.IsLinux()) LinuxDesktopWallpaperProvider.InvalidateCache();
+#endif
     }
 
     internal static string? ResolveThemesDir()

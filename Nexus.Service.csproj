@@ -719,6 +719,7 @@
     <Compile Remove="src/Cooling/Nvml.cs" />
     <Compile Remove="src/Devices/Detection/LinuxUsbEnumerator.cs" />
     <Compile Remove="src/Lifecycle/LinuxStartupProvider.cs" />
+    <Compile Remove="src/Panel/LinuxDesktopWallpaperProvider.cs" />
     <Compile Remove="src/Lighting/Capture/LinuxScreenCastHelper.cs" />
     <Compile Remove="src/Lighting/Capture/LinuxScreenCastPortal.cs" />
     <Compile Remove="src/Lighting/Capture/LinuxScreenFrameSource.cs" />
