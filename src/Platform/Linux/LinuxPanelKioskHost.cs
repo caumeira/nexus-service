@@ -22,9 +22,9 @@ namespace Nexus.Service.Platform.Linux;
 /// topology also carries no positions, so there is nothing to translate a
 /// displayId into screen coordinates with from the daemon side.
 ///
-/// Each kiosk gets its own --user-data-dir under XDG_RUNTIME_DIR so the
-/// spawned pid IS the browser process (no delegation to a running
-/// instance) and Kill(tree) closes exactly that window.
+/// Each kiosk gets its own --user-data-dir (see ProfileDir) so the spawned
+/// pid IS the browser process (no delegation to a running instance) and
+/// Kill(tree) closes exactly that window.
 /// </summary>
 public sealed class LinuxPanelKioskHost : IDisposable
 {
@@ -257,13 +257,23 @@ public sealed class LinuxPanelKioskHost : IDisposable
         });
     }
 
-    private static string ProfileDir(string deviceId)
+    // Snap confinement grants only non-hidden $HOME paths, and exits on "Failed
+    // To Create Data Directory" elsewhere; a confined browser is unidentifiable
+    // by path, since Ubuntu's /usr/bin/chromium-browser execs /snap/bin/chromium.
+    // HOME is read per call: the root daemon adopts the session user's after
+    // start, so a cached value would point at /root. Not pre-created - the
+    // browser makes it as the session user, and a root-owned dir is unwritable.
+    internal static string ProfileDir(string deviceId)
     {
-        var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
-        var baseDir = string.IsNullOrEmpty(runtimeDir) ? Path.GetTempPath() : runtimeDir;
-        // Not pre-created: the browser runs as the session user and creates
-        // it itself; a root-owned pre-creation would be unwritable.
-        return Path.Combine(baseDir, "nexus-kiosk", deviceId);
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home))
+        {
+            // GetFolderPath yields "" for an unresolvable home, which would make
+            // --user-data-dir relative to the browser's CWD.
+            var runtimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
+            home = string.IsNullOrEmpty(runtimeDir) ? Path.GetTempPath() : runtimeDir;
+        }
+        return Path.Combine(home, "nexus-kiosk", deviceId);
     }
 
     public void Dispose()

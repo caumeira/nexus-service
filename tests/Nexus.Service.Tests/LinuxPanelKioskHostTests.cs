@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using Nexus.Service.Platform.Linux;
 using Xunit;
 
@@ -67,5 +69,70 @@ public class LinuxPanelKioskHostTests
 
         Assert.Equal(new[] { "gone" }, toClose);
         Assert.Equal(new[] { ("new", "dev3") }, toOpen);
+    }
+
+    // Snap confinement grants only non-hidden $HOME paths and the browser exits
+    // on "Failed To Create Data Directory" anywhere else (bench-verified on
+    // Ubuntu 24.04). Every segment below the home must therefore stay visible.
+    [Fact]
+    public void ProfileDir_PutsEverySegmentUnderHomeAndNoneHidden()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Assert.False(string.IsNullOrEmpty(home), "test needs a resolvable home");
+
+        var dir = LinuxPanelKioskHost.ProfileDir("dev1");
+
+        Assert.True(Path.IsPathRooted(dir));
+        Assert.StartsWith(home + Path.DirectorySeparatorChar, dir);
+        var segments = dir[(home.Length + 1)..].Split(Path.DirectorySeparatorChar);
+        Assert.NotEmpty(segments);
+        Assert.DoesNotContain(segments, s => s.StartsWith('.'));
+    }
+
+    // The root daemon adopts the session user's HOME after start, so a value
+    // cached at type-init would send every kiosk profile to /root.
+    [Fact]
+    public void ProfileDir_ReadsHomeAtCallTime()
+    {
+        var prev = Environment.GetEnvironmentVariable("HOME");
+        Assert.False(string.IsNullOrEmpty(prev), "test needs HOME set");
+        // Must exist: GetFolderPath verifies the directory and yields "" otherwise.
+        var adopted = Directory.CreateTempSubdirectory("adopted-home").FullName;
+        try
+        {
+            Environment.SetEnvironmentVariable("HOME", adopted);
+            Assert.StartsWith(adopted + Path.DirectorySeparatorChar, LinuxPanelKioskHost.ProfileDir("dev1"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("HOME", prev);
+            try { Directory.Delete(adopted, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ProfileDir_IsPerDevice()
+    {
+        Assert.NotEqual(LinuxPanelKioskHost.ProfileDir("dev1"), LinuxPanelKioskHost.ProfileDir("dev2"));
+    }
+
+    // Ubuntu ships Chromium only as a snap with no /usr/bin symlink, so the
+    // probe list must carry the snap path or FindChromium returns null there.
+    [Fact]
+    public void ChromiumFamily_ProbesSnapAfterNativePaths()
+    {
+        var family = LinuxBrowsers.ChromiumFamily();
+
+        foreach (var native in new[] { "/usr/bin/chromium", "/usr/bin/brave-browser" })
+        {
+            var nativeIndex = Array.IndexOf(family, native);
+            Assert.True(nativeIndex >= 0, $"{native} missing from the probe list");
+            foreach (var snap in new[] { "/snap/bin/chromium", "/snap/bin/brave" })
+            {
+                var snapIndex = Array.IndexOf(family, snap);
+                Assert.True(snapIndex >= 0, $"{snap} missing from the probe list");
+                Assert.True(snapIndex > nativeIndex, $"{snap} must rank below {native}");
+            }
+        }
     }
 }
