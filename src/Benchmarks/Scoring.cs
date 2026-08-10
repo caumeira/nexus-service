@@ -21,6 +21,21 @@ internal static class Scoring
     public const double BaselineRamGbPerSec = 35d;
     public const double BaselineStorageMbPerSec = 3_000d;
 
+    // portable-v1.0: the in-process kernels ManagedBenchmarkProvider runs on
+    // macOS and Linux, where none of the bundled CLIs has a build. A different
+    // methodology per axis (managed segmented sieve, managed STREAM Triad,
+    // flush-timed writes, a fragment-shader FMA loop), so it partitions away
+    // from the bundled-tool versions and must never rank against them.
+    // Reference machine: Apple M1 Max (10-core, 64 GB, internal NVMe) - it
+    // scores ~1000 per axis, the role the Ryzen 7600 / RTX 4060 build plays for
+    // the bundled versions. Bump on any kernel or baseline change.
+    public const string PortableScoringVersion = "portable-v1.0-2026.08";
+
+    public const double PortableBaselineCpuPrimesPerSec = 285_000_000d;
+    public const double PortableBaselineGpuGflops = 6_600d;
+    public const double PortableBaselineRamGbPerSec = 170d;
+    public const double PortableBaselineStorageMbPerSec = 5_300d;
+
     public static double Score(double raw, double baseline)
     {
         if (baseline <= 0 || raw <= 0)

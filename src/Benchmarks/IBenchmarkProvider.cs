@@ -19,4 +19,15 @@ public interface IBenchmarkProvider
     Task<BenchmarkSubScore> RunStorageAsync(IProgress<BenchmarkPhaseProgress> progress, CancellationToken ct);
     Task<BenchmarkSubScore> RunGpuAsync(IProgress<BenchmarkPhaseProgress> progress, CancellationToken ct);
     IReadOnlyDictionary<string, string> CollectedTools { get; }
+
+    /// <summary>
+    /// Methodology identifier the run is scored under. The leaderboard
+    /// partitions on it, so each provider declares its own - a portable
+    /// in-process measurement is not comparable to a bundled-tool one and must
+    /// never rank against it. nexus-api rejects a value it does not know.
+    /// </summary>
+    string ScoringVersion { get; }
+
+    /// <summary>Per-axis raw values that score 1000, for this provider's methodology.</summary>
+    BenchmarkBaselines Baselines { get; }
 }

@@ -173,14 +173,8 @@ public sealed class BenchmarkRunner
                     Gpu = gpu,
                     Ram = ram,
                     Storage = storage,
-                    ScoringVersion = Scoring.ScoringVersion,
-                    Baselines = new Models.Benchmarks.BenchmarkBaselines
-                    {
-                        Cpu = Scoring.BaselineCpuPrimesPerSec,
-                        Gpu = Scoring.BaselineGpuGflops,
-                        Ram = Scoring.BaselineRamGbPerSec,
-                        Storage = Scoring.BaselineStorageMbPerSec,
-                    },
+                    ScoringVersion = _provider.ScoringVersion,
+                    Baselines = _provider.Baselines,
                     Tools = new System.Collections.Generic.Dictionary<string, string>(_provider.CollectedTools),
                 };
                 State = BenchmarkState.Complete;
