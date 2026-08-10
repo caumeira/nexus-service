@@ -36,6 +36,10 @@ internal static class LinuxBrowsers
             "/usr/bin/chromium-browser",
             "/usr/bin/google-chrome",
             "/usr/bin/brave-browser",
+            // Ubuntu ships Chromium only as a snap and exports no /usr/bin
+            // symlink, so nothing above matches on a stock install.
+            "/snap/bin/chromium",
+            "/snap/bin/brave",
         };
     }
 
