@@ -1302,7 +1302,20 @@ public static class NexusServiceCollectionExtensions
 
     public static IServiceCollection AddNexusBenchmarks(this IServiceCollection services)
     {
-        services.AddSingleton<Nexus.Service.Benchmarks.IBenchmarkProvider, Nexus.Service.Benchmarks.Providers.ExternalToolBenchmarkProvider>();
+        // The bench bundle (primesieve / clpeak / vkpeak / STREAM / DiskSpd) is
+        // Windows-only in the tree, so everywhere else the external-tool
+        // provider would report every axis as "tool not bundled". Non-Windows
+        // runs the in-process kernels instead, under their own scoring version.
+        if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<Nexus.Service.Benchmarks.IBenchmarkProvider, Nexus.Service.Benchmarks.Providers.ExternalToolBenchmarkProvider>();
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Benchmarks.IBenchmarkProvider>(sp =>
+                new Nexus.Service.Benchmarks.Providers.ManagedBenchmarkProvider(
+                    sp.GetService<Nexus.Service.Lighting.Engine.Gpu.GpuContext>()));
+        }
         services.AddSingleton<Nexus.Service.Benchmarks.BenchmarkRunner>();
         services.AddSingleton<ProfileManager>();
         services.AddSingleton<Nexus.Service.Media.MediaLibrary>();

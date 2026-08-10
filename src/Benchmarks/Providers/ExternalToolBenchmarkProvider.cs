@@ -19,6 +19,16 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
     private readonly Dictionary<string, string> _collectedTools = new();
     public IReadOnlyDictionary<string, string> CollectedTools => _collectedTools;
 
+    public string ScoringVersion => Scoring.ScoringVersion;
+
+    public BenchmarkBaselines Baselines => new()
+    {
+        Cpu = Scoring.BaselineCpuPrimesPerSec,
+        Gpu = Scoring.BaselineGpuGflops,
+        Ram = Scoring.BaselineRamGbPerSec,
+        Storage = Scoring.BaselineStorageMbPerSec,
+    };
+
     private static string ToolPath(string tool, string exe)
         => Path.Combine(BenchDir, tool, exe);
 
