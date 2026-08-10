@@ -25,6 +25,10 @@ public sealed class OpenRgbProcessManager : IDisposable
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
 
+    /// <summary>Machine-scope override raising what the daemon prints, for diagnosing
+    /// drivers that report their negotiated wire parameters only at debug.</summary>
+    internal const string VerbosityEnvVar = "NEXUS_OPENRGB_VERBOSITY";
+
     private readonly object _lock = new();
     private readonly string _exePath;
     private readonly Nexus.Service.Persistence.IConfigStore? _store;
@@ -41,6 +45,21 @@ public sealed class OpenRgbProcessManager : IDisposable
     }
 
     public bool IsAvailable => (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux()) && File.Exists(_exePath);
+
+    /// <summary>
+    /// Maps the override to the daemon's verbosity flag, or null to leave its output
+    /// alone. Only these two flags raise what reaches stdout, the channel we relay;
+    /// --loglevel sets the ceiling for the daemon's own logfile instead. An argument
+    /// the daemon rejects makes it print help rather than serve, so unrecognized
+    /// values must not reach the command line.
+    /// </summary>
+    internal static string? ResolveVerbosityFlag(string? configured) =>
+        configured?.Trim().ToLowerInvariant() switch
+        {
+            "verbose" or "v" => "-v",
+            "trace" or "debug" or "vv" => "-vv",
+            _ => null,
+        };
 
     /// <summary>
     /// Kill any OpenRGB-headless processes left behind by a crashed or force-killed
@@ -374,6 +393,13 @@ public sealed class OpenRgbProcessManager : IDisposable
             psi.ArgumentList.Add(configDir);
             psi.ArgumentList.Add("--loglevel");
             psi.ArgumentList.Add("error");
+
+            var verbosity = ResolveVerbosityFlag(Environment.GetEnvironmentVariable(VerbosityEnvVar));
+            if (verbosity is not null)
+            {
+                ServiceLog.Info($"[openrgb-proc] {VerbosityEnvVar} set: relaying daemon output at '{verbosity}'");
+                psi.ArgumentList.Add(verbosity);
+            }
 
             try
             {

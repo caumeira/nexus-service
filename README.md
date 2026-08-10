@@ -58,6 +58,13 @@ Notes:
 - The OpenRGB bundle is optional for development: without binaries under
   `Bundled/<rid>/openrgb/` the service runs with RGB features unavailable.
 - Bind address is the first CLI arg: `dotnet run -- http://localhost:9400`.
+- `NEXUS_OPENRGB_VERBOSITY` = `verbose` or `trace` raises what the OpenRGB
+  child process prints, which the service relays into its own log - use
+  `trace` to see per-device driver detail such as negotiated packet sizes.
+  Applies at daemon launch, so restart the service (and set it machine-scope,
+  since the Windows service runs as LocalSystem and cannot see a user-scope
+  variable). Unrecognized values are ignored. Unset it again afterwards; it is
+  a diagnostic, not a default.
 
 ## Source layout
 

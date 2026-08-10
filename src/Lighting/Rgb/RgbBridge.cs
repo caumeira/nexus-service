@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Devices.Detection;
@@ -79,6 +80,8 @@ public sealed class RgbBridge : IDisposable
     /// spinner for this window rather than clearing when the first device lands.
     /// </summary>
     private static readonly TimeSpan InitialRescanMinHold = TimeSpan.FromSeconds(5);
+    /// <summary>Distinct settled lists remembered for log de-duplication before the set is dropped.</summary>
+    private const int MaxLoggedDeviceSignatures = 16;
 
     private readonly OpenRgbProcessManager _proc;
     private readonly IRgbController _controller;
@@ -114,6 +117,11 @@ public sealed class RgbBridge : IDisposable
     private int _refreshPending;           // 0 = idle, 1 = refresh scheduled/running
     private readonly SemaphoreSlim _refreshSemaphore = new(1, 1);
     private Dictionary<string, int>? _lastUsbKeys; // key -> unit count; null = not yet observed, no bounce on first read
+    // Settled-list contents already written to the log, so the refresh poll re-logs
+    // only shapes not seen yet. A set rather than the last value: a device that
+    // flaps between two shapes would otherwise re-log on every poll for the life of
+    // the run, and the service log has no size cap. Guarded by _lock.
+    private readonly HashSet<string> _loggedDeviceSignatures = new(StringComparer.Ordinal);
     // StableIds already warned about an exclusion the daemon did not honor.
     private readonly HashSet<string> _warnedIneffectiveExclusions = new(StringComparer.Ordinal);
 
@@ -364,6 +372,7 @@ public sealed class RgbBridge : IDisposable
             _devices = Array.Empty<RgbDevice>();
             _directModeApplied = new();
             _drivableLatched.Clear();
+            _loggedDeviceSignatures.Clear();
         }
 
         if (frameHandler is not null)
@@ -811,6 +820,7 @@ public sealed class RgbBridge : IDisposable
             // its exclusion lifted the same way.
             if (!inInitialHold)
             {
+                LogSettledDevices(finalList);
                 ReconcileDetectorExclusions(finalList, settingsSnapshot);
             }
 
@@ -1091,6 +1101,66 @@ public sealed class RgbBridge : IDisposable
             { await RefreshDevicesAsync().ConfigureAwait(false); }
             catch (Exception ex) { Console.Error.WriteLine($"[rgb-bridge] topology refresh failed: {ex.Message}"); }
         });
+    }
+
+    /// <summary>
+    /// Logs each distinct settled list once, so a boot and each rescan are directly
+    /// comparable. Location is the transport path the daemon opened, the only signal
+    /// saying which of a device's matching HID collections it bound - identity reads
+    /// look plausible over any of them. Zero devices logs too: that is a diagnosis.
+    /// </summary>
+    private void LogSettledDevices(IReadOnlyList<RgbDevice> devices)
+    {
+        var current = BuildDeviceSignature(devices);
+        lock (_lock)
+        {
+            if (!TryMarkLogged(_loggedDeviceSignatures, current))
+            {
+                return;
+            }
+        }
+
+        ServiceLog.Info($"[rgb-bridge] settled on {devices.Count} device(s):");
+        foreach (var d in devices)
+        {
+            ServiceLog.Info($"[rgb-bridge]   [{d.Index}] {d.Name} leds={d.LedCount}"
+                + $" sn={(string.IsNullOrEmpty(d.Serial) ? "-" : d.Serial)}"
+                + $" loc={(string.IsNullOrEmpty(d.Location) ? "-" : d.Location)}");
+        }
+    }
+
+    /// <summary>
+    /// Records a signature as logged, returning false when it already was. Forgets
+    /// everything once the set outgrows its cap so churn cannot grow without bound.
+    /// </summary>
+    internal static bool TryMarkLogged(HashSet<string> logged, string signature)
+    {
+        if (!logged.Add(signature))
+        {
+            return false;
+        }
+        if (logged.Count > MaxLoggedDeviceSignatures)
+        {
+            logged.Clear();
+            logged.Add(signature);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Change key for the settled list. Covers every field the log line carries, so
+    /// a device that re-enumerates onto a different transport path re-logs even
+    /// though its name, index and LED count are unchanged.
+    /// </summary>
+    internal static string BuildDeviceSignature(IReadOnlyList<RgbDevice> devices)
+    {
+        var signature = new StringBuilder();
+        foreach (var d in devices)
+        {
+            signature.Append(d.Index).Append('|').Append(d.Name).Append('|').Append(d.LedCount)
+                .Append('|').Append(d.Serial).Append('|').Append(d.Location).Append('\n');
+        }
+        return signature.ToString();
     }
 
     /// <summary>

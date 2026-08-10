@@ -128,7 +128,8 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
             Emit($"hid ({hid.Count} device(s)):");
             foreach (var d in hid)
             {
-                var line = $"  - {d.VendorId:X4}:{d.ProductId:X4} up={d.UsagePage:X4} u={d.Usage:X4} rpt={d.InputReportByteLength}/{d.OutputReportByteLength}/{d.FeatureReportByteLength} sn={(string.IsNullOrEmpty(d.Serial) ? "-" : d.Serial)}";
+                var topology = DescribeHidPath(d.Path);
+                var line = $"  - {d.VendorId:X4}:{d.ProductId:X4} up={d.UsagePage:X4} u={d.Usage:X4} rpt={d.InputReportByteLength}/{d.OutputReportByteLength}/{d.FeatureReportByteLength}{topology} sn={(string.IsNullOrEmpty(d.Serial) ? "-" : d.Serial)}";
 
                 // SinoWealth 010C model-id probe, restricted to the known 258A:010C
                 // family (never send this vendor command to an arbitrary VID/PID).
@@ -194,4 +195,52 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
     private static void Emit(string line) => ServiceLog.Info($"{Tag} {line}");
 
     private static string Dash(string value) => string.IsNullOrEmpty(value) ? "-" : value;
+
+    /// <summary>
+    /// Renders the interface and top-level collection a Windows HID path encodes, as
+    /// a leading-space suffix. One interface can expose several collections, which
+    /// enumerate as near-identical entries that a detector matching on interface
+    /// alone cannot choose between. Empty for paths carrying neither, Linux included.
+    /// </summary>
+    internal static string DescribeHidPath(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+        {
+            return "";
+        }
+
+        // Hardware-id segment only: the instance id and interface GUID that follow
+        // can carry arbitrary vendor text that would false-match the prefixes below.
+        var start = path.IndexOf('#');
+        if (start < 0)
+        {
+            return "";
+        }
+        var end = path.IndexOf('#', start + 1);
+        var segment = end < 0 ? path[(start + 1)..] : path[(start + 1)..end];
+
+        string? mi = null;
+        string? col = null;
+        foreach (var token in segment.Split('&'))
+        {
+            if (mi is null && token.StartsWith("mi_", StringComparison.OrdinalIgnoreCase))
+            {
+                mi = token[3..];
+            }
+            else if (col is null && token.StartsWith("col", StringComparison.OrdinalIgnoreCase))
+            {
+                col = token[3..];
+            }
+        }
+
+        if (mi is null && col is null)
+        {
+            return "";
+        }
+        if (col is null)
+        {
+            return $" mi={mi}";
+        }
+        return mi is null ? $" col={col}" : $" mi={mi} col={col}";
+    }
 }
