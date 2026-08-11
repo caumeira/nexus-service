@@ -15,6 +15,8 @@ namespace Nexus.Service.Routes;
 /// personalization import (dashboard-only, loopback). Detection runs fresh
 /// on every GET; the offered flag latches only on dismiss, so a device that
 /// becomes eligible later still triggers the screen on the next load.
+/// The screen is gated on <c>detected</c> (Nexus 2 present); the web gates the
+/// import on <c>importAvailable</c> alone, which outlives an uninstall.
 ///   GET  /migration/nexus2                   -> status
 ///   POST /migration/nexus2/dismiss            -> { dismissed: true }
 ///   POST /migration/nexus2/disable-autostart  -> ApiResponse

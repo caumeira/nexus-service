@@ -200,6 +200,28 @@ public sealed class Nexus2MigrationRoutesTests
     }
 
     [Fact]
+    public async Task Status_not_pending_when_only_leftover_import_data_remains()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            store.Update(s => s.PanelDevices["dev1"] = DeviceWithSurface(PanelSurfaces.Y70));
+            _detector.Result = new Nexus2DetectionResult(false, true, null, true);
+
+            using var doc = JsonDocument.Parse(await (await client.GetAsync("/migration/nexus2")).Content.ReadAsStringAsync());
+            var root = doc.RootElement;
+
+            // The screen stays shut, but the import the web offers from
+            // Settings is still advertised, as is the leftover task.
+            Assert.False(root.GetProperty("detected").GetBoolean());
+            Assert.False(root.GetProperty("pending").GetBoolean());
+            Assert.True(root.GetProperty("importAvailable").GetBoolean());
+            Assert.True(root.GetProperty("autostartTaskPresent").GetBoolean());
+        }
+    }
+
+    [Fact]
     public async Task Status_not_pending_once_offered()
     {
         var (factory, client) = Boot();

@@ -1,9 +1,9 @@
+using System.IO;
 using System.Threading.Tasks;
 #if WINDOWS
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Threading;
 using Microsoft.Win32;
 using Nexus.Service.Lifecycle;
@@ -11,14 +11,41 @@ using Nexus.Service.Lifecycle;
 
 namespace Nexus.Service.Migration;
 
-/// <summary>Detection ladder result for a Nexus 2 (legacy HYTE Nexus) install.
-/// InstallLocation is the ARP-reported install root, used to scope the
-/// close-app OpenRGB kill to Nexus 2's own bundled copy.</summary>
+/// <summary>Detection result for a legacy HYTE Nexus (Nexus 2) install.
+/// Detected means present now; ImportAvailable and AutostartTaskPresent are
+/// leftovers that outlive an uninstall. InstallLocation is the ARP-reported
+/// install root, scoping the close-app OpenRGB kill to Nexus 2's own copy.</summary>
 public sealed record Nexus2DetectionResult(
     bool Detected, bool ImportAvailable, string? Version, bool AutostartTaskPresent,
     bool Running = false, string? InstallLocation = null)
 {
     public static readonly Nexus2DetectionResult None = new(false, false, null, false);
+}
+
+/// <summary>Turns the raw probes into a result. Cross-platform (the probes
+/// themselves are Windows-only) so the presence-vs-leftover rule stays under
+/// test.</summary>
+internal static class Nexus2DetectionRules
+{
+    /// <summary>Nexus 2 is present when its uninstall entry is live or one of
+    /// its processes runs. Importable config data and a registered autostart
+    /// task survive an uninstall, so neither implies presence.</summary>
+    public static Nexus2DetectionResult Compose(
+        bool installed, bool running, bool importAvailable, bool autostartTaskPresent,
+        string? version, string? installLocation) =>
+        new(installed || running, importAvailable, version, autostartTaskPresent, running, installLocation);
+
+    /// <summary>An uninstall entry counts only while the install directory it
+    /// records is still on disk; a partial uninstall can leave the entry
+    /// behind. An entry recording no location is taken at face value.</summary>
+    public static bool UninstallEntryIsLive(string? installLocation)
+    {
+        if (string.IsNullOrWhiteSpace(installLocation))
+        {
+            return true;
+        }
+        try { return Directory.Exists(installLocation); } catch { return false; }
+    }
 }
 
 /// <summary>
@@ -55,25 +82,45 @@ public sealed class Nexus2Detector : INexus2Detector
     private const string HkuUninstallKeyPath = HkuUninstallSubPath + @"\" + UninstallGuid;
     private const string HklmUninstall64Path = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\" + UninstallGuid;
     private const string HklmUninstall32Path = @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\" + UninstallGuid;
-    private const string HyteIoServiceKey = @"SYSTEM\CurrentControlSet\Services\HYTEIO";
     private const string TaskName = "HYTE Nexus";
     private const string ConfigJsonRelativePath = @"AppData\Roaming\HYTE Nexus\config.json";
-    private const string AppConfigJsonRelativePath = @"Documents\Hyte Nexus\appConfig.json";
     // The Electron main process; the one that owns a top-level window CloseMainWindow can target.
     private const string MainProcessName = "HYTE Nexus";
     private static readonly string[] ProcessNames = { "HYTE Nexus", "HYTE.Nexus.Service" };
 
+    private string _lastLoggedSignals = "";
+
     public Nexus2DetectionResult Detect()
     {
-        var (arpFound, version, installLocation) = CheckArpUninstallKey();
-        var configJsonFound = ResolveExistingProfileFile(ConfigJsonRelativePath, requireNonEmpty: true) is not null;
-        var taskFileFound = ScheduledTaskFileExists();
-        var hyteIoFound = CheckHyteIoService();
-        var appConfigFound = ResolveExistingProfileFile(AppConfigJsonRelativePath, requireNonEmpty: false) is not null;
-        var processFound = CheckProcessRunning();
+        var arp = CheckArpUninstallKey();
+        var result = Nexus2DetectionRules.Compose(
+            installed: arp.Live,
+            running: CheckProcessRunning(),
+            importAvailable: ResolveExistingProfileFile(ConfigJsonRelativePath) is not null,
+            autostartTaskPresent: ScheduledTaskFileExists(),
+            version: arp.Version,
+            installLocation: arp.InstallLocation);
 
-        var detected = arpFound || configJsonFound || taskFileFound || hyteIoFound || appConfigFound || processFound;
-        return new Nexus2DetectionResult(detected, configJsonFound, version, taskFileFound, processFound, installLocation);
+        LogSignalsWhenChanged(result, arp.Found);
+        return result;
+    }
+
+    // Which probes fired, so a "Nexus 2 detected but it is not installed"
+    // report names its own cause. Logged on change, not per poll.
+    private void LogSignalsWhenChanged(Nexus2DetectionResult result, bool uninstallEntryFound)
+    {
+        if (!uninstallEntryFound && !result.Detected && !result.ImportAvailable && !result.AutostartTaskPresent)
+        {
+            return;
+        }
+
+        var line = $"[nexus2] detected={result.Detected} uninstallEntry={uninstallEntryFound} "
+            + $"installDir={result.InstallLocation ?? "(none)"} running={result.Running} "
+            + $"configData={result.ImportAvailable} autostartTask={result.AutostartTaskPresent}";
+        if (Interlocked.Exchange(ref _lastLoggedSignals, line) != line)
+        {
+            Console.Error.WriteLine(line);
+        }
     }
 
     public bool DisableAutostart()
@@ -170,7 +217,7 @@ public sealed class Nexus2Detector : INexus2Detector
 
     private static string? ResolveInstallRootPrefix()
     {
-        var (_, _, installLocation) = CheckArpUninstallKey();
+        var (_, _, _, installLocation) = CheckArpUninstallKey();
         if (string.IsNullOrEmpty(installLocation))
         {
             return null;
@@ -179,11 +226,37 @@ public sealed class Nexus2Detector : INexus2Detector
             + Path.DirectorySeparatorChar;
     }
 
-    private static (bool Found, string? Version, string? InstallLocation) CheckArpUninstallKey()
+    /// <summary>Live is true once an entry whose own recorded location still
+    /// exists is found; the first such entry supplies Version and
+    /// InstallLocation, so a stale per-user entry cannot veto a live
+    /// machine-wide one.</summary>
+    private static (bool Found, bool Live, string? Version, string? InstallLocation) CheckArpUninstallKey()
     {
         var found = false;
+        var live = false;
         string? version = null;
         string? installLocation = null;
+
+        void Fold(RegistryKey? key)
+        {
+            if (key is null)
+            {
+                return;
+            }
+            found = true;
+            if (live)
+            {
+                return;
+            }
+            var location = key.GetValue("InstallLocation") as string;
+            if (!Nexus2DetectionRules.UninstallEntryIsLive(location))
+            {
+                return;
+            }
+            live = true;
+            version = key.GetValue("DisplayVersion") as string;
+            installLocation = location;
+        }
 
         try
         {
@@ -191,12 +264,7 @@ public sealed class Nexus2Detector : INexus2Detector
             if (sid is not null)
             {
                 using var key = Registry.Users.OpenSubKey($@"{sid}\{HkuUninstallKeyPath}");
-                if (key is not null)
-                {
-                    found = true;
-                    version = key.GetValue("DisplayVersion") as string;
-                    installLocation = key.GetValue("InstallLocation") as string;
-                }
+                Fold(key);
             }
         }
         catch { /* per-check swallow */ }
@@ -204,28 +272,18 @@ public sealed class Nexus2Detector : INexus2Detector
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(HklmUninstall64Path);
-            if (key is not null)
-            {
-                found = true;
-                version ??= key.GetValue("DisplayVersion") as string;
-                installLocation ??= key.GetValue("InstallLocation") as string;
-            }
+            Fold(key);
         }
         catch { /* per-check swallow */ }
 
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(HklmUninstall32Path);
-            if (key is not null)
-            {
-                found = true;
-                version ??= key.GetValue("DisplayVersion") as string;
-                installLocation ??= key.GetValue("InstallLocation") as string;
-            }
+            Fold(key);
         }
         catch { /* per-check swallow */ }
 
-        return (found, version, installLocation);
+        return (found, live, version, installLocation);
     }
 
     private static bool ScheduledTaskFileExists()
@@ -233,19 +291,6 @@ public sealed class Nexus2Detector : INexus2Detector
         try
         {
             return File.Exists(Path.Combine(Environment.SystemDirectory, "Tasks", TaskName));
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool CheckHyteIoService()
-    {
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(HyteIoServiceKey);
-            return key is not null;
         }
         catch
         {
@@ -278,22 +323,17 @@ public sealed class Nexus2Detector : INexus2Detector
         }
     }
 
-    private static string? ResolveExistingProfileFile(string relativePath, bool requireNonEmpty)
+    private static string? ResolveExistingProfileFile(string relativePath)
     {
         try
         {
             foreach (var profileDir in Nexus2ProfileDirs.Candidates())
             {
                 var candidate = Path.Combine(profileDir, relativePath);
-                if (!SafeFileExists(candidate))
+                if (SafeFileExists(candidate) && SafeFileLength(candidate) > 0)
                 {
-                    continue;
+                    return candidate;
                 }
-                if (requireNonEmpty && SafeFileLength(candidate) == 0)
-                {
-                    continue;
-                }
-                return candidate;
             }
         }
         catch { /* per-check swallow */ }
