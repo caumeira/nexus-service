@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Full-trust packaged app manifest for the Nexus Microsoft Store shell (see
+  the "Microsoft Store (MSIX)" section in installer/README.md). Shape verified
+  against the Microsoft-published sample manifest for a full-trust packaged
+  Win32 app:
+  https://github.com/Microsoft/DesktopBridgeToUWP-Samples/blob/master/Samples/HelloWorldSample/CentennialPackage/AppxManifest.xml
+  cross-checked against the schema references for uap:VisualElements,
+  uap:DefaultTile, and Properties/Logo on learn.microsoft.com/uwp/schemas.
+
+  build-msix.ps1 substitutes the double-brace placeholders below (identity
+  name, publisher, publisher display name, version, processor architecture)
+  and writes the result into the packaging staging directory as
+  AppxManifest.xml.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  IgnorableNamespaces="rescap desktop6">
+
+  <Identity
+    Name="{{IDENTITY_NAME}}"
+    Publisher="{{PUBLISHER}}"
+    Version="{{VERSION}}"
+    ProcessorArchitecture="{{ARCH}}" />
+
+  <Properties>
+    <DisplayName>Nexus</DisplayName>
+    <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <!--
+      Disables MSIX AppData/HKCU write virtualization. Without this, Nexus.exe
+      and Nexus-Setup.exe launched as direct children of this packaged full-trust
+      launcher inherit its package identity, so their writes land in the
+      package's private virtualized store instead of the real locations the
+      already-installed, unpackaged NexusService/tray helper read - a state
+      split the suite has no way to detect or reconcile.
+      NOT CONFIRMED GRANTABLE: learn.microsoft.com/windows/msix/desktop/flexible-virtualization
+      documents unvirtualizedResources (below) as "intended to be used only by
+      certain types of desktop PC games ... published by Microsoft and our
+      partners" - Store certification may reject it for a non-game app. Needs
+      confirmation from Microsoft/Partner Center before a real submission.
+    -->
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <!-- MinVersion is the OS floor for the desktop6 write-virtualization
+       opt-outs above; older builds reject the unvirtualizedResources
+       capability or silently ignore the opt-out. MaxVersionTested matches
+       the Win10 TFM the rest of the service publishes against. -->
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.19041.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="NexusStoreLauncher" Executable="NexusStoreLauncher.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Nexus"
+        Description="Nexus hardware monitoring, control, and RGB lighting."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+</Package>

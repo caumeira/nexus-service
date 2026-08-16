@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Standalone project, deliberately outside Nexus.slnx: this is packaging
+    glue for the Microsoft Store MSIX shell (see plans/windows-store-distribution.md
+    Option A), not part of the service build. installer/msix/build-msix.ps1
+    builds it explicitly, RID selected by its -Rid parameter.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>NexusStoreLauncher</RootNamespace>
+    <AssemblyName>NexusStoreLauncher</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- No console window; fatal errors go through MessageBoxW instead. -->
+    <OutputType>WinExe</OutputType>
+    <PublishAot>true</PublishAot>
+    <SelfContained>true</SelfContained>
+    <!-- The LibraryImport source generator emits unsafe marshalling code for MessageBoxW. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+</Project>

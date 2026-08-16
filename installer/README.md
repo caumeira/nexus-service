@@ -137,3 +137,97 @@ The client tools bundle a compatible signtool + `Azure.CodeSigning.Dlib.dll`; th
 dlib does **not** work with the 10.0.20348 Windows SDK. Certs are valid only 72h,
 so timestamping (`http://timestamp.acs.microsoft.com`, baked into the script) is
 mandatory: it keeps a signature valid after the cert rotates daily.
+
+## Microsoft Store (MSIX)
+
+`msix/` packages Nexus as a full-trust MSIX for Microsoft Store distribution
+(the internal Windows Store distribution plan's Option A: a real launchable
+app, not a bare downloader, so it clears Store review while still reusing this
+installer wholesale). The package is a tiny launcher shell,
+`NexusStoreLauncher.exe`: if `Nexus.exe` is already installed it opens the
+dashboard; otherwise it silently runs the bundled `Nexus-Setup.exe` (elevating
+via `ShellExecute`, since the setup exe carries its own elevation manifest)
+and then opens the dashboard itself, because a silent Inno run skips its own
+`--open-app` step. It carries no service/driver logic of its own - everything
+above in this README still owns that.
+
+Build (Windows only, after building `Nexus-Setup.exe` per "Building" above).
+There are two distinct modes, and they take a different `-Publisher`:
+
+```powershell
+# Store build - stays unsigned, Store re-signs on submission.
+powershell -File installer\msix\build-msix.ps1 `
+    -IdentityName <reserved Partner Center identity name> `
+    -Publisher "CN=<Partner Center publisher id>" `
+    -PublisherDisplayName "American Future Technology Corp."
+
+# Local sideload verification only.
+powershell -File installer\msix\build-msix.ps1 -Sign `
+    -IdentityName <reserved Partner Center identity name> `
+    -Publisher "<Azure Artifact Signing cert Subject>" `
+    -PublisherDisplayName "American Future Technology Corp."
+```
+
+Output: `installer\msix\output\Nexus-<version>.msix`.
+
+### Identity tokens
+
+`AppxManifest.template.xml` carries five placeholders the build script
+substitutes: `{{IDENTITY_NAME}}`, `{{PUBLISHER}}`, `{{PUBLISHER_DISPLAY_NAME}}`,
+`{{VERSION}}`, `{{ARCH}}`. The first three come from the app identity reserved
+in Partner Center and are not checked in anywhere; the script's own parameter
+defaults are deliberately invalid placeholders so an un-overridden package is
+obviously wrong rather than silently plausible, and `-Sign` refuses to run
+against them. `{{ARCH}}` derives from `-Rid` (`win-x64` default, `win-arm64`
+allowed); cross-arch AOT publish is not dependable, so the RID must match the
+machine running the build.
+Values are XML-escaped before they reach the manifest, since they are
+operator-supplied strings, not build-time constants.
+`{{VERSION}}` derives from the repo's `VERSION` file: MSIX requires exactly
+four numeric parts and Partner Center rejects a nonzero fourth part, so any
+`-beta.N` prerelease suffix is dropped entirely (`3.0.0-beta.8` becomes
+`3.0.0.0`; MSIX has no prerelease-suffix concept, a beta channel would be a
+separate Store flight).
+
+### Signing
+
+A Store submission and a local `-Sign` sideload test use two different
+publisher identities and must not be confused. `signtool` enforces that the
+package's `Identity/@Publisher` byte-matches the signing certificate's
+Subject (`APPX_E_PUBLISHER_MISMATCH` otherwise):
+
+- **Store build** (no `-Sign`): `-Publisher` is the Partner Center reserved
+  app identity, typically a bare `CN=<GUID>` for an individual/unverified
+  publisher account. The package ships unsigned; Store re-signs it on
+  submission, so it is never what end users actually install.
+- **`-Sign`** (local sideload verification only): reuses the Azure Artifact
+  Signing setup from "Code signing" above (same `signing-metadata.json`, same
+  signtool/dlib probing), so `-Publisher` must be that certificate's actual
+  Subject instead - read it off a previously signed payload with
+  `(Get-AuthenticodeSignature .\Nexus-Setup.exe).SignerCertificate.Subject`.
+
+The script refuses `-Sign` when `-Publisher` looks like a bare Partner Center
+`CN=<GUID>` id, since that is never a valid signing subject; pass
+`-SkipPublisherModeCheck` if this heuristic misfires.
+
+### Write virtualization
+
+The manifest disables MSIX AppData/HKCU write virtualization
+(`desktop6:FileSystemWriteVirtualization` / `RegistryWriteVirtualization`,
+`unvirtualizedResources` capability). Without it, `Nexus.exe` and
+`Nexus-Setup.exe` launched as direct children of this packaged launcher would
+inherit its package identity, so their writes would land in the package's
+private virtualized store instead of the real locations the already-installed,
+unpackaged service/tray helper read. **Not confirmed grantable:** Microsoft's
+own docs scope `unvirtualizedResources` to "certain types of desktop PC games
+... published by Microsoft and our partners" - Store certification may reject
+it for Nexus. Confirm with Microsoft/Partner Center before a real submission.
+
+### Assets
+
+`Assets/` holds the required tile/logo PNGs (`Square44x44Logo`,
+`Square150x150Logo`, `Wide310x150Logo`, `StoreLogo`, each with a scale-200
+variant), generated from the existing
+`Bundled\macos\Assets.xcassets\AppIcon.appiconset\icon_512x512@2x.png` master.
+The wide logo is the square mark centered on a transparent canvas, not a
+designed wordmark lockup - treat it as a placeholder pending a final art pass.

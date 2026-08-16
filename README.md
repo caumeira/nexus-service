@@ -113,6 +113,7 @@ Bundled/
 installer/
   Nexus.iss           # Inno Setup script
   build-installer.ps1 # Windows installer assembly
+  msix/               # Microsoft Store MSIX packaging (full-trust launcher shell)
   linux/              # tarball packager + install.sh (root systemd daemon)
 tests/
   Nexus.Service.Tests       # xUnit, AOT-safe
