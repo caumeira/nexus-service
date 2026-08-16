@@ -1,0 +1,82 @@
+# TEMPORARY workflow. Exists only to verify the MSIX packaging scaffold's
+# Windows-only layers (NexusStoreLauncher AOT publish, AppxManifest.template.xml
+# {{ARCH}} substitution, makeappx pack) on a real windows-latest GitHub
+# runner, since none of that can be exercised on the Mac. Delete this file
+# before the msix-store branch merges to main.
+name: msix-verify
+
+on:
+  push:
+    branches: [msix-store]
+
+jobs:
+  verify-msix:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      # There is no stable (non-prerelease) hello-nexus/nexus release yet, so
+      # releases/latest 404s. Resolve the newest release (prerelease or not)
+      # explicitly instead of relying on gh's own "latest" resolution.
+      - name: resolve newest release tag
+        id: newest-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = gh api repos/hello-nexus/nexus/releases --jq '.[0].tag_name'
+          if ([string]::IsNullOrEmpty($tag)) {
+            throw "Could not resolve the newest hello-nexus/nexus release tag"
+          }
+          Write-Host "Newest release: $tag"
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      # Real public installer content, staged as package content only. The
+      # workflow never runs this exe.
+      - name: download Nexus-Setup.exe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ runner.temp }}\setup" | Out-Null
+          gh release download "${{ steps.newest-release.outputs.tag }}" `
+            --repo hello-nexus/nexus `
+            --pattern "Nexus-Setup.exe" `
+            --dir "${{ runner.temp }}\setup" `
+            --clobber
+
+      - name: build MSIX scaffold
+        working-directory: installer/msix
+        shell: pwsh
+        run: |
+          powershell -File build-msix.ps1 `
+            -IdentityName NexusCITest `
+            -Publisher "CN=Nexus CI Test" `
+            -PublisherDisplayName "Nexus CI Test" `
+            -SetupPath "${{ runner.temp }}\setup\Nexus-Setup.exe"
+
+      # Proves {{ARCH}} and the other template tokens actually substituted.
+      - name: dump substituted AppxManifest.xml
+        shell: pwsh
+        run: Get-Content installer\msix\output\staging\AppxManifest.xml
+
+      - name: locate built .msix
+        id: msix
+        shell: pwsh
+        run: |
+          $msix = Get-ChildItem installer\msix\output -Filter *.msix | Select-Object -First 1
+          if (-not $msix) { throw "No .msix produced by build-msix.ps1" }
+          Write-Host "Built: $($msix.FullName) ($([math]::Round($msix.Length / 1MB, 2)) MB)"
+          "path=$($msix.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "name=$($msix.Name)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.msix.outputs.name }}
+          path: ${{ steps.msix.outputs.path }}
+          retention-days: 3
