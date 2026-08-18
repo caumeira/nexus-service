@@ -3545,6 +3545,59 @@
    }
   ]
  },
+ "simpleforest": {
+  "selected": 0,
+  "slots": [
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.39,
+    "colorize": 0,
+    "saturation": 1,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": 0,
+     "u_warmth": 0
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.39,
+    "colorize": 0,
+    "saturation": 0.45,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": 0,
+     "u_warmth": 0
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.39,
+    "colorize": 0,
+    "saturation": 1,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": -0.5,
+     "u_warmth": 0
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.39,
+    "colorize": 0,
+    "saturation": 0.62,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": 0.5,
+     "u_warmth": 0
+    }
+   }
+  ]
+ },
  "simplegreen": {
   "selected": 0,
   "slots": [
@@ -3604,7 +3657,7 @@
    {
     "speed": 50,
     "intensity": 1,
-    "hue": 0.050000000000000044,
+    "hue": 0.07,
     "colorize": 0,
     "saturation": 1,
     "contrast": 1,
@@ -3616,7 +3669,7 @@
    {
     "speed": 50,
     "intensity": 1,
-    "hue": 0.050000000000000044,
+    "hue": 0.07,
     "colorize": 0,
     "saturation": 0.45,
     "contrast": 1,
@@ -3628,7 +3681,7 @@
    {
     "speed": 50,
     "intensity": 1,
-    "hue": 0.050000000000000044,
+    "hue": 0.07,
     "colorize": 0,
     "saturation": 1,
     "contrast": 1,
@@ -3640,7 +3693,7 @@
    {
     "speed": 50,
     "intensity": 1,
-    "hue": 0.050000000000000044,
+    "hue": 0.07,
     "colorize": 0,
     "saturation": 0.62,
     "contrast": 1,
@@ -3747,6 +3800,112 @@
     "speed": 50,
     "intensity": 1,
     "hue": 0,
+    "colorize": 0,
+    "saturation": 0.62,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": 0.5,
+     "u_warmth": 0
+    }
+   }
+  ]
+ },
+ "simplesoftpink": {
+  "selected": 0,
+  "slots": [
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.94,
+    "colorize": 0,
+    "saturation": 0.4,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": 0,
+     "u_warmth": 0
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.94,
+    "colorize": 0,
+    "saturation": 0.22,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": 0,
+     "u_warmth": 0
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.94,
+    "colorize": 0,
+    "saturation": 0.4,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": -0.5,
+     "u_warmth": 0
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.94,
+    "colorize": 0,
+    "saturation": 0.55,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": 0.5,
+     "u_warmth": 0
+    }
+   }
+  ]
+ },
+ "simpleturquoise": {
+  "selected": 0,
+  "slots": [
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.455,
+    "colorize": 0,
+    "saturation": 1,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": 0,
+     "u_warmth": 0
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.455,
+    "colorize": 0,
+    "saturation": 0.45,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": 0,
+     "u_warmth": 0
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.455,
+    "colorize": 0,
+    "saturation": 1,
+    "contrast": 1,
+    "params": {
+     "u_hueShift": -0.5,
+     "u_warmth": 0
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.455,
     "colorize": 0,
     "saturation": 0.62,
     "contrast": 1,

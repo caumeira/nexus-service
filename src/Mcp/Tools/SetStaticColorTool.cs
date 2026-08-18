@@ -26,13 +26,16 @@ public sealed class SetStaticColorTool : IMcpTool
     private static readonly (string Key, string Name, double Hue)[] Presets =
     {
         ("simplered", "red", 0),
-        ("simpleorange", "orange", 30),
+        ("simpleorange", "orange", 25),
         ("simpleyellow", "yellow", 55),
         ("simplegreen", "green", 120),
+        ("simpleforest", "forest", 140),
+        ("simpleturquoise", "turquoise", 164),
         ("simplecyan", "cyan", 180),
         ("simpleblue", "blue", 225),
         ("simpleviolet", "violet", 275),
-        ("simplepink", "pink", 320),
+        ("simplepink", "pink", 331),
+        ("simplesoftpink", "soft pink", 338),
     };
     private const string WhiteKey = "simplewhite";
     // Below this HSV saturation the hue carries no meaning; treat as white.
@@ -54,8 +57,9 @@ public sealed class SetStaticColorTool : IMcpTool
 
     public string Description =>
         "Fills every synced RGB device with one flat color, snapping to the nearest built-in " +
-        "solid-color preset (red, orange, yellow, green, cyan, blue, violet, pink, white). Use " +
-        "when the user asks for a specific solid color (e.g. 'make it red', '#ff8800'). For a " +
+        "solid-color preset (red, orange, yellow, green, forest, turquoise, cyan, blue, violet, " +
+        "pink, soft pink, white). Use when the user asks for a specific solid color " +
+        "(e.g. 'make it red', '#ff8800'). For a " +
         "named animated look use apply_lighting_scenario instead.";
 
     public McpCapability Capability => McpCapability.Lighting;

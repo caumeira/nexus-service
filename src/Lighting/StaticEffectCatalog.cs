@@ -15,9 +15,9 @@ public static class StaticEffectCatalog
     /// <summary>Solid-colour fills; every key resolves to the one simple.frag fill shader.</summary>
     public static readonly string[] Fills =
     {
-        "simplewhite",
-        "simplepink", "simpleviolet", "simpleblue", "simplecyan", "simplegreen",
-        "simpleyellow", "simpleorange", "simplered",
+        "simplewhite", "simplered", "simpleorange", "simpleyellow", "simplegreen",
+        "simpleforest", "simpleturquoise", "simplecyan", "simpleblue", "simpleviolet",
+        "simplepink", "simplesoftpink",
     };
 
     /// <summary>
