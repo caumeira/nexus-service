@@ -192,7 +192,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
     }
 
     [Fact]
-    public void Load_V13_MigratesDashboardModeForExistingInstall()
+    public void Load_V13_MigratesDashboardModesForExistingInstall()
     {
         var json = """
         {
@@ -206,7 +206,8 @@ public class JsonConfigStoreMigrationTests : IDisposable
         try
         {
             Assert.Equal(NexusSettings.CurrentSchemaVersion, s.SchemaVersion);
-            Assert.Equal("advanced", s.Ui.DashboardMode);
+            Assert.Equal("advanced", s.Ui.LightingDashboardMode);
+            Assert.Equal("advanced", s.Ui.CoolingDashboardMode);
         }
         finally
         {
@@ -215,13 +216,14 @@ public class JsonConfigStoreMigrationTests : IDisposable
     }
 
     [Fact]
-    public void Load_NoSettingsFile_DashboardModeDefaultsSimple()
+    public void Load_NoSettingsFile_DashboardModesDefaultSimple()
     {
         var store = new JsonConfigStore(_settingsPath);
         var s = store.Load();
         try
         {
-            Assert.Equal("simple", s.Ui.DashboardMode);
+            Assert.Equal("simple", s.Ui.LightingDashboardMode);
+            Assert.Equal("simple", s.Ui.CoolingDashboardMode);
         }
         finally
         {

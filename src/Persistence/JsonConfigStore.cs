@@ -182,12 +182,14 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         {
             doc.LightingOnboardingCompleted = true;
         }
-        // v14: the dashboard density mode defaults to "simple" for new
-        // installs; any pre-existing settings.json is pinned to "advanced"
-        // so its UI does not change.
+        // v14: the per-page dashboard density mode defaults to "simple" for
+        // new installs; any pre-existing settings.json is pinned to
+        // "advanced" on both the lighting and cooling pages so its UI does
+        // not change.
         if (doc.SchemaVersion < 14)
         {
-            doc.Ui.DashboardMode = "advanced";
+            doc.Ui.LightingDashboardMode = "advanced";
+            doc.Ui.CoolingDashboardMode = "advanced";
         }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }
