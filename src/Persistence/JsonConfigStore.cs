@@ -126,6 +126,9 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// device-selection onboarding, so it is marked already-complete; only a
     /// fresh install (no settings.json) sees LightingOnboardingCompleted
     /// default to false. Same shape as v8.
+    /// v14: any pre-existing settings.json predates the dashboard density
+    /// mode, so it is pinned to "advanced"; only a fresh install keeps the
+    /// "simple" default. Same shape as v8/v13.
     /// </summary>
     private static void Migrate(NexusSettings doc)
     {
@@ -178,6 +181,13 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         if (doc.SchemaVersion < 13)
         {
             doc.LightingOnboardingCompleted = true;
+        }
+        // v14: the dashboard density mode defaults to "simple" for new
+        // installs; any pre-existing settings.json is pinned to "advanced"
+        // so its UI does not change.
+        if (doc.SchemaVersion < 14)
+        {
+            doc.Ui.DashboardMode = "advanced";
         }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }

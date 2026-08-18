@@ -194,6 +194,41 @@ public sealed class ProfileRoutesIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Preferences_GET_defaults_dashboard_mode_to_simple()
+    {
+        var client = AuthedClient();
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal("simple", body.GetProperty("ui").GetProperty("dashboardMode").GetString());
+    }
+
+    [Fact]
+    public async Task Preferences_dashboard_mode_persists_and_round_trips_through_GET()
+    {
+        var client = AuthedClient();
+
+        var postRes = await client.PostAsJsonAsync("/preferences", new { ui = new { dashboardMode = "advanced" } });
+        Assert.Equal(HttpStatusCode.OK, postRes.StatusCode);
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("advanced", body.GetProperty("ui").GetProperty("dashboardMode").GetString());
+    }
+
+    [Fact]
+    public async Task Preferences_dashboard_mode_invalid_value_leaves_stored_value_unchanged()
+    {
+        var client = AuthedClient();
+        await client.PostAsJsonAsync("/preferences", new { ui = new { dashboardMode = "advanced" } });
+
+        var postRes = await client.PostAsJsonAsync("/preferences", new { ui = new { dashboardMode = "compact" } });
+        Assert.Equal(HttpStatusCode.OK, postRes.StatusCode);
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("advanced", body.GetProperty("ui").GetProperty("dashboardMode").GetString());
+    }
+
+    [Fact]
     public async Task Preferences_diagnostics_patch_persists_and_round_trips_through_GET()
     {
         var client = AuthedClient();
