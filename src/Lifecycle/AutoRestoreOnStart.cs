@@ -156,7 +156,7 @@ internal sealed class AutoRestoreOnStart : BackgroundService
 
             case "static":
             {
-                var staticEffect = s.Static.Effect;
+                var staticEffect = StaticEffectCatalog.Coerce(s.Static.Effect);
                 if (!s.Static.States.TryGetValue(staticEffect, out var look) || look is null)
                 {
                     look = Nexus.Service.Lighting.AnimateTemplateDefaults.ResolveSelected(s.Animate.Templates, staticEffect)

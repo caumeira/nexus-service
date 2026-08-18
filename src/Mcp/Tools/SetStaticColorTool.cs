@@ -30,7 +30,6 @@ public sealed class SetStaticColorTool : IMcpTool
         ("simpleyellow", "yellow", 55),
         ("simplegreen", "green", 120),
         ("simpledarkgreen", "dark green", 126),
-        ("simpleturquoise", "turquoise", 164),
         ("simplecyan", "cyan", 180),
         ("simpleblue", "blue", 225),
         ("simpleviolet", "violet", 275),
@@ -60,7 +59,7 @@ public sealed class SetStaticColorTool : IMcpTool
 
     public string Description =>
         "Fills every synced RGB device with one flat color, snapping to the nearest built-in " +
-        "solid-color preset (red, orange, yellow, green, dark green, turquoise, cyan, blue, violet, " +
+        "solid-color preset (red, orange, yellow, green, dark green, cyan, blue, violet, " +
         "pink, soft pink, white). Use when the user asks for a specific solid color " +
         "(e.g. 'make it red', '#ff8800'). For a " +
         "named animated look use apply_lighting_scenario instead.";

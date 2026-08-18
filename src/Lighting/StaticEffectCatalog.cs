@@ -16,7 +16,7 @@ public static class StaticEffectCatalog
     public static readonly string[] Fills =
     {
         "simplewhite", "simplesoftpink", "simplepink", "simplered", "simpleorange",
-        "simpleyellow", "simplegreen", "simpledarkgreen", "simpleturquoise", "simplecyan",
+        "simpleyellow", "simplegreen", "simpledarkgreen", "simplecyan",
         "simpleblue", "simpleviolet",
     };
 
@@ -37,4 +37,12 @@ public static class StaticEffectCatalog
     public static bool IsFill(string key) => Array.IndexOf(Fills, key) >= 0;
 
     public static bool Contains(string key) => IsFill(key) || Array.IndexOf(Patterns, key) >= 0;
+
+    /// <summary>Maps a persisted key removed from the catalog to its closest
+    /// survivor, so a stale store never aborts the boot lighting restore.</summary>
+    public static string Coerce(string key) => Contains(key) ? key : key switch
+    {
+        "simpleturquoise" => "simplecyan",
+        _ => DefaultEffect,
+    };
 }

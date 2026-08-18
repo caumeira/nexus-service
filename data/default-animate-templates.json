@@ -3575,23 +3575,6 @@
    }
   ]
  },
- "simpleturquoise": {
-  "selected": 0,
-  "slots": [
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.455,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   }
-  ]
- },
  "simpleviolet": {
   "selected": 0,
   "slots": [

@@ -78,7 +78,7 @@ public static class LiveEngineSync
                 {
                     // Without this the profile falls to the default arm and starts
                     // an effect literally named "static", which resolves to rainbow.
-                    var key = s.Static.Effect;
+                    var key = StaticEffectCatalog.Coerce(s.Static.Effect);
                     if (!s.Static.States.TryGetValue(key, out var look) || look is null)
                     {
                         look = Nexus.Service.Lighting.AnimateTemplateDefaults.ResolveSelected(s.Animate.Templates, key)

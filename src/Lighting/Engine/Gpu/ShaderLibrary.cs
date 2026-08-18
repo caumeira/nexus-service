@@ -94,7 +94,7 @@ internal static class ShaderLibrary
     {
         // Simple solid-colour fills.
         "simplewhite", "simplesoftpink", "simplepink", "simplered", "simpleorange",
-        "simpleyellow", "simplegreen", "simpledarkgreen", "simpleturquoise", "simplecyan",
+        "simpleyellow", "simplegreen", "simpledarkgreen", "simplecyan",
         "simpleblue", "simpleviolet",
         "rainbow", "plasma", "fire", "spiral", "matrix", "meteor",
         "ripple", "wave", "gradientwave", "ball", "radar", "pulse",
