@@ -3453,42 +3453,6 @@
      "u_hueShift": 0,
      "u_warmth": 0
     }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.6200000000000001,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.6200000000000001,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.6200000000000001,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
-     "u_warmth": 0
-    }
    }
   ]
  },
@@ -3504,42 +3468,6 @@
     "contrast": 1,
     "params": {
      "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.5,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.5,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.5,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
      "u_warmth": 0
     }
    }
@@ -3559,42 +3487,6 @@
      "u_hueShift": 0,
      "u_warmth": 0
     }
-   },
-   {
-    "speed": 50,
-    "intensity": 0.55,
-    "hue": 0.35,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 0.55,
-    "hue": 0.35,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 0.55,
-    "hue": 0.35,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
-     "u_warmth": 0
-    }
    }
   ]
  },
@@ -3610,42 +3502,6 @@
     "contrast": 1,
     "params": {
      "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.33000000000000007,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.33000000000000007,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.33000000000000007,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
      "u_warmth": 0
     }
    }
@@ -3665,42 +3521,6 @@
      "u_hueShift": 0,
      "u_warmth": 0
     }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.07,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.07,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.07,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
-     "u_warmth": 0
-    }
    }
   ]
  },
@@ -3716,42 +3536,6 @@
     "contrast": 1,
     "params": {
      "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.9199999999999999,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.9199999999999999,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.9199999999999999,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
      "u_warmth": 0
     }
    }
@@ -3771,42 +3555,6 @@
      "u_hueShift": 0,
      "u_warmth": 0
     }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
-     "u_warmth": 0
-    }
    }
   ]
  },
@@ -3822,42 +3570,6 @@
     "contrast": 1,
     "params": {
      "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.94,
-    "colorize": 0,
-    "saturation": 0.22,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.94,
-    "colorize": 0,
-    "saturation": 0.4,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.94,
-    "colorize": 0,
-    "saturation": 0.55,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
      "u_warmth": 0
     }
    }
@@ -3877,42 +3589,6 @@
      "u_hueShift": 0,
      "u_warmth": 0
     }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.455,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.455,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.455,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
-     "u_warmth": 0
-    }
    }
   ]
  },
@@ -3928,42 +3604,6 @@
     "contrast": 1,
     "params": {
      "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.75,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.75,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.75,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
      "u_warmth": 0
     }
    }
@@ -3982,39 +3622,6 @@
     "params": {
      "u_warmth": 0
     }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0,
-    "colorize": 0,
-    "saturation": 0,
-    "contrast": 1,
-    "params": {
-     "u_warmth": 0.6
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0,
-    "colorize": 0,
-    "saturation": 0,
-    "contrast": 1,
-    "params": {
-     "u_warmth": -0.6
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0,
-    "colorize": 0,
-    "saturation": 0,
-    "contrast": 1,
-    "params": {
-     "u_warmth": 1
-    }
    }
   ]
  },
@@ -4030,42 +3637,6 @@
     "contrast": 1,
     "params": {
      "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.14000000000000012,
-    "colorize": 0,
-    "saturation": 0.45,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.14000000000000012,
-    "colorize": 0,
-    "saturation": 1,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": -0.5,
-     "u_warmth": 0
-    }
-   },
-   {
-    "speed": 50,
-    "intensity": 1,
-    "hue": 0.14000000000000012,
-    "colorize": 0,
-    "saturation": 0.62,
-    "contrast": 1,
-    "params": {
-     "u_hueShift": 0.5,
      "u_warmth": 0
     }
    }

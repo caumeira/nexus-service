@@ -13,13 +13,16 @@ namespace Nexus.Service.Tests;
 public class AnimateTemplateDefaultsTests
 {
     [Fact]
-    public void Defaults_load_with_four_slots_per_effect()
+    public void Defaults_load_with_full_slots_per_effect_and_one_per_fill()
     {
         Assert.True(AnimateTemplateDefaults.All.Count >= 80);
-        Assert.All(AnimateTemplateDefaults.All.Values, bundle =>
+        Assert.All(AnimateTemplateDefaults.All, kv =>
         {
+            var (effect, bundle) = (kv.Key, kv.Value);
             Assert.Equal(0, bundle.Selected);
-            Assert.Equal(AnimateTemplateDefaults.SlotCount, bundle.Slots.Count);
+            // Simple fills are a single look with no preset slots; every other
+            // effect carries the full preset row.
+            Assert.Equal(StaticEffectCatalog.IsFill(effect) ? 1 : AnimateTemplateDefaults.SlotCount, bundle.Slots.Count);
             Assert.All(bundle.Slots, slot => Assert.NotNull(slot));
         });
     }
@@ -35,9 +38,10 @@ public class AnimateTemplateDefaultsTests
         Assert.Equal(70, fire.Speed);
         Assert.Equal(1.6f, fire.Params["u_turbulence"], 3);
 
-        // Simple white varies only colour temperature across slots.
-        var candle = AnimateTemplateDefaults.Slot("simplewhite", 3)!;
-        Assert.Equal(1.0f, candle.Params["u_warmth"], 3);
+        // Simple fills carry a single look; any slot index clamps to it.
+        var white = AnimateTemplateDefaults.Slot("simplewhite", 3)!;
+        Assert.Equal(0f, white.Params["u_warmth"], 3);
+        Assert.Equal(0f, white.Saturation, 3);
 
         // Coloured signature: slot 1 is the full-rainbow variant.
         var fireRainbow = AnimateTemplateDefaults.Slot("fire", 1)!;
