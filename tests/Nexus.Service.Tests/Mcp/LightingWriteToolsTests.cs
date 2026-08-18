@@ -98,6 +98,34 @@ public sealed class LightingWriteToolsTests : IDisposable
         Assert.Equal(expectedEffect, Assert.Single(lighting.StartStaticCalls).Effect);
     }
 
+    [Fact]
+    public async Task SetStaticColor_dark_low_value_green_snaps_to_dark_green()
+    {
+        // Green (hue 120) and dark green (hue 126) are nearly hue-identical, so
+        // a dim, saturated green must be split off by HSV value, not hue alone.
+        var lighting = new McpTestHarness.StubLightingProvider();
+        var tool = new SetStaticColorTool(lighting, NewStore(), new MultiplexHub());
+
+        var result = await tool.ExecuteAsync(JsonSerializer.SerializeToElement(new { color = "#006600" }), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal("simpledarkgreen", Assert.Single(lighting.StartStaticCalls).Effect);
+    }
+
+    [Fact]
+    public async Task SetStaticColor_bright_hue_near_dark_green_snaps_to_green()
+    {
+        // Hue-nearest alone would land here on dark green (hue 126); a bright
+        // value must still fall back to the plain green preset.
+        var lighting = new McpTestHarness.StubLightingProvider();
+        var tool = new SetStaticColorTool(lighting, NewStore(), new MultiplexHub());
+
+        var result = await tool.ExecuteAsync(JsonSerializer.SerializeToElement(new { color = "#00e639" }), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        Assert.Equal("simplegreen", Assert.Single(lighting.StartStaticCalls).Effect);
+    }
+
     [Theory]
     [InlineData("red")]
     [InlineData("#ff00")]

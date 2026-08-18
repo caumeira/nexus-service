@@ -29,7 +29,7 @@ public sealed class SetStaticColorTool : IMcpTool
         ("simpleorange", "orange", 25),
         ("simpleyellow", "yellow", 55),
         ("simplegreen", "green", 120),
-        ("simpleforest", "forest", 140),
+        ("simpledarkgreen", "dark green", 126),
         ("simpleturquoise", "turquoise", 164),
         ("simplecyan", "cyan", 180),
         ("simpleblue", "blue", 225),
@@ -40,6 +40,9 @@ public sealed class SetStaticColorTool : IMcpTool
     private const string WhiteKey = "simplewhite";
     // Below this HSV saturation the hue carries no meaning; treat as white.
     private const double WhiteSaturationCutoff = 0.12;
+    // Green (120) and dark green (126) sit almost hue-identical, so a dark
+    // request would otherwise snap to plain green; split them by HSV value.
+    private const double DarkGreenValueCutoff = 0.6;
 
     private readonly ILightingProvider _lighting;
     private readonly IConfigStore _store;
@@ -57,7 +60,7 @@ public sealed class SetStaticColorTool : IMcpTool
 
     public string Description =>
         "Fills every synced RGB device with one flat color, snapping to the nearest built-in " +
-        "solid-color preset (red, orange, yellow, green, forest, turquoise, cyan, blue, violet, " +
+        "solid-color preset (red, orange, yellow, green, dark green, turquoise, cyan, blue, violet, " +
         "pink, soft pink, white). Use when the user asks for a specific solid color " +
         "(e.g. 'make it red', '#ff8800'). For a " +
         "named animated look use apply_lighting_scenario instead.";
@@ -117,7 +120,7 @@ public sealed class SetStaticColorTool : IMcpTool
 
     private static (string Key, string Name) NearestPreset(byte r, byte g, byte b)
     {
-        var (hue, sat) = RgbToHueSaturation(r, g, b);
+        var (hue, sat, value) = RgbToHsv(r, g, b);
         if (sat < WhiteSaturationCutoff)
         {
             return (WhiteKey, "white");
@@ -135,6 +138,14 @@ public sealed class SetStaticColorTool : IMcpTool
                 bestKey = key;
                 bestName = name;
             }
+        }
+        if (value <= DarkGreenValueCutoff && bestKey == "simplegreen")
+        {
+            return ("simpledarkgreen", "dark green");
+        }
+        if (value > DarkGreenValueCutoff && bestKey == "simpledarkgreen")
+        {
+            return ("simplegreen", "green");
         }
         return (bestKey, bestName);
     }
@@ -159,8 +170,8 @@ public sealed class SetStaticColorTool : IMcpTool
         return true;
     }
 
-    // Standard RGB -> HSV: hue in degrees (0..360), saturation 0..1.
-    private static (double Hue, double Saturation) RgbToHueSaturation(byte r, byte g, byte b)
+    // Standard RGB -> HSV: hue in degrees (0..360), saturation and value 0..1.
+    private static (double Hue, double Saturation, double Value) RgbToHsv(byte r, byte g, byte b)
     {
         double rf = r / 255.0, gf = g / 255.0, bf = b / 255.0;
         var max = Math.Max(rf, Math.Max(gf, bf));
@@ -190,6 +201,6 @@ public sealed class SetStaticColorTool : IMcpTool
         }
 
         var saturation = max <= 1e-9 ? 0 : delta / max;
-        return (hue, saturation);
+        return (hue, saturation, max);
     }
 }

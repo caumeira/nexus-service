@@ -635,17 +635,17 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // and saturation is HSV S (1 = full colour, 0 = white). The fill is
         // static, so speed is irrelevant to the thumbnail.
         "simplewhite"     => new(0.00f, 0.00f, 50f, 0.00f, 1.00f, 1f),
+        "simplesoftpink"  => new(0.94f, 0.00f, 50f, 0.40f, 1.00f, 1f),
+        "simplepink"      => new(0.92f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "simplered"       => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "simpleorange"    => new(0.07f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "simpleyellow"    => new(0.14f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "simplegreen"     => new(0.33f, 0.00f, 50f, 1.00f, 1.00f, 1f),
-        "simpleforest"    => new(0.39f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        "simpledarkgreen" => new(0.35f, 0.00f, 50f, 1.00f, 1.00f, 0.55f),
         "simpleturquoise" => new(0.455f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "simplecyan"      => new(0.50f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "simpleblue"      => new(0.62f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "simpleviolet"    => new(0.75f, 0.00f, 50f, 1.00f, 1.00f, 1f),
-        "simplepink"      => new(0.92f, 0.00f, 50f, 1.00f, 1.00f, 1f),
-        "simplesoftpink"  => new(0.94f, 0.00f, 50f, 0.40f, 1.00f, 1f),
         // Static patterns paint their own colours; a neutral signature keeps the
         // tint post-process from recolouring the thumbnail.
         "gradientlinear" or "gradientradial" or "gradienttri" or "gradientconic"
@@ -749,9 +749,9 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // Simple solid-colour fills expose only a slight hue-shift nudge. This
         // default must match SIMPLE_PARAMS in the frontend so the thumbnail
         // shows the same look the picker does.
-        "simplewhite" or "simplered" or "simpleorange" or "simpleyellow" or "simplegreen"
-            or "simpleforest" or "simpleturquoise" or "simplecyan" or "simpleblue" or "simpleviolet"
-            or "simplepink" or "simplesoftpink" => new() { ["u_hueShift"] = 0f, ["u_warmth"] = 0f },
+        "simplewhite" or "simplesoftpink" or "simplepink" or "simplered" or "simpleorange"
+            or "simpleyellow" or "simplegreen" or "simpledarkgreen" or "simpleturquoise" or "simplecyan"
+            or "simpleblue" or "simpleviolet" => new() { ["u_hueShift"] = 0f, ["u_warmth"] = 0f },
         // Static patterns: colours are HSV triples carried as ordinary float
         // params, so they need no separate wire or storage shape. Mirrors the
         // EFFECTS param defaults in nexus-web/src/types/lighting.ts.

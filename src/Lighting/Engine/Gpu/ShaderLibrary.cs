@@ -93,9 +93,9 @@ internal static class ShaderLibrary
     private static readonly string[] AnimateEffectKeys = new[]
     {
         // Simple solid-colour fills.
-        "simplewhite", "simplered", "simpleorange", "simpleyellow", "simplegreen",
-        "simpleforest", "simpleturquoise", "simplecyan", "simpleblue", "simpleviolet",
-        "simplepink", "simplesoftpink",
+        "simplewhite", "simplesoftpink", "simplepink", "simplered", "simpleorange",
+        "simpleyellow", "simplegreen", "simpledarkgreen", "simpleturquoise", "simplecyan",
+        "simpleblue", "simpleviolet",
         "rainbow", "plasma", "fire", "spiral", "matrix", "meteor",
         "ripple", "wave", "gradientwave", "ball", "radar", "pulse",
         "watercolor", "jellyfish", "aurora", "lavalamp", "starfield",

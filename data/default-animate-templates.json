@@ -3545,13 +3545,13 @@
    }
   ]
  },
- "simpleforest": {
+ "simpledarkgreen": {
   "selected": 0,
   "slots": [
    {
     "speed": 50,
-    "intensity": 1,
-    "hue": 0.39,
+    "intensity": 0.55,
+    "hue": 0.35,
     "colorize": 0,
     "saturation": 1,
     "contrast": 1,
@@ -3562,8 +3562,8 @@
    },
    {
     "speed": 50,
-    "intensity": 1,
-    "hue": 0.39,
+    "intensity": 0.55,
+    "hue": 0.35,
     "colorize": 0,
     "saturation": 0.45,
     "contrast": 1,
@@ -3574,8 +3574,8 @@
    },
    {
     "speed": 50,
-    "intensity": 1,
-    "hue": 0.39,
+    "intensity": 0.55,
+    "hue": 0.35,
     "colorize": 0,
     "saturation": 1,
     "contrast": 1,
@@ -3586,8 +3586,8 @@
    },
    {
     "speed": 50,
-    "intensity": 1,
-    "hue": 0.39,
+    "intensity": 0.55,
+    "hue": 0.35,
     "colorize": 0,
     "saturation": 0.62,
     "contrast": 1,
