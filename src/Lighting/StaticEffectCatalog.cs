@@ -38,11 +38,8 @@ public static class StaticEffectCatalog
 
     public static bool Contains(string key) => IsFill(key) || Array.IndexOf(Patterns, key) >= 0;
 
-    /// <summary>Maps a persisted key removed from the catalog to its closest
-    /// survivor, so a stale store never aborts the boot lighting restore.</summary>
-    public static string Coerce(string key) => Contains(key) ? key : key switch
-    {
-        "simpleturquoise" => "simplecyan",
-        _ => DefaultEffect,
-    };
+    /// <summary>A persisted key outside the catalog (removed effect, rollback to
+    /// an older build, corrupt store) restores as the default instead of
+    /// aborting the boot lighting restore.</summary>
+    public static string Coerce(string key) => Contains(key) ? key : DefaultEffect;
 }

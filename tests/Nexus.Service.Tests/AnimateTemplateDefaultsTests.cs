@@ -120,6 +120,24 @@ public class AnimateTemplateDefaultsTests
     }
 
     [Fact]
+    public void Prune_drops_a_dense_multi_slot_fill_bundle_equal_to_the_single_canonical_look()
+    {
+        // A store written when fills carried a full preset row holds 4 dense
+        // slots; the clamped Slot() lookup must recognize them all as default
+        // so the bundle vanishes instead of surviving as fake user deltas.
+        var canonical = AnimateTemplateDefaults.Slot("simplered", 0)!;
+        var dense = new Dictionary<string, AnimateEffectTemplates>
+        {
+            ["simplered"] = new()
+            {
+                Selected = 0,
+                Slots = new() { Clone(canonical), Clone(canonical), Clone(canonical), Clone(canonical) },
+            },
+        };
+        Assert.Empty(AnimateTemplateDefaults.Prune(dense));
+    }
+
+    [Fact]
     public void Prune_is_idempotent_for_all_default_sparse_bundles()
     {
         // A post-v9 profile can carry a bundle whose every slot is a null

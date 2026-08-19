@@ -212,12 +212,11 @@ public class StaticModeTests : IDisposable
     }
 
     [Fact]
-    public void Coerce_keeps_catalog_keys_and_maps_removed_or_unknown_ones()
+    public void Coerce_keeps_catalog_keys_and_defaults_unknown_ones()
     {
         Assert.Equal("simplered", StaticEffectCatalog.Coerce("simplered"));
         Assert.Equal("gradientlinear", StaticEffectCatalog.Coerce("gradientlinear"));
-        // Removed from the catalog; a stale store restores its nearest survivor.
-        Assert.Equal("simplecyan", StaticEffectCatalog.Coerce("simpleturquoise"));
+        Assert.Equal(StaticEffectCatalog.DefaultEffect, StaticEffectCatalog.Coerce("simpleturquoise"));
         Assert.Equal(StaticEffectCatalog.DefaultEffect, StaticEffectCatalog.Coerce("nosucheffect"));
     }
 }

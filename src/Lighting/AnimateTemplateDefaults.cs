@@ -145,7 +145,12 @@ public static class AnimateTemplateDefaults
             for (var i = 0; i < bundleSlots.Count; i++)
             {
                 var slot = bundleSlots[i];
-                var def = i < defaults.Slots.Count ? defaults.Slots[i] : null;
+                // Clamped like Slot(): a stored index past the canonical bundle
+                // (a fill written when fills carried a full preset row) renders
+                // as the clamped default, so it prunes by the same rule.
+                var def = defaults.Slots.Count == 0
+                    ? null
+                    : defaults.Slots[Math.Clamp(i, 0, defaults.Slots.Count - 1)];
                 isDefault[i] = def is not null && (slot is null || StateEquals(slot, def));
                 allDefault &= isDefault[i];
             }
@@ -167,7 +172,8 @@ public static class AnimateTemplateDefaults
             {
                 slots.Add(null);
             }
-            if (slots[selected] is null && selected < defaults.Slots.Count && defaults.Slots[selected] is { } defSlot)
+            if (slots[selected] is null && defaults.Slots.Count > 0
+                && defaults.Slots[Math.Clamp(selected, 0, defaults.Slots.Count - 1)] is { } defSlot)
             {
                 slots[selected] = CloneState(defSlot);
             }
