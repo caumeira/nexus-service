@@ -287,6 +287,8 @@ public static class DiagnosticsReportBuilder
         _ => 0,
     };
 
+    /// <summary>Per-kind roll-up, where "unknown" outranks ok deliberately: this
+    /// row reports what is known about one kind, unlike the overall status.</summary>
     private static string WorstOf(IEnumerable<string> statuses)
     {
         var list = statuses.ToList();

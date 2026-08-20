@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Nexus.Service.Diagnostics;
 using Nexus.Service.Diagnostics.Cooling;
 using Nexus.Service.Diagnostics.EventLog;
@@ -267,6 +268,96 @@ public class DiagnosticsHealthModelTests
             windowsSupported: true,
             generatedAtUtc: T0);
         Assert.Single(onWindows.Components, c => c.Kind == "gpu");
+    }
+
+    [Fact]
+    public void GpuPlaceholder_CarriesAnUnknownReason_ExplainingTheMissingSource()
+    {
+        var result = Compute(knownGpuModels: new[] { "AMD Radeon RX 6800" });
+
+        var gpu = Assert.Single(result.Components, c => c.Kind == "gpu");
+        Assert.Equal(HealthStatuses.Unknown, gpu.Status);
+        var reason = Assert.Single(gpu.Reasons);
+        Assert.Equal("gpu.noHealthSource", reason.Code);
+        Assert.Equal(HealthStatuses.Unknown, reason.Severity);
+        Assert.NotEmpty(reason.Summary);
+        Assert.NotEmpty(reason.Detail);
+    }
+
+    [Fact]
+    public void GpuPlaceholder_DoesNotMaskHealthySiblings_InOverall()
+    {
+        // A probe with no source is not a finding about the machine.
+        var result = Compute(knownGpuModels: new[] { "AMD Radeon RX 6800" });
+
+        Assert.Contains(result.Components, c => c.Kind == "gpu" && c.Status == HealthStatuses.Unknown);
+        Assert.Contains(result.Components, c => c.Status == HealthStatuses.Ok);
+        Assert.Equal(HealthStatuses.Ok, result.Overall);
+    }
+
+    [Fact]
+    public void DriveWithoutSmart_CarriesAnUnknownReason_AndLeavesHealthyDrivesHealthy()
+    {
+        var smart = new SmartSnapshot
+        {
+            Supported = true,
+            Drives = new List<SmartDriveInfo>
+            {
+                new() { Id = "storage:NVME1", Name = "Healthy NVMe", Status = "good" },
+                new() { Id = "storage:USB1", Name = "USB Enclosure", Status = "unknown" },
+            },
+        };
+
+        var result = Compute(smart: smart);
+
+        var unmeasured = Assert.Single(result.Components, c => c.Id == "storage:USB1");
+        Assert.Equal(HealthStatuses.Unknown, unmeasured.Status);
+        var reason = Assert.Single(unmeasured.Reasons);
+        Assert.Equal("storage.noSmartSource", reason.Code);
+        Assert.Equal(HealthStatuses.Unknown, reason.Severity);
+        Assert.Equal(HealthStatuses.Ok, result.Overall);
+    }
+
+    [Fact]
+    public void EveryUnknownComponent_ExplainsItself()
+    {
+        // The aggregation lets a healthy sibling outrank an unknown, so an
+        // unknown that carries no reason would vanish from the UI silently.
+        var smart = new SmartSnapshot
+        {
+            Supported = true,
+            Drives = new List<SmartDriveInfo>
+            {
+                new() { Id = "storage:USB1", Name = "USB Enclosure", Status = "unknown" },
+                new() { Id = "storage:ODD", Name = "", Status = "unrecognized-vendor-word" },
+            },
+        };
+
+        var result = Compute(smart: smart, knownGpuModels: new[] { "AMD Radeon RX 6800" });
+
+        Assert.Contains(result.Components, c => c.Status == HealthStatuses.Unknown);
+        Assert.All(
+            result.Components.Where(c => c.Status == HealthStatuses.Unknown),
+            c => Assert.NotEmpty(c.Reasons));
+    }
+
+    [Fact]
+    public void OverallUnknown_OnlyWhenNoComponentProducedARealSignal()
+    {
+        // Storage unsupported, memory/system gated off: the placeholder is the
+        // only component, so there is nothing to be healthy about.
+        var diagnostics = new DiagnosticsSettings();
+        diagnostics.Components.Ram = false;
+        diagnostics.Components.System = false;
+
+        var result = Compute(
+            smart: SmartSnapshotUnsupported(),
+            knownGpuModels: new[] { "AMD Radeon RX 6800" },
+            diagnostics: diagnostics);
+
+        var gpu = Assert.Single(result.Components);
+        Assert.Equal(HealthStatuses.Unknown, gpu.Status);
+        Assert.Equal(HealthStatuses.Unknown, result.Overall);
     }
 
     [Fact]

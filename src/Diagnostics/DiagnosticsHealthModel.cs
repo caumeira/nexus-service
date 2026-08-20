@@ -247,12 +247,23 @@ public sealed class DiagnosticsHealthModel
             var reasons = drive.DetailedReasons
                 .Select(r => new HealthComponentReason(r.Code, MapReasonSeverity(r.Severity), r.Summary, r.Detail))
                 .ToList();
+            var status = MapDriveStatus(drive.Status);
+            // A drive that reports no SMART (USB bridge, RAID-hidden) explains
+            // itself the same way the GPU placeholder does, so an unmeasured
+            // component is never silently folded into a healthy tile.
+            if (status == HealthStatuses.Unknown && reasons.Count == 0)
+            {
+                var label = string.IsNullOrWhiteSpace(drive.Name) ? "this drive" : drive.Name;
+                reasons.Add(new HealthComponentReason("storage.noSmartSource", HealthStatuses.Unknown,
+                    $"SMART data cannot be read for {label}",
+                    "The drive does not expose SMART data, which USB enclosures and drives behind a RAID controller commonly do not, so its health cannot be assessed."));
+            }
             components.Add(new HealthComponent
             {
                 Id = drive.Id,
                 Kind = "storage",
                 Name = drive.Name,
-                Status = MapDriveStatus(drive.Status),
+                Status = status,
                 Reasons = reasons,
             });
         }
@@ -381,21 +392,26 @@ public sealed class DiagnosticsHealthModel
             return;
         }
 
-        // No live NVML/ADL readout: only surface a placeholder component when a
-        // GPU is actually known to exist (from sensor detection), with nothing
-        // to say about its status.
+        // Placeholder only when sensor detection knows a GPU exists; its
+        // unknown-severity reason explains the gap and cannot notify or log.
         if (knownGpuModels.Count == 0)
         {
             return;
         }
 
+        var name = knownGpuModels.FirstOrDefault(m => !string.IsNullOrWhiteSpace(m)) ?? "GPU";
         components.Add(new HealthComponent
         {
             Id = "gpu:0",
             Kind = "gpu",
-            Name = knownGpuModels.FirstOrDefault() ?? "GPU",
+            Name = name,
             Status = HealthStatuses.Unknown,
-            Reasons = Array.Empty<HealthComponentReason>(),
+            Reasons = new List<HealthComponentReason>
+            {
+                new("gpu.noHealthSource", HealthStatuses.Unknown,
+                    $"Throttle state cannot be read for {name}",
+                    "Live GPU health readings come from NVML, the library NVIDIA drivers install. It is not available on this system, so this GPU reports no health signal either way."),
+            },
         });
     }
 
@@ -468,6 +484,8 @@ public sealed class DiagnosticsHealthModel
         return baseline;
     }
 
+    /// <summary>Worst status across components; "unknown" is the absence of a
+    /// signal, so it carries only when no component produced a real one.</summary>
     private static string WorstStatus(IEnumerable<string> statuses)
     {
         var list = statuses.ToList();
@@ -479,10 +497,10 @@ public sealed class DiagnosticsHealthModel
         {
             return HealthStatuses.Watch;
         }
-        if (list.Contains(HealthStatuses.Unknown))
+        if (list.Count == 0 || list.Contains(HealthStatuses.Ok))
         {
-            return HealthStatuses.Unknown;
+            return HealthStatuses.Ok;
         }
-        return HealthStatuses.Ok;
+        return HealthStatuses.Unknown;
     }
 }

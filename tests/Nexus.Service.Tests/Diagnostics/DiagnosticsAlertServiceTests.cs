@@ -156,4 +156,20 @@ public class DiagnosticsAlertServiceTests
 
         Assert.Empty(notices);
     }
+
+    [Fact]
+    public void UnknownStatusComponent_NeverNotifies_EvenWithAnUnknownReason()
+    {
+        // An unmeasured component carries a reason to be explainable, never to alert.
+        var notifications = new DiagnosticsNotifications { Enabled = true, GpuThrottle = true };
+        var components = new[]
+        {
+            Component("gpu:0", "gpu", HealthStatuses.Unknown, HealthStatuses.Unknown, "gpu.noHealthSource"),
+        };
+
+        var notices = DiagnosticsAlertService.EvaluateNotifications(
+            components, notifications, new Dictionary<string, DateTime>(), T0);
+
+        Assert.Empty(notices);
+    }
 }
