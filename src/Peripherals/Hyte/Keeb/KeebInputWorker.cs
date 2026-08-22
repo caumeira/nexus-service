@@ -98,7 +98,10 @@ public sealed class KeebInputWorker : BackgroundService
                 break;
             case KeebProtocol.KeebInputKind.ScrollUp:
             case KeebProtocol.KeebInputKind.ScrollDown:
-                ServiceLog.Info($"[keeb-input] {ev.Encoder} encoder {ev.Kind}");
+                // This handle is independent of KeebHub's, so following the
+                // brightness knob here costs the LED stream nothing - unlike
+                // the settings-page poll it replaces.
+                _applier.HandleEncoderScroll(ev.Encoder, ev.Kind == KeebProtocol.KeebInputKind.ScrollUp);
                 break;
             case KeebProtocol.KeebInputKind.ScrollMiddle:
                 // The middle button cycles the firmware effect on the device.

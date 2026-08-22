@@ -112,6 +112,43 @@ public sealed class KeebSettingsApplier
         }
     }
 
+    /// <summary>
+    /// Apply a knob detent to brightness, host-side.
+    ///
+    /// The knob used to be followed by polling the device's brightness byte,
+    /// but that read shares KeebHub's IO lock with the LED stream and stalled a
+    /// frame every time (camera-measured flicker). The rotary already reports
+    /// its detents as interrupt-IN events on the input worker's OWN handle, so
+    /// the same value can be tracked without touching the stream's lock at all.
+    ///
+    /// Master brightness moves with it, which is what dims a live software
+    /// effect; the stored firmware byte moves with it too, so the two never
+    /// drift and <see cref="Apply"/> re-synchronises the device when streaming
+    /// stops. Returns false when this encoder is not assigned to brightness.
+    /// </summary>
+    public bool HandleEncoderScroll(KeebProtocol.KeebEncoder encoder, bool up)
+    {
+        if (encoder == KeebProtocol.KeebEncoder.None) return false;
+        var settings = _store.Load().Keeb;
+        var fn = encoder == KeebProtocol.KeebEncoder.Left ? settings.RotaryLeft : settings.RotaryRight;
+        if (!string.Equals(fn, "BrightnessAdjustment", StringComparison.OrdinalIgnoreCase)) return false;
+
+        var next = 0;
+        _store.Update(s =>
+        {
+            next = Math.Clamp(s.Keeb.FirmwareLighting.Brightness + (up ? KnobStepPercent : -KnobStepPercent), 0, 100);
+            s.Keeb.FirmwareLighting.Brightness = next;
+            s.Lighting.GlobalBrightness = next / 100f;
+            Nexus.Service.Lighting.LightingPresetLooks.CaptureIntoActive(s);
+        });
+        lock (_gate) { _lastKnobPct = next; }
+        PanelTopics.BroadcastLighting(_panel);
+        return true;
+    }
+
+    /// <summary>Percent per rotary detent.</summary>
+    private const int KnobStepPercent = 5;
+
     /// <summary>Hand the firmware animation back; the next Apply restores it.</summary>
     public void ReleaseFirmwareAnimation() => _streaming = false;
 
