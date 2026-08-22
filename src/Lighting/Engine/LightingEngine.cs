@@ -605,10 +605,11 @@ public sealed class LightingEngine : IDisposable
             _assignRenders[key] = pixels;
             return pixels;
         }
-        catch
+        catch (Exception ex)
         {
             // A look that cannot render must not take the whole frame down; the
             // device falls through to the shared canvas.
+            Gpu.GpuContext.Log($"[static-assign] render failed for {assignment.Effect}: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
         finally
@@ -619,19 +620,44 @@ public sealed class LightingEngine : IDisposable
 
     /// <summary>
     /// Paint a device from an assignment render. Static evaluates every device
-    /// as if its frame filled the canvas, so the look reads end to end on each
-    /// device rather than the slice its rect happens to cover.
+    /// as if its frame filled the canvas, so the look reads end to end on the
+    /// device rather than the slice its rect covers.
+    ///
+    /// Matrix devices (keyboards) carry per-LED UVs and sample their real 2D
+    /// position, so a two-axis pattern lands correctly. Everything else walks
+    /// its own long axis: sampling a fixed horizontal midline collapsed any
+    /// vertically-swept pattern to a single colour (bench-hit on the Keeb).
     /// </summary>
     private void PaintFromAssignment(DeviceFrame dev, int ledCount, byte[] pixels)
     {
         var w = _canvas.Width;
         var h = _canvas.Height;
-        var midY = h / 2;
+
+        var ledU = dev.PreviewLayout is { Length: > 0 } ? null : dev.LedU;
+        var ledV = dev.PreviewLayout is { Length: > 0 } ? null : dev.LedV;
+        var haveUv = ledU is not null && ledV is not null
+            && ledU.Length >= ledCount && ledV.Length >= ledCount;
+
+        // A frame taller than it is wide runs its LEDs down the canvas.
+        var vertical = dev.H > dev.W;
+
         for (int i = 0; i < ledCount; i++)
         {
-            var t = ledCount > 1 ? (float)i / (ledCount - 1) : 0.5f;
-            var x = Math.Clamp((int)MathF.Round(t * (w - 1)), 0, w - 1);
-            var o = ((midY * w) + x) * 3;
+            float u, v;
+            if (haveUv)
+            {
+                u = ledU![i];
+                v = ledV![i];
+            }
+            else
+            {
+                var t = ledCount > 1 ? (float)i / (ledCount - 1) : 0.5f;
+                u = vertical ? 0.5f : t;
+                v = vertical ? t : 0.5f;
+            }
+            var x = Math.Clamp((int)MathF.Round(Math.Clamp(u, 0f, 1f) * (w - 1)), 0, w - 1);
+            var y = Math.Clamp((int)MathF.Round(Math.Clamp(v, 0f, 1f) * (h - 1)), 0, h - 1);
+            var o = ((y * w) + x) * 3;
             if (o + 2 >= pixels.Length) break;
             dev.SetLed(i, pixels[o], pixels[o + 1], pixels[o + 2]);
         }

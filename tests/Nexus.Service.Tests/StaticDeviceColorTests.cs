@@ -79,7 +79,9 @@ public class StaticDeviceEffectTests
         // one colour here; a ramp must read end to end (fullscreen evaluation).
         var tracker = new StaticDeviceEffectTracker { Enabled = true };
         tracker.Set("keeb:keys", Assign("ramp"));
-        var leds = await RenderOnce(MakeDevice(5), tracker, _ => new RampEffect());
+        // Wider than tall, so its LEDs run ACROSS the canvas and meet the sweep.
+        var wide = new DeviceFrame(0, "keeb:keys", 5, x: 100, y: 100, w: 250, h: 40, rotation: 0);
+        var leds = await RenderOnce(wide, tracker, _ => new RampEffect());
         var first = (leds[0], leds[1], leds[2]);
         var last = (leds[12], leds[13], leds[14]);
         Assert.NotEqual(first, last);
@@ -113,6 +115,36 @@ public class StaticDeviceEffectTests
         tracker.Set("keeb:keys", Assign("boom"));
         var leds = await RenderOnce(MakeDevice(), tracker, _ => throw new InvalidOperationException("no gpu"));
         Assert.Equal(255, leds[1]);
+    }
+
+    /// <summary>Blue at the top, red at the bottom - a VERTICAL sweep.</summary>
+    private sealed class VerticalRampEffect : IEffect
+    {
+        public string Name => "vramp";
+        public void RenderFrame(CanvasBuffer canvas, double tickMs)
+        {
+            for (int y = 0; y < canvas.Height; y++)
+                for (int x = 0; x < canvas.Width; x++)
+                {
+                    var t = canvas.Height > 1 ? (float)y / (canvas.Height - 1) : 0f;
+                    canvas.SetPixel(x, y, (byte)(255 * t), 0, (byte)(255 * (1 - t)));
+                }
+        }
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task A_vertically_swept_pattern_reads_along_a_tall_device()
+    {
+        // Sampling a fixed horizontal midline collapsed this to one colour on
+        // the bench: every LED of a tall strip read the same pixel.
+        var tracker = new StaticDeviceEffectTracker { Enabled = true };
+        tracker.Set("keeb:keys", Assign("vramp"));
+        // Taller than wide, so its LEDs run down the canvas.
+        var tall = new DeviceFrame(0, "keeb:keys", 5, x: 300, y: 100, w: 40, h: 250, rotation: 0);
+        var leds = await RenderOnce(tall, tracker, _ => new VerticalRampEffect());
+        Assert.NotEqual((leds[0], leds[1], leds[2]), (leds[12], leds[13], leds[14]));
+        Assert.True(leds[14] < leds[2], "bottom end should be less blue than the top");
     }
 
     [Fact]
