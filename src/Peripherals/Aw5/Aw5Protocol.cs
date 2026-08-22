@@ -70,6 +70,17 @@ public static class Aw5Protocol
     /// </summary>
     public const int CoolerMasterMaxNotches = 6;
 
+    /// <summary>
+    /// Segmented arc around the Levelplay rim. The wire byte is a bare notch count
+    /// read from the low nibble (high nibble ignored); counts past the track wrap
+    /// on the firmware rather than clamp, so the host clamps before sending.
+    /// </summary>
+    public const int LevelplayArcMaxNotches = 12;
+
+    /// <summary>Temp-to-notch scale, shared so the two variants' bars cannot drift.</summary>
+    private const int NotchTempFloorC = 20;
+    private const int NotchTempCeilC = 90;
+
     /// <summary>Panel clamps the frequency readout at four digits.</summary>
     private const int CoolerMasterMaxMhz = 9999;
 
@@ -114,6 +125,8 @@ public static class Aw5Protocol
         // element on this panel reads it - the rendered copy rides sub 0x01.
         WriteDigits(frames[0], 3, tempC, 2);
         frames[0][5] = (byte)((Math.Clamp(loadPct, 0, 99) / 10) << 4);
+        // b7: the rim arc's notch count; zero keeps the arc dark.
+        frames[0][7] = Notches(tempC, NotchTempFloorC, NotchTempCeilC, LevelplayArcMaxNotches);
 
         // 0x01: the load percentage shown left of the rpm. Two digits, so 100% renders
         // as 99: the panel has no third digit.
@@ -159,9 +172,9 @@ public static class Aw5Protocol
         f[4] = (byte)(mhz & 0xFF);
         f[5] = (byte)tempC;
 
-        f[9] = Notches(tempC, 20, 90);
-        f[10] = Notches(mhz, 800, 5000);
-        f[11] = Notches(loadPct, 0, 100);
+        f[9] = Notches(tempC, NotchTempFloorC, NotchTempCeilC, CoolerMasterMaxNotches);
+        f[10] = Notches(mhz, 800, 5000, CoolerMasterMaxNotches);
+        f[11] = Notches(loadPct, 0, 100, CoolerMasterMaxNotches);
 
         f[12] = 0xF9;
         return f;
@@ -184,11 +197,11 @@ public static class Aw5Protocol
     /// true zero empties the bar: a running CPU idling below the first step still
     /// lights one segment, so an empty bar means "no reading", not "low reading".
     /// </summary>
-    internal static byte Notches(int value, int min, int max)
+    internal static byte Notches(int value, int min, int max, int maxNotches)
     {
         if (value <= 0 || max <= min) return 0;
         var span = (double)(max - min);
-        var scaled = (value - min) / span * CoolerMasterMaxNotches;
-        return (byte)Math.Clamp((int)Math.Round(scaled), 1, CoolerMasterMaxNotches);
+        var scaled = (value - min) / span * maxNotches;
+        return (byte)Math.Clamp((int)Math.Round(scaled), 1, maxNotches);
     }
 }
