@@ -21,7 +21,20 @@ namespace Nexus.Service.Lighting;
 public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
-    private const int KnobReadEveryTicks = 2; // ~66 ms knob byte read; ease runs every tick.
+    // The knob byte is read over HID, and KeebHub serializes reads against the
+    // LED writes on one IO lock - so every poll can stall that tick's frame.
+    // At the old ~66 ms cadence that stall was frequent enough to show as
+    // flicker on a HELD Static frame (an animated frame hides the same gap,
+    // which is why only Static looked broken). ~1 s keeps the knob usable at a
+    // fraction of the interference. NEXUS_KEEB_KNOB_POLL_TICKS overrides it;
+    // 0 disables the poll entirely.
+    private static readonly int KnobReadEveryTicks = ResolveKnobPollTicks();
+
+    private static int ResolveKnobPollTicks()
+    {
+        var raw = Environment.GetEnvironmentVariable("NEXUS_KEEB_KNOB_POLL_TICKS");
+        return int.TryParse(raw, out var ticks) && ticks >= 0 ? ticks : 30;
+    }
 
     private readonly LightingEngine _engine;
     private readonly KeebHub _hub;
@@ -118,7 +131,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         }
 
         // Read the knob byte every Nth tick and set global = byte/100 on a change.
-        var readByte = ++_knobPollTicks >= KnobReadEveryTicks;
+        var readByte = KnobReadEveryTicks > 0 && ++_knobPollTicks >= KnobReadEveryTicks;
         if (readByte) _knobPollTicks = 0;
         _applier.PollKnobToGlobal(readByte);
 
