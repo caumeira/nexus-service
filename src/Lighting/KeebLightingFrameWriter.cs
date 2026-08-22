@@ -22,18 +22,20 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
     // The knob byte is read over HID, and KeebHub serializes reads against the
-    // LED writes on one IO lock - so every poll can stall that tick's frame.
-    // At the old ~66 ms cadence that stall was frequent enough to show as
-    // flicker on a HELD Static frame (an animated frame hides the same gap,
-    // which is why only Static looked broken). ~1 s keeps the knob usable at a
-    // fraction of the interference. NEXUS_KEEB_KNOB_POLL_TICKS overrides it;
-    // 0 disables the poll entirely.
+    // LED writes on one IO lock - so every poll stalls that tick's frame, and a
+    // stalled frame lets the board resume its own animation over our output.
+    // Camera-measured on the bench, counting visible flashes in 79 frame gaps:
+    // poll every ~1 s -> 14, poll off -> 0. So it is off while a software
+    // effect streams; the knob still drives the firmware animation's brightness
+    // whenever no effect is streaming, which is when that byte is what shows.
+    // NEXUS_KEEB_KNOB_POLL_TICKS re-enables it (ticks between reads) for anyone
+    // who wants the live knob and can accept the flicker.
     private static readonly int KnobReadEveryTicks = ResolveKnobPollTicks();
 
     private static int ResolveKnobPollTicks()
     {
         var raw = Environment.GetEnvironmentVariable("NEXUS_KEEB_KNOB_POLL_TICKS");
-        return int.TryParse(raw, out var ticks) && ticks >= 0 ? ticks : 30;
+        return int.TryParse(raw, out var ticks) && ticks >= 0 ? ticks : 0;
     }
 
     private readonly LightingEngine _engine;
@@ -46,6 +48,11 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     private Task? _loop;
     private bool _wasStreaming;
     private int _knobPollTicks;
+    // No periodic re-pin: a settings write takes the same IO lock as the LED
+    // writes, so re-asserting on a timer stalled a frame every couple of
+    // seconds and WAS the residual flicker once the animation itself was
+    // stopped (camera-measured). The pin holds because KeebSettingsApplier
+    // refuses to put an animated mode back while a stream owns the device.
 
     // Reused per-tick scratch buffer for reactive-only frames (base = black).
     private readonly RgbColor[] _reactiveKeyBuf = new RgbColor[KeebLayout.KeyLedCount];
@@ -116,6 +123,8 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
             if (_wasStreaming)
             {
                 _wasStreaming = false;
+                // Release first: Apply must write the user's own animation back.
+                _applier.ReleaseFirmwareAnimation();
                 _applier.Apply();
             }
             return;

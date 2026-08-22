@@ -40,6 +40,11 @@ public sealed class KeebSettingsApplier
     // Streaming knob -> global, under _gate. On a byte change, global = byte/100 directly
     // (no smoothing): global mirrors the firmware byte's 0-100 position, one value.
     private int _lastKnobPct = -1;
+    // Set while a software effect streams. Any settings write that lands during
+    // a stream must not put an animated mode back on the device: the firmware
+    // would repaint between our frames and fight the stream (camera-verified:
+    // our yellow alternating with the firmware's animation).
+    private volatile bool _streaming;
 
     public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel)
     {
@@ -55,6 +60,7 @@ public sealed class KeebSettingsApplier
         try
         {
             var page = KeebSettingsCodec.BuildSettingsPage(_store.Load().Keeb);
+            if (_streaming) page[3] = KeebSettingsCodec.AnimationModeByte("static");
             return _hub.WriteSettings(page);
         }
         catch (Exception ex)
@@ -81,6 +87,7 @@ public sealed class KeebSettingsApplier
     /// </summary>
     public bool SuppressFirmwareAnimation()
     {
+        _streaming = true;
         if (!_hub.IsConnected) return false;
         try
         {
@@ -104,6 +111,9 @@ public sealed class KeebSettingsApplier
             return false;
         }
     }
+
+    /// <summary>Hand the firmware animation back; the next Apply restores it.</summary>
+    public void ReleaseFirmwareAnimation() => _streaming = false;
 
     /// <summary>
     /// Re-reference the knob so the next read adopts the byte's current position. The frame
