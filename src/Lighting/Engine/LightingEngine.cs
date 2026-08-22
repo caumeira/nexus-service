@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Lighting.Engine.Effects;
@@ -43,6 +44,25 @@ public sealed class LightingEngine : IDisposable
     public bool Paused => _paused;
     public bool Frozen => _frozen;
     public void UpdateDevices(DeviceFrame[] devices) { _devices = devices; }
+
+    /// <summary>
+    /// Per-device Static assignments. Set once at wire-up; null in tests and any
+    /// host that never assigns one, in which case sampling is unchanged.
+    /// </summary>
+    public Nexus.Service.Lighting.StaticDeviceEffectTracker? StaticEffects { get; set; }
+
+    /// <summary>
+    /// Builds the IEffect for an assignment. Supplied by the provider, which
+    /// owns shader construction - the engine only renders what it is handed.
+    /// </summary>
+    public Func<Nexus.Service.Lighting.StaticDeviceAssignment, IEffect?>? StaticEffectFactory { get; set; }
+
+    // One assignment renders once into this scratch canvas and every device
+    // wearing that look samples it. Static is a held frame, so a look is
+    // rendered only when its key changes, not per frame.
+    private CanvasBuffer? _assignCanvas;
+    private readonly Dictionary<string, byte[]> _assignRenders = new(StringComparer.Ordinal);
+    private int _assignVersionSeen = -1;
 
     /// <summary>
     /// Freezes or resumes the render loop for the current effect; a no-op with
@@ -425,7 +445,7 @@ public sealed class LightingEngine : IDisposable
         return ((byte)(rSum / wSum), (byte)(gSum / wSum), (byte)(bSum / wSum));
     }
 
-    private static void ApplyTestOverlays(DeviceFrame[] devices)
+    private void ApplyTestOverlays(DeviceFrame[] devices)
     {
         foreach (var dev in devices)
         {
@@ -446,6 +466,18 @@ public sealed class LightingEngine : IDisposable
                     }
                 }
                 continue;
+            }
+
+            if (StaticEffects is not null
+                && dev.TestPattern is null
+                && StaticEffects.TryGet(dev.Id, out var assignment))
+            {
+                var render = RenderAssignment(assignment);
+                if (render is not null)
+                {
+                    PaintFromAssignment(dev, previewCount, render);
+                    continue;
+                }
             }
 
             var pattern = dev.TestPattern;
@@ -540,6 +572,69 @@ public sealed class LightingEngine : IDisposable
             pos += dev.LedCount * 3;
         }
         OnFrame?.Invoke(new ReadOnlyMemory<byte>(_frameBuffer, 0, pos));
+    }
+
+    /// <summary>
+    /// Rendered pixels for an assignment, rendering it if this look has not been
+    /// seen. Runs on the engine thread, which is where the GL context lives.
+    /// </summary>
+    private byte[]? RenderAssignment(Nexus.Service.Lighting.StaticDeviceAssignment assignment)
+    {
+        var tracker = StaticEffects;
+        var factory = StaticEffectFactory;
+        if (tracker is null || factory is null) return null;
+        if (tracker.Version != _assignVersionSeen)
+        {
+            // A control moved: every cached look is potentially stale.
+            _assignVersionSeen = tracker.Version;
+            _assignRenders.Clear();
+        }
+        var key = assignment.Key();
+        if (_assignRenders.TryGetValue(key, out var cached)) return cached;
+
+        IEffect? effect = null;
+        try
+        {
+            effect = factory(assignment);
+            if (effect is null) return null;
+            _assignCanvas ??= new CanvasBuffer(_canvas.Width, _canvas.Height);
+            _assignCanvas.Clear();
+            // Static holds a frame, so one render at tick 0 is the whole look.
+            effect.RenderFrame(_assignCanvas, 0);
+            var pixels = _assignCanvas.Pixels.ToArray();
+            _assignRenders[key] = pixels;
+            return pixels;
+        }
+        catch
+        {
+            // A look that cannot render must not take the whole frame down; the
+            // device falls through to the shared canvas.
+            return null;
+        }
+        finally
+        {
+            try { effect?.Dispose(); } catch { /* best-effort */ }
+        }
+    }
+
+    /// <summary>
+    /// Paint a device from an assignment render. Static evaluates every device
+    /// as if its frame filled the canvas, so the look reads end to end on each
+    /// device rather than the slice its rect happens to cover.
+    /// </summary>
+    private void PaintFromAssignment(DeviceFrame dev, int ledCount, byte[] pixels)
+    {
+        var w = _canvas.Width;
+        var h = _canvas.Height;
+        var midY = h / 2;
+        for (int i = 0; i < ledCount; i++)
+        {
+            var t = ledCount > 1 ? (float)i / (ledCount - 1) : 0.5f;
+            var x = Math.Clamp((int)MathF.Round(t * (w - 1)), 0, w - 1);
+            var o = ((midY * w) + x) * 3;
+            if (o + 2 >= pixels.Length) break;
+            dev.SetLed(i, pixels[o], pixels[o + 1], pixels[o + 2]);
+        }
     }
 
     public void Dispose() { Stop(); try { _cts?.Dispose(); } catch { } _cts = null; }

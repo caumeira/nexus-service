@@ -425,10 +425,37 @@ public static partial class DevicesRoutes
             ld.SetBrightness(body.Id, body.Brightness);
             return ApiResponse.Ok();
         });
-        app.MapPost("/devices/lighting-devices/color", (SetLightingDeviceColor body, ILightingDeviceProvider ld) =>
+        app.MapPost("/devices/lighting-devices/color", (
+            SetLightingDeviceColor body,
+            ILightingDeviceProvider ld,
+            // [FromServices] is load-bearing under AOT: the request-delegate
+            // generator reads a concrete class parameter as a second body
+            // parameter and the route 400s on binding.
+            [Microsoft.AspNetCore.Mvc.FromServices] Nexus.Service.Lighting.StaticDeviceEffectTracker staticEffects) =>
         {
             ld.SetHue(body.Id, body.Hue);
             ld.SetSaturation(body.Id, body.Saturation);
+            // The prefs above are device metadata the UI reads back. The
+            // assignment below is what actually reaches the LEDs: a whole look
+            // (effect + tint + params), so patterns and the tint controls apply
+            // instead of being flattened to one swatch.
+            if (string.IsNullOrEmpty(body.Effect))
+            {
+                staticEffects.Clear(body.Id);
+            }
+            else
+            {
+                staticEffects.Set(body.Id, new Nexus.Service.Lighting.StaticDeviceAssignment
+                {
+                    Effect = body.Effect,
+                    Intensity = body.Intensity <= 0 ? 1f : body.Intensity,
+                    Hue = body.Hue,
+                    Colorize = body.Colorize,
+                    Saturation = body.Saturation,
+                    Contrast = body.Contrast <= 0 ? 1f : body.Contrast,
+                    Params = body.Params,
+                });
+            }
             return ApiResponse.Ok();
         });
 

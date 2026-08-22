@@ -240,7 +240,20 @@ public class SetLightingDeviceControlledBody { public string Id { get; set; } = 
 public class SetLightingDeviceBrightness { public string Id { get; set; } = ""; public int Brightness { get; set; } }
 public class SetLightingDeviceHue { public string Id { get; set; } = ""; public float Hue { get; set; } }
 public class SetLightingDeviceSaturation { public string Id { get; set; } = ""; public float Saturation { get; set; } }
-public class SetLightingDeviceColor { public string Id { get; set; } = ""; public float Hue { get; set; } public float Saturation { get; set; } }
+public class SetLightingDeviceColor
+{
+    public string Id { get; set; } = "";
+    public float Hue { get; set; }
+    public float Saturation { get; set; }
+    // Static assignment. Absent (empty Effect) clears the device's own look and
+    // returns it to the shared canvas; older clients that send only hue/sat
+    // still land on the preference write.
+    public string Effect { get; set; } = "";
+    public float Intensity { get; set; } = 1f;
+    public float Colorize { get; set; }
+    public float Contrast { get; set; } = 1f;
+    public Dictionary<string, float>? Params { get; set; }
+}
 public class SetZoneLedCountBody { public string Id { get; set; } = ""; public int Count { get; set; } }
 public class IdentifyLightingDeviceBody { public string Id { get; set; } = ""; public int DurationMs { get; set; } = 2000; }
 
