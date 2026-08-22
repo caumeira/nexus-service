@@ -1,4 +1,5 @@
 using System;
+using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sockets;
@@ -28,6 +29,16 @@ public sealed class KeebSettingsApplier
     private readonly KeebHub _hub;
     private readonly IConfigStore _store;
     private readonly MultiplexHub _panel;
+    // The knob is only observable by reading the settings page: this keyboard
+    // handles the rotary internally and reports no input event for it (its
+    // FF02 collection has never logged one). KeebHub's read would serialize
+    // against the 30 Hz LED stream on one IO lock - a request/response pair
+    // with a 250 ms timeout, so one slow answer stalls frames and the board
+    // repaints the gap. This is a SECOND handle to the same collection, used
+    // only for that read, so the stream's lock is never taken.
+    private readonly IHidEnumerator? _hid;
+    private readonly object _knobIo = new();
+    private IHidDevice? _knobReader;
     // Serializes a host settings write (store mutate + byte write) against the
     // device read-back, so the poll can't read a pre-write byte and clobber the
     // value a Settings-slider write just stored before its byte reaches the device.
@@ -46,11 +57,50 @@ public sealed class KeebSettingsApplier
     // our yellow alternating with the firmware's animation).
     private volatile bool _streaming;
 
-    public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel)
+    public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel, IHidEnumerator? hid = null)
     {
         _hub = hub;
         _store = store;
         _panel = panel;
+        _hid = hid;
+    }
+
+    /// <summary>
+    /// Read the settings page on the knob's own handle. Null when no handle can
+    /// be opened, in which case the knob simply is not followed - it must never
+    /// fall back to the hub's read, which is what stalled the stream.
+    /// </summary>
+    private byte[]? ReadSettingsOffStream()
+    {
+        if (_hid is null) return null;
+        lock (_knobIo)
+        {
+            try
+            {
+                if (_knobReader is null)
+                {
+                    HidDeviceInfo? info = null;
+                    foreach (var i in _hid.Find(KeebProtocol.VendorId, KeebProtocol.ProductId))
+                        if (i.UsagePage == KeebProtocol.VendorUsagePage && i.Usage == KeebProtocol.VendorUsage) { info = i; break; }
+                    if (info is null) return null;
+                    _knobReader = _hid.Open(info.Path, forInput: true);
+                    if (_knobReader is null) return null;
+                    ServiceLog.Info("[keeb] knob reader opened on its own handle");
+                }
+                if (!_knobReader.SetFeature(KeebProtocol.SettingsReadFeature)) { DropKnobReader(); return null; }
+                var buf = new byte[KeebLayout.PageSize];
+                var n = _knobReader.Read(buf, 250);
+                if (n <= 0) { DropKnobReader(); return null; }
+                return buf.AsSpan(0, n).ToArray();
+            }
+            catch { DropKnobReader(); return null; }
+        }
+    }
+
+    private void DropKnobReader()
+    {
+        try { _knobReader?.Dispose(); } catch { /* best-effort */ }
+        _knobReader = null;
     }
 
     /// <summary>Build the page from current settings and write it. No-op (false) when disconnected.</summary>
@@ -192,9 +242,9 @@ public sealed class KeebSettingsApplier
     {
         if (!readByte || !_hub.IsConnected) return;
         var changed = false;
+        var raw = ReadSettingsOffStream();
         lock (_gate)
         {
-            var raw = _hub.ReadSettings();
             var brightIndex = (OperatingSystem.IsWindows() ? 3 : 2) + 1;
             if (raw is null || raw.Length <= brightIndex) return;
             var pct = KeebSettingsCodec.BrightnessPercentFromByte(raw[brightIndex]);

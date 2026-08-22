@@ -21,21 +21,16 @@ namespace Nexus.Service.Lighting;
 public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
-    // The knob byte is read over HID, and KeebHub serializes reads against the
-    // LED writes on one IO lock - so every poll stalls that tick's frame, and a
-    // stalled frame lets the board resume its own animation over our output.
-    // Camera-measured on the bench, counting visible flashes in 79 frame gaps:
-    // poll every ~1 s -> 14, poll off -> 0. So it is off while a software
-    // effect streams; the knob still drives the firmware animation's brightness
-    // whenever no effect is streaming, which is when that byte is what shows.
-    // NEXUS_KEEB_KNOB_POLL_TICKS re-enables it (ticks between reads) for anyone
-    // who wants the live knob and can accept the flicker.
+    // Knob follow cadence. The read now happens on KeebSettingsApplier's own
+    // HID handle, so it no longer serializes against the LED stream the way the
+    // hub's read did - the stall that showed as flicker on a held Static frame.
+    // NEXUS_KEEB_KNOB_POLL_TICKS overrides it; 0 disables the follow entirely.
     private static readonly int KnobReadEveryTicks = ResolveKnobPollTicks();
 
     private static int ResolveKnobPollTicks()
     {
         var raw = Environment.GetEnvironmentVariable("NEXUS_KEEB_KNOB_POLL_TICKS");
-        return int.TryParse(raw, out var ticks) && ticks >= 0 ? ticks : 0;
+        return int.TryParse(raw, out var ticks) && ticks >= 0 ? ticks : 6;
     }
 
     private readonly LightingEngine _engine;
