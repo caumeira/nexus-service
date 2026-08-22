@@ -172,4 +172,43 @@ public class StaticDeviceEffectTests
         tracker.Clear("a");
         Assert.NotEqual(v1, tracker.Version);
     }
+
+    /// <summary>
+    /// An assignment is what the hardware is meant to show, so it must survive a
+    /// restart. Without this the UI still listed every pick (it keeps its own
+    /// copy) while the devices fell back to the shared canvas on entering
+    /// Static - which is exactly how this surfaced on the bench.
+    /// </summary>
+    [Fact]
+    public void Assignments_are_persisted_and_rehydrated()
+    {
+        var store = new InMemoryConfigStore();
+        var first = new StaticDeviceEffectTracker(store) { Enabled = true };
+        first.Set("keeb:keys", new StaticDeviceAssignment
+        {
+            Effect = "gradientlinear",
+            Colorize = 0.25f,
+            Params = new Dictionary<string, float> { ["u_angle"] = 90f },
+        });
+
+        // A fresh tracker over the same store is the restart.
+        var reborn = new StaticDeviceEffectTracker(store) { Enabled = true };
+        Assert.True(reborn.TryGet("keeb:keys", out var back));
+        Assert.Equal("gradientlinear", back.Effect);
+        Assert.Equal(0.25f, back.Colorize, 3);
+        Assert.NotNull(back.Params);
+        Assert.Equal(90f, back.Params!["u_angle"], 3);
+        Assert.Equal(first.TryGet("keeb:keys", out var orig) ? orig.Key() : "", back.Key());
+    }
+
+    [Fact]
+    public void Clearing_an_assignment_removes_it_from_the_store_too()
+    {
+        var store = new InMemoryConfigStore();
+        var tracker = new StaticDeviceEffectTracker(store) { Enabled = true };
+        tracker.Set("keeb:keys", new StaticDeviceAssignment { Effect = "simplered" });
+        tracker.Clear("keeb:keys");
+        Assert.Empty(store.Load().Lighting.StaticDeviceLooks);
+        Assert.False(new StaticDeviceEffectTracker(store) { Enabled = true }.TryGet("keeb:keys", out _));
+    }
 }

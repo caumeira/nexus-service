@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Lighting;
 
@@ -57,6 +58,30 @@ public sealed class StaticDeviceEffectTracker
 {
     private readonly object _lock = new();
     private readonly Dictionary<string, StaticDeviceAssignment> _assignments = new(StringComparer.Ordinal);
+    private readonly IConfigStore? _store;
+
+    public StaticDeviceEffectTracker(IConfigStore? store = null)
+    {
+        _store = store;
+        // An assignment is what the hardware is meant to show, so it has to
+        // survive a restart: without this the UI still lists every pick (it
+        // keeps its own copy) while the devices fall back to the shared canvas.
+        if (store is null) return;
+        foreach (var (id, look) in store.Load().Lighting.StaticDeviceLooks)
+        {
+            if (string.IsNullOrEmpty(look.Effect)) continue;
+            _assignments[id] = new StaticDeviceAssignment
+            {
+                Effect = look.Effect,
+                Intensity = look.Intensity,
+                Hue = look.Hue,
+                Colorize = look.Colorize,
+                Saturation = look.Saturation,
+                Contrast = look.Contrast,
+                Params = look.Params.Count > 0 ? new Dictionary<string, float>(look.Params) : null,
+            };
+        }
+    }
 
     /// <summary>True while Static owns the output; false in every other mode.</summary>
     public bool Enabled { get; set; }
@@ -68,17 +93,31 @@ public sealed class StaticDeviceEffectTracker
     {
         if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(assignment.Effect)) return;
         lock (_lock) { _assignments[id] = assignment; Version++; }
+        _store?.Update(s => s.Lighting.StaticDeviceLooks[id] = new StaticDeviceLook
+        {
+            Effect = assignment.Effect,
+            Intensity = assignment.Intensity,
+            Hue = assignment.Hue,
+            Colorize = assignment.Colorize,
+            Saturation = assignment.Saturation,
+            Contrast = assignment.Contrast,
+            Params = assignment.Params is null
+                ? new Dictionary<string, float>()
+                : new Dictionary<string, float>(assignment.Params),
+        });
     }
 
     public void Clear(string id)
     {
         if (string.IsNullOrEmpty(id)) return;
         lock (_lock) { if (_assignments.Remove(id)) Version++; }
+        _store?.Update(s => s.Lighting.StaticDeviceLooks.Remove(id));
     }
 
     public void ClearAll()
     {
         lock (_lock) { if (_assignments.Count > 0) { _assignments.Clear(); Version++; } }
+        _store?.Update(s => s.Lighting.StaticDeviceLooks.Clear());
     }
 
     public bool TryGet(string id, out StaticDeviceAssignment assignment)

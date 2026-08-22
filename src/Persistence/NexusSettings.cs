@@ -301,6 +301,19 @@ public sealed class UnitsSettingsPatch
     public string? NumberFormat { get; set; }
 }
 
+/// <summary>One device's Static look: the effect plus the exact tint it was
+/// assigned with. Mirrors Nexus.Service.Lighting.StaticDeviceAssignment.</summary>
+public sealed class StaticDeviceLook
+{
+    public string Effect { get; set; } = "";
+    public float Intensity { get; set; } = 1f;
+    public float Hue { get; set; }
+    public float Colorize { get; set; }
+    public float Saturation { get; set; } = 1f;
+    public float Contrast { get; set; } = 1f;
+    public Dictionary<string, float> Params { get; set; } = new();
+}
+
 public sealed class LightingSettings
 {
     public string Sync { get; set; } = InstallDefaults.Lighting.Sync;
@@ -317,6 +330,13 @@ public sealed class LightingSettings
     public int FrameRate { get; set; } = InstallDefaults.Lighting.FrameRate;
     public double ScaleRatio { get; set; } = InstallDefaults.Lighting.ScaleRatio;
     public Dictionary<string, DeviceLayout> DeviceLayouts { get; set; } = new();
+    /// <summary>
+    /// Per-device Static assignments, keyed by lighting-device id. A device
+    /// listed here wears its own look in Static instead of the shared canvas.
+    /// Persisted so the assignment survives a service restart - it is what the
+    /// hardware is meant to show, not a UI preference.
+    /// </summary>
+    public Dictionary<string, StaticDeviceLook> StaticDeviceLooks { get; set; } = new();
     // Named snapshots of DeviceLayouts. Capped by the route layer.
     public List<LayoutPreset> LayoutPresets { get; set; } = new();
     // Preset the live DeviceLayouts was last loaded from; null = none selected.
