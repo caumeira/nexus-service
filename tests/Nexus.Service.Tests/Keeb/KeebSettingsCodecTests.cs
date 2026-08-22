@@ -128,4 +128,21 @@ public class KeebSettingsCodecTests
             Assert.Equal(pct, KeebSettingsCodec.BrightnessPercentFromByte(page[4]));
         }
     }
+
+    /// <summary>
+    /// The stream-suppression write is the persisted page with only the anim
+    /// byte forced to Static, so stopping the stream restores the user's own
+    /// animation verbatim. Pins the byte the applier overwrites.
+    /// </summary>
+    [Fact]
+    public void Static_is_the_non_animated_anim_byte()
+    {
+        Assert.Equal(0x01, KeebSettingsCodec.AnimationModeByte("static"));
+        Assert.Equal("Static", KeebSettingsCodec.AnimationModeName(0x01));
+        // The modes that repaint on their own, which a frame gap would reveal.
+        foreach (var animated in new[] { "rainbow", "wave", "flow", "pingpong" })
+        {
+            Assert.NotEqual(0x01, KeebSettingsCodec.AnimationModeByte(animated));
+        }
+    }
 }

@@ -112,6 +112,9 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         {
             _wasStreaming = true;
             _applier.ResetKnobBaseline();
+            // Hold the onboard animation on its non-animated mode for the whole
+            // stream, so a frame gap cannot repaint a rainbow over our output.
+            _applier.SuppressFirmwareAnimation();
         }
 
         // Read the knob byte every Nth tick and set global = byte/100 on a change.

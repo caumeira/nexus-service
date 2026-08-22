@@ -65,6 +65,46 @@ public sealed class KeebSettingsApplier
     }
 
     /// <summary>
+    /// Pin the firmware to its non-animated mode for the duration of a software
+    /// stream, WITHOUT touching the persisted desired state.
+    ///
+    /// Streaming suppresses the onboard animation only while frames keep
+    /// arriving. Any gap - a late frame, a settings read stealing the
+    /// interface - lets the firmware repaint one of its own frames, and with
+    /// the knob left on Rainbow/Wave that reads as a coloured flash across
+    /// some or all keys (bench-hit: flicker in Static, never in Animation,
+    /// because a moving host image hides the same interleave). Holding the
+    /// firmware on Static makes a gap invisible instead of colourful.
+    ///
+    /// The persisted mode is untouched, so <see cref="Apply"/> restores the
+    /// user's animation verbatim when streaming stops.
+    /// </summary>
+    public bool SuppressFirmwareAnimation()
+    {
+        if (!_hub.IsConnected) return false;
+        try
+        {
+            var settings = _store.Load().Keeb;
+            var page = KeebSettingsCodec.BuildSettingsPage(settings);
+            page[3] = KeebSettingsCodec.AnimationModeByte("static");
+            lock (_gate)
+            {
+                // The write moves the device's anim byte; re-reference it so the
+                // next SyncFromDevice does not read our own write back as a
+                // user knob turn and persist Static over their choice.
+                var ok = _hub.WriteSettings(page);
+                if (ok) _lastAnimByte = page[3];
+                return ok;
+            }
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Error($"[keeb] suppress firmware animation failed: {ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Re-reference the knob so the next read adopts the byte's current position. The frame
     /// writer calls this when a software effect starts streaming.
     /// </summary>
