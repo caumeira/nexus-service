@@ -94,6 +94,7 @@ public sealed class KeebSettingsApplier
                 // user knob turn and persist Static over their choice.
                 var ok = _hub.WriteSettings(page);
                 if (ok) _lastAnimByte = page[3];
+                ServiceLog.Info($"[keeb] firmware animation pinned to Static for the stream (was {settings.FirmwareLighting.AnimationMode}, ok={ok})");
                 return ok;
             }
         }
