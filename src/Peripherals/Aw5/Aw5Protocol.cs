@@ -58,28 +58,29 @@ public static class Aw5Protocol
     public const int CoolerMasterCycleMs = 2400;
 
     /// <summary>
-    /// Bar-graph notches flanking each CoolerMaster reading. The host sends the count,
-    /// so the scale is ours; the bar reads as roughly six segments on the glass.
-    ///
-    /// The vendor's own frames reach 10 for load and 7 for clock, and its counts fit
-    /// 2 + 2*floor(load/15) exactly across 30 captured frames. Sending that was tried
-    /// and reverted: it lights 4 bars at 15% load, which is plainly too full on a bar
-    /// this size. So the vendor's bytes are not a plain segment count, and the capture
-    /// cannot tell us what they are - only the glass can. Do not "correct" this scale
-    /// to match the capture again without first counting lit segments on hardware.
+    /// Per-bar track lengths, counted on the glass with a driven ladder. The firmware
+    /// clamps a count past the bar's track. The vendor's own notch bytes are not a
+    /// plain segment count (its load values exceed the load track): scale from the
+    /// reading, never copy the capture.
     /// </summary>
-    public const int CoolerMasterMaxNotches = 6;
+    public const int CoolerMasterTempNotches = 12;
+    public const int CoolerMasterClockNotches = 9;
+    public const int CoolerMasterLoadNotches = 6;
 
     /// <summary>
-    /// Segmented arc around the Levelplay rim. The wire byte is a bare notch count
-    /// read from the low nibble (high nibble ignored); counts past the track wrap
-    /// on the firmware rather than clamp, so the host clamps before sending.
+    /// Levelplay notch tracks: the rim arc plus the small load and clock bars, each
+    /// a bare count in its byte's low nibble. The arc wraps past its track rather
+    /// than clamp, so the host clamps before sending; the bars clamp on-device.
     /// </summary>
     public const int LevelplayArcMaxNotches = 12;
+    public const int LevelplayLoadNotches = 6;
+    public const int LevelplayClockNotches = 9;
 
-    /// <summary>Temp-to-notch scale, shared so the two variants' bars cannot drift.</summary>
+    /// <summary>Reading-to-notch scales, shared so the two variants' bars cannot drift.</summary>
     private const int NotchTempFloorC = 20;
     private const int NotchTempCeilC = 90;
+    private const int NotchClockFloorMhz = 800;
+    private const int NotchClockCeilMhz = 5000;
 
     /// <summary>Panel clamps the frequency readout at four digits.</summary>
     private const int CoolerMasterMaxMhz = 9999;
@@ -131,7 +132,8 @@ public static class Aw5Protocol
         // 0x01: the load percentage shown left of the rpm. Two digits, so 100% renders
         // as 99: the panel has no third digit.
         WriteDigits(frames[1], 3, loadPct, 2);
-        frames[1][6] = 0x01;
+        frames[1][6] = Notches(loadPct, 0, 100, LevelplayLoadNotches);
+        // b7: vendor constant, function unknown; sent to match the stream.
         frames[1][7] = 0x01;
 
         // 0x02: no byte of this sub-command changes anything on the glass. Vendor
@@ -143,7 +145,7 @@ public static class Aw5Protocol
         // fan icon: the vendor's own value steps by up to 4200 between consecutive
         // 1.1s cycles and tops out at the part's boost ceiling, which no fan does.
         WriteDigits(frames[3], 2, mhz, 4);
-        frames[3][6] = 0x02;
+        frames[3][6] = Notches(mhz, NotchClockFloorMhz, NotchClockCeilMhz, LevelplayClockNotches);
 
         // 0x04: byte-identical in every captured cycle; commit/refresh.
         frames[4][3] = 0x09;
@@ -172,9 +174,9 @@ public static class Aw5Protocol
         f[4] = (byte)(mhz & 0xFF);
         f[5] = (byte)tempC;
 
-        f[9] = Notches(tempC, NotchTempFloorC, NotchTempCeilC, CoolerMasterMaxNotches);
-        f[10] = Notches(mhz, 800, 5000, CoolerMasterMaxNotches);
-        f[11] = Notches(loadPct, 0, 100, CoolerMasterMaxNotches);
+        f[9] = Notches(tempC, NotchTempFloorC, NotchTempCeilC, CoolerMasterTempNotches);
+        f[10] = Notches(mhz, NotchClockFloorMhz, NotchClockCeilMhz, CoolerMasterClockNotches);
+        f[11] = Notches(loadPct, 0, 100, CoolerMasterLoadNotches);
 
         f[12] = 0xF9;
         return f;

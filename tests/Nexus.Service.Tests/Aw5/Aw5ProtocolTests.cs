@@ -124,21 +124,25 @@ public class Aw5ProtocolTests
         }
     }
 
-    [Fact]
-    public void Levelplay_arc_and_coolermaster_temp_bar_share_floor_and_ceiling()
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(6, 1)]
+    [InlineData(50, 3)]
+    [InlineData(100, 6)]
+    public void Levelplay_load_bar_rides_sub_01_byte_6(int loadPct, int expected)
     {
-        // Both tracks run on one temp scale: the shared ceiling fills both, and the
-        // shared floor lights the first segment of both. Between the endpoints the
-        // fractions can differ by rounding, so only the endpoints are pinned.
-        var arcCeil = Aw5Protocol.BuildLevelplayCycle(tempC: 90, loadPct: 0, mhz: 0)[0][7];
-        var barCeil = Aw5Protocol.BuildCoolerMasterFrame(loadPct: 0, mhz: 0, tempC: 90)[9];
-        Assert.Equal(Aw5Protocol.LevelplayArcMaxNotches, arcCeil);
-        Assert.Equal(Aw5Protocol.CoolerMasterMaxNotches, barCeil);
+        Assert.Equal(expected, Aw5Protocol.BuildLevelplayCycle(tempC: 0, loadPct: loadPct, mhz: 0)[1][6]);
+    }
 
-        var arcFloor = Aw5Protocol.BuildLevelplayCycle(tempC: 20, loadPct: 0, mhz: 0)[0][7];
-        var barFloor = Aw5Protocol.BuildCoolerMasterFrame(loadPct: 0, mhz: 0, tempC: 20)[9];
-        Assert.Equal(1, arcFloor);
-        Assert.Equal(1, barFloor);
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(800, 1)]
+    [InlineData(3500, 6)]
+    [InlineData(5000, 9)]
+    [InlineData(9999, 9)]
+    public void Levelplay_clock_bar_rides_sub_03_byte_6(int mhz, int expected)
+    {
+        Assert.Equal(expected, Aw5Protocol.BuildLevelplayCycle(tempC: 0, loadPct: 0, mhz: mhz)[3][6]);
     }
 
     [Fact]
@@ -257,45 +261,61 @@ public class Aw5ProtocolTests
     [InlineData(100, 0, 100, 6)]
     [InlineData(-20, 0, 100, 0)]
     [InlineData(400, 0, 100, 6)]
-    public void Notches_scale_and_clamp_to_the_panels_six_bars(int value, int min, int max, int expected)
+    public void Notches_scale_and_clamp_to_the_bars_track(int value, int min, int max, int expected)
     {
-        // Bench: a 7 renders as a full bar, so the panel clamps too; overshooting it
-        // is silently indistinguishable from a correct 6.
-        Assert.Equal(expected, Aw5Protocol.Notches(value, min, max, Aw5Protocol.CoolerMasterMaxNotches));
+        Assert.Equal(expected, Aw5Protocol.Notches(value, min, max, Aw5Protocol.CoolerMasterLoadNotches));
     }
 
     [Theory]
-    [InlineData(0, 0)]      // no reading at all: the only case that empties the bar
+    [InlineData(0, 0)]      // empty means "no reading", not "low reading"
     [InlineData(1, 1)]
     [InlineData(15, 1)]
     [InlineData(50, 3)]
     [InlineData(100, 6)]
     public void Notches_keep_one_segment_lit_for_any_non_zero_reading(int loadPct, int expected)
     {
-        // A running CPU idling under the first step must not render an empty bar:
-        // empty has to mean "no reading", not "low reading".
-        Assert.Equal(expected, Aw5Protocol.Notches(loadPct, 0, 100, Aw5Protocol.CoolerMasterMaxNotches));
+        Assert.Equal(expected, Aw5Protocol.Notches(loadPct, 0, 100, Aw5Protocol.CoolerMasterLoadNotches));
     }
 
     [Fact]
-    public void Notches_stay_linear_and_shared_across_all_three_readings()
+    public void CoolerMaster_bars_fill_their_own_tracks()
     {
-        // One scale, three ranges: the same helper drives temp, clock and load so a
-        // change to the curve cannot drift between them.
-        Assert.Equal(1, Aw5Protocol.Notches(20, 20, 90, Aw5Protocol.CoolerMasterMaxNotches));    // temp floor
-        Assert.Equal(6, Aw5Protocol.Notches(90, 20, 90, Aw5Protocol.CoolerMasterMaxNotches));    // temp ceiling
-        Assert.Equal(1, Aw5Protocol.Notches(800, 800, 5000, Aw5Protocol.CoolerMasterMaxNotches));
-        Assert.Equal(6, Aw5Protocol.Notches(5000, 800, 5000, Aw5Protocol.CoolerMasterMaxNotches));
-        Assert.Equal(3, Aw5Protocol.Notches(50, 0, 100, Aw5Protocol.CoolerMasterMaxNotches));    // midpoint
+        // Per-bar track lengths counted on the glass: temp, clock and load differ.
+        var f = Aw5Protocol.BuildCoolerMasterFrame(loadPct: 100, mhz: 5000, tempC: 90);
+
+        Assert.Equal(Aw5Protocol.CoolerMasterTempNotches, f[9]);
+        Assert.Equal(Aw5Protocol.CoolerMasterClockNotches, f[10]);
+        Assert.Equal(Aw5Protocol.CoolerMasterLoadNotches, f[11]);
+    }
+
+    [Theory]
+    [InlineData(800, 1)]
+    [InlineData(3000, 5)]
+    [InlineData(5000, 9)]
+    public void CoolerMaster_clock_bar_scales_across_its_track(int mhz, int expected)
+    {
+        Assert.Equal(expected, Aw5Protocol.BuildCoolerMasterFrame(loadPct: 0, mhz: mhz, tempC: 0)[10]);
     }
 
     [Fact]
-    public void CoolerMaster_notches_never_exceed_the_panel_range()
+    public void CoolerMaster_notches_never_exceed_each_bars_track()
     {
         var f = Aw5Protocol.BuildCoolerMasterFrame(loadPct: 100, mhz: 9999, tempC: 255);
 
-        Assert.InRange(f[9], 0, Aw5Protocol.CoolerMasterMaxNotches);
-        Assert.InRange(f[10], 0, Aw5Protocol.CoolerMasterMaxNotches);
-        Assert.InRange(f[11], 0, Aw5Protocol.CoolerMasterMaxNotches);
+        Assert.InRange(f[9], 0, Aw5Protocol.CoolerMasterTempNotches);
+        Assert.InRange(f[10], 0, Aw5Protocol.CoolerMasterClockNotches);
+        Assert.InRange(f[11], 0, Aw5Protocol.CoolerMasterLoadNotches);
+    }
+
+    [Fact]
+    public void CoolerMaster_temp_bar_matches_the_levelplay_arc_at_every_temp()
+    {
+        // Same scale, same track length: the two panels must always agree.
+        for (var t = 0; t <= 120; t++)
+        {
+            var bar = Aw5Protocol.BuildCoolerMasterFrame(loadPct: 0, mhz: 0, tempC: t)[9];
+            var arc = Aw5Protocol.BuildLevelplayCycle(tempC: t, loadPct: 0, mhz: 0)[0][7];
+            Assert.Equal(bar, arc);
+        }
     }
 }

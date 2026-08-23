@@ -32,6 +32,9 @@ internal sealed class FleetEventService
     // Not persisted: last consent-transition type PostHog was attempted for; a retry of the same type skips it, a new type gets its own attempt.
     private string? _postHogConsentAttemptedFor;
 
+    // Not persisted: specs are read once per process, at boot. Later hourly passes only re-attempt a delivery that has never landed, so a mid-session hardware change waits for the next start.
+    private bool _specsEvaluated;
+
     public FleetEventService(
         IConfigStore store,
         IFleetEventTransport transport,
@@ -58,7 +61,7 @@ internal sealed class FleetEventService
         _clock = clock;
     }
 
-    /// <summary>One retry pass: consent event first regardless of consent state (the opt-out exception), then install/specs only while opted in.</summary>
+    /// <summary>One retry pass: consent event first regardless of consent state (the opt-out exception), then install only while opted in; specs are evaluated on the boot pass and afterwards only until one lands.</summary>
     public async Task RunPendingRetriesAsync(CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
@@ -74,7 +77,11 @@ internal sealed class FleetEventService
             if (!_store.Load().Telemetry.FleetInstallDelivered)
                 await DeliverInstallAsync(ct).ConfigureAwait(false);
 
-            await MaybeDeliverSpecsAsync(ct).ConfigureAwait(false);
+            if (!_specsEvaluated || _store.Load().Telemetry.FleetSpecsHash.Length == 0)
+            {
+                _specsEvaluated = true;
+                await MaybeDeliverSpecsAsync(ct).ConfigureAwait(false);
+            }
         }
         finally
         {
