@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Devices.Detection;
 using Nexus.Service.Persistence;
 using Nexus.Service.Sensors;
 
@@ -23,6 +24,7 @@ internal sealed class FleetEventService
     private readonly ITelemetry _telemetry;
     private readonly IReadOnlyList<ITelemetrySink> _sinks;
     private readonly SystemSpecsCollector _specs;
+    private readonly IUsbEnumerator _usb;
     private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -40,8 +42,9 @@ internal sealed class FleetEventService
         IFleetEventTransport transport,
         ITelemetry telemetry,
         IEnumerable<ITelemetrySink> sinks,
-        SystemSpecsCollector specs)
-        : this(store, transport, telemetry, sinks, specs, TimeProvider.System)
+        SystemSpecsCollector specs,
+        IUsbEnumerator usb)
+        : this(store, transport, telemetry, sinks, specs, usb, TimeProvider.System)
     {
     }
 
@@ -51,6 +54,7 @@ internal sealed class FleetEventService
         ITelemetry telemetry,
         IEnumerable<ITelemetrySink> sinks,
         SystemSpecsCollector specs,
+        IUsbEnumerator usb,
         TimeProvider clock)
     {
         _store = store;
@@ -58,6 +62,7 @@ internal sealed class FleetEventService
         _telemetry = telemetry;
         _sinks = sinks.Where(s => s.Enabled).ToArray();
         _specs = specs;
+        _usb = usb;
         _clock = clock;
     }
 
@@ -209,7 +214,10 @@ internal sealed class FleetEventService
             " + ", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var ramBytes = SystemProfileService.ParseRamGb(specs.Memory) is int gb ? (long)gb * 1024 * 1024 * 1024 : 0;
 
-        var hash = ComputeSpecsHash(specs.Processor, gpu, ramBytes, specs.Motherboard);
+        var devices = FleetDeviceCollector.Collect(_usb.Enumerate());
+        // Devices ride the hash too, so plugging in a keyboard re-sends at the
+        // next boot rather than waiting for a CPU or GPU change.
+        var hash = ComputeSpecsHash(specs.Processor, gpu, ramBytes, specs.Motherboard, devices);
         if (hash == _store.Load().Telemetry.FleetSpecsHash)
             return; // unchanged since the last successful send.
 
@@ -220,6 +228,7 @@ internal sealed class FleetEventService
             Gpu = gpu,
             RamBytes = ramBytes,
             Motherboard = specs.Motherboard,
+            Devices = devices,
         };
 
         if (!await _transport.SendAsync(payload, ct).ConfigureAwait(false))
@@ -242,9 +251,13 @@ internal sealed class FleetEventService
     };
 
     // Unit-separator delimiter stops a field containing it from colliding two summaries into one hash.
-    internal static string ComputeSpecsHash(string cpu, IReadOnlyList<string> gpu, long ramBytes, string motherboard)
+    internal static string ComputeSpecsHash(string cpu, IReadOnlyList<string> gpu, long ramBytes, string motherboard,
+        IReadOnlyList<FleetEventDevice>? devices = null)
     {
-        var input = string.Join((char)0x1F, cpu, string.Join((char)0x1F, gpu), ramBytes.ToString(), motherboard);
+        var deviceIds = devices is null
+            ? ""
+            : string.Join(',', devices.Select(d => $"{d.Vid:x4}:{d.Pid:x4}"));
+        var input = string.Join((char)0x1F, cpu, string.Join((char)0x1F, gpu), ramBytes.ToString(), motherboard, deviceIds);
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(bytes);
     }

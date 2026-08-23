@@ -413,6 +413,23 @@ public static class PanelRoutes
             else if (string.Equals(surface, PanelSurfaces.Q60, StringComparison.Ordinal))
             {
                 RestoreQSeriesDisplayDefaults(store, sp);
+                // The Q60 carries an AIO cooler, so its hardware settings include
+                // the cooler's own firmware: turbo, the pump/fan curves, and the
+                // LED animation. A serial failure must not sink the display half
+                // that already landed, so it is logged rather than thrown.
+                var cooler = sp.GetService<Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub>();
+                if (cooler is not null)
+                {
+                    bool coolerOk;
+                    try { coolerOk = cooler.ResetFirmwareToDefaults(); }
+                    catch (Exception ex)
+                    {
+                        coolerOk = false;
+                        ServiceLog.Warn($"[panel] reset-hardware: cooler firmware reset threw: {ex.GetType().Name}: {ex.Message}");
+                    }
+                    if (!coolerOk)
+                        ServiceLog.Warn("[panel] reset-hardware: cooler firmware reset did not fully apply");
+                }
             }
             else if (string.Equals(family, KnownPanelDisplays.XeneonEdgeFamily, StringComparison.Ordinal)
                 && record.DisplayId is { Length: > 0 } displayId)

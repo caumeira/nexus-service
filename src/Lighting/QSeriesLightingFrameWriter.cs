@@ -32,6 +32,12 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private QColor[]? _buffer;
+    // True once the LEDs have been handed back to the firmware; latches the
+    // release so it costs one write on the transition, not one per 30 Hz tick.
+    private bool _releasedToFirmware;
+    // Device id the release was latched against; a reconnect clears the latch so a
+    // cooler that came back in software control is released again.
+    private string _releasedForDeviceId = "";
 
     public QSeriesLightingFrameWriter(LightingEngine engine, QSeriesCoolerHub hub, IConfigStore store, Np50IdentifyTracker identify)
     {
@@ -79,7 +85,20 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
 
         var settings = _store.Load();
         var id = _hub.DeviceId;
-        if (settings.Devices.UncontrolledLightingDevices.Contains(id)) return;
+        if (settings.Devices.UncontrolledLightingDevices.Contains(id))
+        {
+            // Uncontrolled means the firmware owns the LEDs. Merely not pushing
+            // leaves the cooler in software RGB control on its last frame, which
+            // suppresses the standalone animation the setting exists to restore.
+            if (!string.Equals(_releasedForDeviceId, id, StringComparison.Ordinal)) _releasedToFirmware = false;
+            if (!_releasedToFirmware && _hub.ReleaseRgbControlToFirmware())
+            {
+                _releasedToFirmware = true;
+                _releasedForDeviceId = id;
+            }
+            return;
+        }
+        _releasedToFirmware = false;
 
         var devices = _engine.Devices;
         DeviceFrame? frame = null;

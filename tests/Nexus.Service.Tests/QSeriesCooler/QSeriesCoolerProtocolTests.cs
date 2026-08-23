@@ -524,4 +524,47 @@ public class QSeriesCoolerProtocolTests
     {
         Assert.Equal(expected, QSeriesCoolerProtocol.CapFanDutyForTurbo(duty, turbo));
     }
+
+    // ── Firmware animation live-apply frame (NEX-62) ──
+
+    [Fact]
+    public void BuildSetControlWithAnimation_carries_the_new_animation_in_bytes_10_to_14()
+    {
+        var frame = QSeriesCoolerProtocol.BuildSetControlWithAnimation(
+            QSeriesCoolerProtocol.ControlModeSoftware, pumpWire: 42,
+            QSeriesCoolerProtocol.TurboOffByte,
+            QSeriesCoolerProtocol.FwAnimationBreathe, 5, 6, 7, 25);
+
+        Assert.Equal(QSeriesCoolerProtocol.SetControlFrameLength, frame.Length);
+        Assert.Equal(0xFF, frame[0]);
+        Assert.Equal(0xCC, frame[1]);
+        Assert.Equal(0x02, frame[2]);
+        Assert.Equal(QSeriesCoolerProtocol.ControlModeSoftware, frame[4]);
+        Assert.Equal(42, frame[5]);
+        Assert.Equal(QSeriesCoolerProtocol.TurboOffByte, frame[9]);
+        Assert.Equal(QSeriesCoolerProtocol.FwAnimationBreathe, frame[10]);
+        Assert.Equal(5, frame[11]);
+        Assert.Equal(6, frame[12]);
+        Assert.Equal(7, frame[13]);
+        Assert.Equal(25, frame[14]);
+    }
+
+    /// <summary>The animation-carrying frame differs from the echoing one only in [10..14].</summary>
+    [Fact]
+    public void BuildSetControlWithAnimation_matches_BuildSetControl_outside_the_animation_bytes()
+    {
+        var port0 = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+        port0[0] = 0xFF; port0[1] = 0xCC;
+        port0[15] = 9; port0[16] = 9; port0[17] = 9; port0[18] = 9; port0[19] = 9;
+
+        var echoed = QSeriesCoolerProtocol.BuildSetControl(1, 42, QSeriesCoolerProtocol.TurboOffByte, port0);
+        var carried = QSeriesCoolerProtocol.BuildSetControlWithAnimation(
+            1, 42, QSeriesCoolerProtocol.TurboOffByte, 2, 3, 4, 5, 6);
+
+        for (var i = 0; i < QSeriesCoolerProtocol.SetControlFrameLength; i++)
+        {
+            if (i >= 10 && i <= 14) continue;
+            Assert.Equal(echoed[i], carried[i]);
+        }
+    }
 }

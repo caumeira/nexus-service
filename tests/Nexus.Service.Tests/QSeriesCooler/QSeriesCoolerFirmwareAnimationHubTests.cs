@@ -11,7 +11,7 @@ namespace Nexus.Service.Tests.QSeriesCooler;
 /// <see cref="QSeriesCoolerHub.SetFirmwareAnimation"/> against a scripted Port-0
 /// transport - the ROM-write skip, the write + readback-verify path, and the
 /// not-connected precondition. The mismatch path asserts observable hub behaviour
-/// (still one write, still returns true); the warning it logs is not asserted -
+/// (still one write, now returns false); the warning it logs is not asserted -
 /// ServiceLog is a process-global tee unsuited to per-test capture.
 /// </summary>
 public class QSeriesCoolerFirmwareAnimationHubTests
@@ -100,8 +100,10 @@ public class QSeriesCoolerFirmwareAnimationHubTests
     }
 
     [Fact]
-    public void SetFirmwareAnimation_still_reports_success_when_the_readback_disagrees()
+    public void SetFirmwareAnimation_reports_failure_when_the_readback_disagrees()
     {
+        // Reporting a verified-failed write as success is what let the UI show
+        // "saved" over unchanged hardware (NEX-62).
         var hub = NewConnectedHub(out var t);
         t.Port0Responses.Enqueue(BuildPort0WithAnimation(QSeriesCoolerProtocol.FwAnimationColor, 0, 0, 0, 0));
         // Readback reports something other than what was written (firmware did not take it).
@@ -109,8 +111,36 @@ public class QSeriesCoolerFirmwareAnimationHubTests
 
         var ok = hub.SetFirmwareAnimation(QSeriesCoolerProtocol.FwAnimationBreathe, 5, 6, 7, 25);
 
-        Assert.True(ok);
+        Assert.False(ok);
         Assert.Single(t.Writes, w => w.Length > 2 && w[1] == 0xCC && w[2] == 0x0C);
+    }
+
+    [Fact]
+    public void SetFirmwareAnimation_applies_the_animation_live_before_persisting_it()
+    {
+        // The 0x0C MCU write only updates the stored copy; the FF CC 02 control
+        // frame is what changes the live hub state Port-0 reports. HYTE's
+        // SmartHubCommandBase sends the control frame first from every animation
+        // entry point, and omitting it is why a save reverted on the device.
+        var hub = NewConnectedHub(out var t);
+        t.Port0Responses.Enqueue(BuildPort0WithAnimation(QSeriesCoolerProtocol.FwAnimationColor, 0, 0, 0, 0));
+        t.Port0Responses.Enqueue(BuildPort0WithAnimation(QSeriesCoolerProtocol.FwAnimationBreathe, 5, 6, 7, 25));
+
+        Assert.True(hub.SetFirmwareAnimation(QSeriesCoolerProtocol.FwAnimationBreathe, 5, 6, 7, 25));
+
+        var control = t.Writes.Where(w => w.Length == QSeriesCoolerProtocol.SetControlFrameLength
+            && w[1] == 0xCC && w[2] == 0x02).ToList();
+        var mcu = t.Writes.Where(w => w.Length > 2 && w[1] == 0xCC && w[2] == 0x0C).ToList();
+        Assert.Single(control);
+        Assert.Single(mcu);
+        // The control frame carries the NEW animation, not Port-0's current one.
+        Assert.Equal(QSeriesCoolerProtocol.FwAnimationBreathe, control[0][10]);
+        Assert.Equal(5, control[0][11]);
+        Assert.Equal(6, control[0][12]);
+        Assert.Equal(7, control[0][13]);
+        Assert.Equal(25, control[0][14]);
+        // Live apply must precede the persist, matching the reference ordering.
+        Assert.True(t.Writes.IndexOf(control[0]) < t.Writes.IndexOf(mcu[0]));
     }
 
     [Fact]
@@ -123,6 +153,59 @@ public class QSeriesCoolerFirmwareAnimationHubTests
         hub.SetFirmwareAnimation(QSeriesCoolerProtocol.FwAnimationRainbow, 9, 9, 9, 9);
 
         Assert.Equal(1, t.Writes.Count(w => w.Length > 2 && w[1] == 0xCC && w[2] == 0x0C));
+    }
+
+    [Fact]
+    public void SetFirmwareAnimation_ignores_brightness_on_firmware_without_it()
+    {
+        // Firmware below the brightness gate always reads back 0 there, so
+        // comparing it would fail every write on those revisions - including the
+        // factory reset, which always sends 100.
+        var t = new ScriptedTransport();
+        var discovery = new FakeDiscovery(new QSeriesCoolerPort
+        {
+            PortName = "COM_TEST", Serial = "QTEST123", Variant = QSeriesCoolerProtocol.VariantQ60,
+        });
+        var hub = new QSeriesCoolerHub(discovery, _ => t);
+        // Supports the animation, predates the brightness field.
+        hub.State.FirmwareVersion = "2.0.1.1";
+        t.Port0Responses.Enqueue(BuildPort0WithAnimation(QSeriesCoolerProtocol.FwAnimationColor, 0, 0, 0, 0));
+        t.Port0Responses.Enqueue(BuildPort0WithAnimation(QSeriesCoolerProtocol.FwAnimationBreathe, 5, 6, 7, 0));
+
+        Assert.True(hub.SetFirmwareAnimation(QSeriesCoolerProtocol.FwAnimationBreathe, 5, 6, 7, 100));
+    }
+
+    [Fact]
+    public void ResetFirmwareToDefaults_leaves_turbo_alone_when_it_is_already_off()
+    {
+        // Turbo has no write-skip and re-persists to the MCU (FF CC 0A) every
+        // call, so a reset must not spend that write when Port-0 says it is off.
+        var hub = NewConnectedHub(out var t);
+        for (var i = 0; i < 6; i++)
+        {
+            var port0 = BuildPort0WithAnimation(
+                QSeriesCoolerProtocol.DefaultFwAnimation, QSeriesCoolerProtocol.DefaultFwR,
+                QSeriesCoolerProtocol.DefaultFwG, QSeriesCoolerProtocol.DefaultFwB,
+                QSeriesCoolerProtocol.DefaultFwBrightness);
+            // Port-0 [14] is inverted: 0x00 is turbo ON, so "off" has to be set.
+            port0[14] = QSeriesCoolerProtocol.TurboOffByte;
+            t.Port0Responses.Enqueue(port0);
+        }
+
+        hub.ResetFirmwareToDefaults();
+
+        Assert.DoesNotContain(t.Writes, w => w.Length > 2 && w[1] == 0xCC && w[2] == 0x0A);
+    }
+
+    [Fact]
+    public void ReleaseRgbControlToFirmware_writes_the_motherboard_mode()
+    {
+        var hub = NewConnectedHub(out var t);
+
+        Assert.True(hub.ReleaseRgbControlToFirmware());
+
+        Assert.Contains(t.Writes, w => w.Length == 4 && w[0] == 0xFF && w[1] == 0xDD
+            && w[2] == 0x03 && w[3] == QSeriesCoolerProtocol.RgbModeMotherboard);
     }
 
     [Fact]
