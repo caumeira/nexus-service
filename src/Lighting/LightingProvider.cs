@@ -62,6 +62,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     {
         _store = store;
         _engine = engine;
+        // The engine renders per-device Static assignments but must not know how
+        // to build a shader; hand it the same builder StartStatic uses.
+        _engine.StaticEffectFactory = a => BuildAnimateEffect(
+            a.Effect, 0f, a.Intensity, a.Hue, a.Colorize, a.Saturation, a.Contrast,
+            a.Params is null ? null : new System.Collections.Generic.Dictionary<string, float>(a.Params));
         _hub = hub;
         _rgb = rgb;
         _gpu = gpu;
@@ -97,7 +102,14 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// bridge is null on platforms without an OpenRGB binary (macOS / Linux),
     /// in which case the call is a no-op.
     /// </summary>
-    private void EnsureRgbActive() => _rgb?.Activate();
+    // Every mode start routes through here, so clearing the Static ownership
+    // flag in one place means a new mode can never inherit per-device colours;
+    // StartStatic re-asserts it immediately after.
+    private void EnsureRgbActive()
+    {
+        if (_engine.StaticEffects is not null) _engine.StaticEffects.Enabled = false;
+        _rgb?.Activate();
+    }
 
     // A running effect reports itself, except in Static: there the engine name is
     // the catalog shader driving the held frame, while the mode is what callers
@@ -319,6 +331,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     public void StartStatic(StaticHeadlessStart body)
     {
         EnsureRgbActive();
+        if (_engine.StaticEffects is not null) _engine.StaticEffects.Enabled = true;
         var name = (body.Effect ?? "").ToLowerInvariant();
         if (!StaticEffectCatalog.Contains(name))
         {

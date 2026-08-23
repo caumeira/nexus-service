@@ -344,6 +344,11 @@ public sealed class RealKeebProvider : IKeebProvider
             s.Keeb.FirmwareLighting.Speed = body.Speed;
             s.Keeb.FirmwareLighting.Direction = body.Direction;
             s.Keeb.FirmwareLighting.Brightness = brightness;
+            // The stream is capped by master brightness, so the slider has to
+            // move that too or it does nothing while an effect is running. This
+            // used to arrive indirectly, via a poll that read the byte back off
+            // the device; that poll stalled LED frames and is gone.
+            if (streaming) s.Lighting.GlobalBrightness = brightness / 100f;
         }, writeDevice: !streaming);
     }
 
