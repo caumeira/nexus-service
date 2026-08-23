@@ -13,6 +13,12 @@ namespace Nexus.Service.Lighting;
 public sealed class StaticDeviceAssignment
 {
     public string Effect { get; init; } = "";
+    /// <summary>
+    /// A flat colour, "#rrggbb". Palette picks carry no shader and no controls,
+    /// so the engine paints this straight onto the device and every field below
+    /// is inert. Empty means the look is the effect above.
+    /// </summary>
+    public string Color { get; init; } = "";
     public float Intensity { get; init; } = 1f;
     public float Hue { get; init; }
     public float Colorize { get; init; }
@@ -27,6 +33,7 @@ public sealed class StaticDeviceAssignment
     public string Key()
     {
         var sb = new System.Text.StringBuilder(Effect);
+        sb.Append('|').Append(Color);
         sb.Append('|').Append(Intensity.ToString("R")).Append('|').Append(Hue.ToString("R"))
           .Append('|').Append(Colorize.ToString("R")).Append('|').Append(Saturation.ToString("R"))
           .Append('|').Append(Contrast.ToString("R"));
@@ -93,6 +100,7 @@ public sealed class StaticDeviceEffectTracker
             rebuilt[id] = new StaticDeviceAssignment
             {
                 Effect = look.Effect,
+                Color = look.Color ?? "",
                 Intensity = look.Intensity,
                 Hue = look.Hue,
                 Colorize = look.Colorize,
@@ -135,6 +143,7 @@ public sealed class StaticDeviceEffectTracker
         _store?.Update(s => s.Lighting.StaticDeviceLooks[id] = new StaticDeviceLook
         {
             Effect = assignment.Effect,
+            Color = assignment.Color,
             Intensity = assignment.Intensity,
             Hue = assignment.Hue,
             Colorize = assignment.Colorize,
@@ -168,5 +177,25 @@ public sealed class StaticDeviceEffectTracker
     public bool Any
     {
         get { if (!Enabled) return false; lock (_lock) return _assignments.Count > 0; }
+    }
+}
+
+/// <summary>
+/// "#rrggbb" (or "rrggbb") to bytes. Palette picks travel as hex because that
+/// is what the swatch is; anything unparseable falls back to the shader path.
+/// </summary>
+public static class StaticColorHex
+{
+    public static bool TryParse(string? hex, out byte r, out byte g, out byte b)
+    {
+        r = g = b = 0;
+        if (string.IsNullOrEmpty(hex)) return false;
+        var span = hex.AsSpan();
+        if (span[0] == '#') span = span[1..];
+        if (span.Length != 6) return false;
+        if (!byte.TryParse(span[..2], System.Globalization.NumberStyles.HexNumber, null, out r)) return false;
+        if (!byte.TryParse(span.Slice(2, 2), System.Globalization.NumberStyles.HexNumber, null, out g)) return false;
+        if (!byte.TryParse(span.Slice(4, 2), System.Globalization.NumberStyles.HexNumber, null, out b)) return false;
+        return true;
     }
 }

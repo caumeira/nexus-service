@@ -264,4 +264,75 @@ public class StaticDeviceEffectTests
         // One bump for the write itself, and no extra from the re-entrant hydrate.
         Assert.Equal(settled + 1, tracker.Version);
     }
+
+    /// <summary>
+    /// A palette pick is a colour, not an effect: it must reach the LEDs with
+    /// no factory involved at all, so a box with no GPU still wears it.
+    /// </summary>
+    [Fact]
+    public async Task A_palette_colour_paints_without_rendering_an_effect()
+    {
+        var tracker = new StaticDeviceEffectTracker { Enabled = true };
+        tracker.Set("keeb:keys", new StaticDeviceAssignment { Effect = "flat", Color = "#ff8000" });
+        var leds = await RenderOnce(MakeDevice(), tracker, _ => throw new InvalidOperationException("must not render"));
+        Assert.Equal(255, leds[0]);
+        Assert.Equal(0x80, leds[1]);
+        Assert.Equal(0, leds[2]);
+        // Every LED, not just the first: a colour has no gradient to sample.
+        Assert.Equal(255, leds[12]);
+        Assert.Equal(0x80, leds[13]);
+    }
+
+    [Fact]
+    public async Task An_unparseable_colour_falls_back_to_the_effect_path()
+    {
+        var tracker = new StaticDeviceEffectTracker { Enabled = true };
+        tracker.Set("keeb:keys", new StaticDeviceAssignment { Effect = "red", Color = "not-a-colour" });
+        var leds = await RenderOnce(MakeDevice(), tracker, _ => new FillEffect(255, 0, 0));
+        Assert.Equal(255, leds[0]);
+        Assert.Equal(0, leds[1]);
+    }
+
+    [Fact]
+    public void A_palette_colour_survives_a_restart()
+    {
+        var store = new InMemoryConfigStore();
+        var first = new StaticDeviceEffectTracker(store) { Enabled = true };
+        first.Set("keeb:keys", new StaticDeviceAssignment { Effect = "flat", Color = "#00ff7f" });
+
+        var reborn = new StaticDeviceEffectTracker(store) { Enabled = true };
+        Assert.True(reborn.TryGet("keeb:keys", out var back));
+        Assert.Equal("#00ff7f", back.Color);
+        Assert.Equal(first.TryGet("keeb:keys", out var orig) ? orig.Key() : "", back.Key());
+    }
+
+    [Fact]
+    public void Two_colours_of_the_same_effect_are_different_looks()
+    {
+        var a = new StaticDeviceAssignment { Effect = "flat", Color = "#ff0000" };
+        var b = new StaticDeviceAssignment { Effect = "flat", Color = "#00ff00" };
+        Assert.NotEqual(a.Key(), b.Key());
+    }
+
+    [Theory]
+    [InlineData("#ff8000", 255, 128, 0)]
+    [InlineData("ff8000", 255, 128, 0)]
+    [InlineData("#000000", 0, 0, 0)]
+    public void Hex_parses(string hex, int r, int g, int b)
+    {
+        Assert.True(StaticColorHex.TryParse(hex, out var pr, out var pg, out var pb));
+        Assert.Equal(r, pr);
+        Assert.Equal(g, pg);
+        Assert.Equal(b, pb);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("#fff")]
+    [InlineData("#gggggg")]
+    [InlineData("#ff80000")]
+    public void Bad_hex_is_rejected(string hex)
+    {
+        Assert.False(StaticColorHex.TryParse(hex, out _, out _, out _));
+    }
 }

@@ -448,6 +448,7 @@ public static partial class DevicesRoutes
                 staticEffects.Set(body.Id, new Nexus.Service.Lighting.StaticDeviceAssignment
                 {
                     Effect = body.Effect,
+                    Color = body.Color ?? "",
                     Intensity = body.Intensity <= 0 ? 1f : body.Intensity,
                     Hue = body.Hue,
                     Colorize = body.Colorize,

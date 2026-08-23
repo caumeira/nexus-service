@@ -249,6 +249,9 @@ public class SetLightingDeviceColor
     // returns it to the shared canvas; older clients that send only hue/sat
     // still land on the preference write.
     public string Effect { get; set; } = "";
+    // A flat palette pick carries its colour outright and needs nothing else -
+    // no shader, no params. When set it wins over every field below it.
+    public string Color { get; set; } = "";
     public float Intensity { get; set; } = 1f;
     public float Colorize { get; set; }
     public float Contrast { get; set; } = 1f;

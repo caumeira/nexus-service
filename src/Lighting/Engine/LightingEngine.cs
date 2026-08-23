@@ -472,6 +472,13 @@ public sealed class LightingEngine : IDisposable
                 && dev.TestPattern is null
                 && StaticEffects.TryGet(dev.Id, out var assignment))
             {
+                // A palette pick is a colour, not an effect: nothing to render,
+                // nothing to sample, no canvas. Paint it and move on.
+                if (Nexus.Service.Lighting.StaticColorHex.TryParse(assignment.Color, out var cr, out var cg, out var cb))
+                {
+                    for (int i = 0; i < previewCount; i++) dev.SetLed(i, cr, cg, cb);
+                    continue;
+                }
                 var render = RenderAssignment(assignment);
                 if (render is not null)
                 {

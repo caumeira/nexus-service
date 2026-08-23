@@ -306,6 +306,9 @@ public sealed class UnitsSettingsPatch
 public sealed class StaticDeviceLook
 {
     public string Effect { get; set; } = "";
+    /// <summary>Flat palette pick, "#rrggbb". Set means the look is that colour
+    /// and every field below is inert.</summary>
+    public string Color { get; set; } = "";
     public float Intensity { get; set; } = 1f;
     public float Hue { get; set; }
     public float Colorize { get; set; }
