@@ -58,17 +58,14 @@ public static class Aw5Protocol
     public const int CoolerMasterCycleMs = 2400;
 
     /// <summary>
-    /// Bar-graph notches flanking each CoolerMaster reading. The host sends the count,
-    /// so the scale is ours; the bar reads as roughly six segments on the glass.
-    ///
-    /// The vendor's own frames reach 10 for load and 7 for clock, and its counts fit
-    /// 2 + 2*floor(load/15) exactly across 30 captured frames. Sending that was tried
-    /// and reverted: it lights 4 bars at 15% load, which is plainly too full on a bar
-    /// this size. So the vendor's bytes are not a plain segment count, and the capture
-    /// cannot tell us what they are - only the glass can. Do not "correct" this scale
-    /// to match the capture again without first counting lit segments on hardware.
+    /// Per-bar track lengths, counted on the glass with a driven ladder. The firmware
+    /// clamps a count past the bar's track. The vendor's own notch bytes are not a
+    /// plain segment count (its load values exceed the load track): scale from the
+    /// reading, never copy the capture.
     /// </summary>
-    public const int CoolerMasterMaxNotches = 6;
+    public const int CoolerMasterTempNotches = 12;
+    public const int CoolerMasterClockNotches = 9;
+    public const int CoolerMasterLoadNotches = 6;
 
     /// <summary>
     /// Segmented arc around the Levelplay rim. The wire byte is a bare notch count
@@ -172,9 +169,9 @@ public static class Aw5Protocol
         f[4] = (byte)(mhz & 0xFF);
         f[5] = (byte)tempC;
 
-        f[9] = Notches(tempC, NotchTempFloorC, NotchTempCeilC, CoolerMasterMaxNotches);
-        f[10] = Notches(mhz, 800, 5000, CoolerMasterMaxNotches);
-        f[11] = Notches(loadPct, 0, 100, CoolerMasterMaxNotches);
+        f[9] = Notches(tempC, NotchTempFloorC, NotchTempCeilC, CoolerMasterTempNotches);
+        f[10] = Notches(mhz, 800, 5000, CoolerMasterClockNotches);
+        f[11] = Notches(loadPct, 0, 100, CoolerMasterLoadNotches);
 
         f[12] = 0xF9;
         return f;
