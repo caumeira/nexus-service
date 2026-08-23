@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Devices;
+using Nexus.Service.Devices.Detection;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Persistence;
 using Nexus.Service.Sensors;
@@ -74,10 +76,17 @@ public class FleetEventServiceTests
         ITelemetry? telemetry = null,
         IEnumerable<ITelemetrySink>? sinks = null,
         StubSensors? sensors = null,
-        TimeProvider? clock = null) =>
+        TimeProvider? clock = null,
+        IUsbEnumerator? usb = null) =>
         new(store, transport, telemetry ?? new TelemetryClient(store),
             sinks ?? Array.Empty<ITelemetrySink>(), new SystemSpecsCollector(sensors ?? new StubSensors()),
-            clock ?? TimeProvider.System);
+            usb ?? new StubUsbEnumerator(), clock ?? TimeProvider.System);
+
+    private sealed class StubUsbEnumerator : IUsbEnumerator
+    {
+        public List<UsbDeviceEntry> Entries { get; init; } = new();
+        public List<UsbDeviceEntry> Enumerate() => Entries;
+    }
 
     private static InMemoryConfigStore OptedInStore(bool installDelivered = true)
     {

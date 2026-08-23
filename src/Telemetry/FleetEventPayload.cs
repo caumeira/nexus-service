@@ -24,4 +24,20 @@ public sealed class FleetEventSpecs
     public string[] Gpu { get; set; } = System.Array.Empty<string>();
     public long RamBytes { get; set; }
     public string Motherboard { get; set; } = "";
+
+    /// <summary>Attached USB peripherals; nexus-api stores these relationally, not inside the specs blob.</summary>
+    public System.Collections.Generic.List<FleetEventDevice> Devices { get; set; } = new();
+}
+
+/// <summary>
+/// One attached USB device. The ids are what nexus-api keys on; the name is a
+/// label for hardware its catalog does not recognize yet. No serial - it
+/// identifies the machine rather than the model.
+/// </summary>
+public sealed class FleetEventDevice
+{
+    public int Vid { get; set; }
+    public int Pid { get; set; }
+    public string Name { get; set; } = "";
+    public string Manufacturer { get; set; } = "";
 }

@@ -53,6 +53,10 @@ public class FleetEventPayloadWireTests
                 Gpu = new[] { "NVIDIA RTX 5080" },
                 RamBytes = 34359738368,
                 Motherboard = "ASUS ROG X870E",
+                Devices =
+                {
+                    new FleetEventDevice { Vid = 0x1532, Pid = 0x0226, Name = "Huntsman Elite", Manufacturer = "Razer" },
+                },
             },
         };
 
@@ -63,5 +67,14 @@ public class FleetEventPayloadWireTests
         Assert.Equal("NVIDIA RTX 5080", specs.GetProperty("gpu")[0].GetString());
         Assert.Equal(34359738368, specs.GetProperty("ramBytes").GetInt64());
         Assert.Equal("ASUS ROG X870E", specs.GetProperty("motherboard").GetString());
+
+        // nexus-api keys on the ids and treats the label as a fallback for
+        // hardware its catalog does not know; a rename here breaks that.
+        var device = specs.GetProperty("devices")[0];
+        Assert.Equal(0x1532, device.GetProperty("vid").GetInt32());
+        Assert.Equal(0x0226, device.GetProperty("pid").GetInt32());
+        Assert.Equal("Huntsman Elite", device.GetProperty("name").GetString());
+        Assert.Equal("Razer", device.GetProperty("manufacturer").GetString());
+        Assert.False(device.TryGetProperty("serial", out _));
     }
 }
