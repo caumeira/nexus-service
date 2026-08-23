@@ -41,6 +41,9 @@ public class Slv3LightingFrameWriterTests
         foreach (var frame in frames)
         {
             frame.Fill(r, g, b);
+            // The engine publishes at the end of its tick; the writer reads the
+            // published frame, so a test that paints has to publish too.
+            frame.Publish();
         }
     }
 

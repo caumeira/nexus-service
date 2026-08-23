@@ -62,6 +62,7 @@ public class GameSyncEffectTests
         frame.LedV = new float[] { 0f };
 
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         Assert.Equal(0x11, leds[0]); // R
@@ -92,6 +93,7 @@ public class GameSyncEffectTests
         frame.LedV = new float[] { 0f, 0f, 1f, 1f };
 
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         // LED 0: grid (row=0,col=0) -> red
@@ -128,6 +130,7 @@ public class GameSyncEffectTests
         frame.LedV = new float[] { 0.333f };  // row = round(0.333 * 5) = 2
 
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         var expectedRow = (int)MathF.Round(0.333f * (rows - 1));  // 2
@@ -157,6 +160,7 @@ public class GameSyncEffectTests
         frame.LedV = new float[] { 0f, 0f, 1f, 1f };
 
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         Assert.Equal(255, leds[0]); Assert.Equal(0, leds[1]); Assert.Equal(0, leds[2]);   // top-left: red
@@ -178,6 +182,7 @@ public class GameSyncEffectTests
         frame.LedDisabled = new bool[] { false, true }; // LED 1 is disabled
 
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         // LED 0: gets color from grid
@@ -213,6 +218,7 @@ public class GameSyncEffectTests
         frame.LedV = new float[] { ledV[0] };
 
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         Assert.Equal(255, leds[0]); // R
@@ -238,6 +244,7 @@ public class GameSyncEffectTests
         var frame = new DeviceFrame(0, "dev-1", 3) { Archetype = archetype };
 
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         Assert.Equal(100, leds[0]);
@@ -259,6 +266,7 @@ public class GameSyncEffectTests
         frame.Fill(0, 200, 0);
 
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         Assert.Equal(0, leds[0]);   // R unchanged
@@ -286,6 +294,8 @@ public class GameSyncEffectTests
         var mouseFrame = new DeviceFrame(1, "mouse-1", 1) { Archetype = "mouse" };
 
         effect.WriteToDevices(new[] { kbFrame, mouseFrame });
+        kbFrame.Publish();
+        mouseFrame.Publish();
 
         // Keyboard: no grid, WriteToDevices skips it -> remains pre-seeded white.
         var kbLeds = kbFrame.LedBytes;
@@ -325,6 +335,7 @@ public class GameSyncEffectTests
 
         var mouseFrame = new DeviceFrame(0, "mouse-1", 2) { Archetype = "mouse" };
         effect.WriteToDevices(new[] { mouseFrame });
+        mouseFrame.Publish();
 
         var leds = mouseFrame.LedBytes;
         Assert.Equal(55, leds[0]);
@@ -344,6 +355,7 @@ public class GameSyncEffectTests
         frame.Fill(10, 20, 30);
 
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         // Frame is not modified before any Ingest call.
@@ -369,6 +381,7 @@ public class GameSyncEffectTests
 
         var frame = new DeviceFrame(0, "mouse-1", 1) { Archetype = "mouse" };
         effect.WriteToDevices(new[] { frame });
+        frame.Publish();
 
         var leds = frame.LedBytes;
         // Average of (100,0,0) and (0,200,0) = (50, 100, 0).

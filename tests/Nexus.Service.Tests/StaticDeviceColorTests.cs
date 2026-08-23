@@ -1,5 +1,6 @@
 using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Engine.Effects;
 
 namespace Nexus.Service.Tests;
 
@@ -339,11 +340,10 @@ public class StaticDeviceEffectTests
     /// <summary>
     /// The hub writers (keeb, NP50, strimer, ...) each read
     /// <see cref="LightingEngine.Devices"/> from their own timer with no lock,
-    /// so an LED written twice in one frame with DIFFERENT colours is visible:
-    /// a reader landing between the two writes gets part canvas, part
-    /// assignment. This drives the engine with a canvas colour that cannot be
-    /// confused with the assignment and reads the frame concurrently - every
-    /// snapshot has to be all-assignment.
+    /// so a frame published in pieces is a frame they can catch half-written.
+    /// This drives the engine with a canvas colour that cannot be confused with
+    /// the assignment and reads the frame concurrently: every snapshot has to be
+    /// wholly one or the other, never a mix.
     /// </summary>
     [Fact]
     public async Task An_assigned_device_is_never_observed_holding_the_canvas_colour()
@@ -358,6 +358,7 @@ public class StaticDeviceEffectTests
         engine.SetEffect(new FillEffect(0, 255, 0));   // canvas = green, assignment = red
 
         var mixed = 0;
+        var sawAssignment = 0;
         var reads = 0;
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
         var reader = Task.Run(() =>
@@ -369,15 +370,81 @@ public class StaticDeviceEffectTests
                 reads++;
                 for (var i = 0; i + 2 < buf.Length; i += 3)
                 {
-                    // Any green at all means a canvas write survived into a
-                    // frame the assignment owns.
+                    // Any green at all means a canvas write reached a reader on
+                    // a frame the assignment owns.
                     if (buf[i + 1] != 0) { Interlocked.Increment(ref mixed); break; }
                 }
+                if (buf[0] == 255 && buf[1] == 0) Interlocked.Increment(ref sawAssignment);
             }
         });
         await reader;
 
         Assert.True(reads > 1000, $"reader only sampled {reads} times - too few to be meaningful");
+        // Without this the test passes vacuously when the engine never ticks:
+        // an all-zero buffer carries no green either.
+        Assert.True(sawAssignment > 0, "reader never observed the assignment - the engine did not run");
         Assert.Equal(0, mixed);
+    }
+
+    /// <summary>
+    /// The publish contract, asserted directly rather than raced for: a pass
+    /// that paints only some LEDs must not be visible until the tick ends, and
+    /// the LEDs it did not touch must keep what they were last published with.
+    /// This is what makes a half-written frame unobservable no matter how many
+    /// passes paint, which the "write each LED once" convention could not.
+    /// </summary>
+    [Fact]
+    public void A_frame_is_invisible_until_it_is_published()
+    {
+        var frame = new DeviceFrame(0, "keeb:keys", 3);
+        frame.Fill(255, 255, 255);
+        frame.Publish();
+        Assert.Equal(new byte[] { 255, 255, 255, 255, 255, 255, 255, 255, 255 }, frame.LedBytes.ToArray());
+
+        // Mid-tick: a second pass repaints one LED. Readers still see the last
+        // published frame, not a mix of the two.
+        frame.SetLed(1, 0, 0, 0);
+        Assert.Equal(new byte[] { 255, 255, 255, 255, 255, 255, 255, 255, 255 }, frame.LedBytes.ToArray());
+
+        frame.Publish();
+        Assert.Equal(new byte[] { 255, 255, 255, 0, 0, 0, 255, 255, 255 }, frame.LedBytes.ToArray());
+
+        // The untouched LEDs must not fall back to two frames ago, which is what
+        // a plain ping-pong swap would do.
+        frame.SetLed(0, 1, 2, 3);
+        frame.Publish();
+        Assert.Equal(new byte[] { 1, 2, 3, 0, 0, 0, 255, 255, 255 }, frame.LedBytes.ToArray());
+    }
+
+    /// <summary>
+    /// Game Sync repaints the keyboard per-LED AFTER the canvas sample, so the
+    /// published frame has to be the grid, never the canvas fill underneath it.
+    /// </summary>
+    [Fact]
+    public async Task A_game_sync_keyboard_publishes_the_grid_not_the_canvas_underneath()
+    {
+        const int cols = 4, rows = 4, leds = cols * rows;
+        var device = new DeviceFrame(0, "keeb:keys", leds, x: 100, y: 100, w: 250, h: 90)
+        {
+            Archetype = "keyboard",
+            LedU = Enumerable.Range(0, leds).Select(i => (i % cols) / (float)(cols - 1)).ToArray(),
+            LedV = Enumerable.Range(0, leds).Select(i => (i / cols) / (float)(rows - 1)).ToArray(),
+        };
+
+        var gs = new GameSyncEffect();
+        // Canvas fills white; the grid is all black. Every LED disagrees.
+        gs.IngestAuthoredFill(255, 255, 255, "test");
+        gs.IngestFrame("keyboard", "CHROMA_CUSTOM", rows, cols, new int[leds]);
+
+        using var engine = new LightingEngine();
+        engine.UpdateDevices(new[] { device });
+        engine.FrameIntervalMs = 5;
+        var painted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        engine.OnFrame += _ => painted.TrySetResult();
+        engine.SetEffect(gs);
+        Assert.Same(painted.Task, await Task.WhenAny(painted.Task, Task.Delay(2000)));
+
+        var leds8 = device.LedBytes.ToArray();
+        Assert.All(leds8, b => Assert.Equal(0, b));
     }
 }
