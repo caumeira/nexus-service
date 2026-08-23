@@ -177,8 +177,11 @@ public static partial class DevicesRoutes
             var device = registry?.TryGet(Nexus.Service.Devices.Firmware.ApkFlasher.QshellPackage);
             if (device is null)
                 return Results.Conflict(ApiResponse.Fail("No Q-series panel is connected."));
-            if (device.InstallInProgress)
-                return Results.Conflict(ApiResponse.Fail("A panel install is in progress; try again once it finishes."));
+            // The gate spans the whole flash; InstallInProgress covers only the
+            // install, so a reboot queued during the download or the set-home tail
+            // would land mid-flash and leave the panel unpinned from HOME.
+            if (sp.GetService<Nexus.Service.Devices.Firmware.FlashGate>()?.IsFlashing == true || device.InstallInProgress)
+                return Results.Conflict(ApiResponse.Fail("A panel update is in progress; try again once it finishes."));
             watcher.RequestReboot();
             return Results.Accepted(value: ApiResponse.Ok());
         });

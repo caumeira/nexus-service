@@ -221,6 +221,13 @@ public sealed class ApkFlasher
                     Set("wiping", 55, "Wiping panel data...");
                     var uninstall = _uninstallRunner ?? AdbHelpers.RunAdbUninstall;
                     var (unOk, unOut) = uninstall(adbPath, device.Serial, QshellPackage);
+                    // A transport that blinked between the presence check and here
+                    // reports "device not found", which is neither success nor a
+                    // real uninstall failure. Wait it out and try once more.
+                    if (!unOk && IsDeviceMissing(unOut) && await WaitForDeviceAsync(device, ct))
+                    {
+                        (unOk, unOut) = uninstall(adbPath, device.Serial, QshellPackage);
+                    }
                     if (!unOk)
                     {
                         // Already absent: the reinstall below still restores the panel.
@@ -244,6 +251,7 @@ public sealed class ApkFlasher
                 installSuccess = false;
                 installOutput = "";
                 signatureRecovery = false;
+                var installDeadline = DateTime.UtcNow + InstallPhaseBudget;
                 for (var attempt = 1; attempt <= InstallDeviceLossAttempts; attempt++)
                 {
                     (installSuccess, installOutput, signatureRecovery) =
@@ -254,9 +262,14 @@ public sealed class ApkFlasher
                     // transport id 2 -> 3 -> 4 on the Q60), so a transport that was
                     // live when the wait returned can be gone again by the install.
                     // Re-wait and retry rather than failing on a window we can outlast.
+                    if (DateTime.UtcNow >= installDeadline)
+                    {
+                        ServiceLog.Warn($"[apk-flash] {device.Serial}: install phase budget spent; giving up");
+                        break;
+                    }
                     ServiceLog.Warn(
                         $"[apk-flash] {device.Serial}: install attempt {attempt}/{InstallDeviceLossAttempts} lost the device; re-waiting");
-                    Set("installing", 65, "Waiting for panel...");
+                    Set("installing", 68, "Waiting for panel...");
                     if (!await WaitForDeviceAsync(device, ct)) break;
                     Set("installing", 70, "Installing on panel...");
                 }
@@ -274,7 +287,12 @@ public sealed class ApkFlasher
 
             if (!installSuccess)
             {
-                Fail($"Install failed: {installOutput}");
+                // The wipe already removed qshell, so a failure here leaves the
+                // panel launcher-less; say how to get it back rather than only
+                // reporting the adb output.
+                Fail(factoryReset
+                    ? $"Install failed after the wipe: {installOutput}. The panel's app is uninstalled - reconnect the panel and run the panel-app install to restore it."
+                    : $"Install failed: {installOutput}");
                 return;
             }
 
@@ -321,7 +339,8 @@ public sealed class ApkFlasher
 
     /// <summary>Bounds the post-wipe wait for the panel's adb shell to answer again.</summary>
     internal static readonly TimeSpan DeviceReturnTimeout = TimeSpan.FromSeconds(120);
-    private static readonly TimeSpan DeviceReturnPollInterval = TimeSpan.FromSeconds(2);
+    /// <summary>Gap between readiness polls. Test seam: shortened so the fake device does not pace the suite.</summary>
+    internal static TimeSpan DeviceReturnPollInterval { get; set; } = TimeSpan.FromSeconds(2);
 
     /// <summary>
     /// Consecutive answering polls required before the panel counts as back. One
@@ -331,7 +350,14 @@ public sealed class ApkFlasher
     private const int DeviceReturnStableReads = 3;
 
     /// <summary>Install attempts that tolerate the device vanishing mid-install.</summary>
-    private const int InstallDeviceLossAttempts = 4;
+    private const int InstallDeviceLossAttempts = 3;
+
+    /// <summary>
+    /// Ceiling on the whole install phase. Each attempt already nests adb's own
+    /// retries and a device wait, so without this a panel that never returns
+    /// holds <see cref="FlashGate"/> for tens of minutes with no cancel path.
+    /// </summary>
+    private static readonly TimeSpan InstallPhaseBudget = TimeSpan.FromMinutes(8);
 
     /// <summary>True when adb failed because the device was not in its list.</summary>
     internal static bool IsDeviceMissing(string output) =>

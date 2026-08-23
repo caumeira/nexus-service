@@ -10,8 +10,15 @@ using Xunit;
 
 namespace Nexus.Service.Tests.Devices;
 
-public class ApkFlasherTests
+public class ApkFlasherTests : IDisposable
 {
+    // The readiness poll paces every factory-reset test against a fake device;
+    // at the production 2 s it accounted for the whole class runtime.
+    private readonly TimeSpan _pollInterval = ApkFlasher.DeviceReturnPollInterval;
+
+    public ApkFlasherTests() => ApkFlasher.DeviceReturnPollInterval = TimeSpan.FromMilliseconds(1);
+    public void Dispose() => ApkFlasher.DeviceReturnPollInterval = _pollInterval;
+
     // ── Test doubles ─────────────────────────────────────────────────────────────
 
     private sealed class FakeRegistry : IAdbDeviceRegistry
