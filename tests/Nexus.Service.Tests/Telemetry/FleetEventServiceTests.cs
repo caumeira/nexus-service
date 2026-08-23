@@ -173,6 +173,32 @@ public class FleetEventServiceTests
     }
 
     [Fact]
+    public async Task Specs_delivery_that_fails_at_boot_retries_on_a_later_pass_then_stops()
+    {
+        var store = OptedInStore();
+        var transport = new FakeFleetEventTransport
+        {
+            Respond = p => p.Type != TelemetryEvents.Specs,
+        };
+        var sensors = new StubSensors { Cpu = "CPU A", GpuModels = new[] { "GPU A" }, MemoryFormatted = "32 GB", Motherboard = "Board A" };
+        var svc = MakeService(store, transport, sensors: sensors);
+
+        await svc.RunPendingRetriesAsync(CancellationToken.None);
+        Assert.Single(transport.Sent, p => p.Type == TelemetryEvents.Specs);
+        Assert.Equal("", store.Load().Telemetry.FleetSpecsHash);
+
+        // Undelivered, so the hourly pass tries again even though boot is over.
+        transport.Respond = _ => true;
+        await svc.RunPendingRetriesAsync(CancellationToken.None);
+        Assert.Equal(2, transport.Sent.Count(p => p.Type == TelemetryEvents.Specs));
+        Assert.NotEqual("", store.Load().Telemetry.FleetSpecsHash);
+
+        // Delivered, so later passes stop evaluating specs for this process.
+        await svc.RunPendingRetriesAsync(CancellationToken.None);
+        Assert.Equal(2, transport.Sent.Count(p => p.Type == TelemetryEvents.Specs));
+    }
+
+    [Fact]
     public async Task DeliverConsentTransitionAsync_opt_out_bypasses_capture_and_hits_the_sink_directly()
     {
         var store = new InMemoryConfigStore();
