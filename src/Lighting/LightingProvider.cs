@@ -107,7 +107,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // StartStatic re-asserts it immediately after.
     private void EnsureRgbActive()
     {
-        if (_engine.StaticEffects is not null) _engine.StaticEffects.Enabled = false;
+        _engine.StaticEffects?.Enabled = false;
         _rgb?.Activate();
     }
 
@@ -331,7 +331,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     public void StartStatic(StaticHeadlessStart body)
     {
         EnsureRgbActive();
-        if (_engine.StaticEffects is not null) _engine.StaticEffects.Enabled = true;
+        _engine.StaticEffects?.Enabled = true;
         var name = (body.Effect ?? "").ToLowerInvariant();
         if (!StaticEffectCatalog.Contains(name))
         {

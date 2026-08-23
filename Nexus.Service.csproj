@@ -162,7 +162,7 @@
        properties reachable for SIPSorcery's embedded reflection-based TinyJson
        serializer, which every SCTP COOKIE ECHO handshake depends on. -->
   <ItemGroup>
-    <PackageReference Include="SIPSorcery" Version="10.0.10" />
+    <PackageReference Include="SIPSorcery" Version="10.0.16" />
     <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
   </ItemGroup>
 
@@ -616,6 +616,11 @@
   <!-- Exclude test project from main build (SDK auto-includes all .cs) -->
   <ItemGroup>
     <Compile Remove="tests/**" />
+    <!-- installer/msix/NexusStoreLauncher is its own project. Globbed in here it
+         contributed a second Main (CS7022) and, worse, its
+         [assembly: SupportedOSPlatform("windows")] marked this whole assembly
+         windows-only, so every call from the test assembly raised CA1416. -->
+    <Compile Remove="installer/**" />
     <Content Remove="tests/**" />
     <None Remove="tests/**" />
   </ItemGroup>
