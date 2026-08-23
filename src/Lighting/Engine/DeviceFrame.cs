@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 
 namespace Nexus.Service.Lighting.Engine;
 
@@ -13,7 +14,13 @@ public readonly struct PreviewLedPosition
 
 public sealed class DeviceFrame
 {
-    private readonly byte[] _leds;
+    // Double buffered. The engine thread paints _back; every other thread reads
+    // whatever _front points at, and only ever sees a whole finished frame.
+    // The hub writers poll these frames from their own timers with no lock, so
+    // a frame published in pieces is a frame they can catch half-written - that
+    // is what showed up as flicker on the Keeb.
+    private byte[] _back;
+    private byte[] _front;
 
     public DeviceFrame(int index, string id, int ledCount, float x = 0, float y = 0, float w = 120, float h = 30, int rotation = 0, int physicalIndex = -1, int zoneIndex = -1, int zoneOffset = 0)
     {
@@ -28,7 +35,8 @@ public sealed class DeviceFrame
         PhysicalIndex = physicalIndex >= 0 ? physicalIndex : index;
         ZoneIndex = zoneIndex;
         ZoneOffset = zoneOffset;
-        _leds = new byte[ledCount * 3];
+        _back = new byte[ledCount * 3];
+        _front = new byte[ledCount * 3];
     }
 
     public int Index { get; }
@@ -72,17 +80,39 @@ public sealed class DeviceFrame
         }
 
         var off = i * 3;
-        _leds[off] = r;
-        _leds[off + 1] = g;
-        _leds[off + 2] = b;
+        var back = _back;
+        back[off] = r;
+        back[off + 1] = g;
+        back[off + 2] = b;
     }
 
     public void Fill(byte r, byte g, byte b)
     {
-        for (int i = 0; i < _leds.Length; i += 3)
-        { _leds[i] = r; _leds[i + 1] = g; _leds[i + 2] = b; }
+        var back = _back;
+        for (int i = 0; i < back.Length; i += 3)
+        { back[i] = r; back[i + 1] = g; back[i + 2] = b; }
     }
 
-    public void Clear() => Array.Clear(_leds, 0, _leds.Length);
-    public ReadOnlySpan<byte> LedBytes => _leds;
+    public void Clear()
+    {
+        Array.Clear(_back, 0, _back.Length);
+        Publish();
+    }
+
+    /// <summary>
+    /// Put the painted buffer in front of readers, then seed the next frame from
+    /// what was just published. The seed is what lets a pass write only some of
+    /// the LEDs - the rest keep the value they were last published with, rather
+    /// than the one from two frames ago.
+    /// </summary>
+    public void Publish()
+    {
+        var painted = _back;
+        _back = _front;
+        Volatile.Write(ref _front, painted);
+        Array.Copy(painted, _back, painted.Length);
+    }
+
+    /// <summary>The last published frame. Safe to read from any thread.</summary>
+    public ReadOnlySpan<byte> LedBytes => Volatile.Read(ref _front);
 }

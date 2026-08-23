@@ -63,6 +63,8 @@ public sealed class LightingEngine : IDisposable
     private CanvasBuffer? _assignCanvas;
     private readonly Dictionary<string, byte[]> _assignRenders = new(StringComparer.Ordinal);
     private int _assignVersionSeen = -1;
+    // Reused per-frame scratch: which devices ApplyTestOverlays painted.
+    private bool[] _overlaid = Array.Empty<bool>();
 
     /// <summary>
     /// Freezes or resumes the render loop for the current effect; a no-op with
@@ -189,6 +191,13 @@ public sealed class LightingEngine : IDisposable
                         {
                             gs.WriteToDevices(_devices);
                         }
+                        // One publish per tick, after every pass that paints:
+                        // readers never see a frame with the canvas sample on
+                        // some LEDs and an override on the rest.
+                        foreach (var dev in _devices)
+                        {
+                            dev.Publish();
+                        }
                     }
                     SerializeAndBroadcast();
                 }
@@ -226,13 +235,9 @@ public sealed class LightingEngine : IDisposable
         var cw = _canvas.Width;
         var ch = _canvas.Height;
         const float CW = 1000f, CH = 600f;
-        // Overlays first, so an LED they own is never given a canvas colour it
-        // is about to lose. The hub writers read these frames from their own
-        // timers with no lock, so writing an LED twice per frame with DIFFERENT
-        // colours is visible: a reader landing between the two writes gets a
-        // frame that is part canvas and part override, and the boundary moves
-        // every tick (camera-measured as flicker on the Keeb once per-device
-        // Static assignments made the two passes disagree).
+        // Overlays first, so an LED they own never gets a canvas colour it is
+        // about to lose. Correctness no longer rests on this - DeviceFrame
+        // publishes once per tick - but painting an LED twice is wasted work.
         var overlaid = ApplyTestOverlays(devices);
         for (var di = 0; di < devices.Length; di++)
         {
@@ -254,8 +259,7 @@ public sealed class LightingEngine : IDisposable
                 dev.SetLed(z, 0, 0, 0);
             }
 
-            // The overlay pass already gave this device its final colours; the
-            // canvas sample below would be a second, different write.
+            // The overlay pass already gave this device its final colours.
             if (overlaid[di])
             {
                 continue;
@@ -462,12 +466,14 @@ public sealed class LightingEngine : IDisposable
     /// <summary>
     /// Paint the devices whose frame comes from something other than the canvas:
     /// a zone highlight, a per-device Static assignment, or a test pattern.
-    /// Returns, per device, whether it painted - the caller skips canvas
-    /// sampling for those, so every LED is written exactly once per frame.
+    /// Returns, per device, whether it painted the whole preview range, so the
+    /// caller can skip a canvas sample that would only be overwritten.
     /// </summary>
     private bool[] ApplyTestOverlays(DeviceFrame[] devices)
     {
-        var owned = new bool[devices.Length];
+        if (_overlaid.Length < devices.Length) _overlaid = new bool[devices.Length];
+        var owned = _overlaid;
+        Array.Clear(owned, 0, devices.Length);
         for (var di = 0; di < devices.Length; di++)
         {
             var dev = devices[di];
@@ -553,7 +559,8 @@ public sealed class LightingEngine : IDisposable
                             ? Environment.TickCount64 - dev.TestPatternStartMs
                             : 0L;
                         var phase = (float)(elapsed % 2000 / 2000.0);
-                        for (int i = 0; i < previewCount && i < ledU.Length && i < ledV.Length; i++)
+                        var covered = Math.Min(previewCount, Math.Min(ledU.Length, ledV.Length));
+                        for (int i = 0; i < covered; i++)
                         {
                             var u = ledU[i];
                             var v = ledV[i];
@@ -562,7 +569,9 @@ public sealed class LightingEngine : IDisposable
                             dev.SetLed(i,
                                 (byte)(band * 255), (byte)(band * 255), (byte)(band * 255));
                         }
-                        owned[di] = true;
+                        // Short UV arrays would leave a tail the canvas still
+                        // has to fill, so only a full sweep claims the device.
+                        owned[di] = covered >= previewCount;
                     }
                     // No UVs: nothing was painted, so the canvas sample stands.
                 }

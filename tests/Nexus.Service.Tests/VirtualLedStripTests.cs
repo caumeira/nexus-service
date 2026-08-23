@@ -12,6 +12,7 @@ public class DeviceFrameTests
         frame.SetLed(1, 0, 255, 0);
         frame.SetLed(2, 0, 0, 255);
         frame.SetLed(3, 128, 64, 32);
+        frame.Publish();
 
         var bytes = frame.LedBytes;
         Assert.Equal(255, bytes[0]); Assert.Equal(0, bytes[1]); Assert.Equal(0, bytes[2]);
@@ -27,6 +28,7 @@ public class DeviceFrameTests
         frame.SetLed(-1, 255, 255, 255);
         frame.SetLed(2, 255, 255, 255);
         frame.SetLed(100, 255, 255, 255);
+        frame.Publish();
 
         var bytes = frame.LedBytes;
         for (int i = 0; i < bytes.Length; i++)
@@ -38,6 +40,7 @@ public class DeviceFrameTests
     {
         var frame = new DeviceFrame(0, "test", 4);
         frame.Fill(100, 200, 50);
+        frame.Publish();
 
         var bytes = frame.LedBytes;
         for (int i = 0; i < 4; i++)
@@ -53,6 +56,7 @@ public class DeviceFrameTests
     {
         var frame = new DeviceFrame(0, "test", 4);
         frame.Fill(255, 255, 255);
+        frame.Publish();
         frame.Clear();
 
         var bytes = frame.LedBytes;
