@@ -124,6 +124,27 @@ public class Aw5ProtocolTests
         }
     }
 
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(6, 1)]
+    [InlineData(50, 3)]
+    [InlineData(100, 6)]
+    public void Levelplay_load_bar_rides_sub_01_byte_6(int loadPct, int expected)
+    {
+        Assert.Equal(expected, Aw5Protocol.BuildLevelplayCycle(tempC: 0, loadPct: loadPct, mhz: 0)[1][6]);
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(800, 1)]
+    [InlineData(3500, 1)]
+    [InlineData(5000, 2)]
+    [InlineData(9999, 2)]
+    public void Levelplay_clock_bar_rides_sub_03_byte_6(int mhz, int expected)
+    {
+        Assert.Equal(expected, Aw5Protocol.BuildLevelplayCycle(tempC: 0, loadPct: 0, mhz: mhz)[3][6]);
+    }
+
     [Fact]
     public void Levelplay_sub_04_is_the_invariant_commit_frame()
     {

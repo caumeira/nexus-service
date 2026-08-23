@@ -68,15 +68,19 @@ public static class Aw5Protocol
     public const int CoolerMasterLoadNotches = 6;
 
     /// <summary>
-    /// Segmented arc around the Levelplay rim. The wire byte is a bare notch count
-    /// read from the low nibble (high nibble ignored); counts past the track wrap
-    /// on the firmware rather than clamp, so the host clamps before sending.
+    /// Levelplay notch tracks: the rim arc plus the small load and clock bars, each
+    /// a bare count in its byte's low nibble. The arc wraps past its track rather
+    /// than clamp, so the host clamps before sending; the bars clamp on-device.
     /// </summary>
     public const int LevelplayArcMaxNotches = 12;
+    public const int LevelplayLoadNotches = 6;
+    public const int LevelplayClockNotches = 2;
 
-    /// <summary>Temp-to-notch scale, shared so the two variants' bars cannot drift.</summary>
+    /// <summary>Reading-to-notch scales, shared so the two variants' bars cannot drift.</summary>
     private const int NotchTempFloorC = 20;
     private const int NotchTempCeilC = 90;
+    private const int NotchClockFloorMhz = 800;
+    private const int NotchClockCeilMhz = 5000;
 
     /// <summary>Panel clamps the frequency readout at four digits.</summary>
     private const int CoolerMasterMaxMhz = 9999;
@@ -128,7 +132,7 @@ public static class Aw5Protocol
         // 0x01: the load percentage shown left of the rpm. Two digits, so 100% renders
         // as 99: the panel has no third digit.
         WriteDigits(frames[1], 3, loadPct, 2);
-        frames[1][6] = 0x01;
+        frames[1][6] = Notches(loadPct, 0, 100, LevelplayLoadNotches);
         frames[1][7] = 0x01;
 
         // 0x02: no byte of this sub-command changes anything on the glass. Vendor
@@ -140,7 +144,7 @@ public static class Aw5Protocol
         // fan icon: the vendor's own value steps by up to 4200 between consecutive
         // 1.1s cycles and tops out at the part's boost ceiling, which no fan does.
         WriteDigits(frames[3], 2, mhz, 4);
-        frames[3][6] = 0x02;
+        frames[3][6] = Notches(mhz, NotchClockFloorMhz, NotchClockCeilMhz, LevelplayClockNotches);
 
         // 0x04: byte-identical in every captured cycle; commit/refresh.
         frames[4][3] = 0x09;
@@ -170,7 +174,7 @@ public static class Aw5Protocol
         f[5] = (byte)tempC;
 
         f[9] = Notches(tempC, NotchTempFloorC, NotchTempCeilC, CoolerMasterTempNotches);
-        f[10] = Notches(mhz, 800, 5000, CoolerMasterClockNotches);
+        f[10] = Notches(mhz, NotchClockFloorMhz, NotchClockCeilMhz, CoolerMasterClockNotches);
         f[11] = Notches(loadPct, 0, 100, CoolerMasterLoadNotches);
 
         f[12] = 0xF9;
