@@ -124,7 +124,19 @@ public sealed class ApkFlasher
             error = "not handled";
             return false;
         }
+        return TryStartCore(version, factoryReset: false, out error);
+    }
 
+    /// <summary>
+    /// Uninstall qshell (dropping its on-device data), then reinstall the current
+    /// manifest build and re-pin it as HOME. Shares <see cref="FlashGate"/> with
+    /// the manual flash and DFU paths.
+    /// </summary>
+    public bool TryStartFactoryReset(out string error)
+        => TryStartCore(version: "", factoryReset: true, out error);
+
+    private bool TryStartCore(string version, bool factoryReset, out string error)
+    {
         var device = _deviceRegistry.TryGet(QshellPackage);
         if (device is null)
         {
@@ -145,11 +157,11 @@ public sealed class ApkFlasher
         status.Message = "Preparing...";
         status.Success = false;
         status.Error = "";
-        _ = Task.Run(() => RunAsync(device, CancellationToken.None));
+        _ = Task.Run(() => RunAsync(device, factoryReset, CancellationToken.None));
         return true;
     }
 
-    private async Task RunAsync(IAdbDeviceTarget device, CancellationToken ct)
+    private async Task RunAsync(IAdbDeviceTarget device, bool factoryReset, CancellationToken ct)
     {
         try
         {
@@ -168,7 +180,9 @@ public sealed class ApkFlasher
             }
 
 #if !DEV_TOOLS
-            if (latest.VersionCode is int pub && installedVersionCode >= pub)
+            // A factory reset reinstalls the same build, so the manual flash's
+            // already-up-to-date gate must not apply.
+            if (!factoryReset && latest.VersionCode is int pub && installedVersionCode >= pub)
             {
                 Fail("The installed qshell version is already up to date.");
                 return;
@@ -198,8 +212,67 @@ public sealed class ApkFlasher
             bool signatureRecovery;
             try
             {
-                (installSuccess, installOutput, signatureRecovery) =
-                    AdbHelpers.InstallWithSignatureRecovery(adbPath, device.Serial, apkPath, QshellPackage, _installRunner, _uninstallRunner);
+                if (factoryReset)
+                {
+                    // Dropping qshell's data dir is what wipes the panel; the reinstall
+                    // then comes up on first-run defaults. Held inside InstallInProgress
+                    // with the install so no tick slips an adb pass between the two,
+                    // which would find the panel with no launcher.
+                    Set("wiping", 55, "Wiping panel data...");
+                    var uninstall = _uninstallRunner ?? AdbHelpers.RunAdbUninstall;
+                    var (unOk, unOut) = uninstall(adbPath, device.Serial, QshellPackage);
+                    // A transport that blinked between the presence check and here
+                    // reports "device not found", which is neither success nor a
+                    // real uninstall failure. Wait it out and try once more.
+                    if (!unOk && IsDeviceMissing(unOut) && await WaitForDeviceAsync(device, ct))
+                    {
+                        (unOk, unOut) = uninstall(adbPath, device.Serial, QshellPackage);
+                    }
+                    if (!unOk)
+                    {
+                        // Already absent: the reinstall below still restores the panel.
+                        if (!unOut.Contains("not installed", StringComparison.OrdinalIgnoreCase)
+                            && !unOut.Contains("Unknown package", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Fail($"Uninstall failed: {unOut}");
+                            return;
+                        }
+                        ServiceLog.Warn($"[apk-flash] factory reset: {QshellPackage} was not installed on {device.Serial}; reinstalling");
+                    }
+
+                    Set("wiping", 60, "Waiting for panel...");
+                    if (!await WaitForDeviceAsync(device, ct))
+                    {
+                        Fail("The panel did not come back after the wipe. Its app is uninstalled - reconnect the panel and run the panel-app install to restore it.");
+                        return;
+                    }
+                }
+
+                installSuccess = false;
+                installOutput = "";
+                signatureRecovery = false;
+                var installDeadline = DateTime.UtcNow + InstallPhaseBudget;
+                for (var attempt = 1; attempt <= InstallDeviceLossAttempts; attempt++)
+                {
+                    (installSuccess, installOutput, signatureRecovery) =
+                        AdbHelpers.InstallWithSignatureRecovery(adbPath, device.Serial, apkPath, QshellPackage, _installRunner, _uninstallRunner);
+                    if (installSuccess || !IsDeviceMissing(installOutput)) break;
+
+                    // The panel re-enumerates several times after the wipe (observed
+                    // transport id 2 -> 3 -> 4 on the Q60), so a transport that was
+                    // live when the wait returned can be gone again by the install.
+                    // Re-wait and retry rather than failing on a window we can outlast.
+                    if (DateTime.UtcNow >= installDeadline)
+                    {
+                        ServiceLog.Warn($"[apk-flash] {device.Serial}: install phase budget spent; giving up");
+                        break;
+                    }
+                    ServiceLog.Warn(
+                        $"[apk-flash] {device.Serial}: install attempt {attempt}/{InstallDeviceLossAttempts} lost the device; re-waiting");
+                    Set("installing", 68, "Waiting for panel...");
+                    if (!await WaitForDeviceAsync(device, ct)) break;
+                    Set("installing", 70, "Installing on panel...");
+                }
                 if (signatureRecovery)
                 {
                     // Signing cert changed; recovery uninstalled the old build and retried.
@@ -214,7 +287,12 @@ public sealed class ApkFlasher
 
             if (!installSuccess)
             {
-                Fail($"Install failed: {installOutput}");
+                // The wipe already removed qshell, so a failure here leaves the
+                // panel launcher-less; say how to get it back rather than only
+                // reporting the adb output.
+                Fail(factoryReset
+                    ? $"Install failed after the wipe: {installOutput}. The panel's app is uninstalled - reconnect the panel and run the panel-app install to restore it."
+                    : $"Install failed: {installOutput}");
                 return;
             }
 
@@ -247,7 +325,7 @@ public sealed class ApkFlasher
             }
 
             _flashGate.Status.Success = true;
-            Set("done", 100, $"Updated to {latest.Version}.");
+            Set("done", 100, factoryReset ? "Factory reset complete." : $"Updated to {latest.Version}.");
         }
         catch (Exception ex)
         {
@@ -257,6 +335,66 @@ public sealed class ApkFlasher
         {
             _flashGate.Release();
         }
+    }
+
+    /// <summary>Bounds the post-wipe wait for the panel's adb shell to answer again.</summary>
+    internal static readonly TimeSpan DeviceReturnTimeout = TimeSpan.FromSeconds(120);
+    /// <summary>Gap between readiness polls. Test seam: shortened so the fake device does not pace the suite.</summary>
+    internal static TimeSpan DeviceReturnPollInterval { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>
+    /// Consecutive answering polls required before the panel counts as back. One
+    /// answer is not enough: the panel re-enumerates repeatedly after the wipe, so
+    /// a single reply can come from a transport that is about to disappear again.
+    /// </summary>
+    private const int DeviceReturnStableReads = 3;
+
+    /// <summary>Install attempts that tolerate the device vanishing mid-install.</summary>
+    private const int InstallDeviceLossAttempts = 3;
+
+    /// <summary>
+    /// Ceiling on the whole install phase. Each attempt already nests adb's own
+    /// retries and a device wait, so without this a panel that never returns
+    /// holds <see cref="FlashGate"/> for tens of minutes with no cancel path.
+    /// </summary>
+    private static readonly TimeSpan InstallPhaseBudget = TimeSpan.FromMinutes(8);
+
+    /// <summary>True when adb failed because the device was not in its list.</summary>
+    internal static bool IsDeviceMissing(string output) =>
+        output.Contains("not found", StringComparison.OrdinalIgnoreCase)
+        || output.Contains("device offline", StringComparison.OrdinalIgnoreCase)
+        || output.Contains("no devices", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Polls the panel's adb shell until it answers
+    /// <see cref="DeviceReturnStableReads"/> times running, or
+    /// <see cref="DeviceReturnTimeout"/> elapses. <c>ShellAsync</c> returns empty
+    /// for a device absent from the adb list, so a distinctive echo separates
+    /// "back" from "still gone"; any miss resets the streak.
+    /// </summary>
+    private static async Task<bool> WaitForDeviceAsync(IAdbDeviceTarget device, CancellationToken ct)
+    {
+        const string marker = "nexus-panel-ready";
+        var deadline = DateTime.UtcNow + DeviceReturnTimeout;
+        var streak = 0;
+        while (DateTime.UtcNow < deadline)
+        {
+            ct.ThrowIfCancellationRequested();
+            var ok = false;
+            try
+            {
+                var echo = await device.ShellAsync("echo " + marker, ct);
+                ok = echo.Contains(marker, StringComparison.Ordinal);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* transport still re-enumerating */ }
+
+            streak = ok ? streak + 1 : 0;
+            if (streak >= DeviceReturnStableReads) return true;
+            await Task.Delay(DeviceReturnPollInterval, ct);
+        }
+        ServiceLog.Warn($"[apk-flash] {device.Serial}: panel did not stay on adb within {DeviceReturnTimeout.TotalSeconds:F0}s");
+        return false;
     }
 
     private void Set(string phase, int percent, string message)

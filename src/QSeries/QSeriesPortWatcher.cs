@@ -182,11 +182,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IConfigStore configStore, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null)
-        : this(servicePort, presence, panelDevices, gate, configStore, new QSeriesTransportStore(), deviceRegistry, tunnelMonitor) { }
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IConfigStore configStore, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null, Nexus.Service.Devices.Firmware.FlashGate? flashGate = null)
+        : this(servicePort, presence, panelDevices, gate, configStore, new QSeriesTransportStore(), deviceRegistry, tunnelMonitor, flashGate) { }
 
     /// <summary>Test seam: inject a store pointing at a tmp path.</summary>
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IConfigStore configStore, QSeriesTransportStore transportStore, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null)
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IConfigStore configStore, QSeriesTransportStore transportStore, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null, Nexus.Service.Devices.Firmware.FlashGate? flashGate = null)
     {
         _servicePort = servicePort;
         _presence = presence;
@@ -195,6 +195,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         _configStore = configStore;
         _deviceRegistry = deviceRegistry;
         _tunnelMonitor = tunnelMonitor;
+        _flashGate = flashGate;
         _deviceSpec = $"tcp:{servicePort}";
         _hostSpec = tunnelMonitor?.Port is int tunnelPort ? $"tcp:{tunnelPort}" : $"tcp:{servicePort}";
         _client = new AdbClient();
@@ -567,10 +568,21 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             seenSerials.Add(device.Serial);
 
-            // An in-flight APK install owns the USB-FFS transport. Running the
-            // per-tick adb passes (reverse, am start, clock, reboot) concurrently
-            // races the install stream and fails it; skip them until it finishes.
-            if (_deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) continue;
+            // A flash owns the USB-FFS transport for its whole duration - download,
+            // uninstall, install, and the set-home tail. Running the per-tick adb
+            // passes (reverse, am start, clock, reboot) alongside it races the
+            // stream. The gate covers all of that; InstallInProgress covers only
+            // the install, and goes blind entirely once a wipe drops the panel off
+            // adb and the device target is unregistered.
+            if (FlashActive || _deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) continue;
+
+            // Consumed after the flash guard above, so a reboot requested mid-flash
+            // waits for the transport instead of aborting the flash.
+            if (TakeRebootRequest())
+            {
+                await RebootOnRequestAsync(device, ct);
+                continue; // rebooting; the reverse/qshell passes would race the shutdown
+            }
 
             // A reseat re-enumerates with the same serial but a new transport id. The
             // 10 s poll often misses the brief offline window, so a transport-id change
@@ -1232,6 +1244,74 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
+    /// When a user reboot was requested, else null. Stamped rather than a bare
+    /// flag: a factory reset drops the panel off adb, so an unconsumed request
+    /// would otherwise latch and reboot the panel unprompted whenever it next
+    /// attaches. Read and written only under <see cref="_rebootRequestLock"/>.
+    /// </summary>
+    private DateTimeOffset? _rebootRequestedAt;
+    private readonly object _rebootRequestLock = new();
+
+    /// <summary>How long a queued reboot request stays valid.</summary>
+    private static readonly TimeSpan RebootRequestWindow = TimeSpan.FromMinutes(2);
+
+    /// <summary>
+    /// Called from POST /devices/qseries/reboot. The reboot runs on the tick
+    /// thread, which owns the transport and the per-serial reboot dictionaries;
+    /// issuing it from the request thread would mutate those unsynchronised.
+    /// Not per-serial: a host drives one Q-series panel, so the first panel the
+    /// tick reaches consumes the flag.
+    /// </summary>
+    internal void RequestReboot()
+    {
+        lock (_rebootRequestLock) _rebootRequestedAt = DateTimeOffset.UtcNow;
+        try { _wake.Release(); }
+        catch (SemaphoreFullException) { }
+    }
+
+    /// <summary>Takes a pending reboot request if one is still within its window.</summary>
+    private bool TakeRebootRequest()
+    {
+        lock (_rebootRequestLock)
+        {
+            if (_rebootRequestedAt is not { } at) return false;
+            _rebootRequestedAt = null;
+            if (DateTimeOffset.UtcNow - at > RebootRequestWindow)
+            {
+                ServiceLog.Info($"[qseries-port-watcher] discarding a reboot request queued {(DateTimeOffset.UtcNow - at).TotalSeconds:F0}s ago");
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Shares <see cref="_lastQshellRebootBySerial"/> with the reseat and
+    /// escalation paths so none of them double-reboot across the re-enumeration
+    /// that follows; drops the confirmed display state because a reboot returns
+    /// the panel to <c>user_rotation</c> 0 with the screen on.
+    /// </summary>
+    private async Task<bool> RebootOnRequestAsync(DeviceData device, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        _lastQshellRebootBySerial[device.Serial] = now;
+        _lastAppliedBySerial.Remove(device.Serial);
+        _displayAppliedThisRun.Remove(device.Serial);
+        try
+        {
+            ServiceLog.Info($"[qseries-port-watcher] {device.Serial}: reboot requested by user; rebooting panel");
+            await _client.RebootAsync(device, ct);
+            return true;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: user reboot failed: {ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Last adb transport id per serial. A change (same serial) is the reliable reseat
     /// signal the 10 s poll otherwise misses; see TickAsync.
     /// </summary>
@@ -1260,6 +1340,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// <summary>Serial → last reboot time (anti-loop cooldown). NOT cleared on detach,
     /// so it survives the reboot's own re-enumeration.</summary>
     private readonly Dictionary<string, DateTimeOffset> _lastQshellRebootBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Shared flash gate. Covers a whole flash, including the download before the
+    /// install and the set-home tail after it; <c>InstallInProgress</c> spans only
+    /// the install itself, so it is too narrow to protect adb work from a flash.
+    /// </summary>
+    private readonly Nexus.Service.Devices.Firmware.FlashGate? _flashGate;
+
+    /// <summary>True while any flash holds the gate.</summary>
+    private bool FlashActive => _flashGate?.IsFlashing == true;
 
     /// <summary>
     /// Time a serial was first seen this run; anchors <see cref="EscalationGrace"/>.

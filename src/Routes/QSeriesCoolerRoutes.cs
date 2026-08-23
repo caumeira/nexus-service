@@ -164,6 +164,27 @@ public static partial class DevicesRoutes
                 return Results.Problem("Failed to write Q-series firmware curve.");
             return Results.Ok(ApiResponse.Ok());
         });
+
+        // Reboot the panel's Android side. Returns once queued: the tick loop owns
+        // the transport, and the cold qshell bootstrap that follows takes ~2 min over
+        // USB-FFS. Clients track completion via the device record's lastSeenAt.
+        app.MapPost("/devices/qseries/reboot", (IServiceProvider sp) =>
+        {
+            var watcher = sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>();
+            if (watcher is null)
+                return Results.Conflict(ApiResponse.Fail("Q-series watcher not running"));
+            var registry = sp.GetService<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry>();
+            var device = registry?.TryGet(Nexus.Service.Devices.Firmware.ApkFlasher.QshellPackage);
+            if (device is null)
+                return Results.Conflict(ApiResponse.Fail("No Q-series panel is connected."));
+            // The gate spans the whole flash; InstallInProgress covers only the
+            // install, so a reboot queued during the download or the set-home tail
+            // would land mid-flash and leave the panel unpinned from HOME.
+            if (sp.GetService<Nexus.Service.Devices.Firmware.FlashGate>()?.IsFlashing == true || device.InstallInProgress)
+                return Results.Conflict(ApiResponse.Fail("A panel update is in progress; try again once it finishes."));
+            watcher.RequestReboot();
+            return Results.Accepted(value: ApiResponse.Ok());
+        });
     }
 }
 
