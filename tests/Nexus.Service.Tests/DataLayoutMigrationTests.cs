@@ -141,7 +141,7 @@ public sealed class DataLayoutMigrationTests : IDisposable
     public void DeleteDir_removes_the_stray()
     {
         var old = P("tools");
-        WriteFile(Path.Combine(old, "ibp-aw5", "x.exe"), "BIN");
+        WriteFile(Path.Combine(old, "vendor-tool", "x.exe"), "BIN");
 
         Execute(new[] { new Entry(old, "", EntryKind.DeleteDir) });
 

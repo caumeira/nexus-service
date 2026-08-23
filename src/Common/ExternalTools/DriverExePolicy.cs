@@ -6,18 +6,14 @@ namespace Nexus.Service.Common.ExternalTools;
 /// <summary>
 /// Whether the service may fetch and launch a vendor driver .exe.
 ///
-/// Ships disabled: the AW5 is driven natively by
-/// <see cref="Nexus.Service.Peripherals.Aw5.Aw5PanelWorker"/>, and the vendor binary
-/// would be a second writer on the same HID. It also has no graceful stop
-/// (<see cref="HostExeInstallStrategy.Terminate"/> is a hard kill), so the two cannot
-/// hand the device over. Exactly one of them runs: enabling this stands the native
-/// worker down.
+/// A kill switch for the host-exe driver path as a whole, for a device Nexus turns out
+/// to drive natively: a vendor binary and a native writer on one HID cannot hand the
+/// device over, because the binary has no graceful stop
+/// (<see cref="HostExeInstallStrategy.Terminate"/> is a hard kill). The narrower fix is
+/// to drop the <c>driver</c> block from that app's manifest, which leaves every other
+/// app's driver working; reach for this only to disable the path outright.
 ///
-/// The AW5 app is the only one carrying a driver manifest block, so disabling this
-/// disables host-exe drivers outright. Android (adb) drivers push an APK rather than
-/// run a host process and are unaffected.
-///
-/// To restore the vendor path, flip the DI registration to <c>enabled: true</c>.
+/// Android (adb) drivers push an APK rather than run a host process and are unaffected.
 /// </summary>
 public sealed class DriverExePolicy
 {

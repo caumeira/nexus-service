@@ -18,8 +18,8 @@ namespace Nexus.Service.Tests.Common.ExternalTools;
 public class DriverAutoLaunchWorkerTests : IDisposable
 {
     /// <summary>
-    /// These suites are the vendor driver path's coverage, so they enable it. It ships
-    /// disabled (the AW5 is driven natively); see DriverExePolicy.
+    /// These suites are the vendor driver path's coverage, so they name the policy
+    /// explicitly rather than lean on the shipped default; see DriverExePolicy.
     /// </summary>
     private static readonly DriverExePolicy VendorDriverOn = new(enabled: true);
 

@@ -5,16 +5,15 @@ namespace Nexus.Service.Devices.Handlers;
 
 /// <summary>
 /// iBUYPOWER AW5 AIO cooler. Nexus drives the pump display itself
-/// (<see cref="Nexus.Service.Peripherals.Aw5.Aw5PanelWorker"/>); the vendor driver
-/// .exe the app manifest still describes is dormant (see DriverExePolicy). Presence
-/// comes from USB enumeration rather than the panel handle, so a cooler shows in the
-/// device list whether or not its display is being written.
+/// (<see cref="Nexus.Service.Peripherals.Aw5.Aw5PanelWorker"/>); no vendor driver .exe
+/// is involved. Presence comes from USB enumeration rather than the panel handle, so a
+/// cooler shows in the device list whether or not its display is being written.
 /// </summary>
 public sealed class Aw5Handler : IDeviceHandler
 {
     private const int IbpVid = 0x3402;
 
-    /// <summary>Shared with the panel blanker. The app manifest's deviceId must match it by hand - that one lives in nexus-apps.</summary>
+    /// <summary>Shared with the panel blanker.</summary>
     public const string HandlerId = "aw5";
 
     public string Id => HandlerId;

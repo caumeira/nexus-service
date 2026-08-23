@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Nexus.Service.Common.ExternalTools;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Handlers;
 using Nexus.Service.Peripherals.Aw5;
@@ -75,30 +74,13 @@ public class Aw5PanelWorkerTests
         Assert.Empty(hid.Opens);
     }
 
-    [Fact]
-    public async Task Stands_down_entirely_when_the_vendor_driver_path_is_enabled()
-    {
-        // Exactly one implementation drives the panel; two writers on one HID is the
-        // state the policy exists to prevent.
-        var hid = new FakeHid(Panel());
-        var hub = new Aw5Hub(hid);
-        var w = new Aw5PanelWorker(hub, new Aw5SensorReader(new FakeSensors()),
-            new DeviceControlGate(new InMemoryConfigStore()), new DriverExePolicy(enabled: true));
-
-        await w.StartAsync(CancellationToken.None);
-        await Task.Delay(50);
-        await w.StopAsync(CancellationToken.None);
-
-        Assert.Equal(0, hid.Finds);
-    }
-
     private static Aw5PanelWorker Build(FakeHid hid, out InMemoryConfigStore store, bool gateOff = false)
     {
         store = new InMemoryConfigStore();
         var gate = new DeviceControlGate(store);
         if (gateOff) gate.SetEnabled(Aw5Handler.HandlerId, false);
         return new Aw5PanelWorker(new Aw5Hub(hid), new Aw5SensorReader(new FakeSensors()),
-            gate, new DriverExePolicy(enabled: false));
+            gate);
     }
 
     private sealed class FakeSensors : ISensorProvider

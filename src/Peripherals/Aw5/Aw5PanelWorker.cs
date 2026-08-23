@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Nexus.Service.Common.ExternalTools;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Handlers;
 using Nexus.Service.Platform;
@@ -37,31 +36,20 @@ public sealed class Aw5PanelWorker : BackgroundService
     private readonly Aw5Hub _hub;
     private readonly Aw5SensorReader _reader;
     private readonly DeviceControlGate _gate;
-    private readonly DriverExePolicy _driverExe;
     private bool _wasGatedOn;
     private int _loggedPanels = -1;
     private IReadOnlyList<Aw5PanelTarget> _panels = Array.Empty<Aw5PanelTarget>();
     private int _ticksSinceDiscover = int.MaxValue;
 
-    public Aw5PanelWorker(Aw5Hub hub, Aw5SensorReader reader, DeviceControlGate gate, DriverExePolicy driverExe)
+    public Aw5PanelWorker(Aw5Hub hub, Aw5SensorReader reader, DeviceControlGate gate)
     {
         _hub = hub;
         _reader = reader;
         _gate = gate;
-        _driverExe = driverExe;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // This worker and the vendor driver .exe are two implementations of the same
-        // panel, so exactly one runs: restoring the vendor path stands this one down
-        // rather than leaving two writers on one HID.
-        if (_driverExe.Enabled)
-        {
-            ServiceLog.Info("[aw5] vendor driver path enabled; native panel worker standing down");
-            return;
-        }
-
         try { await Task.Delay(InitialDelayMs, stoppingToken); }
         catch (OperationCanceledException) { return; }
 

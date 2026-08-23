@@ -16,9 +16,8 @@ public sealed record Aw5PanelTarget(Aw5Variant Variant, string Path, string? Ser
 /// a handle per panel, and writes frames. A panel that fails a write is closed so the
 /// next tick reopens it, rather than writing into a dead handle forever.
 ///
-/// Only valid while no vendor driver runs. The vendor binary and this hub would be
-/// two writers on one HID; the driver .exe path is disabled for exactly this reason
-/// (see DriverExePolicy).
+/// The sole writer on these panels: the vendor binary that used to drive them would be
+/// a second writer on one HID, so the app manifest carries no driver block for it.
 /// </summary>
 public sealed class Aw5Hub : IDisposable
 {

@@ -47,7 +47,7 @@ public class AppPrefixMigrationTests
         var doc = new NexusSettings();
         doc.Panel.DashboardLayout = Layout("clock", "marketplace:com.ibuypower.control");
         doc.Panel.Layouts = new PanelLayoutsDefaults();
-        doc.Panel.Layouts.Y70.Widgets.Add(new PanelLayoutWidget { Type = "marketplace:com.hellonexus.showcase" });
+        doc.Panel.Layouts.Y70.Widgets.Add(new PanelLayoutWidget { Type = "marketplace:com.example.widget" });
         doc.PanelDevices["dev1"] = new PanelDeviceRecord { Layout = Layout("marketplace:com.ibuypower.control") };
         doc.Overlay.Layout.Add(new OverlayWidgetDto { Id = "o1", Type = "marketplace:com.ibuypower.control" });
 
@@ -55,7 +55,7 @@ public class AppPrefixMigrationTests
 
         Assert.Equal("clock", doc.Panel.DashboardLayout.Pages[0].Widgets[0].Type);
         Assert.Equal("app:com.ibuypower.control", doc.Panel.DashboardLayout.Pages[0].Widgets[1].Type);
-        Assert.Equal("app:com.hellonexus.showcase", doc.Panel.Layouts.Y70.Widgets[0].Type);
+        Assert.Equal("app:com.example.widget", doc.Panel.Layouts.Y70.Widgets[0].Type);
         Assert.Equal("app:com.ibuypower.control", doc.PanelDevices["dev1"].Layout!.Pages[0].Widgets[0].Type);
         Assert.Equal("app:com.ibuypower.control", doc.Overlay.Layout[0].Type);
     }

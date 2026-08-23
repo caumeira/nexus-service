@@ -1376,17 +1376,17 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Common.ExternalTools.ExternalToolManager>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Common.ExternalTools.ExternalToolManager>());
-        // Auto-launches each installed bundled driver app's binary when its device
-        // is present (runs at boot, pre-login).
+        // Fires only when a driver app's device gate goes off, so it is dormant while
+        // no app declares a driver block.
         services.AddSingleton<Nexus.Service.Common.ExternalTools.IDriverGateStopHook, Nexus.Service.Peripherals.Aw5.Aw5PanelBlanker>();
-        // false: the AW5 is driven natively below, and its vendor binary would be a
-        // second writer on the same HID. Flip to true to restore the vendor path,
-        // which stands the native worker down.
-        services.AddSingleton(new Nexus.Service.Common.ExternalTools.DriverExePolicy(enabled: false));
+        // Auto-launches each installed driver app's binary when its device is present
+        // (runs at boot, pre-login). The path is open to any app declaring a driver
+        // block; no shipped app does, and the AW5 that used to is driven natively below.
+        services.AddSingleton(new Nexus.Service.Common.ExternalTools.DriverExePolicy(enabled: true));
         services.AddHostedService<Nexus.Service.Common.ExternalTools.DriverAutoLaunchWorker>();
 
-        // Drives the AW5 pump displays in place of the vendor driver .exe. Exactly one
-        // of the two runs; DriverExePolicy picks which.
+        // Drives the AW5 pump displays. The vendor driver .exe it replaced is no longer
+        // reachable: the app manifest carries no driver block for it.
         services.AddSingleton<Nexus.Service.Peripherals.Aw5.Aw5Hub>();
         services.AddSingleton<Nexus.Service.Peripherals.Aw5.Aw5SensorReader>();
         services.AddHostedService<Nexus.Service.Peripherals.Aw5.Aw5PanelWorker>();

@@ -13,8 +13,9 @@ namespace Nexus.Service.Peripherals.Aw5;
 /// driver alone leaves a stale reading on the glass; one blanking report clears it
 /// at once.
 ///
-/// Only valid with no vendor driver running - it and this would be two writers on
-/// one HID.
+/// Reached only when a driver app's device gate goes off, so nothing calls it while
+/// no app declares a driver block; <see cref="Aw5Hub.Blank"/> is the live path, and
+/// it writes the same report.
 /// </summary>
 public sealed class Aw5PanelBlanker : IDriverGateStopHook
 {
