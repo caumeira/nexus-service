@@ -352,6 +352,18 @@ public static class QSeriesCoolerProtocol
     /// SmartHubCommandBase.SwitchControlMode / PQSeriesCommand.SetPumpSpeedCommand.
     /// </summary>
     public static byte[] BuildSetControl(byte mode, byte pumpWire, byte turboByte, ReadOnlySpan<byte> port0)
+        => port0.Length >= Port0ResponseLength
+            ? BuildSetControlWithAnimation(mode, pumpWire, turboByte, port0[15], port0[16], port0[17], port0[18], port0[19])
+            : BuildSetControlWithAnimation(mode, pumpWire, turboByte, 0, 0, 0, 0, 0);
+
+    /// <summary>
+    /// FF CC 02 control frame. Bytes [10..14] carry the firmware animation: the
+    /// 0x0C MCU write updates the stored copy only, so this frame is what changes
+    /// the live state Port-0 reports. HYTE's SmartHubCommandBase sends it before
+    /// the MCU write from every animation entry point.
+    /// </summary>
+    public static byte[] BuildSetControlWithAnimation(
+        byte mode, byte pumpWire, byte turboByte, byte animation, byte r, byte g, byte b, byte brightness)
     {
         var cmd = new byte[SetControlFrameLength];
         cmd[0] = Frame0;
@@ -360,14 +372,11 @@ public static class QSeriesCoolerProtocol
         cmd[4] = mode;
         cmd[5] = pumpWire;
         cmd[9] = turboByte;
-        if (port0.Length >= Port0ResponseLength)
-        {
-            cmd[10] = port0[15];
-            cmd[11] = port0[16];
-            cmd[12] = port0[17];
-            cmd[13] = port0[18];
-            cmd[14] = port0[19];
-        }
+        cmd[10] = animation;
+        cmd[11] = r;
+        cmd[12] = g;
+        cmd[13] = b;
+        cmd[14] = brightness;
         return cmd;
     }
 
@@ -482,6 +491,26 @@ public static class QSeriesCoolerProtocol
     /// </summary>
     public const int FirmwareCurveTempMin = 0;
     public const int FirmwareCurveTempMax = 75;
+
+    /// <summary>
+    /// HYTE's factory pump/fan curves. The firmware has no reset command, so a
+    /// reset writes these back.
+    /// </summary>
+    public static QSeriesFirmwareCurvePoint[] DefaultFirmwareCurve() => new[]
+    {
+        new QSeriesFirmwareCurvePoint { PumpTempC = 34, PumpDutyPercent = 32, FanTempC = 43, FanDutyPercent = 29 },
+        new QSeriesFirmwareCurvePoint { PumpTempC = 38, PumpDutyPercent = 37, FanTempC = 48, FanDutyPercent = 39 },
+        new QSeriesFirmwareCurvePoint { PumpTempC = 43, PumpDutyPercent = 45, FanTempC = 51, FanDutyPercent = 50 },
+        new QSeriesFirmwareCurvePoint { PumpTempC = 47, PumpDutyPercent = 56, FanTempC = 54, FanDutyPercent = 59 },
+        new QSeriesFirmwareCurvePoint { PumpTempC = 50, PumpDutyPercent = 91, FanTempC = 56, FanDutyPercent = 91 },
+    };
+
+    /// <summary>Factory firmware animation: solid white at full brightness.</summary>
+    public const byte DefaultFwAnimation = FwAnimationColor;
+    public const byte DefaultFwR = 255;
+    public const byte DefaultFwG = 255;
+    public const byte DefaultFwB = 255;
+    public const byte DefaultFwBrightness = 100;
 
     // Per-slot frame offsets for the 5-point V2 curve. Pump/fan speeds are plain
     // 0-100 bytes; each temperature is two bytes (high, low) = TempH at the listed

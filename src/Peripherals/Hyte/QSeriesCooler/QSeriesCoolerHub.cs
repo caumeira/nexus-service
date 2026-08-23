@@ -126,6 +126,62 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
         }
     }
 
+    /// <summary>
+    /// Restore the cooler's firmware settings to factory: turbo off, the default
+    /// pump/fan curves, and the default LED animation. The curve and animation
+    /// writes skip a value the device already holds; turbo has no such skip and
+    /// re-persists to the MCU (FF CC 0A) on every call, so it is only written
+    /// when Port-0 says it is on. Returns false if any attempted step failed;
+    /// unsupported firmware skips that step rather than failing.
+    /// </summary>
+    public bool ResetFirmwareToDefaults()
+    {
+        if (!EnsureConnected()) return false;
+        var port0 = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+        var ok = !ReadPort0(port0) || !QSeriesCoolerProtocol.TurboOnOf(port0) || SetTurbo(false);
+        if (SupportsFirmwareCurve)
+            ok &= WriteFirmwareCurve(QSeriesCoolerProtocol.DefaultFirmwareCurve());
+        if (SupportsFirmwareAnimation)
+        {
+            ok &= SetFirmwareAnimation(
+                QSeriesCoolerProtocol.DefaultFwAnimation,
+                QSeriesCoolerProtocol.DefaultFwR,
+                QSeriesCoolerProtocol.DefaultFwG,
+                QSeriesCoolerProtocol.DefaultFwB,
+                QSeriesCoolerProtocol.DefaultFwBrightness);
+        }
+        return ok;
+    }
+
+    /// <summary>
+    /// Release software RGB control, returning the LEDs to the power-on default
+    /// the cooler's own firmware animation runs under. Software control is what
+    /// suppresses that animation, so releasing it is the only way a frame-less state shows
+    /// anything but the last pushed frame. Clears the asserted flag, so the next
+    /// <see cref="WriteLighting"/> re-takes software control.
+    /// </summary>
+    public bool ReleaseRgbControlToFirmware()
+    {
+        lock (_lock)
+        {
+            if (!EnsureConnected()) return false;
+            var t = _transport;
+            if (t is null) return false;
+            try
+            {
+                t.Write(QSeriesCoolerProtocol.BuildSetRgbControlMode(QSeriesCoolerProtocol.RgbModeMotherboard));
+                _rgbInSwControl = false;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] release rgb control failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
     // ── IDfuFlashTarget ──
     string IDfuFlashTarget.FirmwareType => IsConnected ? Variant : "";
     bool IDfuFlashTarget.CanFlash(string firmwareType) =>
@@ -518,8 +574,9 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     /// whether to surface a brightness control at all, not to gate this write). Reads Port-0
     /// first and skips the write entirely when the requested block already matches - ROM-write
     /// endurance, and at most one write per call. Re-reads Port-0 after writing and logs a
-    /// warning (does not fail the call) when the readback disagrees: a successful serial write
-    /// is not evidence the firmware accepted it.
+    /// fails the call when the readback disagrees: a successful serial write is not evidence
+    /// the firmware accepted it, and reporting it as saved is what let the UI show a save the
+    /// device never took.
     /// </summary>
     public bool SetFirmwareAnimation(byte animation, byte r, byte g, byte b, byte brightness)
     {
@@ -539,25 +596,40 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                     return true;
                 }
 
+                // The control frame applies the animation to the live hub; the 0x0C
+                // write persists it to the MCU. The MCU write alone leaves Port-0
+                // reporting the old animation, which is what made a save look
+                // accepted and then revert (NEX-62). Order and pairing match
+                // HYTE's SmartHubCommandBase animation entry points.
+                var turboOn = QSeriesCoolerProtocol.TurboOnOf(port0);
+                t.Write(QSeriesCoolerProtocol.BuildSetControlWithAnimation(
+                    QSeriesCoolerProtocol.ControlModeOf(port0),
+                    QSeriesCoolerProtocol.MapPumpDutyToWire(_lastPumpDuty, turboOn),
+                    turboOn ? QSeriesCoolerProtocol.TurboOnByte : QSeriesCoolerProtocol.TurboOffByte,
+                    animation, r, g, b, brightness));
                 t.Write(QSeriesCoolerProtocol.BuildWriteFirmwareAnimation(animation, r, g, b, brightness));
 
                 Thread.Sleep(FwAnimationVerifySettleMs);
                 var verify = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
-                if (ReadPort0(verify)
-                    && QSeriesCoolerProtocol.TryParseFirmwareAnimation(verify, out var applied))
-                {
-                    if (applied.Animation != animation || applied.R != r || applied.G != g
-                        || applied.B != b || applied.Brightness != brightness)
-                    {
-                        ServiceLog.Warn(
-                            $"[qseries-cooler] firmware animation readback mismatch: wanted " +
-                            $"{animation:X2}/{r:X2}{g:X2}{b:X2}/{brightness}, read " +
-                            $"{applied.Animation:X2}/{applied.R:X2}{applied.G:X2}{applied.B:X2}/{applied.Brightness}");
-                    }
-                }
-                else
+                if (!ReadPort0(verify)
+                    || !QSeriesCoolerProtocol.TryParseFirmwareAnimation(verify, out var applied))
                 {
                     ServiceLog.Warn("[qseries-cooler] firmware animation write unverified: readback unavailable");
+                    return true;
+                }
+                // Firmware without the brightness field always reads back 0 there,
+                // so comparing it would fail every write on those revisions.
+                var brightnessMismatch = SupportsFirmwareAnimationBrightness && applied.Brightness != brightness;
+                if (applied.Animation != animation || applied.R != r || applied.G != g
+                    || applied.B != b || brightnessMismatch)
+                {
+                    // Reporting a verified-failed write as success is what let the
+                    // UI show "saved" over unchanged hardware.
+                    ServiceLog.Warn(
+                        $"[qseries-cooler] firmware animation readback mismatch: wanted " +
+                        $"{animation:X2}/{r:X2}{g:X2}{b:X2}/{brightness}, read " +
+                        $"{applied.Animation:X2}/{applied.R:X2}{applied.G:X2}{applied.B:X2}/{applied.Brightness}");
+                    return false;
                 }
                 return true;
             }

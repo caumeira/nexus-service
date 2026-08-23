@@ -83,8 +83,9 @@ public static partial class DevicesRoutes
         });
 
         // Write the firmware-driven LED animation. Read-before-write + readback-verify
-        // inside SetFirmwareAnimation; opcode 0x0C carries the SAVE byte and updates
-        // both EEPROM and the live MCU animation in one shot.
+        // inside SetFirmwareAnimation, which sends the FF CC 02 control frame (live
+        // state) before the 0x0C MCU write (stored copy) - 0x0C alone leaves Port-0
+        // reporting the old animation.
         app.MapPut("/devices/qseries/firmware-animation", (QSeriesFirmwareAnimationRequest body, QSeriesCoolerHub hub) =>
         {
             if (!hub.IsConnected)
