@@ -226,8 +226,17 @@ public sealed class LightingEngine : IDisposable
         var cw = _canvas.Width;
         var ch = _canvas.Height;
         const float CW = 1000f, CH = 600f;
-        foreach (var dev in devices)
+        // Overlays first, so an LED they own is never given a canvas colour it
+        // is about to lose. The hub writers read these frames from their own
+        // timers with no lock, so writing an LED twice per frame with DIFFERENT
+        // colours is visible: a reader landing between the two writes gets a
+        // frame that is part canvas and part override, and the boundary moves
+        // every tick (camera-measured as flicker on the Keeb once per-device
+        // Static assignments made the two passes disagree).
+        var overlaid = ApplyTestOverlays(devices);
+        for (var di = 0; di < devices.Length; di++)
         {
+            var dev = devices[di];
             // Preview LED count from the editor's unsaved draft; clamped to the
             // physical buffer size because SetLed bounds-guards on LedCount.
             var ledCount = dev.PreviewLedCount is { } pc
@@ -243,6 +252,13 @@ public sealed class LightingEngine : IDisposable
             for (int z = ledCount; z < dev.LedCount; z++)
             {
                 dev.SetLed(z, 0, 0, 0);
+            }
+
+            // The overlay pass already gave this device its final colours; the
+            // canvas sample below would be a second, different write.
+            if (overlaid[di])
+            {
+                continue;
             }
 
             var rectX = dev.X / CW * cw;
@@ -399,8 +415,6 @@ public sealed class LightingEngine : IDisposable
                 dev.SetLed(i, r, g, b);
             }
         }
-
-        ApplyTestOverlays(devices);
     }
 
     /// <summary>
@@ -445,10 +459,18 @@ public sealed class LightingEngine : IDisposable
         return ((byte)(rSum / wSum), (byte)(gSum / wSum), (byte)(bSum / wSum));
     }
 
-    private void ApplyTestOverlays(DeviceFrame[] devices)
+    /// <summary>
+    /// Paint the devices whose frame comes from something other than the canvas:
+    /// a zone highlight, a per-device Static assignment, or a test pattern.
+    /// Returns, per device, whether it painted - the caller skips canvas
+    /// sampling for those, so every LED is written exactly once per frame.
+    /// </summary>
+    private bool[] ApplyTestOverlays(DeviceFrame[] devices)
     {
-        foreach (var dev in devices)
+        var owned = new bool[devices.Length];
+        for (var di = 0; di < devices.Length; di++)
         {
+            var dev = devices[di];
             var previewCount = dev.PreviewLedCount is { } pc ? Math.Min(pc, dev.LedCount) : dev.LedCount;
 
             var highlights = dev.HighlightLeds;
@@ -465,6 +487,7 @@ public sealed class LightingEngine : IDisposable
                         dev.SetLed(i, 0, 0, 0);
                     }
                 }
+                owned[di] = true;
                 continue;
             }
 
@@ -477,12 +500,14 @@ public sealed class LightingEngine : IDisposable
                 if (Nexus.Service.Lighting.StaticColorHex.TryParse(assignment.Color, out var cr, out var cg, out var cb))
                 {
                     for (int i = 0; i < previewCount; i++) dev.SetLed(i, cr, cg, cb);
+                    owned[di] = true;
                     continue;
                 }
                 var render = RenderAssignment(assignment);
                 if (render is not null)
                 {
                     PaintFromAssignment(dev, previewCount, render);
+                    owned[di] = true;
                     continue;
                 }
             }
@@ -493,6 +518,7 @@ public sealed class LightingEngine : IDisposable
                 if (pattern == "none")
                 {
                     dev.Fill(0, 0, 0);
+                    owned[di] = true;
                 }
                 else
                 {
@@ -536,10 +562,13 @@ public sealed class LightingEngine : IDisposable
                             dev.SetLed(i,
                                 (byte)(band * 255), (byte)(band * 255), (byte)(band * 255));
                         }
+                        owned[di] = true;
                     }
+                    // No UVs: nothing was painted, so the canvas sample stands.
                 }
             }
         }
+        return owned;
     }
 
     private void SerializeAndBroadcast()

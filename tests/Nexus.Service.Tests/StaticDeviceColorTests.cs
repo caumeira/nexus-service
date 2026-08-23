@@ -335,4 +335,49 @@ public class StaticDeviceEffectTests
     {
         Assert.False(StaticColorHex.TryParse(hex, out _, out _, out _));
     }
+
+    /// <summary>
+    /// The hub writers (keeb, NP50, strimer, ...) each read
+    /// <see cref="LightingEngine.Devices"/> from their own timer with no lock,
+    /// so an LED written twice in one frame with DIFFERENT colours is visible:
+    /// a reader landing between the two writes gets part canvas, part
+    /// assignment. This drives the engine with a canvas colour that cannot be
+    /// confused with the assignment and reads the frame concurrently - every
+    /// snapshot has to be all-assignment.
+    /// </summary>
+    [Fact]
+    public async Task An_assigned_device_is_never_observed_holding_the_canvas_colour()
+    {
+        var tracker = new StaticDeviceEffectTracker { Enabled = true };
+        tracker.Set("keeb:keys", new StaticDeviceAssignment { Effect = "flat", Color = "#ff0000" });
+        var device = MakeDevice(32);
+
+        using var engine = new LightingEngine { StaticEffects = tracker };
+        engine.UpdateDevices(new[] { device });
+        engine.FrameIntervalMs = 5;
+        engine.SetEffect(new FillEffect(0, 255, 0));   // canvas = green, assignment = red
+
+        var mixed = 0;
+        var reads = 0;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var reader = Task.Run(() =>
+        {
+            var buf = new byte[device.LedBytes.Length];
+            while (!cts.IsCancellationRequested)
+            {
+                device.LedBytes.CopyTo(buf);
+                reads++;
+                for (var i = 0; i + 2 < buf.Length; i += 3)
+                {
+                    // Any green at all means a canvas write survived into a
+                    // frame the assignment owns.
+                    if (buf[i + 1] != 0) { Interlocked.Increment(ref mixed); break; }
+                }
+            }
+        });
+        await reader;
+
+        Assert.True(reads > 1000, $"reader only sampled {reads} times - too few to be meaningful");
+        Assert.Equal(0, mixed);
+    }
 }
