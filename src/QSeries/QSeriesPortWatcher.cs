@@ -572,6 +572,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
             // races the install stream and fails it; skip them until it finishes.
             if (_deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) continue;
 
+            // Consumed after the install guard, so a reboot requested mid-flash stays
+            // pending until the install releases the transport instead of being lost.
+            if (Interlocked.Exchange(ref _rebootRequested, 0) == 1)
+            {
+                await RebootOnRequestAsync(device, ct);
+                continue; // rebooting; the reverse/qshell passes would race the shutdown
+            }
+
             // A reseat re-enumerates with the same serial but a new transport id. The
             // 10 s poll often misses the brief offline window, so a transport-id change
             // is the reliable reseat signal: on change, reboot to reset the degraded
@@ -1229,6 +1237,49 @@ public sealed class QSeriesPortWatcher : BackgroundService
         // flag set above, so dropping this release loses nothing.
         try { _wake.Release(); }
         catch (SemaphoreFullException) { }
+    }
+
+    /// <summary>Set by <see cref="RequestReboot"/>, consumed by the tick loop.</summary>
+    private int _rebootRequested;
+
+    /// <summary>
+    /// Called from POST /devices/qseries/reboot. The reboot runs on the tick
+    /// thread, which owns the transport and the per-serial reboot dictionaries;
+    /// issuing it from the request thread would mutate those unsynchronised.
+    /// Not per-serial: a host drives one Q-series panel, so the first panel the
+    /// tick reaches consumes the flag.
+    /// </summary>
+    internal void RequestReboot()
+    {
+        Interlocked.Exchange(ref _rebootRequested, 1);
+        try { _wake.Release(); }
+        catch (SemaphoreFullException) { }
+    }
+
+    /// <summary>
+    /// Shares <see cref="_lastQshellRebootBySerial"/> with the reseat and
+    /// escalation paths so none of them double-reboot across the re-enumeration
+    /// that follows; drops the confirmed display state because a reboot returns
+    /// the panel to <c>user_rotation</c> 0 with the screen on.
+    /// </summary>
+    private async Task<bool> RebootOnRequestAsync(DeviceData device, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        _lastQshellRebootBySerial[device.Serial] = now;
+        _lastAppliedBySerial.Remove(device.Serial);
+        _displayAppliedThisRun.Remove(device.Serial);
+        try
+        {
+            ServiceLog.Info($"[qseries-port-watcher] {device.Serial}: reboot requested by user; rebooting panel");
+            await _client.RebootAsync(device, ct);
+            return true;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: user reboot failed: {ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>

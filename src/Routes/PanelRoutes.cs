@@ -344,6 +344,38 @@ public static class PanelRoutes
         // brightness/orientation/screen/sleep-with-host, Xeneon Edge DDC
         // picture values - plus the record's monitor behavior
         // (ReserveMonitor/AutoOrient). Personalization is untouched.
+        // Factory reset: everything the user configured for this panel, plus the
+        // panel's own software. Composes the two resets below with an APK
+        // uninstall + reinstall, matching what Nexus 2's factory reset did (it
+        // reset the Q60 hardware AND software profiles alongside the uninstall).
+        // Q-series only - no other surface runs an APK Nexus installs. Progress
+        // rides the shared flash status (GET /devices/firmware/flash/status).
+        app.MapPost("/panel/devices/{id}/factory-reset", (string id, HttpContext ctx, PanelDeviceRegistry registry, PanelBgLibrary bgLibrary, IConfigStore store, IServiceProvider sp, MultiplexHub hub, TokenService tokens) =>
+        {
+            if (!HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            var record = registry.Get(id);
+            if (record is null)
+                return Results.NotFound(ApiResponse.Fail("device not found"));
+            if (!string.Equals(record.Capabilities?.Surface, PanelSurfaces.Q60, StringComparison.Ordinal))
+                return Results.Conflict(ApiResponse.Fail("factory reset is only supported on Q-series panels"));
+
+            // Start the flash first: it validates the panel is attached and takes
+            // the flash gate, so a rejected request leaves the user's settings alone.
+            var flasher = sp.GetRequiredService<Nexus.Service.Devices.Firmware.ApkFlasher>();
+            if (!flasher.TryStartFactoryReset(out var error))
+                return Results.Conflict(ApiResponse.Fail(error));
+
+            registry.ResetToDefaults(id);
+            if (!bgLibrary.DeleteDeviceMedia(id))
+                ServiceLog.Warn($"[panel] factory reset: media dir for '{id}' could not be fully removed");
+            registry.ResetHardwareSettings(id);
+            store.Update(s => s.QSeries = new QSeriesSettings());
+            sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.AnnounceDisplayChange();
+            BroadcastDeviceChanged(hub, id);
+            return Results.Accepted(value: ApiResponse.Ok());
+        });
+
         app.MapPost("/panel/devices/{id}/reset-hardware", async (string id, HttpContext ctx, PanelDeviceRegistry registry, IConfigStore store, IServiceProvider sp, MultiplexHub hub, TokenService tokens, CancellationToken ct) =>
         {
             if (!HasServiceToken(ctx, tokens))
