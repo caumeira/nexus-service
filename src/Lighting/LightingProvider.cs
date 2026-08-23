@@ -82,19 +82,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
         _engine.OnFrame += frame => _ = _hub.BroadcastBinaryAsync(frame);
         _engine.OnEffectChanged += ReconcileAudioCapture;
-        WireScanner(_scanner);
-    }
-
-    // Separate method so the nullable assignment does not produce IDE0031 in
-    // the constructor (null-conditional can't appear on the left of an assignment).
-    private void WireScanner(GameSyncGameScanner? scanner)
-    {
-        if (scanner is null)
-        {
-            return;
-        }
-
-        scanner.OnScanComplete = OnGameScanComplete;
+        _scanner?.OnScanComplete = OnGameScanComplete;
     }
 
     /// <summary>

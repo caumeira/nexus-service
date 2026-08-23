@@ -3,4 +3,5 @@
     <Project Path="tests/Nexus.Service.Tests/Nexus.Service.Tests.csproj" />
   </Folder>
   <Project Path="Nexus.Service.csproj" />
+  <Project Path="installer/msix/NexusStoreLauncher/NexusStoreLauncher.csproj" />
 </Solution>

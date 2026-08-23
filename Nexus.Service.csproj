@@ -616,11 +616,13 @@
   <!-- Exclude test project from main build (SDK auto-includes all .cs) -->
   <ItemGroup>
     <Compile Remove="tests/**" />
-    <!-- installer/msix/NexusStoreLauncher is its own project. Globbed in here it
-         contributed a second Main (CS7022) and, worse, its
-         [assembly: SupportedOSPlatform("windows")] marked this whole assembly
-         windows-only, so every call from the test assembly raised CA1416. -->
+    <!-- installer/ is not part of this assembly: msix/NexusStoreLauncher is a
+         separate project (build-msix.ps1 publishes it) whose Main and
+         [assembly: SupportedOSPlatform("windows")] must not land here, and the
+         signing metadata beside it must not be copied into build output. -->
     <Compile Remove="installer/**" />
+    <Content Remove="installer/**" />
+    <None Remove="installer/**" />
     <Content Remove="tests/**" />
     <None Remove="tests/**" />
   </ItemGroup>
