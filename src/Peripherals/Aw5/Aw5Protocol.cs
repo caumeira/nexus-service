@@ -74,7 +74,7 @@ public static class Aw5Protocol
     /// </summary>
     public const int LevelplayArcMaxNotches = 12;
     public const int LevelplayLoadNotches = 6;
-    public const int LevelplayClockNotches = 2;
+    public const int LevelplayClockNotches = 9;
 
     /// <summary>Reading-to-notch scales, shared so the two variants' bars cannot drift.</summary>
     private const int NotchTempFloorC = 20;
@@ -133,6 +133,7 @@ public static class Aw5Protocol
         // as 99: the panel has no third digit.
         WriteDigits(frames[1], 3, loadPct, 2);
         frames[1][6] = Notches(loadPct, 0, 100, LevelplayLoadNotches);
+        // b7: vendor constant, function unknown; sent to match the stream.
         frames[1][7] = 0x01;
 
         // 0x02: no byte of this sub-command changes anything on the glass. Vendor

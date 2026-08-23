@@ -137,9 +137,9 @@ public class Aw5ProtocolTests
     [Theory]
     [InlineData(0, 0)]
     [InlineData(800, 1)]
-    [InlineData(3500, 1)]
-    [InlineData(5000, 2)]
-    [InlineData(9999, 2)]
+    [InlineData(3500, 6)]
+    [InlineData(5000, 9)]
+    [InlineData(9999, 9)]
     public void Levelplay_clock_bar_rides_sub_03_byte_6(int mhz, int expected)
     {
         Assert.Equal(expected, Aw5Protocol.BuildLevelplayCycle(tempC: 0, loadPct: 0, mhz: mhz)[3][6]);
