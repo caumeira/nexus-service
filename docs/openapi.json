@@ -743,6 +743,100 @@
         }
       }
     },
+    "/onboarding/lighting-complete": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/migration/nexus2": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/migration/nexus2/dismiss": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/migration/nexus2/disable-autostart": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/migration/nexus2/close-app": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/migration/nexus2/preview": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/migration/nexus2/apply": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Nexus2ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/cooling/curves": {
       "get": {
         "tags": [
@@ -4459,6 +4553,18 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/devices/qseries/reboot": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
         "responses": {
           "200": {
             "description": "OK"
@@ -9158,6 +9264,28 @@
       }
     },
     "/panel/devices/{id}/reset": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/panel/devices/{id}/factory-reset": {
       "post": {
         "tags": [
           "Nexus"
@@ -15907,6 +16035,23 @@
           }
         }
       },
+      "Nexus2ApplyRequest": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "replaceCustomizedLayout": {
+            "type": "boolean"
+          }
+        }
+      },
       "Np50CoolingModeRequest": {
         "type": "object",
         "properties": {
@@ -20323,6 +20468,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "lightingDashboardMode": {
+            "type": "string"
+          },
+          "coolingDashboardMode": {
+            "type": "string"
           }
         }
       },
@@ -20349,6 +20500,18 @@
             "items": {
               "type": "string"
             }
+          },
+          "lightingDashboardMode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "coolingDashboardMode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

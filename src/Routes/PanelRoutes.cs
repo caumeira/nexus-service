@@ -329,11 +329,9 @@ public static class PanelRoutes
         {
             if (!HasServiceToken(ctx, tokens))
                 return Results.Unauthorized();
-            var reset = registry.ResetToDefaults(id);
+            var reset = ResetPersonalization(registry, bgLibrary, id);
             if (reset is null)
                 return Results.NotFound(ApiResponse.Fail("device not found"));
-            if (!bgLibrary.DeleteDeviceMedia(id))
-                ServiceLog.Warn($"[panel] reset: media dir for '{id}' could not be fully removed");
             BroadcastDeviceChanged(hub, id);
             return Results.Json(reset, AppJsonContext.Default.PanelDeviceRecord);
         });
@@ -344,6 +342,48 @@ public static class PanelRoutes
         // brightness/orientation/screen/sleep-with-host, Xeneon Edge DDC
         // picture values - plus the record's monitor behavior
         // (ReserveMonitor/AutoOrient). Personalization is untouched.
+        // Factory reset: everything the user configured for this panel, plus the
+        // panel's own software. Composes the personalization reset above and the
+        // hardware reset below with an APK uninstall + reinstall, matching what
+        // Nexus 2's factory reset did (it reset the Q60 hardware AND software
+        // profiles alongside the uninstall). Q-series only - no other surface runs
+        // an APK Nexus installs. Progress rides the shared flash status
+        // (GET /devices/firmware/flash/status).
+        app.MapPost("/panel/devices/{id}/factory-reset", (string id, HttpContext ctx, PanelDeviceRegistry registry, PanelBgLibrary bgLibrary, IConfigStore store, IServiceProvider sp, MultiplexHub hub, TokenService tokens) =>
+        {
+            if (!HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            var record = registry.Get(id);
+            if (record is null)
+                return Results.NotFound(ApiResponse.Fail("device not found"));
+            if (!string.Equals(record.Capabilities?.Surface, PanelSurfaces.Q60, StringComparison.Ordinal))
+                return Results.Conflict(ApiResponse.Fail("factory reset is only supported on Q-series panels"));
+
+            // Start the flash first: it validates the panel is attached and takes
+            // the flash gate, so a rejected request leaves the user's settings alone.
+            var flasher = sp.GetRequiredService<Nexus.Service.Devices.Firmware.ApkFlasher>();
+            if (!flasher.TryStartFactoryReset(out var error))
+                return Results.Conflict(ApiResponse.Fail(error));
+
+            // The flash is already running, so a throw here would leave the panel
+            // wiped, the record half-reset, and clients never told. Broadcast
+            // whatever landed and report the partial rather than a bare 500.
+            try
+            {
+                ResetPersonalization(registry, bgLibrary, id);
+                registry.ResetHardwareSettings(id);
+                RestoreQSeriesDisplayDefaults(store, sp);
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[panel] factory reset: host-side reset for '{id}' failed: {ex.GetType().Name}: {ex.Message}");
+                BroadcastDeviceChanged(hub, id);
+                return Results.Json(ApiResponse.Fail("the panel software is being reinstalled, but its settings could not be fully reset"), AppJsonContext.Default.ApiResponse, statusCode: 207);
+            }
+            BroadcastDeviceChanged(hub, id);
+            return Results.Accepted(value: ApiResponse.Ok());
+        });
+
         app.MapPost("/panel/devices/{id}/reset-hardware", async (string id, HttpContext ctx, PanelDeviceRegistry registry, IConfigStore store, IServiceProvider sp, MultiplexHub hub, TokenService tokens, CancellationToken ct) =>
         {
             if (!HasServiceToken(ctx, tokens))
@@ -372,10 +412,7 @@ public static class PanelRoutes
             }
             else if (string.Equals(surface, PanelSurfaces.Q60, StringComparison.Ordinal))
             {
-                // Property initializers carry the install defaults; the
-                // watcher diffs against confirmed state and applies.
-                store.Update(s => s.QSeries = new QSeriesSettings());
-                sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.AnnounceDisplayChange();
+                RestoreQSeriesDisplayDefaults(store, sp);
             }
             else if (string.Equals(family, KnownPanelDisplays.XeneonEdgeFamily, StringComparison.Ordinal)
                 && record.DisplayId is { Length: > 0 } displayId)
@@ -424,6 +461,26 @@ public static class PanelRoutes
 
     private static void BroadcastDeviceChanged(MultiplexHub hub, string deviceId)
         => PanelTopics.BroadcastPanelDevice(hub, deviceId);
+
+    /// <summary>Clears the record's personalization and its uploaded media. Null when the id is unknown.</summary>
+    private static PanelDeviceRecord? ResetPersonalization(PanelDeviceRegistry registry, PanelBgLibrary bgLibrary, string id)
+    {
+        var reset = registry.ResetToDefaults(id);
+        if (reset is null) return null;
+        if (!bgLibrary.DeleteDeviceMedia(id))
+            ServiceLog.Warn($"[panel] reset: media dir for '{id}' could not be fully removed");
+        return reset;
+    }
+
+    /// <summary>
+    /// Restores the Q60 host-side display settings. Property initializers carry
+    /// the install defaults; the watcher diffs against confirmed state and applies.
+    /// </summary>
+    private static void RestoreQSeriesDisplayDefaults(IConfigStore store, IServiceProvider sp)
+    {
+        store.Update(s => s.QSeries = new QSeriesSettings());
+        sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.AnnounceDisplayChange();
+    }
 
     private static bool HasServiceToken(HttpContext ctx, TokenService tokens)
         => Auth.ServiceTokenRequests.HasServiceToken(ctx, tokens);
