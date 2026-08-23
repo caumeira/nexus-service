@@ -211,4 +211,57 @@ public class StaticDeviceEffectTests
         Assert.Empty(store.Load().Lighting.StaticDeviceLooks);
         Assert.False(new StaticDeviceEffectTracker(store) { Enabled = true }.TryGet("keeb:keys", out _));
     }
+
+    /// <summary>
+    /// A profile switch replaces the whole LightingSettings object. Hydrating
+    /// only in the ctor left the engine applying the PREVIOUS profile's
+    /// assignments while settings said otherwise.
+    /// </summary>
+    [Fact]
+    public void A_profile_switch_rehydrates_the_tracker()
+    {
+        var store = new InMemoryConfigStore();
+        var tracker = new StaticDeviceEffectTracker(store) { Enabled = true };
+        tracker.Set("keeb:keys", new StaticDeviceAssignment { Effect = "simplered" });
+
+        // What a profile activate does: swap the Lighting object wholesale.
+        store.Update(s =>
+        {
+            s.Lighting = new Nexus.Service.Persistence.LightingSettings();
+            s.Lighting.StaticDeviceLooks["keeb:keys"] = new Nexus.Service.Persistence.StaticDeviceLook
+            {
+                Effect = "simplecyan",
+            };
+        });
+
+        Assert.True(tracker.TryGet("keeb:keys", out var now));
+        Assert.Equal("simplecyan", now.Effect);
+    }
+
+    [Fact]
+    public void A_profile_without_assignments_drops_them()
+    {
+        var store = new InMemoryConfigStore();
+        var tracker = new StaticDeviceEffectTracker(store) { Enabled = true };
+        tracker.Set("keeb:keys", new StaticDeviceAssignment { Effect = "simplered" });
+        store.Update(s => s.Lighting = new Nexus.Service.Persistence.LightingSettings());
+        Assert.False(tracker.TryGet("keeb:keys", out _));
+    }
+
+    /// <summary>
+    /// Set/Clear write through the store and re-enter the change handler. A
+    /// blind rebuild would bump Version every time and throw away the engine's
+    /// render cache on every assignment.
+    /// </summary>
+    [Fact]
+    public void Rewriting_the_same_look_does_not_bump_the_version()
+    {
+        var store = new InMemoryConfigStore();
+        var tracker = new StaticDeviceEffectTracker(store) { Enabled = true };
+        tracker.Set("keeb:keys", new StaticDeviceAssignment { Effect = "simplered" });
+        var settled = tracker.Version;
+        tracker.Set("keeb:keys", new StaticDeviceAssignment { Effect = "simplered" });
+        // One bump for the write itself, and no extra from the re-entrant hydrate.
+        Assert.Equal(settled + 1, tracker.Version);
+    }
 }

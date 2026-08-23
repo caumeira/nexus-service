@@ -67,10 +67,30 @@ public sealed class StaticDeviceEffectTracker
         // survive a restart: without this the UI still lists every pick (it
         // keeps its own copy) while the devices fall back to the shared canvas.
         if (store is null) return;
-        foreach (var (id, look) in store.Load().Lighting.StaticDeviceLooks)
+        Hydrate();
+        // A profile switch (and a cloud profile pull) replaces the whole
+        // LightingSettings object, StaticDeviceLooks included. Hydrating only in
+        // the ctor left the engine applying the PREVIOUS profile's assignments
+        // while settings said otherwise, with nothing to reconcile them.
+        store.OnChanged += Hydrate;
+    }
+
+    /// <summary>
+    /// Rebuild from the store, but only when the stored content actually
+    /// differs. Set/Clear write through the store and so re-enter here; a blind
+    /// rebuild would bump <see cref="Version"/> every time and throw away the
+    /// engine's render cache on every assignment.
+    /// </summary>
+    private void Hydrate()
+    {
+        var store = _store;
+        if (store is null) return;
+        var looks = store.Load().Lighting.StaticDeviceLooks;
+        var rebuilt = new Dictionary<string, StaticDeviceAssignment>(StringComparer.Ordinal);
+        foreach (var (id, look) in looks)
         {
-            if (string.IsNullOrEmpty(look.Effect)) continue;
-            _assignments[id] = new StaticDeviceAssignment
+            if (look is null || string.IsNullOrEmpty(look.Effect)) continue;
+            rebuilt[id] = new StaticDeviceAssignment
             {
                 Effect = look.Effect,
                 Intensity = look.Intensity,
@@ -78,9 +98,28 @@ public sealed class StaticDeviceEffectTracker
                 Colorize = look.Colorize,
                 Saturation = look.Saturation,
                 Contrast = look.Contrast,
-                Params = look.Params.Count > 0 ? new Dictionary<string, float>(look.Params) : null,
+                Params = look.Params is { Count: > 0 } ? new Dictionary<string, float>(look.Params) : null,
             };
         }
+        lock (_lock)
+        {
+            if (SameAs(rebuilt)) return;
+            _assignments.Clear();
+            foreach (var (id, a) in rebuilt) _assignments[id] = a;
+            Version++;
+        }
+    }
+
+    /// <summary>Content compare by look identity; caller holds the lock.</summary>
+    private bool SameAs(Dictionary<string, StaticDeviceAssignment> other)
+    {
+        if (_assignments.Count != other.Count) return false;
+        foreach (var (id, a) in other)
+        {
+            if (!_assignments.TryGetValue(id, out var mine)) return false;
+            if (!string.Equals(mine.Key(), a.Key(), StringComparison.Ordinal)) return false;
+        }
+        return true;
     }
 
     /// <summary>True while Static owns the output; false in every other mode.</summary>
