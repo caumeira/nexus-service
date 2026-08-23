@@ -21,7 +21,17 @@ namespace Nexus.Service.Lighting;
 public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
-    private const int KnobReadEveryTicks = 2; // ~66 ms knob byte read; ease runs every tick.
+    // Knob follow cadence. The read now happens on KeebSettingsApplier's own
+    // HID handle, so it no longer serializes against the LED stream the way the
+    // hub's read did - the stall that showed as flicker on a held Static frame.
+    // NEXUS_KEEB_KNOB_POLL_TICKS overrides it; 0 disables the follow entirely.
+    private static readonly int KnobReadEveryTicks = ResolveKnobPollTicks();
+
+    private static int ResolveKnobPollTicks()
+    {
+        var raw = Environment.GetEnvironmentVariable("NEXUS_KEEB_KNOB_POLL_TICKS");
+        return int.TryParse(raw, out var ticks) && ticks >= 0 ? ticks : 6;
+    }
 
     private readonly LightingEngine _engine;
     private readonly KeebHub _hub;
@@ -33,6 +43,11 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     private Task? _loop;
     private bool _wasStreaming;
     private int _knobPollTicks;
+    // No periodic re-pin: a settings write takes the same IO lock as the LED
+    // writes, so re-asserting on a timer stalled a frame every couple of
+    // seconds and WAS the residual flicker once the animation itself was
+    // stopped (camera-measured). The pin holds because KeebSettingsApplier
+    // refuses to put an animated mode back while a stream owns the device.
 
     // Reused per-tick scratch buffer for reactive-only frames (base = black).
     private readonly RgbColor[] _reactiveKeyBuf = new RgbColor[KeebLayout.KeyLedCount];
@@ -103,6 +118,8 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
             if (_wasStreaming)
             {
                 _wasStreaming = false;
+                // Release first: Apply must write the user's own animation back.
+                _applier.ReleaseFirmwareAnimation();
                 _applier.Apply();
             }
             return;
@@ -112,10 +129,13 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         {
             _wasStreaming = true;
             _applier.ResetKnobBaseline();
+            // Hold the onboard animation on its non-animated mode for the whole
+            // stream, so a frame gap cannot repaint a rainbow over our output.
+            _applier.SuppressFirmwareAnimation();
         }
 
         // Read the knob byte every Nth tick and set global = byte/100 on a change.
-        var readByte = ++_knobPollTicks >= KnobReadEveryTicks;
+        var readByte = KnobReadEveryTicks > 0 && ++_knobPollTicks >= KnobReadEveryTicks;
         if (readByte) _knobPollTicks = 0;
         _applier.PollKnobToGlobal(readByte);
 
