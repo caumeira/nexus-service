@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 
 #if WINDOWS
 using Microsoft.Win32;
+using Nexus.Service.Platform;
 #endif
 
 namespace Nexus.Service.Lighting.Rgb;
@@ -75,7 +76,7 @@ public sealed class PowerEventListener : IHostedService, IDisposable
         }
         else if (e.Mode == PowerModes.Resume)
         {
-            Console.Error.WriteLine("[power-events] system resumed - bouncing OpenRGB subprocess");
+            ServiceLog.Info("[power-events] system resumed - bouncing OpenRGB subprocess");
             _blackout.OnResumed();
             _bridge.OnSystemResume();
         }

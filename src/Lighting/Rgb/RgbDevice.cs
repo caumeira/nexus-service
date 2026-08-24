@@ -85,6 +85,12 @@ public sealed class RgbZone
     /// <summary>OpenRGB zone type: 0=Single, 1=Linear, 2=Matrix.</summary>
     public uint ZoneType { get; set; }
     public int LedCount { get; set; }
+    /// <summary>Resize bounds the controller advertises; zone type, not these, gates resizing.</summary>
+    public uint LedsMin { get; set; }
+    /// <inheritdoc cref="LedsMin"/>
+    public uint LedsMax { get; set; }
+    /// <summary>True when the controller advertises no room to resize this zone.</summary>
+    public bool IsFixedSize => LedsMax > 0 && LedsMin == LedsMax;
     /// <summary>Matrix width in columns, or 0 when the zone is a linear strip.</summary>
     public int MatrixWidth { get; set; }
     /// <summary>Matrix height in rows, or 0 when the zone is a linear strip.</summary>
