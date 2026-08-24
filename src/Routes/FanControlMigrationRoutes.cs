@@ -159,8 +159,6 @@ public sealed class FanControlPreviewResponse
     public int Version { get; set; }
     public List<FanControlCurvePreviewDto> Curves { get; set; } = new();
     public List<FanControlFanPreviewDto> Fans { get; set; } = new();
-    /// <summary>Things deliberately left behind. Codes, not prose: the client translates them.</summary>
-    public List<FanControlSkipNoteDto> Skipped { get; set; } = new();
     public int CurveCount { get; set; }
     public int CalibrationCount { get; set; }
     public int NameCount { get; set; }
@@ -168,15 +166,6 @@ public sealed class FanControlPreviewResponse
     public int ManualCount { get; set; }
     public bool Error { get; set; }
     public string Msg { get; set; } = "Ok";
-}
-
-/// <summary>One thing the import leaves behind, as a code plus its count.</summary>
-public sealed class FanControlSkipNoteDto
-{
-    /// <summary>One of: fansMissing, rpmCurves, startStop, smoothing.</summary>
-    public string Code { get; set; } = "";
-    /// <summary>How many items the note covers; 0 when it is not a count.</summary>
-    public int Count { get; set; }
 }
 
 public sealed class FanControlApplyRequest

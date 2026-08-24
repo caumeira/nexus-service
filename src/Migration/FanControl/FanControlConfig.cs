@@ -28,6 +28,8 @@ internal sealed class FanControlCurve
     public int CommandMode { get; set; }
 
     public string? TempSourceIdentifier { get; set; }
+    /// <summary>The sensor's hardware-reported name, e.g. "GPU Core". Both apps read these from LibreHardwareMonitor, so it matches ours even where the identifier does not.</summary>
+    public string? TempSourceName { get; set; }
     public double ResponseTime { get; set; } = 1;
 
     public double Percent { get; set; }
@@ -148,6 +150,7 @@ internal static class FanControlConfigParser
             IsHidden = Bool(e, "IsHidden"),
             CommandMode = (int)Num(e, "CommandMode"),
             TempSourceIdentifier = Identifier(e, "SelectedTempSource"),
+            TempSourceName = Identifier(e, "SelectedTempSource", "Name"),
             ResponseTime = Num(e, "SelectedResponseTime", 1),
             MinimumTemperature = Num(e, "MinimumTemperature"),
             MaximumTemperature = Num(e, "MaximumTemperature"),

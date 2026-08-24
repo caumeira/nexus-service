@@ -329,7 +329,6 @@ public class FanControlImportTests
         var missing = plan.Preview.Fans.First(f => f.Identifier == "/lpc/nct6797d/control/9");
         Assert.Null(missing.ChannelId);
         Assert.Equal("none", missing.Match);
-        Assert.Contains(plan.Preview.Skipped, s => s.Code == "fansMissing" && s.Count == 1);
     }
 
     [Fact]
@@ -338,6 +337,69 @@ public class FanControlImportTests
         var fan = Plan().Preview.Fans.First(f => f.Identifier == "/lpc/nct6797d/control/0");
         Assert.Equal("normalized", fan.Match);
         Assert.Equal("/lpc/nct6797d/0/control/0", fan.ChannelId);
+    }
+
+    [Fact]
+    public void Map_MatchesASensorByItsNameWhenTheIdentifierDiffers()
+    {
+        // Both apps read these from LibreHardwareMonitor, so the name is the
+        // same string on both sides even when the identifier is not.
+        var plan = FanControlImportMapper.Build(
+            AllKinds(),
+            AllKindsChannels,
+            Channels(
+                ("/some/other/path/temperature/9", "Core (Tctl/Tdie)"),
+                ("/gpu-nvidia/0/temperature/0", "GPU Core"),
+                ("/lpc/nct6797d/0/temperature/1", "Temperature #2")));
+
+        var graph = plan.Curves.First(c => c.Name == "CPU Graph");
+        Assert.Equal("/some/other/path/temperature/9", graph.Input.Id);
+    }
+
+    [Fact]
+    public void Map_PairsAGpuSensorByPositionWhenNothingElseBridgesIt()
+    {
+        // FanControl reads NVIDIA temperatures through its own NvAPI plugin,
+        // whose identifiers share nothing with LHM's.
+        var config = FanControlConfigParser.Parse(Fixture("all-curve-kinds.json").Replace(
+            "/gpu-nvidia/0/temperature/0", "NVApiWrapper/0-GA102-A/temperature/0"));
+        var plan = FanControlImportMapper.Build(
+            config,
+            AllKindsChannels,
+            Channels(
+                ("/amdcpu/0/temperature/2", "Core (Tctl/Tdie)"),
+                ("/gpu-nvidia/0/temperature/0", "GPU Core"),
+                ("/lpc/nct6797d/0/temperature/1", "Temperature #2")));
+
+        var linear = plan.Curves.First(c => c.Name == "GPU Linear");
+        Assert.Equal("/gpu-nvidia/0/temperature/0", linear.Input.Id);
+    }
+
+    [Fact]
+    public void Map_CurvesOnOneSourceShareIt_AndTheRestAreReported()
+    {
+        // Two FanControl curves watching one sensor must both watch ours; two
+        // DIFFERENT sources must not collapse onto the same local sensor, or a
+        // curve quietly drives off the wrong reading.
+        var plan = FanControlImportMapper.Build(
+            AllKinds(),
+            AllKindsChannels,
+            Channels(("/amdcpu/0/temperature/2", "Core (Tctl/Tdie)")));
+
+        // CPU Graph and CPU Auto both point at the CPU sensor in the fixture.
+        var cpuBound = plan.Curves
+            .Where(c => c.Name is "CPU Graph" or "CPU Auto")
+            .Select(c => c.Input.Id)
+            .ToList();
+        Assert.Equal(new[] { "/amdcpu/0/temperature/2", "/amdcpu/0/temperature/2" }, cpuBound);
+
+        // The GPU and motherboard sources have nothing to match here.
+        foreach (var name in new[] { "GPU Linear", "Case Trigger" })
+        {
+            var preview = plan.Preview.Curves.First(c => c.Name == name);
+            Assert.False(preview.Supported);
+            Assert.Equal("noSensor", preview.ReasonCode);
+        }
     }
 
     [Fact]

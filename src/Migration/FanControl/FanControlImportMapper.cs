@@ -120,6 +120,12 @@ internal static class FanControlImportMapper
             }
         }
 
+        // Temperature sources, resolved once for the whole config: both apps read
+        // these from LibreHardwareMonitor, so the sensor's own name bridges the
+        // cases the identifier cannot, and GPU sensors need the same positional
+        // pairing the GPU fans do.
+        var sensorMatches = ResolveSensors(config, sensors);
+
         // Which controls each curve drives, by curve name.
         var boundControls = new Dictionary<string, List<ControlMatch>>(StringComparer.OrdinalIgnoreCase);
         foreach (var match in controlMatches.Values)
@@ -181,7 +187,7 @@ internal static class FanControlImportMapper
 
             if (CurveEngine.NeedsTemperature(type))
             {
-                var (sensorId, tier) = LhmIdentifierMatcher.Match(curve.TempSourceIdentifier ?? "", sensors);
+                var sensorId = sensorMatches.GetValueOrDefault(curve.TempSourceIdentifier ?? "");
                 if (sensorId is null)
                 {
                     Unsupported(preview, "noSensor");
@@ -190,7 +196,6 @@ internal static class FanControlImportMapper
                 var sensor = sensors.FirstOrDefault(s => s.Id == sensorId);
                 preview.SensorName = sensor.Name;
                 doc.Input = new CurveInputDocument { Id = sensorId, Type = "Temperature" };
-                _ = tier;
             }
 
             if (!Fill(curve, doc, controlMatches, preview))
@@ -259,8 +264,54 @@ internal static class FanControlImportMapper
         plan.Preview.NameCount = plan.Names.Count;
         plan.Preview.OffsetCount = plan.Offsets.Count;
         plan.Preview.ManualCount = plan.ManualSpeeds.Count;
-        AddSkipNotes(plan, config, controlMatches);
         return plan;
+    }
+
+    /// <summary>
+    /// Every temperature source the config's curves point at, resolved to a
+    /// local sensor id (null when nothing here matches). Identifier, then the
+    /// sensor's hardware-reported name - which is the same string on both sides,
+    /// since both read LibreHardwareMonitor - then position within the GPU class,
+    /// which is the only bridge for a GPU sensor FanControl reads through its own
+    /// NvAPI or ADLX plugin.
+    /// </summary>
+    private static Dictionary<string, string?> ResolveSensors(
+        FanControlConfig config, IReadOnlyList<LhmIdentifierMatcher.Candidate> sensors)
+    {
+        var wanted = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var names = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var curve in config.Curves)
+        {
+            var id = curve.TempSourceIdentifier;
+            if (string.IsNullOrEmpty(id) || wanted.ContainsKey(id))
+            {
+                continue;
+            }
+            wanted[id] = null;
+            names[id] = curve.TempSourceName;
+        }
+
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var id in wanted.Keys.ToList())
+        {
+            var free = sensors.Where(c => !taken.Contains(c.Id)).ToList();
+            var (match, _) = LhmIdentifierMatcher.Match(id, free, names[id]);
+            wanted[id] = match;
+            if (match is not null)
+            {
+                taken.Add(match);
+            }
+        }
+
+        var gpuPairs = LhmIdentifierMatcher.PairGpuByPosition(
+            wanted.Where(w => w.Value is null).Select(w => w.Key).ToList(),
+            sensors.Where(c => !taken.Contains(c.Id)).ToList());
+        foreach (var (source, target) in gpuPairs)
+        {
+            wanted[source] = target;
+        }
+
+        return wanted;
     }
 
     private readonly record struct ControlMatch(
@@ -417,29 +468,6 @@ internal static class FanControlImportMapper
             }
         }
         return referenced;
-    }
-
-    private static void AddSkipNotes(
-        FanControlImportPlan plan, FanControlConfig config, Dictionary<string, ControlMatch> controls)
-    {
-        var unmatched = controls.Values.Count(c => c.ChannelId is null);
-        if (unmatched > 0)
-        {
-            plan.Preview.Skipped.Add(new FanControlSkipNoteDto { Code = "fansMissing", Count = unmatched });
-        }
-
-        var rpmCurves = config.Curves.Count(c => c.CommandMode == 1);
-        if (rpmCurves > 0)
-        {
-            plan.Preview.Skipped.Add(new FanControlSkipNoteDto { Code = "rpmCurves", Count = rpmCurves });
-        }
-
-        if (controls.Values.Any(c => c.Control.SelectedStart > 0 || c.Control.SelectedStop > 0))
-        {
-            plan.Preview.Skipped.Add(new FanControlSkipNoteDto { Code = "startStop" });
-        }
-
-        plan.Preview.Skipped.Add(new FanControlSkipNoteDto { Code = "smoothing" });
     }
 
     private static void Unsupported(FanControlCurvePreviewDto preview, string code, string? detail = null)
