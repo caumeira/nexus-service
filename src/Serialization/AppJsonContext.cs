@@ -490,6 +490,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(ObsConfigResponse))]
 [JsonSerializable(typeof(ObsConfigBody))]
 [JsonSerializable(typeof(ObsStatusResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Twitch.TwitchChatFrame))]
 [JsonSerializable(typeof(ObsScene))]
 [JsonSerializable(typeof(List<ObsScene>))]
 [JsonSerializable(typeof(ObsSetSceneBody))]

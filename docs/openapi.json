@@ -2179,6 +2179,28 @@
         }
       }
     },
+    "/api/twitch/emote/{emoteId}": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "emoteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/steam/config": {
       "get": {
         "tags": [
@@ -16223,6 +16245,9 @@
           "connected": {
             "type": "boolean"
           },
+          "reason": {
+            "type": "string"
+          },
           "host": {
             "type": "string"
           },
@@ -18549,6 +18574,50 @@
               "string"
             ],
             "format": "float"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "color": {
+            "type": "string"
+          },
+          "intensity": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "colorize": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "contrast": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "float"
+          },
+          "params": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+              "type": [
+                "number",
+                "string"
+              ],
+              "format": "float"
+            }
           }
         }
       },
@@ -20468,12 +20537,6 @@
             "items": {
               "type": "string"
             }
-          },
-          "lightingDashboardMode": {
-            "type": "string"
-          },
-          "coolingDashboardMode": {
-            "type": "string"
           }
         }
       },
@@ -20500,18 +20563,6 @@
             "items": {
               "type": "string"
             }
-          },
-          "lightingDashboardMode": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "coolingDashboardMode": {
-            "type": [
-              "null",
-              "string"
-            ]
           }
         }
       },
