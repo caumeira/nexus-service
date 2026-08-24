@@ -1524,6 +1524,52 @@
         }
       }
     },
+    "/lighting/sleep-blackout": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SleepBlackoutBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SleepBlackoutBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/lighting/shaders/{name}": {
       "get": {
         "tags": [
@@ -3008,6 +3054,18 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/devices/lighting-devices/static-looks": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -15053,6 +15111,9 @@
           "musicReactive": {
             "type": "boolean"
           },
+          "sleepBlackout": {
+            "type": "boolean"
+          },
           "staticColor": {
             "$ref": "#/components/schemas/LightingStaticColor"
           },
@@ -18618,6 +18679,14 @@
               ],
               "format": "float"
             }
+          },
+          "slot": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -18805,6 +18874,14 @@
           },
           "msg": {
             "type": "string"
+          }
+        }
+      },
+      "SleepBlackoutBody": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -20537,6 +20614,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "lightingDashboardMode": {
+            "type": "string"
+          },
+          "coolingDashboardMode": {
+            "type": "string"
           }
         }
       },
@@ -20563,6 +20646,18 @@
             "items": {
               "type": "string"
             }
+          },
+          "lightingDashboardMode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "coolingDashboardMode": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -20627,6 +20722,9 @@
             ]
           },
           "saveCurrent": {
+            "type": "boolean"
+          },
+          "saveDeviceLooks": {
             "type": "boolean"
           }
         }

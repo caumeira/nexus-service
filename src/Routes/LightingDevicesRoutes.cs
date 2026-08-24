@@ -100,6 +100,11 @@ public static partial class DevicesRoutes
             {
                 preset.UncontrolledDevices = new List<string>(s.Devices.UncontrolledLightingDevices);
             }
+            // Assignments and scales have no cheap equality, and unlike the id
+            // lists above they are not replayed on undo/redo, so a straight
+            // copy cannot rewrite the outgoing preset on the way past.
+            preset.StaticDeviceLooks = DeepCopyStaticLooks(s.Lighting.StaticDeviceLooks);
+            preset.DevicePrefs = DeepCopyDevicePrefs(s.Devices.LightingDevicePrefs);
         });
     }
 
@@ -121,6 +126,71 @@ public static partial class DevicesRoutes
 
     private static LayoutPresetDto ToDto(Nexus.Service.Persistence.LayoutPreset p) =>
         new() { Id = p.Id, Name = p.Name, Layouts = p.Layouts };
+
+    private static Dictionary<string, Nexus.Service.Persistence.StaticDeviceLook> DeepCopyStaticLooks(
+        Dictionary<string, Nexus.Service.Persistence.StaticDeviceLook> source)
+    {
+        var copy = new Dictionary<string, Nexus.Service.Persistence.StaticDeviceLook>(source.Count);
+        foreach (var kv in source)
+        {
+            if (kv.Value is null)
+            {
+                continue;
+            }
+            copy[kv.Key] = new Nexus.Service.Persistence.StaticDeviceLook
+            {
+                Effect = kv.Value.Effect,
+                Color = kv.Value.Color,
+                Intensity = kv.Value.Intensity,
+                Hue = kv.Value.Hue,
+                Colorize = kv.Value.Colorize,
+                Saturation = kv.Value.Saturation,
+                Contrast = kv.Value.Contrast,
+                Params = kv.Value.Params is null
+                    ? new Dictionary<string, float>()
+                    : new Dictionary<string, float>(kv.Value.Params),
+                Slot = kv.Value.Slot,
+            };
+        }
+        return copy;
+    }
+
+    // Every per-device slice a preset carries beyond its layouts, captured
+    // together so create / save-current / the live mirror cannot drift apart.
+    private static void CaptureDeviceSlices(
+        Nexus.Service.Persistence.NexusSettings settings,
+        Nexus.Service.Persistence.LayoutPreset preset,
+        bool includeLooks = true)
+    {
+        preset.DisabledDevices = new List<string>(settings.Devices.DisabledLightingDevices);
+        preset.UncontrolledDevices = new List<string>(settings.Devices.UncontrolledLightingDevices);
+        if (!includeLooks)
+        {
+            return;
+        }
+        preset.StaticDeviceLooks = DeepCopyStaticLooks(settings.Lighting.StaticDeviceLooks);
+        preset.DevicePrefs = DeepCopyDevicePrefs(settings.Devices.LightingDevicePrefs);
+    }
+
+    private static Dictionary<string, Nexus.Service.Persistence.LightingDevicePreference> DeepCopyDevicePrefs(
+        Dictionary<string, Nexus.Service.Persistence.LightingDevicePreference> source)
+    {
+        var copy = new Dictionary<string, Nexus.Service.Persistence.LightingDevicePreference>(source.Count);
+        foreach (var kv in source)
+        {
+            if (kv.Value is null)
+            {
+                continue;
+            }
+            copy[kv.Key] = new Nexus.Service.Persistence.LightingDevicePreference
+            {
+                Brightness = kv.Value.Brightness,
+                Hue = kv.Value.Hue,
+                Saturation = kv.Value.Saturation,
+            };
+        }
+        return copy;
+    }
 
     private static Dictionary<string, Nexus.Service.Persistence.DeviceLayout> DeepCopyLayouts(
         Dictionary<string, Nexus.Service.Persistence.DeviceLayout> source)
@@ -199,6 +269,41 @@ public static partial class DevicesRoutes
             return ApiResponse.Ok();
         });
 
+        app.MapGet("/devices/lighting-devices/static-looks", (
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            Dictionary<string, Nexus.Service.Persistence.StaticDeviceLook> looks = null!;
+            // Snapshot under the store lock: StaticDeviceEffectTracker mutates
+            // this very dictionary in place, so enumerating it on the request
+            // thread throws mid-iteration.
+            store.Update(s => looks = DeepCopyStaticLooks(s.Lighting.StaticDeviceLooks));
+            var dto = new StaticDeviceLooksResponse();
+            foreach (var (id, look) in looks)
+            {
+                if (look is null || string.IsNullOrEmpty(look.Effect))
+                {
+                    continue;
+                }
+                dto.Looks[id] = new StaticDeviceLookDto
+                {
+                    Effect = look.Effect,
+                    Color = look.Color ?? "",
+                    Intensity = look.Intensity,
+                    Hue = look.Hue,
+                    Colorize = look.Colorize,
+                    Saturation = look.Saturation,
+                    Contrast = look.Contrast,
+                    Slot = look.Slot,
+                    Params = look.Params is null
+                        ? new Dictionary<string, float>()
+                        : new Dictionary<string, float>(look.Params),
+                };
+            }
+            return Results.Json(
+                dto,
+                Nexus.Service.Serialization.AppJsonContext.Default.StaticDeviceLooksResponse);
+        });
+
         app.MapGet("/devices/lighting-devices/layout-presets", (
             Nexus.Service.Persistence.IConfigStore store) =>
         {
@@ -231,10 +336,9 @@ public static partial class DevicesRoutes
                     Id = id,
                     Name = body.Name,
                     Layouts = DeepCopyLayouts(s.Lighting.DeviceLayouts),
-                    DisabledDevices = new List<string>(s.Devices.DisabledLightingDevices),
-                    UncontrolledDevices = new List<string>(s.Devices.UncontrolledLightingDevices),
                     Look = Nexus.Service.Lighting.LightingPresetLooks.Capture(s.Lighting),
                 };
+                CaptureDeviceSlices(s, created);
                 s.Lighting.LayoutPresets.Add(created);
                 s.Lighting.ActiveLayoutPresetId = id;
             });
@@ -290,9 +394,8 @@ public static partial class DevicesRoutes
                 if (body.SaveCurrent)
                 {
                     p.Layouts = DeepCopyLayouts(settings.Lighting.DeviceLayouts);
-                    p.DisabledDevices = new List<string>(settings.Devices.DisabledLightingDevices);
-                    p.UncontrolledDevices = new List<string>(settings.Devices.UncontrolledLightingDevices);
                     p.Look = Nexus.Service.Lighting.LightingPresetLooks.Capture(settings.Lighting);
+                    CaptureDeviceSlices(settings, p, body.SaveDeviceLooks);
                 }
             });
             return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
@@ -341,6 +444,8 @@ public static partial class DevicesRoutes
             var disabled = preset.DisabledDevices is null ? null : new List<string>(preset.DisabledDevices);
             var uncontrolled = preset.UncontrolledDevices is null ? null : new List<string>(preset.UncontrolledDevices);
             var look = preset.Look;
+            var staticLooks = preset.StaticDeviceLooks is null ? null : DeepCopyStaticLooks(preset.StaticDeviceLooks);
+            var devicePrefs = preset.DevicePrefs is null ? null : DeepCopyDevicePrefs(preset.DevicePrefs);
             // Ids the preset re-enables. Smart lights re-push their static colour
             // on re-enable, mirroring POST /devices/lighting-devices/controlled.
             var reControlled = uncontrolled is null
@@ -367,6 +472,17 @@ public static partial class DevicesRoutes
                 if (look is not null)
                 {
                     Nexus.Service.Lighting.LightingPresetLooks.Apply(settings.Lighting, look);
+                }
+                if (staticLooks is not null)
+                {
+                    // Replaced wholesale: StaticDeviceEffectTracker re-hydrates
+                    // off the store's OnChanged, so writing this is what repaints
+                    // the devices - no separate replay.
+                    settings.Lighting.StaticDeviceLooks = staticLooks;
+                }
+                if (devicePrefs is not null)
+                {
+                    settings.Devices.LightingDevicePrefs = devicePrefs;
                 }
             });
             if (uncontrolled is not null)
@@ -428,6 +544,7 @@ public static partial class DevicesRoutes
         app.MapPost("/devices/lighting-devices/color", (
             SetLightingDeviceColor body,
             ILightingDeviceProvider ld,
+            Nexus.Service.Persistence.IConfigStore store,
             // [FromServices] is load-bearing under AOT: the request-delegate
             // generator reads a concrete class parameter as a second body
             // parameter and the route 400s on binding.
@@ -455,8 +572,10 @@ public static partial class DevicesRoutes
                     Saturation = body.Saturation,
                     Contrast = body.Contrast <= 0 ? 1f : body.Contrast,
                     Params = body.Params,
+                    Slot = body.Slot,
                 });
             }
+            CaptureDeviceStateIntoActive(store);
             return ApiResponse.Ok();
         });
 

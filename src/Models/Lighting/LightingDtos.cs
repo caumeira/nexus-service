@@ -79,6 +79,13 @@ public sealed class MusicReactiveBody
     public bool Enabled { get; set; }
 }
 
+/// <summary>GET/POST body for /lighting/sleep-blackout: blank lighting while
+/// the host sleeps.</summary>
+public sealed class SleepBlackoutBody
+{
+    public bool Enabled { get; set; }
+}
+
 /// <summary>Replaces the persisted AnimateSettings.Templates dictionary in one shot.
 /// The frontend holds the authoritative set of per-effect templates + selected slot
 /// and posts the whole map every time the user clicks a slot or edits one. Backend

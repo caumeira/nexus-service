@@ -25,6 +25,10 @@ public sealed class StaticDeviceAssignment
     public float Saturation { get; init; } = 1f;
     public float Contrast { get; init; } = 1f;
     public IReadOnlyDictionary<string, float>? Params { get; init; }
+    /// <summary>Template slot the look was picked from. Carried through so the
+    /// UI can rebuild the pick; Key() ignores it - two devices on the same look
+    /// still share one render whatever slot each came from.</summary>
+    public int Slot { get; init; }
 
     /// <summary>
     /// Identity of the rendered look. Two devices sharing this share one render,
@@ -107,6 +111,7 @@ public sealed class StaticDeviceEffectTracker
                 Saturation = look.Saturation,
                 Contrast = look.Contrast,
                 Params = look.Params is { Count: > 0 } ? new Dictionary<string, float>(look.Params) : null,
+                Slot = look.Slot,
             };
         }
         lock (_lock)
@@ -152,6 +157,7 @@ public sealed class StaticDeviceEffectTracker
             Params = assignment.Params is null
                 ? new Dictionary<string, float>()
                 : new Dictionary<string, float>(assignment.Params),
+            Slot = assignment.Slot,
         });
     }
 

@@ -11,9 +11,11 @@ using Microsoft.Win32;
 namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
-/// Subscribes to OS power events and bounces the OpenRGB subprocess when the
+/// Subscribes to OS power events: bounces the OpenRGB subprocess when the
 /// system resumes from sleep so devices re-init after the USB stack
-/// re-enumerates.
+/// re-enumerates, and drives <see cref="SleepBlackoutCoordinator"/> across the
+/// suspend/resume pair so devices that keep their bus powered (RAM over SMBus)
+/// do not sit lit all night.
 ///
 /// Windows: hooks <c>SystemEvents.PowerModeChanged</c> via Microsoft.Win32.
 /// Linux has its own equivalent, <see cref="Nexus.Service.Platform.Linux.LinuxResumeListener"/>,
@@ -22,13 +24,15 @@ namespace Nexus.Service.Lighting.Rgb;
 public sealed class PowerEventListener : IHostedService, IDisposable
 {
     private readonly RgbBridge _bridge;
+    private readonly SleepBlackoutCoordinator _blackout;
 #if WINDOWS
     private bool _subscribed;
 #endif
 
-    public PowerEventListener(RgbBridge bridge)
+    public PowerEventListener(RgbBridge bridge, SleepBlackoutCoordinator blackout)
     {
         _bridge = bridge;
+        _blackout = blackout;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -60,9 +64,19 @@ public sealed class PowerEventListener : IHostedService, IDisposable
     [SupportedOSPlatform("windows")]
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
     {
-        if (e.Mode == PowerModes.Resume)
+        // Suspend runs INLINE and the resume leg hands off, the same split
+        // QSeriesPortWatcher uses: the machine stops once every subscriber
+        // returns, so a blackout dispatched to the thread pool loses the race,
+        // while a resume has no deadline. OnSuspending is budget-capped so it
+        // cannot hold this shared pump thread open.
+        if (e.Mode == PowerModes.Suspend)
+        {
+            _blackout.OnSuspending();
+        }
+        else if (e.Mode == PowerModes.Resume)
         {
             Console.Error.WriteLine("[power-events] system resumed - bouncing OpenRGB subprocess");
+            _blackout.OnResumed();
             _bridge.OnSystemResume();
         }
     }

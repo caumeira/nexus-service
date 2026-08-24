@@ -286,7 +286,7 @@
   </ItemGroup>
 
   <!-- macOS status bar icons (template images that adapt to dark/light menu bar) -->
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))">
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('osx')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('OSX')))">
     <Content Include="Bundled\macos\status-icon.png">
       <Link>status-icon.png</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -400,7 +400,7 @@
   </Target>
 
   <!-- Bundle openrgb-headless for macOS (binary + dylibs + license). -->
-  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))) AND Exists('Bundled/osx-arm64/openrgb')">
+  <ItemGroup Condition="($(RuntimeIdentifier.StartsWith('osx')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('OSX')))) AND Exists('Bundled/osx-arm64/openrgb')">
     <Content Include="Bundled\osx-arm64\openrgb\**\*.*">
       <Link>openrgb\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -509,7 +509,7 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
-  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))) AND Exists('Bundled/osx-arm64/ffmpeg')">
+  <ItemGroup Condition="($(RuntimeIdentifier.StartsWith('osx')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('OSX')))) AND Exists('Bundled/osx-arm64/ffmpeg')">
     <Content Include="Bundled/osx-arm64/ffmpeg/**/*.*">
       <Link>tools/ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -551,7 +551,7 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
-  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))) AND Exists('Bundled/osx-arm64/adb')">
+  <ItemGroup Condition="($(RuntimeIdentifier.StartsWith('osx')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('OSX')))) AND Exists('Bundled/osx-arm64/adb')">
     <Content Include="Bundled/osx-arm64/adb/**/*.*">
       <Link>tools/adb/%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -625,6 +625,24 @@
     <None Remove="installer/**" />
     <Content Remove="tests/**" />
     <None Remove="tests/**" />
+    <!-- docs/openapi.json is a generated dev artifact nothing reads at runtime,
+         and the Web SDK's default **/*.json Content glob would otherwise ship
+         all ~460 KB of it in every install, growing with each route added. -->
+    <Compile Remove="docs/**" />
+    <Content Remove="docs/**" />
+    <None Remove="docs/**" />
+    <!-- The app payload arrives below via NexusAppsRoot, linked into apps/.
+         nexus-apps is also a symlink to the submodule in the local layout, so
+         without this the same glob sweeps its package.json / tsconfig.json and
+         a second, unlinked copy of every app manifest. Removed here, ahead of
+         that include, so the linked items are re-added after. -->
+    <Compile Remove="nexus-apps/**" />
+    <Content Remove="nexus-apps/**" />
+    <None Remove="nexus-apps/**" />
+    <!-- Xcode asset-catalog metadata, read by Bundled/macos/build-app.sh at
+         bundle time, not by the app. -->
+    <Content Remove="Bundled/**/*.json" />
+    <None Remove="Bundled/**/*.json" />
   </ItemGroup>
 
   <!-- Exclude vendored ffmpeg build-tooling source trees that happen to contain .cs files -->

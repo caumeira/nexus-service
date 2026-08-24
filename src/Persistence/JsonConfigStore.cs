@@ -126,7 +126,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// device-selection onboarding, so it is marked already-complete; only a
     /// fresh install (no settings.json) sees LightingOnboardingCompleted
     /// default to false. Same shape as v8.
-    /// v14: any pre-existing settings.json predates the dashboard density
+    /// v15: any pre-existing settings.json predates the dashboard density
     /// mode, so it is pinned to "advanced"; only a fresh install keeps the
     /// "simple" default. Same shape as v8/v13.
     /// </summary>
@@ -181,6 +181,15 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         if (doc.SchemaVersion < 13)
         {
             doc.LightingOnboardingCompleted = true;
+        }
+        if (doc.SchemaVersion < 15)
+        {
+            // An explicit JSON null survives the non-nullable initializer, and
+            // every upgrading install takes this arm - an NRE here is caught by
+            // Load() as a corrupt file and replaces the whole settings.json.
+            doc.Ui ??= new UiSettings();
+            doc.Ui.LightingDashboardMode = "advanced";
+            doc.Ui.CoolingDashboardMode = "advanced";
         }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }

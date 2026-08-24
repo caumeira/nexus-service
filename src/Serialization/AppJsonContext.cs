@@ -170,6 +170,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(LightingStatusResponse))]
 [JsonSerializable(typeof(List<float>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.MusicReactiveBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.SleepBlackoutBody))]
 [JsonSerializable(typeof(CalibrationStartResponse))]
 [JsonSerializable(typeof(GetCalibrationsResponse))]
 
@@ -443,6 +444,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(CurrentSyncResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.LightingPauseBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.LightingPauseResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Devices.StaticDeviceLooksResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Devices.StaticDeviceLookDto))]
 [JsonSerializable(typeof(BrightnessScale))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GlobalBrightnessBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.RenderGpuBody))]

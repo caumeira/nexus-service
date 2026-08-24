@@ -16,6 +16,12 @@ public sealed class LightingEngine : IDisposable
     private volatile DeviceFrame[] _devices = Array.Empty<DeviceFrame>();
     private volatile bool _paused;
     private volatile bool _frozen;
+    private volatile bool _blackout;
+    // Set by whichever path actually publishes the black frame, so a caller on
+    // the OS suspend path can wait for the hardware-visible state rather than
+    // for a flag it just set itself.
+    private readonly ManualResetEventSlim _blackoutApplied = new(false);
+    private bool _disposed;
     // Bumped by every invalidate; the loop latches it before rendering and only
     // marks the frame current if no invalidate landed mid-render.
     private int _frozenEpoch;
@@ -43,6 +49,7 @@ public sealed class LightingEngine : IDisposable
     public DeviceFrame[] Devices => _devices;
     public bool Paused => _paused;
     public bool Frozen => _frozen;
+    public bool Blackout => _blackout;
     public void UpdateDevices(DeviceFrame[] devices) { _devices = devices; }
 
     /// <summary>
@@ -85,6 +92,70 @@ public sealed class LightingEngine : IDisposable
     }
 
     /// <summary>
+    /// Holds every device frame at black without disturbing the active effect,
+    /// so the host-sleep blackout releases straight back into whatever was
+    /// running. Distinct from <see cref="SetPaused"/> on both counts that
+    /// matter here: pause holds the last LIT frame, and pause is a no-op with
+    /// no effect running - blackout has to reach devices either way, because
+    /// what it exists to fix is hardware that keeps showing its last frame.
+    ///
+    /// Nothing here is persisted, so a crash or power loss while blacked out
+    /// comes back lit rather than stranding the user in the dark.
+    /// </summary>
+    public void SetBlackout(bool blackout)
+    {
+        bool applyInline;
+        lock (_lock)
+        {
+            if (_blackout == blackout)
+            {
+                return;
+            }
+            _blackout = blackout;
+            // A frozen effect renders once per epoch; without this it would
+            // hold the blacked-out canvas after release instead of repainting.
+            Interlocked.Increment(ref _frozenEpoch);
+            if (!blackout)
+            {
+                ResetBlackoutSignal();
+                return;
+            }
+            // With the loop running it owns the device buffers; clearing them
+            // from this thread would race its paint and could publish a torn
+            // frame. Without it, nothing else writes them, so apply here - and
+            // that is the path that matters, since a device holding its last
+            // frame is exactly the case where no effect is running.
+            applyInline = _currentEffect is null || _loopTask is null || _loopTask.IsCompleted;
+        }
+        if (applyInline)
+        {
+            ApplyBlackout();
+        }
+    }
+
+    /// <summary>
+    /// Blocks until an all-black frame has actually been published to the
+    /// device buffers. False on timeout, in which case the caller should assume
+    /// the hardware is still lit.
+    /// </summary>
+    public bool WaitForBlackout(TimeSpan timeout) => _blackoutApplied.Wait(timeout);
+
+    private void ResetBlackoutSignal()
+    {
+        try { _blackoutApplied.Reset(); } catch (ObjectDisposedException) { }
+    }
+
+    private void ApplyBlackout()
+    {
+        _canvas.Clear();
+        foreach (var dev in _devices)
+        {
+            dev.Clear();
+        }
+        _blackoutApplied.Set();
+    }
+
+    /// <summary>
     /// Marks the current effect as time-invariant, so the loop renders one frame
     /// and then reuses the canvas instead of re-running the shader every tick.
     /// Device sampling and broadcast continue, so layout, brightness and
@@ -115,6 +186,10 @@ public sealed class LightingEngine : IDisposable
             _currentEffect = effect;
             _paused = false;
             _frozen = false;
+            // The user picking a mode is the escape hatch if a resume event
+            // never lands: it always ends in a lit device, never a dark one.
+            _blackout = false;
+            ResetBlackoutSignal();
             Interlocked.Increment(ref _frozenEpoch);
             try
             { old?.Dispose(); }
@@ -134,6 +209,8 @@ public sealed class LightingEngine : IDisposable
             _currentEffect = null;
             _paused = false;
             _frozen = false;
+            _blackout = false;
+            ResetBlackoutSignal();
             Interlocked.Increment(ref _frozenEpoch);
             try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
             try
@@ -175,7 +252,13 @@ public sealed class LightingEngine : IDisposable
                     // Paused holds the last rendered canvas/device buffers untouched
                     // and still broadcasts them every tick, so hardware and preview
                     // keep receiving frames without the effect clock advancing.
-                    if (!_paused)
+                    if (_blackout)
+                    {
+                        // Re-applied every tick, not once: UpdateDevices can swap
+                        // in frames for hardware that arrived mid-blackout.
+                        ApplyBlackout();
+                    }
+                    else if (!_paused)
                     {
                         // A frozen effect paints the same canvas every tick, so
                         // the shader render and its readback run once; sampling
@@ -708,5 +791,18 @@ public sealed class LightingEngine : IDisposable
         }
     }
 
-    public void Dispose() { Stop(); try { _cts?.Dispose(); } catch { } _cts = null; }
+    public void Dispose()
+    {
+        // Idempotent: the test host disposes the DI scope and the factory, so
+        // a second pass would reach Stop() and touch the disposed signal.
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        Stop();
+        try { _cts?.Dispose(); } catch { }
+        _cts = null;
+        _blackoutApplied.Dispose();
+    }
 }

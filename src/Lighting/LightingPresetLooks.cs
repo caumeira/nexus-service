@@ -32,6 +32,7 @@ public static class LightingPresetLooks
             AnimateSlot = SelectedSlot(templates, animate),
             StaticSlot = SelectedSlot(templates, still),
             GlobalBrightness = lighting.GlobalBrightness,
+            MusicReactive = lighting.MusicReactive,
             LastMediaId = lighting.LastMediaId ?? "",
             ScreenEffect = ClonePostProcess(lighting.ScreenEffect),
             MediaEffect = ClonePostProcess(lighting.MediaEffect),
@@ -64,6 +65,10 @@ public static class LightingPresetLooks
         if (look.GlobalBrightness is { } brightness && float.IsFinite(brightness))
         {
             lighting.GlobalBrightness = System.Math.Clamp(brightness, 0f, 1f);
+        }
+        if (look.MusicReactive is { } reactive)
+        {
+            lighting.MusicReactive = reactive;
         }
         if (!string.IsNullOrEmpty(look.AnimateEffect))
         {

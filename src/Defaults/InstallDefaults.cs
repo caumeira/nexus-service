@@ -98,6 +98,9 @@ public sealed class LightingDefaults
     public int FrameRate { get; set; } = 60;
     public double ScaleRatio { get; set; } = 1.0;
     public bool MusicReactive { get; set; } = true;
+    /// <summary>Blank lighting devices while the host sleeps. On by default:
+    /// RAM keeps its SMBus powered across S3 and stays lit otherwise.</summary>
+    public bool SleepBlackout { get; set; } = true;
     public LightingStaticColor StaticColor { get; set; } = new();
     public LightingAnimateDefaults Animate { get; set; } = new();
     public LightingPostProcess PostProcess { get; set; } = new();

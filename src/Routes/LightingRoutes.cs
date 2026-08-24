@@ -100,6 +100,23 @@ public static class LightingRoutes
         }).AllowPanel();
         app.MapGet("/lighting/music-reactive", (Nexus.Service.Persistence.IConfigStore store) =>
             new Models.Lighting.MusicReactiveBody { Enabled = store.Load().Lighting.MusicReactive }).AllowPanel();
+        // Blank lighting while the host sleeps. Host-only: this is a property of
+        // the machine going to sleep, not something a paired phone should flip.
+        app.MapGet("/lighting/sleep-blackout", (Nexus.Service.Persistence.IConfigStore store) =>
+            new Models.Lighting.SleepBlackoutBody { Enabled = store.Load().Lighting.SleepBlackout }).LocalhostOnly();
+        app.MapPost("/lighting/sleep-blackout", (Models.Lighting.SleepBlackoutBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Lighting.SleepBlackoutCoordinator blackout) =>
+        {
+            store.Update(s => s.Lighting.SleepBlackout = body.Enabled);
+            // Turning it off mid-blackout (only reachable if a resume event was
+            // missed) must give the user their lighting back, not leave them dark.
+            if (!body.Enabled)
+            {
+                blackout.OnResumed();
+            }
+            return ApiResponse.Ok();
+        }).LocalhostOnly();
         app.MapGet("/lighting/shaders/{name}", (string name) =>
         {
             name = name.ToLowerInvariant();

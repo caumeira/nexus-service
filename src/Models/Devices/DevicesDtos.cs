@@ -256,6 +256,33 @@ public class SetLightingDeviceColor
     public float Colorize { get; set; }
     public float Contrast { get; set; } = 1f;
     public Dictionary<string, float>? Params { get; set; }
+    // Template slot the look was picked from. Round-tripped for the UI only -
+    // the render path resolves nothing from it - but a preset that restores an
+    // assignment has to restore which slot it came from too.
+    public int Slot { get; set; }
+}
+
+/// <summary>GET /devices/lighting-devices/static-looks: every per-device Static
+/// assignment, so a client can rebuild what each device wears (after a preset
+/// activate, a profile switch, or on a machine that has never seen them).</summary>
+public class StaticDeviceLooksResponse
+{
+    public Dictionary<string, StaticDeviceLookDto> Looks { get; set; } = new();
+}
+
+public class StaticDeviceLookDto
+{
+    public string Effect { get; set; } = "";
+    public string Color { get; set; } = "";
+    public float Intensity { get; set; } = 1f;
+    public float Hue { get; set; }
+    public float Colorize { get; set; }
+    public float Saturation { get; set; } = 1f;
+    public float Contrast { get; set; } = 1f;
+    public int Slot { get; set; }
+    /// <summary>Shader params. Without these a client that rebuilds a pick from
+    /// this route and re-posts it flattens a pattern to a bare colour.</summary>
+    public Dictionary<string, float> Params { get; set; } = new();
 }
 public class SetZoneLedCountBody { public string Id { get; set; } = ""; public int Count { get; set; } }
 public class IdentifyLightingDeviceBody { public string Id { get; set; } = ""; public int DurationMs { get; set; } = 2000; }
@@ -302,6 +329,11 @@ public sealed class UpdateLayoutPresetBody
 {
     public string? Name { get; set; }
     public bool SaveCurrent { get; set; }
+    /// <summary>Whether a SaveCurrent also overwrites the preset's per-device
+    /// assignments. The undo/redo reconcile passes false: it replays geometry
+    /// and power but not colours, so a blanket save would write the OTHER
+    /// preset's colours over this one's. Defaults true for a plain save.</summary>
+    public bool SaveDeviceLooks { get; set; } = true;
 }
 
 public sealed class SetActivePresetBody
