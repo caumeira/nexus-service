@@ -234,6 +234,10 @@ public sealed class DiscordSettings
 {
     public string ClientId { get; set; } = "";
     public string ClientSecret { get; set; } = "";
+    /// <summary>Rich Presence needs no OAuth, so it is independent of ClientId/ClientSecret above.</summary>
+    public bool RichPresenceEnabled { get; set; }
+    /// <summary>One of DiscordRichPresence.Presets; empty resolves to the first.</summary>
+    public string RichPresencePreset { get; set; } = "";
 }
 
 public sealed class HomeAssistantSettings

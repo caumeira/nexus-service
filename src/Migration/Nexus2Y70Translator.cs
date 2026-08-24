@@ -27,7 +27,6 @@ internal static class Nexus2Y70Translator
         ["screentime"] = "screentime",
         ["cooling"] = "cooling",
         ["lighting"] = "lighting",
-        ["discord"] = "discord",
     };
 
     public static Nexus2Y70LayoutResult TranslateLayout(JsonElement y70)
@@ -209,7 +208,6 @@ internal static class Nexus2Y70Translator
         "performance" => Nexus2ConfigBuilders.Monitoring(PerformanceSlots(widget)),
         "gallery" => BuildGalleryConfig(widget),
         "weather" => BuildWeatherConfig(widget),
-        "discord" => BuildDiscordConfig(widget),
         _ => null,
     };
 
@@ -273,10 +271,4 @@ internal static class Nexus2Y70Translator
             loc is { } l3 ? Nexus2Json.GetString(l3, "display_name") : null);
     }
 
-    private static Dictionary<string, JsonElement> BuildDiscordConfig(JsonElement widget)
-    {
-        var b = new Nexus2ConfigBuilder();
-        b.Bool("privacyMode", Nexus2Json.GetBool(widget, "privacyMode", false));
-        return b.Build();
-    }
 }

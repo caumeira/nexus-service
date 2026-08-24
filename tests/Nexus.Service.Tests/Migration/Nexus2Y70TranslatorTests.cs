@@ -32,9 +32,12 @@ public sealed class Nexus2Y70TranslatorTests
         var result = TranslateLayout(y70);
 
         // dock(clock) + page1(clock,performance,gallery,media,snakeGame,weather,aquarium) + page2(whiteboard,discord) = 10
+        // discord is unportable: Nexus 3 has no Discord widget, only the
+        // Rich Presence setting, which carries none of the widget's config.
         Assert.Equal(10, result.Widgets);
-        Assert.Equal(8, result.MappedWidgets);
-        Assert.Equal(new List<string> { "aquarium", "whiteboard" }, result.DroppedTypes);
+        Assert.Equal(7, result.MappedWidgets);
+        // DroppedTypes is first-seen fixture order, not sorted.
+        Assert.Equal(new List<string> { "aquarium", "whiteboard", "discord" }, result.DroppedTypes);
         Assert.Equal(2, result.Pages);
     }
 
@@ -57,8 +60,8 @@ public sealed class Nexus2Y70TranslatorTests
         Assert.Contains("media", types);
         Assert.Contains("snake", types);
         Assert.Contains("weather", types);
-        Assert.Contains("discord", types);
         Assert.DoesNotContain("aquarium", types);
+        Assert.DoesNotContain("discord", types);
         Assert.DoesNotContain("whiteboard", types);
     }
 
@@ -158,15 +161,6 @@ public sealed class Nexus2Y70TranslatorTests
         Assert.Equal(16.3738, location.GetProperty("lon").GetDouble());
         Assert.Equal("Vienna, Austria", location.GetProperty("label").GetString());
         Assert.Equal("", location.GetProperty("cc").GetString());
-    }
-
-    [Fact]
-    public void TranslateLayout_DiscordConfig_MapsPrivacyMode()
-    {
-        var y70 = LoadFixtureY70();
-        var result = TranslateLayout(y70);
-        var discord = FindWidget(result, "discord");
-        Assert.True(discord.Config!["privacyMode"].GetBoolean());
     }
 
     [Fact]

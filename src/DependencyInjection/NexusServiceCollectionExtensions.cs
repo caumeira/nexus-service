@@ -410,6 +410,8 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Twitch.TwitchChatHub>());
         services.AddSingleton<ISteamProvider, SteamProvider>();
         services.AddSingleton<IDiscordProvider, DiscordProvider>();
+        services.AddSingleton<DiscordRichPresenceService>();
+        services.AddHostedService(sp => sp.GetRequiredService<DiscordRichPresenceService>());
         services.AddSingleton<Nexus.Service.Integrations.HomeAssistant.HomeAssistantClient>();
         services.AddSingleton<Nexus.Service.Integrations.HomeAssistant.HomeAssistantHub>();
         services.AddHostedService(sp =>

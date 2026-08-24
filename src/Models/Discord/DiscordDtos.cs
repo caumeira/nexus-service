@@ -2,20 +2,6 @@ using Nexus.Service.Models;
 
 namespace Nexus.Service.Models.Discord;
 
-public sealed class DiscordConfigResponse : ApiResponse
-{
-    public string ClientId { get; set; } = "";
-    public bool HasClientSecret { get; set; }
-    public bool Configured { get; set; }
-}
-
-public sealed class DiscordConfigBody
-{
-    public string? ClientId { get; set; }
-    public string? ClientSecret { get; set; }
-    public bool? ClearClientSecret { get; set; }
-}
-
 public sealed class DiscordStatusResponse : ApiResponse
 {
     public bool Ready { get; set; }
@@ -93,4 +79,21 @@ public sealed class DiscordOpenBody
 public sealed class DiscordVoiceToggleBody
 {
     public bool Enabled { get; set; }
+}
+
+public sealed class DiscordPresenceResponse : ApiResponse
+{
+    /// <summary>False when no Discord application id is compiled in, which hides the whole control.</summary>
+    public bool Available { get; set; }
+    public bool Enabled { get; set; }
+    public string Preset { get; set; } = "";
+    public List<string> Presets { get; set; } = new();
+    /// <summary>True only while an RPC connection is live and the status is actually published.</summary>
+    public bool Connected { get; set; }
+}
+
+public sealed class DiscordPresenceBody
+{
+    public bool? Enabled { get; set; }
+    public string? Preset { get; set; }
 }

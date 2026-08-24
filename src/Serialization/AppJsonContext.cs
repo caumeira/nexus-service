@@ -522,8 +522,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SteamAppDetails))]
 
 // Discord
-[JsonSerializable(typeof(DiscordConfigResponse))]
-[JsonSerializable(typeof(DiscordConfigBody))]
 [JsonSerializable(typeof(DiscordStatusResponse))]
 [JsonSerializable(typeof(DiscordUser))]
 [JsonSerializable(typeof(DiscordGuild))]
@@ -535,6 +533,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<DiscordNotification>))]
 [JsonSerializable(typeof(DiscordOpenBody))]
 [JsonSerializable(typeof(DiscordVoiceToggleBody))]
+[JsonSerializable(typeof(DiscordPresenceResponse))]
+[JsonSerializable(typeof(DiscordPresenceBody))]
 
 // Devices
 [JsonSerializable(typeof(Nexus.Service.Persistence.DeviceLayout))]
