@@ -7,6 +7,7 @@ namespace Nexus.Service.Activity;
 public sealed class StubScreenTimeProvider : IScreenTimeProvider
 {
     public FocusSession? GetCurrentSession() => null;
+    public event Action? FocusChanged { add { } remove { } }
     public IReadOnlyList<AppUsage> GetTodayUsage() => Array.Empty<AppUsage>();
 }
 
@@ -33,6 +34,7 @@ public sealed class StubShortcutsProvider : IShortcutsProvider
     public Shortcut? GetById(string targetId) => null;
     public byte[] GetIcon(string targetId) => Array.Empty<byte>();
     public bool Launch(string targetId) => false;
+    public string ResolveProcessName(string targetId) => "";
 }
 
 public sealed class StubProcessIconProvider : IProcessIconProvider

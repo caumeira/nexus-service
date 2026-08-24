@@ -24,6 +24,7 @@ public class OpenRgbProtocolFixtureTests
         Assert.Equal("Razer Deathadder V2 Pro (Wireless)", dev.Name);
         Assert.Equal(6u, dev.Type); // mouse
         Assert.NotEmpty(dev.Zones);
+        AssertLogoZoneBounds(dev);
     }
 
     [Fact]
@@ -36,6 +37,18 @@ public class OpenRgbProtocolFixtureTests
         Assert.Equal("Razer Deathadder V2 Pro (Wireless)", dev.Name);
         Assert.Equal(6u, dev.Type); // mouse
         Assert.NotEmpty(dev.Zones);
+        AssertLogoZoneBounds(dev);
+    }
+
+    /// <summary>leds_min/leds_max sit between zone type and leds_count, so only a real capture pins their offsets.</summary>
+    private static void AssertLogoZoneBounds(RgbDevice dev)
+    {
+        var logo = dev.Zones[0];
+        Assert.Equal("Logo", logo.Name);
+        Assert.Equal(1, logo.LedCount);
+        Assert.Equal(1u, logo.LedsMin);
+        Assert.Equal(1u, logo.LedsMax);
+        Assert.True(logo.IsFixedSize);
     }
 
     private static byte[] HexToBytes(string hex)

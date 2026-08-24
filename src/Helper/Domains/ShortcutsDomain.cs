@@ -16,6 +16,7 @@ public sealed class ShortcutListResult { public List<Shortcut> Shortcuts { get; 
 public sealed class ShortcutOneResult { public Shortcut? Shortcut { get; set; } }
 public sealed class ShortcutIconResult { public byte[] Bytes { get; set; } = Array.Empty<byte>(); }
 public sealed class ShortcutBoolResult { public bool Ok { get; set; } }
+public sealed class ShortcutProcessNameResult { public string ProcessName { get; set; } = ""; }
 
 /// <summary>
 /// Service-side outbound facade for installed-app (Start menu) enumeration.
@@ -40,11 +41,21 @@ public static class ShortcutsCommands
     public static async Task<bool> LaunchAsync(HelperRegistry r, string id, CancellationToken ct = default)
         => Read(await InvokeAsync(r, "shortcuts.launch", new ShortcutsRequest { TargetId = id }, ct), AppJsonContext.Default.ShortcutBoolResult)?.Ok ?? false;
 
+    public static async Task<string> ResolveProcessNameAsync(HelperRegistry r, string id, CancellationToken ct = default)
+        => Read(await InvokeAsync(r, "shortcuts.processName", new ShortcutsRequest { TargetId = id }, ct), AppJsonContext.Default.ShortcutProcessNameResult)?.ProcessName ?? "";
+
+    // Enumeration shells out to Get-StartApps and then resolves every
+    // shortcut's target, so this RPC has to outlast that whole pass or the
+    // caller gets an empty app list.
+    private const int EnumerateTimeoutMs = 25000;
+    private const int DefaultTimeoutMs = 6000;
+
     private static async Task<HelperResult?> InvokeAsync(HelperRegistry r, string type, ShortcutsRequest payload, CancellationToken ct)
     {
         var conn = r.GetAny();
         if (conn is null) return null;
-        return await conn.SendCommandAsync(type, payload, AppJsonContext.Default.ShortcutsRequest, timeoutMs: 6000, ct: ct).ConfigureAwait(false);
+        var timeoutMs = type == "shortcuts.getAll" ? EnumerateTimeoutMs : DefaultTimeoutMs;
+        return await conn.SendCommandAsync(type, payload, AppJsonContext.Default.ShortcutsRequest, timeoutMs: timeoutMs, ct: ct).ConfigureAwait(false);
     }
 
     private static T? Read<T>(HelperResult? r, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
@@ -71,6 +82,9 @@ public sealed class ShortcutsHandler
             new ShortcutIconResult { Bytes = _provider.GetIcon(ReadReq(env).TargetId) }, AppJsonContext.Default.ShortcutIconResult));
         registry.Register("shortcuts.launch", (env, _) => Reply(env,
             new ShortcutBoolResult { Ok = _provider.Launch(ReadReq(env).TargetId) }, AppJsonContext.Default.ShortcutBoolResult));
+        registry.Register("shortcuts.processName", (env, _) => Reply(env,
+            new ShortcutProcessNameResult { ProcessName = _provider.ResolveProcessName(ReadReq(env).TargetId) },
+            AppJsonContext.Default.ShortcutProcessNameResult));
     }
 
     private static ShortcutsRequest ReadReq(HelperEnvelope env)

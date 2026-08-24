@@ -400,6 +400,17 @@ public static class NexusServiceCollectionExtensions
         // structures and resolves any card id to its zone + layout.
         services.AddSingleton<Nexus.Service.Lighting.Zones.ZoneTopology>();
         services.AddHostedService<Nexus.Service.Lighting.Mappings.MappingAutoApplyService>();
+        // Activates a preset when an app bound to it takes focus. RgbBridge is
+        // registered only on the desktop platforms, so it resolves optionally.
+        services.AddHostedService(sp => new Nexus.Service.Lighting.AppPresetSwitcher(
+            sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
+            sp.GetRequiredService<Nexus.Service.Activity.IScreenTimeProvider>(),
+            sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>(),
+            sp.GetRequiredService<ILightingDeviceProvider>(),
+            sp.GetRequiredService<ILightingProvider>(),
+            sp.GetService<Nexus.Service.Lighting.Rgb.RgbBridge>(),
+            sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
+            sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         services.AddSingleton(sp => new Nexus.Service.Lighting.Engine.Gpu.GpuContext(
             160, 90, sp.GetService<Nexus.Service.Persistence.IConfigStore>()));
         services.AddSingleton<ILightingProvider, LightingProvider>();
@@ -1314,6 +1325,8 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<Nexus.Service.Migration.INexus2ConfigReader, Nexus.Service.Migration.Nexus2ConfigReader>();
         }
         services.AddSingleton<Nexus.Service.Migration.Nexus2MigrationService>();
+        services.AddSingleton<Nexus.Service.Migration.FanControl.IFanControlDetector, Nexus.Service.Migration.FanControl.FanControlDetector>();
+        services.AddSingleton<Nexus.Service.Migration.FanControl.FanControlImportService>();
 
         // Replay persisted lighting + cooling state to hardware on startup.
         // Lives in Lifecycle because it doesn't belong to a single domain.

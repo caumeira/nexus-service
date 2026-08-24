@@ -19,6 +19,13 @@ public interface IWindowsIconExtractor
     /// resource allows. Empty array on any failure.
     /// </summary>
     byte[] ExtractPng(string lnkOrTargetPath, int sizePx);
+
+    /// <summary>
+    /// Resolves a .lnk to the executable it launches. Unlike the icon path
+    /// this ignores IconLocation, which frequently points at a resource DLL
+    /// rather than the exe. Empty string on any failure.
+    /// </summary>
+    string ResolveLinkTargetPath(string lnkPath);
 }
 
 /// <summary>
@@ -67,6 +74,9 @@ public sealed unsafe class WindowsIconExtractor : IWindowsIconExtractor, IDispos
 
     public byte[] ExtractPng(string lnkOrTargetPath, int sizePx) =>
         RunOnComThread(() => ExtractPngCore(lnkOrTargetPath, sizePx), Array.Empty<byte>());
+
+    public string ResolveLinkTargetPath(string lnkPath) =>
+        RunOnComThread(() => TryResolveLnkTarget(lnkPath, out var target) ? target : "", "");
 
     private void RunComLoop()
     {
@@ -214,6 +224,58 @@ public sealed unsafe class WindowsIconExtractor : IWindowsIconExtractor, IDispos
                     Marshal.FreeHGlobal(iconBuf);
                     Marshal.FreeHGlobal(pathBuf);
                 }
+            }
+            finally { Release(persistFile); }
+        }
+        finally { Release(link); }
+
+        return false;
+    }
+
+    /// <summary>Resolves a .lnk to its target path only - <see cref="TryResolveLnk"/>
+    /// answers a different question (what to draw) and returns an icon resource
+    /// when the shortcut carries one.</summary>
+    private static bool TryResolveLnkTarget(string lnkPath, out string targetPath)
+    {
+        targetPath = "";
+
+        var clsid = ClsidShellLink;
+        var linkIid = IidIShellLinkW;
+        if (CoCreateInstance(ref clsid, IntPtr.Zero, ClsCtxInprocServer, ref linkIid, out var link) < 0 || link == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            var persistIid = IidIPersistFile;
+            if (QueryInterface(link, ref persistIid, out var persistFile) < 0 || persistFile == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            try
+            {
+                var lnkPtr = Marshal.StringToHGlobalUni(lnkPath);
+                try
+                {
+                    if (Load(persistFile, lnkPtr, StgmRead) < 0)
+                    {
+                        return false;
+                    }
+                }
+                finally { Marshal.FreeHGlobal(lnkPtr); }
+
+                var pathBuf = Marshal.AllocHGlobal(MaxPath * 2);
+                try
+                {
+                    if (GetPath(link, pathBuf, MaxPath, IntPtr.Zero, 0) >= 0)
+                    {
+                        targetPath = Marshal.PtrToStringUni(pathBuf) ?? "";
+                        return targetPath.Length > 0;
+                    }
+                }
+                finally { Marshal.FreeHGlobal(pathBuf); }
             }
             finally { Release(persistFile); }
         }

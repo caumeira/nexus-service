@@ -304,6 +304,31 @@ public sealed class LayoutPresetDto
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public Dictionary<string, Nexus.Service.Persistence.DeviceLayout> Layouts { get; set; } = new();
+    /// <summary>Apps that auto-activate this preset on focus. Always serialized
+    /// so the web can tell "no bindings" from a preset it has not loaded.</summary>
+    public List<PresetAppDto> Apps { get; set; } = new();
+}
+
+public sealed class PresetAppDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Resolved match key, so the client can spot the same app picked
+    /// two ways (running list vs installed list) before it hits the server.</summary>
+    public string ProcessName { get; set; } = "";
+}
+
+/// <summary>An app in the request that already triggers another preset.
+/// Assigning it is refused rather than silently moved.</summary>
+public sealed class PresetAppConflictResponse : ApiResponse
+{
+    public string AppName { get; set; } = "";
+    public string PresetName { get; set; } = "";
+}
+
+public sealed class SetPresetAppsBody
+{
+    public List<PresetAppDto> Apps { get; set; } = new();
 }
 
 public sealed class LayoutPresetsResponse

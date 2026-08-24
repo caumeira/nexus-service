@@ -120,6 +120,64 @@ public sealed class CoolingRoutesIntegrationTests
     }
 
     [Fact]
+    public async Task SetOffset_PersistsAndReflectsOnTheNextGet()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var setRes = await client.PostAsJsonAsync("/cooling/fan/fan1/offset", new { offset = 7 });
+            Assert.True(setRes.IsSuccessStatusCode);
+
+            var fan1 = JsonDocument.Parse(await (await client.GetAsync("/cooling/fans")).Content.ReadAsStringAsync())
+                .RootElement.GetProperty("channels").EnumerateArray()
+                .First(c => c.GetProperty("id").GetString() == "fan1");
+            Assert.Equal(7, fan1.GetProperty("offset").GetInt32());
+        }
+    }
+
+    [Fact]
+    public async Task SetOffset_Zero_ClearsIt()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsJsonAsync("/cooling/fan/fan1/offset", new { offset = -12 });
+            var clearRes = await client.PostAsJsonAsync("/cooling/fan/fan1/offset", new { offset = 0 });
+            Assert.True(clearRes.IsSuccessStatusCode);
+
+            var fan1 = JsonDocument.Parse(await (await client.GetAsync("/cooling/fans")).Content.ReadAsStringAsync())
+                .RootElement.GetProperty("channels").EnumerateArray()
+                .First(c => c.GetProperty("id").GetString() == "fan1");
+            Assert.Equal(0, fan1.GetProperty("offset").GetInt32());
+        }
+    }
+
+    [Fact]
+    public async Task SetOffset_ClampsToTheDutyRange()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsJsonAsync("/cooling/fan/fan1/offset", new { offset = 5000 });
+            var fan1 = JsonDocument.Parse(await (await client.GetAsync("/cooling/fans")).Content.ReadAsStringAsync())
+                .RootElement.GetProperty("channels").EnumerateArray()
+                .First(c => c.GetProperty("id").GetString() == "fan1");
+            Assert.Equal(100, fan1.GetProperty("offset").GetInt32());
+        }
+    }
+
+    [Fact]
+    public async Task SetOffset_UnknownChannel_Returns400()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsJsonAsync("/cooling/fan/nope/offset", new { offset = 5 });
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task SetRole_InvalidRole_Returns400()
     {
         var (factory, client) = Boot();

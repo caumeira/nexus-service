@@ -145,6 +145,11 @@ public sealed class LinuxShortcutsProvider : IShortcutsProvider
         }
     }
 
+    // LinuxScreenTimeProvider reports the name KWin gives for the activated
+    // window, which a .desktop Exec line does not reliably predict. Left to
+    // the display-name fallback rather than guessing.
+    public string ResolveProcessName(string targetId) => "";
+
     public bool Launch(string targetId)
     {
         var shortcut = GetById(targetId);
