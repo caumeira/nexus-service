@@ -44,11 +44,18 @@ public static class ShortcutsCommands
     public static async Task<string> ResolveProcessNameAsync(HelperRegistry r, string id, CancellationToken ct = default)
         => Read(await InvokeAsync(r, "shortcuts.processName", new ShortcutsRequest { TargetId = id }, ct), AppJsonContext.Default.ShortcutProcessNameResult)?.ProcessName ?? "";
 
+    // Enumeration shells out to Get-StartApps and then resolves every
+    // shortcut's target, so this RPC has to outlast that whole pass or the
+    // caller gets an empty app list.
+    private const int EnumerateTimeoutMs = 25000;
+    private const int DefaultTimeoutMs = 6000;
+
     private static async Task<HelperResult?> InvokeAsync(HelperRegistry r, string type, ShortcutsRequest payload, CancellationToken ct)
     {
         var conn = r.GetAny();
         if (conn is null) return null;
-        return await conn.SendCommandAsync(type, payload, AppJsonContext.Default.ShortcutsRequest, timeoutMs: 6000, ct: ct).ConfigureAwait(false);
+        var timeoutMs = type == "shortcuts.getAll" ? EnumerateTimeoutMs : DefaultTimeoutMs;
+        return await conn.SendCommandAsync(type, payload, AppJsonContext.Default.ShortcutsRequest, timeoutMs: timeoutMs, ct: ct).ConfigureAwait(false);
     }
 
     private static T? Read<T>(HelperResult? r, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)

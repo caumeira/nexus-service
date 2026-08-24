@@ -24,11 +24,20 @@ public class AppPresetMatchingTests
     }
 
     [Fact]
-    public void Resolved_process_name_wins_over_the_display_name()
+    public void A_launcher_stub_process_name_still_matches_on_the_display_name()
     {
-        // "notepad" appears in the display name but the binding resolved to a
-        // different executable, so it must not match.
-        Assert.False(AppPresetMatching.Matches("notepadpp", "Notepad++", "notepad"));
+        // Squirrel apps resolve to Update.exe, so the stored name is "update"
+        // while the focused window is "Discord". Resolution succeeded and is
+        // wrong; the display name is what saves it.
+        Assert.True(AppPresetMatching.Matches("update", "Discord", "Discord"));
+        Assert.True(AppPresetMatching.Matches("update", "Discord", "discord"));
+    }
+
+    [Fact]
+    public void An_unrelated_app_does_not_match_either_way()
+    {
+        Assert.False(AppPresetMatching.Matches("update", "Discord", "chrome"));
+        Assert.False(AppPresetMatching.Matches("chrome", "Google Chrome", "firefox"));
     }
 
     [Fact]

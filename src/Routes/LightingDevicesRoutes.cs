@@ -126,6 +126,23 @@ public static partial class DevicesRoutes
         return true;
     }
 
+    /// <summary>Copies the preset list before reading it outside the store's
+    /// update lock, which another thread can be inside.</summary>
+    private static List<Nexus.Service.Persistence.LayoutPreset> SnapshotPresets(
+        Nexus.Service.Persistence.NexusSettings settings)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return new List<Nexus.Service.Persistence.LayoutPreset>(settings.Lighting.LayoutPresets);
+            }
+            catch (InvalidOperationException) when (attempt < 2)
+            {
+            }
+        }
+    }
+
     // A pick off the running-apps list already carries the process name; a
     // Start-menu pick carries a display name the focus signal never reports.
     private static string ResolveBindingProcessName(string appId, Nexus.Service.Activity.IShortcutsProvider shortcuts)
@@ -446,11 +463,10 @@ public static partial class DevicesRoutes
             // Resolution is a helper round trip on Windows; run it before
             // taking the store's update lock.
             // Previously resolved names, to fall back on. Resolution can fail
-            // transiently (the helper RPC times out at 6s while Get-StartApps
-            // alone may take 15s) and the Windows provider caches an empty
-            // result, so a re-save must not downgrade a good name to empty.
+            // transiently (a helper RPC timeout) and the Windows provider caches
+            // an empty result, so a re-save must not downgrade a good name.
             var known = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var preset in store.Load().Lighting.LayoutPresets)
+            foreach (var preset in SnapshotPresets(store.Load()))
             {
                 if (preset.Apps is null) continue;
                 foreach (var b in preset.Apps)
@@ -480,8 +496,8 @@ public static partial class DevicesRoutes
                 });
             }
 
-            var settings = store.Load();
-            if (settings.Lighting.LayoutPresets.Find(p => p.Id == id) is null)
+            var existing = SnapshotPresets(store.Load());
+            if (existing.Find(p => p.Id == id) is null)
             {
                 return Results.Json(
                     ApiResponse.Fail("Layout preset not found"),
@@ -495,7 +511,7 @@ public static partial class DevicesRoutes
             // Matched on the resolved process name as well as the id: the same
             // app can be picked off the running list (proc:<name>) or the
             // installed list (a shortcut id).
-            foreach (var other in settings.Lighting.LayoutPresets)
+            foreach (var other in existing)
             {
                 if (other.Id == id || other.Apps is null)
                 {

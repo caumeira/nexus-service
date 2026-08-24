@@ -18,6 +18,15 @@ namespace Nexus.Service.Activity;
 /// </summary>
 public sealed class MacShortcutsProvider : IShortcutsProvider
 {
+    // GetById, GetIcon, and ResolveProcessName all route through GetAll, and a
+    // rebuild spawns one plutil per installed .app. Same TTL the Windows
+    // provider uses for the same reason.
+    private static readonly TimeSpan AppListCacheTtl = TimeSpan.FromMinutes(5);
+
+    private List<Shortcut>? _appCache;
+    private DateTime _appCacheExpiry;
+    private readonly object _appLock = new();
+
     private const int ShortcutIconSizePts = 128;
     private static readonly TimeSpan IconCacheTtl = TimeSpan.FromHours(1);
     private readonly Dictionary<string, (byte[] Data, DateTime Expiry)> _iconCache = new();
@@ -34,6 +43,14 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             return Array.Empty<Shortcut>();
+        }
+
+        lock (_appLock)
+        {
+            if (_appCache is not null && _appCacheExpiry > DateTime.UtcNow)
+            {
+                return _appCache;
+            }
         }
 
         var apps = new List<Shortcut>();
@@ -56,20 +73,26 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
                 foreach (var appPath in Directory.GetDirectories(dir, "*.app", SearchOption.TopDirectoryOnly))
                 {
                     var name = Path.GetFileNameWithoutExtension(appPath);
-                    var bundleId = GetBundleId(appPath);
+                    var info = ReadInfoPlist(appPath);
                     apps.Add(new Shortcut
                     {
-                        Id = bundleId ?? name,
+                        Id = info.BundleId ?? name,
                         Name = name,
                         Path = appPath,
-                        ProcessName = GetDisplayName(appPath) ?? name,
+                        ProcessName = info.DisplayName ?? name,
                     });
                 }
             }
             catch { /* access denied, etc. */ }
         }
 
-        return apps.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        var ordered = apps.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        lock (_appLock)
+        {
+            _appCache = ordered;
+            _appCacheExpiry = DateTime.UtcNow + AppListCacheTtl;
+        }
+        return ordered;
     }
 
     public Shortcut? GetById(string targetId)
@@ -114,12 +137,6 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
     // Studio Code.app" reports "Code", so the file name alone is wrong.
     public string ResolveProcessName(string targetId) => GetById(targetId)?.ProcessName ?? "";
 
-    private static string? GetDisplayName(string appPath)
-    {
-        return ReadPlistString(appPath, "CFBundleDisplayName")
-            ?? ReadPlistString(appPath, "CFBundleName");
-    }
-
     public bool Launch(string targetId)
     {
         var shortcut = GetById(targetId);
@@ -149,17 +166,16 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
         }
     }
 
-    private static string? GetBundleId(string appPath) =>
-        ReadPlistString(appPath, "CFBundleIdentifier");
-
-    private static string? ReadPlistString(string appPath, string key)
+    /// <summary>Bundle id and the name LSDisplayName reports, from one plutil
+    /// run - a spawn per key would be three per app across the whole list.</summary>
+    private static (string? BundleId, string? DisplayName) ReadInfoPlist(string appPath)
     {
         try
         {
             var plistPath = Path.Combine(appPath, "Contents", "Info.plist");
             if (!File.Exists(plistPath))
             {
-                return null;
+                return (null, null);
             }
 
             var psi = new ProcessStartInfo
@@ -170,29 +186,43 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
-            psi.ArgumentList.Add("-extract");
-            psi.ArgumentList.Add(key);
-            psi.ArgumentList.Add("raw");
+            psi.ArgumentList.Add("-convert");
+            psi.ArgumentList.Add("json");
+            psi.ArgumentList.Add("-o");
+            psi.ArgumentList.Add("-");
             psi.ArgumentList.Add(plistPath);
 
             using var proc = Process.Start(psi);
             if (proc is null)
             {
-                return null;
+                return (null, null);
             }
 
-            var output = proc.StandardOutput.ReadToEnd().Trim();
+            var output = proc.StandardOutput.ReadToEnd();
             proc.WaitForExit(2000);
-            // plutil prints a diagnostic to stdout for a key the plist lacks.
-            if (output.Length == 0 || output.Contains("does not exist", StringComparison.Ordinal))
+            if (output.Length == 0)
             {
-                return null;
+                return (null, null);
             }
-            return output;
+
+            using var doc = System.Text.Json.JsonDocument.Parse(output);
+            var root = doc.RootElement;
+            return (ReadString(root, "CFBundleIdentifier"),
+                ReadString(root, "CFBundleDisplayName") ?? ReadString(root, "CFBundleName"));
         }
         catch
         {
+            return (null, null);
+        }
+    }
+
+    private static string? ReadString(System.Text.Json.JsonElement root, string key)
+    {
+        if (!root.TryGetProperty(key, out var value) || value.ValueKind != System.Text.Json.JsonValueKind.String)
+        {
             return null;
         }
+        var text = value.GetString();
+        return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 }

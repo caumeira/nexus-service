@@ -7,9 +7,9 @@ namespace Nexus.Service.Lighting;
 /// Matches the focused window's process name against a preset's app bindings.
 /// The two sides come from different sources - the focus signal carries a
 /// process name ("chrome"), a Start-menu pick carries a display name ("Google
-/// Chrome") - so a binding stores a process name resolved at bind time and
-/// this falls back to comparing display names when that resolution failed
-/// (UWP entries, Linux .desktop files).
+/// Chrome") - so a binding stores a process name resolved at bind time, and
+/// display names are compared as well: resolution can be absent (UWP entries,
+/// Linux .desktop files) or present but wrong (a launcher stub).
 /// </summary>
 public static class AppPresetMatching
 {
@@ -55,13 +55,18 @@ public static class AppPresetMatching
             return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(bindingProcessName))
+        if (!string.IsNullOrWhiteSpace(bindingProcessName) && ProcessKey(bindingProcessName) == focusedKey)
         {
-            return ProcessKey(bindingProcessName) == focusedKey;
+            return true;
         }
 
-        // Fallback: the process name usually appears inside the display name
-        // ("chrome" in "Google Chrome"), never the other way round.
+        // The display fallback runs even when a process name resolved, because
+        // resolution can succeed and still be wrong: a Squirrel-packaged app
+        // (Discord, Slack, Teams) has a Start-Menu shortcut targeting
+        // Update.exe, so the stored name is "update" while the window belongs
+        // to "Discord".
+        // The process name usually appears inside the display name ("chrome" in
+        // "Google Chrome"), never the other way round.
         var focusedDisplay = DisplayKey(focusedKey);
         var bindingDisplay = DisplayKey(bindingDisplayName);
         if (focusedDisplay.Length == 0 || bindingDisplay.Length == 0)
