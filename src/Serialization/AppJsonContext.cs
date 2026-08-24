@@ -145,6 +145,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(FanProfile))]
 [JsonSerializable(typeof(List<FanProfile>))]
 [JsonSerializable(typeof(GetProfilesResponse))]
+[JsonSerializable(typeof(CoolingPresetDto))]
+[JsonSerializable(typeof(List<CoolingPresetDto>))]
+[JsonSerializable(typeof(CoolingPresetsResponse))]
+[JsonSerializable(typeof(CreateCoolingPresetBody))]
+[JsonSerializable(typeof(CreateCoolingPresetResponse))]
+[JsonSerializable(typeof(UpdateCoolingPresetBody))]
+[JsonSerializable(typeof(SetActiveCoolingPresetBody))]
+[JsonSerializable(typeof(DeleteCoolingPresetResponse))]
 [JsonSerializable(typeof(ApplyProfileResponse))]
 [JsonSerializable(typeof(StartupModeBody))]
 [JsonSerializable(typeof(StartupModeDto))]
@@ -535,8 +543,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SteamAppDetails))]
 
 // Discord
-[JsonSerializable(typeof(DiscordConfigResponse))]
-[JsonSerializable(typeof(DiscordConfigBody))]
 [JsonSerializable(typeof(DiscordStatusResponse))]
 [JsonSerializable(typeof(DiscordUser))]
 [JsonSerializable(typeof(DiscordGuild))]
@@ -548,6 +554,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<DiscordNotification>))]
 [JsonSerializable(typeof(DiscordOpenBody))]
 [JsonSerializable(typeof(DiscordVoiceToggleBody))]
+[JsonSerializable(typeof(DiscordPresenceResponse))]
+[JsonSerializable(typeof(DiscordPresenceBody))]
 
 // Devices
 [JsonSerializable(typeof(Nexus.Service.Persistence.DeviceLayout))]

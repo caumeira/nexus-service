@@ -65,6 +65,11 @@ Notes:
   since the Windows service runs as LocalSystem and cannot see a user-scope
   variable). Unrecognized values are ignored. Unset it again afterwards; it is
   a diagnostic, not a default.
+- `NEXUS_DISCORD_PRESENCE_CLIENT_ID` overrides the Discord application whose
+  name and art Rich Presence publishes. Builds ship with the Nexus application
+  compiled in, so this is only needed to test presence against a scratch
+  application. Set it machine-scope on Windows: the service runs as LocalSystem
+  and cannot see a user-scope variable. Applies at service start.
 
 ## Source layout
 

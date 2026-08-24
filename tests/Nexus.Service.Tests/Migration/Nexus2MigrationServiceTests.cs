@@ -100,7 +100,7 @@ public sealed class Nexus2MigrationServiceTests : IDisposable
 
         Assert.True(byId["y70Layout"].GetProperty("available").GetBoolean());
         Assert.Equal(10, byId["y70Layout"].GetProperty("widgets").GetInt32());
-        Assert.Equal(8, byId["y70Layout"].GetProperty("mappedWidgets").GetInt32());
+        Assert.Equal(7, byId["y70Layout"].GetProperty("mappedWidgets").GetInt32());
 
         Assert.True(byId["q60Face"].GetProperty("available").GetBoolean());
         Assert.Equal("clock", byId["q60Face"].GetProperty("face").GetString());

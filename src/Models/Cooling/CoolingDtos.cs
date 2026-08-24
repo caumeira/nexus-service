@@ -327,3 +327,47 @@ public sealed class ApplyProfileResponse : ApiResponse
 {
     public string Applied { get; set; } = "";
 }
+
+// ----- User-saved cooling presets -----
+
+public sealed class CoolingPresetDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Built-in mode the preset restores: off | silent | balanced | turbo | custom.</summary>
+    public string Mode { get; set; } = "custom";
+}
+
+public sealed class CoolingPresetsResponse : ApiResponse
+{
+    public List<CoolingPresetDto> Presets { get; set; } = new();
+    public string? ActiveId { get; set; }
+}
+
+public sealed class CreateCoolingPresetBody
+{
+    public string Name { get; set; } = "";
+}
+
+public sealed class CreateCoolingPresetResponse : ApiResponse
+{
+    public CoolingPresetDto? Preset { get; set; }
+    public string? ActiveId { get; set; }
+}
+
+public sealed class UpdateCoolingPresetBody
+{
+    public string? Name { get; set; }
+    /// <summary>Re-capture the live cooling configuration into this preset.</summary>
+    public bool SaveCurrent { get; set; }
+}
+
+public sealed class SetActiveCoolingPresetBody
+{
+    public string? Id { get; set; }
+}
+
+public sealed class DeleteCoolingPresetResponse : ApiResponse
+{
+    public string? ActiveId { get; set; }
+}

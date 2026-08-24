@@ -9,40 +9,12 @@ namespace Nexus.Service.Discord;
 public sealed class DiscordProvider : IDiscordProvider
 {
     private readonly IConfigStore _store;
+    private readonly DiscordRichPresenceService _presence;
 
-    public DiscordProvider(IConfigStore store)
+    public DiscordProvider(IConfigStore store, DiscordRichPresenceService presence)
     {
         _store = store;
-    }
-
-    public DiscordConfigResponse GetConfig()
-    {
-        var config = ReadConfig();
-        return new DiscordConfigResponse
-        {
-            ClientId = config.ClientId,
-            HasClientSecret = config.HasClientSecret,
-            Configured = config.Configured,
-        };
-    }
-
-    public void SetConfig(DiscordConfigBody body)
-    {
-        _store.Update(s =>
-        {
-            if (body.ClientId is not null)
-            {
-                s.Discord.ClientId = body.ClientId.Trim();
-            }
-            if (body.ClearClientSecret == true)
-            {
-                s.Discord.ClientSecret = "";
-            }
-            else if (body.ClientSecret is not null && body.ClientSecret.Trim().Length > 0)
-            {
-                s.Discord.ClientSecret = SecretProtector.Protect(body.ClientSecret.Trim());
-            }
-        });
+        _presence = presence;
     }
 
     public DiscordStatusResponse GetStatus()
@@ -138,6 +110,42 @@ public sealed class DiscordProvider : IDiscordProvider
 
     public ApiResponse DisconnectVoice() =>
         ApiResponse.Fail("Discord voice controls require RPC authorization");
+
+    public DiscordPresenceResponse GetPresence() => BuildPresence();
+
+    public DiscordPresenceResponse SetPresence(DiscordPresenceBody body)
+    {
+        _store.Update(s =>
+        {
+            if (body.Enabled is not null)
+            {
+                s.Discord.RichPresenceEnabled = body.Enabled.Value;
+            }
+            if (body.Preset is not null)
+            {
+                s.Discord.RichPresencePreset = DiscordRichPresence.Normalize(body.Preset);
+            }
+        });
+
+        // The presence loop wakes on the store's OnChanged, so the connection
+        // is reconciled asynchronously - Connected here is the pre-apply value.
+        return BuildPresence();
+    }
+
+    private DiscordPresenceResponse BuildPresence()
+    {
+        var settings = _store.Load().Discord;
+        var available = DiscordRichPresenceService.IsAvailable;
+        return new DiscordPresenceResponse
+        {
+            Available = available,
+            Enabled = settings.RichPresenceEnabled,
+            Preset = DiscordRichPresence.Normalize(settings.RichPresencePreset),
+            Presets = new List<string>(DiscordRichPresence.Presets),
+            Connected = _presence.IsConnected,
+            Msg = available ? "Ok" : "Discord Rich Presence is not available in this build",
+        };
+    }
 
     private DiscordRuntimeConfig ReadConfig()
     {
