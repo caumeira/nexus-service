@@ -51,9 +51,12 @@ internal static class CurveOrdering
                 }
             }
             else if (c.Type == "Sync" && c.Sync is not null
-                     && curveByOutput.TryGetValue(c.Sync.SourceChannelId, out var driver)
-                     && driver != c.Id)
+                     && curveByOutput.TryGetValue(c.Sync.SourceChannelId, out var driver))
             {
+                // Following a channel this curve itself drives is a one-curve
+                // cycle: its offset would compound against its own last output
+                // every tick. Recorded as a self-dependency so it is reported
+                // like any other cycle.
                 deps.Add(driver);
             }
             edges[c.Id] = deps;

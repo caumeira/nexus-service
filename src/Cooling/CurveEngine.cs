@@ -185,7 +185,7 @@ public sealed class CurveEngine : BackgroundService
                 "Linear" => EvaluateLinear(curveDoc.Linear, temp!.Value),
                 "Graph" => EvaluateGraph(curveDoc.Graph, temp!.Value),
                 "Mixed" => EvaluateMix(curveDoc.Mixed, rawByCurve),
-                "Sync" => EvaluateSync(curveDoc.Sync, channelDuty),
+                "Sync" => EvaluateSync(curveDoc.Sync, channelDuty, curveDoc.Outputs),
                 "Trigger" => EvaluateTrigger(curveDoc, temp!.Value),
                 "Auto" => EvaluateAuto(curveDoc, temp!.Value),
                 _ => null,
@@ -419,11 +419,26 @@ public sealed class CurveEngine : BackgroundService
     }
 
     /// <summary>Mirror another channel's duty, scaled or offset. Null while that channel is absent.</summary>
-    internal static double? EvaluateSync(SyncCurveData? sync, IReadOnlyDictionary<string, double> channelDuty)
+    internal static double? EvaluateSync(
+        SyncCurveData? sync,
+        IReadOnlyDictionary<string, double> channelDuty,
+        IReadOnlyList<CurveOutputDocument>? outputs = null)
     {
         if (sync is null || string.IsNullOrEmpty(sync.SourceChannelId))
         {
             return null;
+        }
+        // Following a channel this same curve drives would feed its offset back
+        // into itself every tick and ramp to a limit.
+        if (outputs is not null)
+        {
+            foreach (var o in outputs)
+            {
+                if (string.Equals(o.Id, sync.SourceChannelId, StringComparison.Ordinal))
+                {
+                    return null;
+                }
+            }
         }
         if (!channelDuty.TryGetValue(sync.SourceChannelId, out var source))
         {

@@ -285,6 +285,14 @@ public class CurveModeTests
         Assert.Equal(100, command);
     }
 
+    [Fact]
+    public void Sync_FollowingItsOwnOutput_ReturnsNull()
+    {
+        var sync = new SyncCurveData { SourceChannelId = "fan", Offset = 10, Proportional = true };
+        var outputs = new List<CurveOutputDocument> { new() { Id = "fan", Type = "Fan" } };
+        Assert.Null(CurveEngine.EvaluateSync(sync, Raw(("fan", 50)), outputs));
+    }
+
     // ── Ordering ──────────────────────────────────────────────────────────
 
     private static CurveDocument Doc(string id, string type) => new()
@@ -357,6 +365,15 @@ public class CurveModeTests
         b.Mixed = new MixedCurveData { CurveIds = { "a" } };
         var cyclic = CurveOrdering.FindCycleMembers(new[] { a, b });
         Assert.NotEmpty(cyclic);
+    }
+
+    [Fact]
+    public void Ordering_SyncFollowingItsOwnOutputIsACycle()
+    {
+        var sync = Doc("sync", "Sync");
+        sync.Sync = new SyncCurveData { SourceChannelId = "fan" };
+        sync.Outputs.Add(new CurveOutputDocument { Id = "fan", Type = "Fan" });
+        Assert.Equal(new[] { "sync" }, CurveOrdering.FindCycleMembers(new[] { sync }));
     }
 
     [Fact]
