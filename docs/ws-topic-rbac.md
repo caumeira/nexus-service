@@ -40,6 +40,7 @@ audio pipeline.
 | **`gpu-processes`** | per-PID GPU usage   | **medium - leaks user app usage**    | **no** |
 | **`network`**       | per-PID throughput  | **medium - leaks browsing patterns** | **no** |
 | **`screentime`**    | per-app daily time  | **medium - privacy-sensitive**       | **no** |
+| `twitch/chat/{channel}` | Twitch IRC reader | low - public chat | yes |
 
 The four highlighted topics expose user-activity signal that a phone
 client (potentially handed to a guest, propped in the kitchen, or pinned
