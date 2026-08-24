@@ -19,9 +19,9 @@ public sealed class NexusSettings
     /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
     /// tests and tooling can reference "current" without bit-rotting.
     /// </summary>
-    public const int CurrentSchemaVersion = 14;
+    public const int CurrentSchemaVersion = 15;
 
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. v9 prunes <see cref="AnimateSettings.Templates"/> to user deltas against the canonical defaults (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults"/>). v10 prunes <see cref="AnimateSettings.States"/> entries equal to the effect's resolved selected-slot look. v11 rewrites the legacy <c>marketplace:</c> app-placement prefix to <c>app:</c> across all persisted widget types (see <see cref="Nexus.Service.Widgets.AppPrefixMigration"/>). v12 adds the <see cref="ProfileSharing.Device"/> sharing category (Stream Deck bindings), defaulted to Shared so an upgrading install keeps today's workstation-global behavior. v13 marks any pre-existing settings.json as already lighting-onboarded (see <see cref="LightingOnboardingCompleted"/>) so the lighting device-selection screen only shows for fresh installs. v14 seeded a per-page density mode that no longer exists; it is now a plain version bump. The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. v9 prunes <see cref="AnimateSettings.Templates"/> to user deltas against the canonical defaults (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults"/>). v10 prunes <see cref="AnimateSettings.States"/> entries equal to the effect's resolved selected-slot look. v11 rewrites the legacy <c>marketplace:</c> app-placement prefix to <c>app:</c> across all persisted widget types (see <see cref="Nexus.Service.Widgets.AppPrefixMigration"/>). v12 adds the <see cref="ProfileSharing.Device"/> sharing category (Stream Deck bindings), defaulted to Shared so an upgrading install keeps today's workstation-global behavior. v13 marks any pre-existing settings.json as already lighting-onboarded (see <see cref="LightingOnboardingCompleted"/>) so the lighting device-selection screen only shows for fresh installs. v14 seeded a per-page density mode that was later removed; it is now a plain version bump. v15 seeds <see cref="UiSettings.LightingDashboardMode"/> and <see cref="UiSettings.CoolingDashboardMode"/> to "advanced" for any pre-existing settings.json, so the reintroduced per-page density mode default ("simple") only applies to fresh installs. The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public ThemeSettings Theme { get; set; } = new();
@@ -260,6 +260,9 @@ public sealed class UiSettings
     /// falls back to its local copy, so a machine-wiped browser recovers the
     /// pin from here instead of losing it (OemAppSeeded blocks a reseed).</summary>
     public List<string>? PinnedSidebarApps { get; set; }
+    /// <summary>Per-page density of the dashboard lighting/cooling pages, "simple" or "advanced"; migration seeds pre-existing installs to "advanced".</summary>
+    public string LightingDashboardMode { get; set; } = "simple";
+    public string CoolingDashboardMode { get; set; } = "simple";
 }
 
 /// <summary>
@@ -271,6 +274,8 @@ public sealed class UiSettingsPatch
     public bool? ShowConflictAlerts { get; set; }
     public bool? OemAppSeeded { get; set; }
     public List<string>? PinnedSidebarApps { get; set; }
+    public string? LightingDashboardMode { get; set; }
+    public string? CoolingDashboardMode { get; set; }
 }
 
 /// <summary>
@@ -310,6 +315,10 @@ public sealed class StaticDeviceLook
     public float Saturation { get; set; } = 1f;
     public float Contrast { get; set; } = 1f;
     public Dictionary<string, float> Params { get; set; } = new();
+    /// <summary>Template slot the look came from. Carried for the UI's benefit -
+    /// nothing in the render path reads it - so a preset can restore the pick
+    /// exactly as it was made.</summary>
+    public int Slot { get; set; }
 }
 
 public sealed class LightingSettings
@@ -465,6 +474,13 @@ public sealed class LayoutPreset
     // Mode + effect selection captured at save time. Null on a preset saved
     // before per-preset looks - activate then leaves the live look untouched.
     public LightingPresetLook? Look { get; set; }
+    /// <summary>Per-device Static assignments captured at save time - what each
+    /// device wears instead of the shared canvas. Null on a preset saved before
+    /// per-preset assignments; activate then leaves the live ones untouched.</summary>
+    public Dictionary<string, StaticDeviceLook>? StaticDeviceLooks { get; set; }
+    /// <summary>Per-device brightness / hue / saturation captured at save time,
+    /// same null-means-untouched contract as the fields above.</summary>
+    public Dictionary<string, LightingDevicePreference>? DevicePrefs { get; set; }
 }
 
 /// <summary>Lighting selection a preset restores, captured whenever the active
@@ -488,6 +504,9 @@ public sealed class LightingPresetLook
     /// was part of a preset - activate then leaves the live level alone rather
     /// than defaulting to 0 and blacking every device out.</summary>
     public float? GlobalBrightness { get; set; }
+    /// <summary>Music-reactive capture toggle. Null on a look captured before it
+    /// was part of a preset - activate then leaves the live setting alone.</summary>
+    public bool? MusicReactive { get; set; }
     /// <summary>Media-mode clip. Without it two Media presets restore whichever
     /// clip was selected last, globally.</summary>
     public string LastMediaId { get; set; } = "";

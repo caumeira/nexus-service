@@ -500,6 +500,8 @@ public static class ProfileRoutes
                     if (ui.ShowConflictAlerts.HasValue) s.Ui.ShowConflictAlerts = ui.ShowConflictAlerts.Value;
                     if (ui.OemAppSeeded.HasValue) s.Ui.OemAppSeeded = ui.OemAppSeeded.Value;
                     if (ui.PinnedSidebarApps is not null) s.Ui.PinnedSidebarApps = ui.PinnedSidebarApps;
+                    if (ui.LightingDashboardMode is "simple" or "advanced") s.Ui.LightingDashboardMode = ui.LightingDashboardMode;
+                    if (ui.CoolingDashboardMode is "simple" or "advanced") s.Ui.CoolingDashboardMode = ui.CoolingDashboardMode;
                 }
                 if (body.Units is { } units)
                 {

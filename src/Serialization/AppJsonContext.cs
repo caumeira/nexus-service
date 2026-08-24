@@ -443,6 +443,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(CurrentSyncResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.LightingPauseBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.LightingPauseResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Devices.StaticDeviceLooksResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Devices.StaticDeviceLookDto))]
 [JsonSerializable(typeof(BrightnessScale))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GlobalBrightnessBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.RenderGpuBody))]
