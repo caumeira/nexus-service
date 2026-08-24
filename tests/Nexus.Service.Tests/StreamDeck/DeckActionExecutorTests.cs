@@ -70,6 +70,7 @@ internal sealed class FakeShortcutsProvider : IShortcutsProvider
     public Shortcut? GetById(string targetId) => null;
     public byte[] GetIcon(string targetId) => Array.Empty<byte>();
     public bool Launch(string targetId) { Launched = targetId; return true; }
+    public string ResolveProcessName(string targetId) => "";
 }
 
 internal sealed class FakeMediaProvider : IMediaProvider

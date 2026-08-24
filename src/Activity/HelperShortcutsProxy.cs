@@ -31,5 +31,8 @@ public sealed class HelperShortcutsProxy : IShortcutsProvider
 
     public bool Launch(string targetId)
         => ShortcutsCommands.LaunchAsync(_registry, targetId).GetAwaiter().GetResult();
+
+    public string ResolveProcessName(string targetId)
+        => ShortcutsCommands.ResolveProcessNameAsync(_registry, targetId).GetAwaiter().GetResult();
 }
 #endif

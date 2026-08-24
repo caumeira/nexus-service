@@ -490,6 +490,24 @@ public sealed class LayoutPreset
     /// <summary>Per-device brightness / hue / saturation captured at save time,
     /// same null-means-untouched contract as the fields above.</summary>
     public Dictionary<string, LightingDevicePreference>? DevicePrefs { get; set; }
+    /// <summary>Apps that auto-activate this preset when they take focus. Null
+    /// on a preset saved before per-app activation existed; an app appears
+    /// under at most one preset (the route unbinds it elsewhere on assign).</summary>
+    public List<PresetAppBinding>? Apps { get; set; }
+}
+
+/// <summary>One app bound to a <see cref="LayoutPreset"/>. <see cref="ProcessName"/>
+/// is the match key against the focused window's process name, resolved once at
+/// bind time (a Start-menu pick carries a display name, the focus signal carries
+/// a process name). Empty when it could not be resolved - the switcher then
+/// falls back to comparing normalized display names.</summary>
+public sealed class PresetAppBinding
+{
+    /// <summary>Shortcut target id from <c>GET /shortcuts</c>, or
+    /// <c>proc:&lt;name&gt;</c> for an app picked off the running list.</summary>
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string ProcessName { get; set; } = "";
 }
 
 /// <summary>Lighting selection a preset restores, captured whenever the active

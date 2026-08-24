@@ -95,6 +95,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(LayoutPreset))]
 [JsonSerializable(typeof(List<LayoutPreset>))]
+[JsonSerializable(typeof(PresetAppBinding))]
+[JsonSerializable(typeof(List<PresetAppBinding>))]
 // Stream Deck bindings - the shared DeckAction/DeckConfig tree (see
 // Nexus.Service.Deck.DeckActionModel) persisted per physical deck serial.
 [JsonSerializable(typeof(StreamDeckSettings))]

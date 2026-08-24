@@ -55,6 +55,7 @@ public sealed class ShortcutsIconRouteTests : IDisposable
         public Shortcut? GetById(string targetId) => null;
         public byte[] GetIcon(string targetId) => IconBytes;
         public bool Launch(string targetId) => false;
+        public string ResolveProcessName(string targetId) => "";
     }
 
     [Fact]

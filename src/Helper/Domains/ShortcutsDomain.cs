@@ -16,6 +16,7 @@ public sealed class ShortcutListResult { public List<Shortcut> Shortcuts { get; 
 public sealed class ShortcutOneResult { public Shortcut? Shortcut { get; set; } }
 public sealed class ShortcutIconResult { public byte[] Bytes { get; set; } = Array.Empty<byte>(); }
 public sealed class ShortcutBoolResult { public bool Ok { get; set; } }
+public sealed class ShortcutProcessNameResult { public string ProcessName { get; set; } = ""; }
 
 /// <summary>
 /// Service-side outbound facade for installed-app (Start menu) enumeration.
@@ -39,6 +40,9 @@ public static class ShortcutsCommands
 
     public static async Task<bool> LaunchAsync(HelperRegistry r, string id, CancellationToken ct = default)
         => Read(await InvokeAsync(r, "shortcuts.launch", new ShortcutsRequest { TargetId = id }, ct), AppJsonContext.Default.ShortcutBoolResult)?.Ok ?? false;
+
+    public static async Task<string> ResolveProcessNameAsync(HelperRegistry r, string id, CancellationToken ct = default)
+        => Read(await InvokeAsync(r, "shortcuts.processName", new ShortcutsRequest { TargetId = id }, ct), AppJsonContext.Default.ShortcutProcessNameResult)?.ProcessName ?? "";
 
     private static async Task<HelperResult?> InvokeAsync(HelperRegistry r, string type, ShortcutsRequest payload, CancellationToken ct)
     {
@@ -71,6 +75,9 @@ public sealed class ShortcutsHandler
             new ShortcutIconResult { Bytes = _provider.GetIcon(ReadReq(env).TargetId) }, AppJsonContext.Default.ShortcutIconResult));
         registry.Register("shortcuts.launch", (env, _) => Reply(env,
             new ShortcutBoolResult { Ok = _provider.Launch(ReadReq(env).TargetId) }, AppJsonContext.Default.ShortcutBoolResult));
+        registry.Register("shortcuts.processName", (env, _) => Reply(env,
+            new ShortcutProcessNameResult { ProcessName = _provider.ResolveProcessName(ReadReq(env).TargetId) },
+            AppJsonContext.Default.ShortcutProcessNameResult));
     }
 
     private static ShortcutsRequest ReadReq(HelperEnvelope env)

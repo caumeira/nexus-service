@@ -38,6 +38,13 @@ public interface IShortcutsProvider
     Shortcut? GetById(string targetId);
     byte[] GetIcon(string targetId);
     bool Launch(string targetId);
+
+    /// <summary>Process name (no extension) the shortcut's executable runs
+    /// under, for matching against the focused window. Empty when it cannot be
+    /// resolved - a UWP entry has no shortcut target, and a Linux .desktop
+    /// Exec line is not reliably the window's reported name. Callers fall back
+    /// to display-name matching; see <c>AppPresetMatching</c>.</summary>
+    string ResolveProcessName(string targetId);
 }
 
 /// <summary>Extracts a PNG icon for a running process's executable, keyed by

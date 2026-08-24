@@ -848,4 +848,138 @@ public sealed class LayoutPresetRoutesTests : IDisposable
         var preset = Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!;
         Assert.Equal("#0000ff", preset.StaticDeviceLooks!["dev-a"].Color);
     }
+
+    // ---- PUT apps (per-app auto-activation) ----
+
+    [Fact]
+    public async Task Apps_are_stored_and_returned_by_GET()
+    {
+        var id = await CreatePreset("Gaming");
+
+        var res = await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{id}/apps",
+            Json("""{"apps":[{"id":"proc:chrome.exe","name":"Chrome"}]}"""));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var stored = Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!;
+        Assert.Single(stored.Apps!);
+        Assert.Equal("proc:chrome.exe", stored.Apps![0].Id);
+        // A running-app pick carries the process name in its id.
+        Assert.Equal("chrome", stored.Apps![0].ProcessName);
+
+        var getRes = await _client.GetAsync("/devices/lighting-devices/layout-presets");
+        using var doc = JsonDocument.Parse(await getRes.Content.ReadAsStringAsync());
+        var apps = doc.RootElement.GetProperty("presets")[0].GetProperty("apps");
+        Assert.Equal(1, apps.GetArrayLength());
+        Assert.Equal("Chrome", apps[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Assigning_an_app_unbinds_it_from_every_other_preset()
+    {
+        var first = await CreatePreset("First");
+        var second = await CreatePreset("Second");
+
+        await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{first}/apps",
+            Json("""{"apps":[{"id":"proc:chrome","name":"Chrome"},{"id":"proc:code","name":"Code"}]}"""));
+        await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{second}/apps",
+            Json("""{"apps":[{"id":"proc:chrome","name":"Chrome"}]}"""));
+
+        var settings = Store.Load();
+        var firstApps = settings.Lighting.LayoutPresets.Find(p => p.Id == first)!.Apps!;
+        Assert.Single(firstApps);
+        Assert.Equal("proc:code", firstApps[0].Id);
+        Assert.Single(settings.Lighting.LayoutPresets.Find(p => p.Id == second)!.Apps!);
+    }
+
+    [Fact]
+    public async Task Empty_list_clears_the_bindings()
+    {
+        var id = await CreatePreset("Gaming");
+        await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{id}/apps",
+            Json("""{"apps":[{"id":"proc:chrome","name":"Chrome"}]}"""));
+
+        await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{id}/apps",
+            Json("""{"apps":[]}"""));
+
+        Assert.Empty(Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!.Apps!);
+    }
+
+    [Fact]
+    public async Task Duplicate_ids_in_one_request_are_collapsed()
+    {
+        var id = await CreatePreset("Gaming");
+        await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{id}/apps",
+            Json("""{"apps":[{"id":"proc:chrome","name":"Chrome"},{"id":"proc:chrome","name":"Chrome"}]}"""));
+
+        Assert.Single(Store.Load().Lighting.LayoutPresets.Find(p => p.Id == id)!.Apps!);
+    }
+
+    [Fact]
+    public async Task Apps_on_an_unknown_preset_is_404()
+    {
+        var res = await _client.PutAsync(
+            "/devices/lighting-devices/layout-presets/nope/apps",
+            Json("""{"apps":[]}"""));
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task The_same_app_picked_two_ways_still_binds_only_one_preset()
+    {
+        var first = await CreatePreset("First");
+        var second = await CreatePreset("Second");
+
+        // Picked off the running list on one preset...
+        await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{first}/apps",
+            Json("""{"apps":[{"id":"proc:chrome","name":"chrome"}]}"""));
+        // ...and off the installed list on another. Different id, same process.
+        Store.Update(s =>
+        {
+            var p = s.Lighting.LayoutPresets.Find(x => x.Id == second)!;
+            p.Apps = new List<PresetAppBinding>
+            {
+                new() { Id = "Google Chrome", Name = "Google Chrome", ProcessName = "chrome" },
+            };
+        });
+
+        await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{first}/apps",
+            Json("""{"apps":[{"id":"proc:chrome","name":"chrome"}]}"""));
+
+        var settings = Store.Load();
+        Assert.Single(settings.Lighting.LayoutPresets.Find(p => p.Id == first)!.Apps!);
+        Assert.Empty(settings.Lighting.LayoutPresets.Find(p => p.Id == second)!.Apps!);
+    }
+
+    [Fact]
+    public async Task An_unresolved_binding_is_not_matched_by_empty_process_name()
+    {
+        var first = await CreatePreset("First");
+        var second = await CreatePreset("Second");
+
+        // Two different UWP-style picks, neither resolvable to a process name.
+        Store.Update(s =>
+        {
+            var p = s.Lighting.LayoutPresets.Find(x => x.Id == second)!;
+            p.Apps = new List<PresetAppBinding>
+            {
+                new() { Id = "Some.Uwp.App!App", Name = "Some UWP App", ProcessName = "" },
+            };
+        });
+
+        await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{first}/apps",
+            Json("""{"apps":[{"id":"Other.Uwp.App!App","name":"Other UWP App"}]}"""));
+
+        // An empty process name must not collapse every unresolved binding
+        // into one another.
+        Assert.Single(Store.Load().Lighting.LayoutPresets.Find(p => p.Id == second)!.Apps!);
+    }
 }

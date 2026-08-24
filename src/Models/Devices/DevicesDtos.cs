@@ -304,6 +304,20 @@ public sealed class LayoutPresetDto
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public Dictionary<string, Nexus.Service.Persistence.DeviceLayout> Layouts { get; set; } = new();
+    /// <summary>Apps that auto-activate this preset on focus. Always serialized
+    /// so the web can tell "no bindings" from a preset it has not loaded.</summary>
+    public List<PresetAppDto> Apps { get; set; } = new();
+}
+
+public sealed class PresetAppDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+}
+
+public sealed class SetPresetAppsBody
+{
+    public List<PresetAppDto> Apps { get; set; } = new();
 }
 
 public sealed class LayoutPresetsResponse

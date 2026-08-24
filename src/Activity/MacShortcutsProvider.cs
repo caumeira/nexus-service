@@ -108,6 +108,22 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
         return Array.Empty<byte>();
     }
 
+    // MacScreenTimeProvider reports LSDisplayName, which resolves to
+    // CFBundleDisplayName ?? CFBundleName ?? the .app file name - "Visual
+    // Studio Code.app" reports "Code", so the file name alone is wrong.
+    public string ResolveProcessName(string targetId)
+    {
+        var shortcut = GetById(targetId);
+        if (shortcut is null) return "";
+        return GetDisplayName(shortcut.Path) ?? shortcut.Name;
+    }
+
+    private static string? GetDisplayName(string appPath)
+    {
+        return ReadPlistString(appPath, "CFBundleDisplayName")
+            ?? ReadPlistString(appPath, "CFBundleName");
+    }
+
     public bool Launch(string targetId)
     {
         var shortcut = GetById(targetId);
@@ -137,7 +153,10 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
         }
     }
 
-    private static string? GetBundleId(string appPath)
+    private static string? GetBundleId(string appPath) =>
+        ReadPlistString(appPath, "CFBundleIdentifier");
+
+    private static string? ReadPlistString(string appPath, string key)
     {
         try
         {
@@ -156,7 +175,7 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
                 CreateNoWindow = true,
             };
             psi.ArgumentList.Add("-extract");
-            psi.ArgumentList.Add("CFBundleIdentifier");
+            psi.ArgumentList.Add(key);
             psi.ArgumentList.Add("raw");
             psi.ArgumentList.Add(plistPath);
 
@@ -168,7 +187,12 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
 
             var output = proc.StandardOutput.ReadToEnd().Trim();
             proc.WaitForExit(2000);
-            return string.IsNullOrEmpty(output) ? null : output;
+            // plutil prints a diagnostic to stdout for a key the plist lacks.
+            if (output.Length == 0 || output.Contains("does not exist", StringComparison.Ordinal))
+            {
+                return null;
+            }
+            return output;
         }
         catch
         {

@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Devices;
@@ -124,8 +126,35 @@ public static partial class DevicesRoutes
         return true;
     }
 
+    // A pick off the running-apps list already carries the process name; a
+    // Start-menu pick carries a display name the focus signal never reports.
+    private static string ResolveBindingProcessName(string appId, Nexus.Service.Activity.IShortcutsProvider shortcuts)
+    {
+        const string RunningPrefix = "proc:";
+        if (appId.StartsWith(RunningPrefix, StringComparison.Ordinal))
+        {
+            return Nexus.Service.Lighting.AppPresetMatching.ProcessKey(appId[RunningPrefix.Length..]);
+        }
+        try
+        {
+            return Nexus.Service.Lighting.AppPresetMatching.ProcessKey(shortcuts.ResolveProcessName(appId));
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     private static LayoutPresetDto ToDto(Nexus.Service.Persistence.LayoutPreset p) =>
-        new() { Id = p.Id, Name = p.Name, Layouts = p.Layouts };
+        new()
+        {
+            Id = p.Id,
+            Name = p.Name,
+            Layouts = p.Layouts,
+            Apps = p.Apps is null
+                ? new List<PresetAppDto>()
+                : p.Apps.ConvertAll(a => new PresetAppDto { Id = a.Id, Name = a.Name }),
+        };
 
     private static Dictionary<string, Nexus.Service.Persistence.StaticDeviceLook> DeepCopyStaticLooks(
         Dictionary<string, Nexus.Service.Persistence.StaticDeviceLook> source)
@@ -401,6 +430,88 @@ public static partial class DevicesRoutes
             return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
         });
 
+        // Apps that auto-activate this preset when they take focus. An app
+        // drives exactly one preset, so assigning it here unbinds it elsewhere.
+        app.MapPut("/devices/lighting-devices/layout-presets/{id}/apps", (
+            string id,
+            SetPresetAppsBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Activity.IShortcutsProvider shortcuts) =>
+        {
+            // Resolution is a helper round trip on Windows; run it before
+            // taking the store's update lock.
+            // Previously resolved names, to fall back on. Resolution can fail
+            // transiently (the helper RPC times out at 6s while Get-StartApps
+            // alone may take 15s) and the Windows provider caches an empty
+            // result, so a re-save must not downgrade a good name to empty.
+            var known = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var preset in store.Load().Lighting.LayoutPresets)
+            {
+                if (preset.Apps is null) continue;
+                foreach (var b in preset.Apps)
+                {
+                    if (b.ProcessName.Length > 0) known[b.Id] = b.ProcessName;
+                }
+            }
+
+            var resolved = new List<Nexus.Service.Persistence.PresetAppBinding>();
+            foreach (var app in body.Apps)
+            {
+                if (string.IsNullOrWhiteSpace(app.Id)
+                    || resolved.Exists(r => string.Equals(r.Id, app.Id, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+                var processName = ResolveBindingProcessName(app.Id, shortcuts);
+                if (processName.Length == 0 && known.TryGetValue(app.Id, out var previous))
+                {
+                    processName = previous;
+                }
+                resolved.Add(new Nexus.Service.Persistence.PresetAppBinding
+                {
+                    Id = app.Id,
+                    Name = app.Name,
+                    ProcessName = processName,
+                });
+            }
+
+            var found = false;
+            store.Update(s =>
+            {
+                var preset = s.Lighting.LayoutPresets.Find(p => p.Id == id);
+                if (preset is null)
+                {
+                    return;
+                }
+                found = true;
+                preset.Apps = resolved;
+                // Matched on the resolved process name as well as the id: the
+                // same app can be picked off the running list (proc:<name>) or
+                // the installed list (a shortcut id), and both must count as
+                // one app or "an app activates one preset" would not hold.
+                foreach (var other in s.Lighting.LayoutPresets)
+                {
+                    if (other.Id == id || other.Apps is null)
+                    {
+                        continue;
+                    }
+                    other.Apps.RemoveAll(b => resolved.Exists(r =>
+                        string.Equals(r.Id, b.Id, StringComparison.OrdinalIgnoreCase)
+                        || (r.ProcessName.Length > 0
+                            && string.Equals(r.ProcessName, b.ProcessName, StringComparison.Ordinal))));
+                }
+            });
+
+            if (!found)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("Layout preset not found"),
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 404);
+            }
+            return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
+        });
+
         app.MapDelete("/devices/lighting-devices/layout-presets/{id}", (
             string id,
             Nexus.Service.Persistence.IConfigStore store) =>
@@ -430,75 +541,13 @@ public static partial class DevicesRoutes
             Nexus.Service.Lighting.Smart.SmartLightProvider smart,
             Nexus.Service.Lighting.Engine.LightingEngine engine) =>
         {
-            var s = store.Load();
-            var preset = s.Lighting.LayoutPresets.Find(p => p.Id == id);
-            if (preset is null)
+            if (!ActivateLayoutPreset(id, store, hub, lightingProvider, lighting, bridge, smart, engine))
             {
                 return Results.Json(
                     ApiResponse.Fail("Layout preset not found"),
                     Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
                     statusCode: 404);
             }
-
-            var layouts = new Dictionary<string, Nexus.Service.Persistence.DeviceLayout>(preset.Layouts);
-            var disabled = preset.DisabledDevices is null ? null : new List<string>(preset.DisabledDevices);
-            var uncontrolled = preset.UncontrolledDevices is null ? null : new List<string>(preset.UncontrolledDevices);
-            var look = preset.Look;
-            var staticLooks = preset.StaticDeviceLooks is null ? null : DeepCopyStaticLooks(preset.StaticDeviceLooks);
-            var devicePrefs = preset.DevicePrefs is null ? null : DeepCopyDevicePrefs(preset.DevicePrefs);
-            // Ids the preset re-enables. Smart lights re-push their static colour
-            // on re-enable, mirroring POST /devices/lighting-devices/controlled.
-            var reControlled = uncontrolled is null
-                ? new List<string>()
-                : s.Devices.UncontrolledLightingDevices.FindAll(x => !uncontrolled.Contains(x));
-            store.Update(settings =>
-            {
-                settings.Lighting.DeviceLayouts.Clear();
-                foreach (var kv in layouts)
-                {
-                    settings.Lighting.DeviceLayouts[kv.Key] = kv.Value;
-                }
-                settings.Lighting.ActiveLayoutPresetId = id;
-                if (disabled is not null)
-                {
-                    settings.Devices.DisabledLightingDevices = new List<string>(disabled);
-                }
-                if (uncontrolled is not null)
-                {
-                    // Replaced, not mutated: the frame writers read this list
-                    // lock-free and must never observe a torn state.
-                    settings.Devices.UncontrolledLightingDevices = new List<string>(uncontrolled);
-                }
-                if (look is not null)
-                {
-                    Nexus.Service.Lighting.LightingPresetLooks.Apply(settings.Lighting, look);
-                }
-                if (staticLooks is not null)
-                {
-                    // Replaced wholesale: StaticDeviceEffectTracker re-hydrates
-                    // off the store's OnChanged, so writing this is what repaints
-                    // the devices - no separate replay.
-                    settings.Lighting.StaticDeviceLooks = staticLooks;
-                }
-                if (devicePrefs is not null)
-                {
-                    settings.Devices.LightingDevicePrefs = devicePrefs;
-                }
-            });
-            if (uncontrolled is not null)
-            {
-                bridge?.RequestTopologyRefresh();
-                foreach (var reEnabled in reControlled)
-                {
-                    smart.RestoreStatic(reEnabled);
-                }
-            }
-            MirrorLayoutsToEngine(layouts, lightingProvider, engine);
-            if (look is not null)
-            {
-                EngageLook(look, store, lighting);
-            }
-            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
         });
 

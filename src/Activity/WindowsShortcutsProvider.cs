@@ -36,6 +36,13 @@ public sealed class WindowsShortcutsProvider : IShortcutsProvider
     private readonly Dictionary<string, (byte[] Data, DateTime Expiry)> _iconCache = new();
     private readonly object _iconLock = new();
 
+    // Resolution walks the whole Start-Menu tree for a matching .lnk, so it is
+    // cached for the process lifetime. A binding is created once and read on
+    // every focus change; an app moving to a different exe between resolutions
+    // is not a case worth invalidating for.
+    private readonly Dictionary<string, string> _processNameCache = new();
+    private readonly object _processNameLock = new();
+
     public WindowsShortcutsProvider() : this(new WindowsIconExtractor(), new IconDiskCache())
     {
     }
@@ -137,6 +144,45 @@ public sealed class WindowsShortcutsProvider : IShortcutsProvider
         }
 
         return iconBytes;
+    }
+
+    public string ResolveProcessName(string targetId)
+    {
+        lock (_processNameLock)
+        {
+            if (_processNameCache.TryGetValue(targetId, out var cached)) return cached;
+        }
+
+        var resolved = ResolveProcessNameCore(targetId);
+        lock (_processNameLock)
+        {
+            _processNameCache[targetId] = resolved;
+        }
+        return resolved;
+    }
+
+    private string ResolveProcessNameCore(string targetId)
+    {
+        var shortcut = GetById(targetId);
+        // A UWP AppUserModelID has no .lnk behind it, and the package's real
+        // exe name is not derivable from the id.
+        if (shortcut is null || shortcut.Id.Contains('!')) return "";
+
+        try
+        {
+            var lnkPath = FindShortcutLnk(shortcut.Name);
+            if (lnkPath is null) return "";
+
+            var target = _iconExtractor.ResolveLinkTargetPath(lnkPath);
+            if (string.IsNullOrEmpty(target)) return "";
+            if (!target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return "";
+
+            return Path.GetFileNameWithoutExtension(target).ToLowerInvariant();
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     public bool Launch(string targetId)

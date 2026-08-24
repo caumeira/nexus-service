@@ -539,6 +539,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Persistence.DeviceLayout))]
 [JsonSerializable(typeof(Dictionary<string, Nexus.Service.Persistence.DeviceLayout>))]
 [JsonSerializable(typeof(SaveDeviceLayoutBody))]
+[JsonSerializable(typeof(PresetAppDto))]
+[JsonSerializable(typeof(List<PresetAppDto>))]
+[JsonSerializable(typeof(SetPresetAppsBody))]
 [JsonSerializable(typeof(LayoutPresetDto))]
 [JsonSerializable(typeof(List<LayoutPresetDto>))]
 [JsonSerializable(typeof(LayoutPresetsResponse))]
@@ -840,6 +843,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutOneResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutIconResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutBoolResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutProcessNameResult))]
 // Process icons (WindowsIconExtractor runs in the user-session helper)
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessIconRequest))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessIconResult))]

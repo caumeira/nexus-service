@@ -3161,6 +3161,38 @@
         }
       }
     },
+    "/devices/lighting-devices/layout-presets/{id}/apps": {
+      "put": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPresetAppsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/devices/lighting-devices/layout-presets/{id}/activate": {
       "post": {
         "tags": [
@@ -17823,6 +17855,17 @@
           }
         }
       },
+      "PresetAppDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "ProcessActionBody": {
         "type": "object",
         "properties": {
@@ -18723,6 +18766,17 @@
           },
           "keyReactiveColor": {
             "$ref": "#/components/schemas/RGBA"
+          }
+        }
+      },
+      "SetPresetAppsBody": {
+        "type": "object",
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PresetAppDto"
+            }
           }
         }
       },
