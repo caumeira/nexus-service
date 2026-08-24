@@ -2317,6 +2317,28 @@
         }
       }
     },
+    "/api/twitch/emote/{emoteId}": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "emoteId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/steam/config": {
       "get": {
         "tags": [
@@ -16494,6 +16516,9 @@
         "properties": {
           "connected": {
             "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
           },
           "host": {
             "type": "string"

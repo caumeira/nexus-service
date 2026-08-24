@@ -67,15 +67,19 @@ public sealed class ObsProvider : IObsProvider, IDisposable
     public Task<ObsStatusResponse> ToggleRecordingAsync(CancellationToken cancellationToken) =>
         RunWithSocketAsync(async ct =>
         {
-            await SendRequestLockedAsync("ToggleRecord", null, ct).ConfigureAwait(false);
-            return await BuildStatusLockedAsync(ct).ConfigureAwait(false);
+            var toggled = await SendRequestLockedAsync("ToggleRecord", null, ct).ConfigureAwait(false);
+            var status = await BuildStatusLockedAsync(ct).ConfigureAwait(false);
+            ApplyToggledOutput(toggled, status, recording: true);
+            return status;
         }, cancellationToken);
 
     public Task<ObsStatusResponse> ToggleStreamingAsync(CancellationToken cancellationToken) =>
         RunWithSocketAsync(async ct =>
         {
-            await SendRequestLockedAsync("ToggleStream", null, ct).ConfigureAwait(false);
-            return await BuildStatusLockedAsync(ct).ConfigureAwait(false);
+            var toggled = await SendRequestLockedAsync("ToggleStream", null, ct).ConfigureAwait(false);
+            var status = await BuildStatusLockedAsync(ct).ConfigureAwait(false);
+            ApplyToggledOutput(toggled, status, recording: false);
+            return status;
         }, cancellationToken);
 
     public Task<ObsStatusResponse> SetSceneAsync(string sceneName, CancellationToken cancellationToken) =>
@@ -84,7 +88,7 @@ public sealed class ObsProvider : IObsProvider, IDisposable
             var trimmed = sceneName.Trim();
             if (trimmed.Length == 0)
             {
-                return Disconnected("Scene name is required");
+                return Disconnected("Scene name is required", "error");
             }
 
             await SendRequestLockedAsync("SetCurrentProgramScene", writer =>
@@ -174,7 +178,7 @@ public sealed class ObsProvider : IObsProvider, IDisposable
             {
                 ResetSocketLocked();
             }
-            return Disconnected(ex.Message);
+            return Disconnected(ex.Message, ClassifyReason(ex));
         }
         catch (OperationCanceledException)
         {
@@ -182,7 +186,7 @@ public sealed class ObsProvider : IObsProvider, IDisposable
             {
                 ResetSocketLocked();
             }
-            return Disconnected("OBS did not respond in time");
+            return Disconnected("OBS did not respond in time", "offline");
         }
         finally
         {
@@ -290,7 +294,7 @@ public sealed class ObsProvider : IObsProvider, IDisposable
             {
                 if (string.IsNullOrEmpty(settings.Password))
                 {
-                    throw new InvalidOperationException("OBS password is required");
+                    throw new ObsAuthException("OBS password is required");
                 }
 
                 auth = ObsProtocol.ComputeAuthentication(
@@ -311,7 +315,7 @@ public sealed class ObsProvider : IObsProvider, IDisposable
                 }
                 if (op == 9)
                 {
-                    throw new InvalidOperationException("OBS rejected the connection");
+                    throw new ObsAuthException("OBS rejected the connection");
                 }
             }
         }
@@ -382,6 +386,16 @@ public sealed class ObsProvider : IObsProvider, IDisposable
             var result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken).ConfigureAwait(false);
             if (result.MessageType == WebSocketMessageType.Close)
             {
+                // OBS rejects a bad password by closing with 4009
+                // (AuthenticationFailed) rather than by sending a reject op,
+                // so the close code is the only signal that this is auth and
+                // not a transport fault. 4011 is the same class (identify
+                // rejected for an unsupported RPC version).
+                var code = (int?)socket.CloseStatus ?? 0;
+                if (code is 4009 or 4011)
+                {
+                    throw new ObsAuthException("OBS rejected the password");
+                }
                 throw new InvalidOperationException("OBS closed the connection");
             }
 
@@ -407,17 +421,45 @@ public sealed class ObsProvider : IObsProvider, IDisposable
         _socket = null;
     }
 
-    private ObsStatusResponse Disconnected(string message)
+    private ObsStatusResponse Disconnected(string message, string reason)
     {
         var settings = _store.Load().Obs;
         return new ObsStatusResponse
         {
             Error = true,
             Msg = message,
+            Reason = reason,
             Connected = false,
             Host = NormalizeHostForDisplay(settings.Host),
             Port = NormalizePort(settings.Port),
         };
+    }
+
+    /// <summary>Raised where OBS wants credentials we cannot satisfy, so the failure is not retryable without user input.</summary>
+    private sealed class ObsAuthException : Exception
+    {
+        public ObsAuthException(string message) : base(message) { }
+    }
+
+    /// <summary>
+    /// Maps a connect failure to the wire reason. A refused or reset socket
+    /// means nothing is listening, which on this port is OBS being closed or
+    /// its WebSocket server switched off - both fixed by the user, not a retry.
+    /// </summary>
+    private static string ClassifyReason(Exception ex)
+    {
+        for (var e = ex; e is not null; e = e.InnerException)
+        {
+            if (e is ObsAuthException)
+            {
+                return "auth";
+            }
+            if (e is System.Net.Sockets.SocketException or WebSocketException)
+            {
+                return "offline";
+            }
+        }
+        return "error";
     }
 
     private static List<ObsScene> ReadScenes(JsonElement data)
@@ -452,6 +494,39 @@ public sealed class ObsProvider : IObsProvider, IDisposable
             property.ValueKind == JsonValueKind.String
             ? property.GetString() ?? ""
             : "";
+    }
+
+    /// <summary>
+    /// OBS flips the output a moment after acknowledging a toggle, so the
+    /// status re-read that follows can still report the previous value. The
+    /// toggle's own <c>outputActive</c> is the new state, so it wins.
+    /// </summary>
+    private static void ApplyToggledOutput(JsonElement toggled, ObsStatusResponse status, bool recording)
+    {
+        if (toggled.ValueKind != JsonValueKind.Object ||
+            !toggled.TryGetProperty("outputActive", out var property) ||
+            (property.ValueKind != JsonValueKind.True && property.ValueKind != JsonValueKind.False))
+        {
+            return;
+        }
+
+        var active = property.ValueKind == JsonValueKind.True;
+        if (recording)
+        {
+            status.Recording = active;
+            if (!active)
+            {
+                status.RecordingDurationMs = 0;
+            }
+        }
+        else
+        {
+            status.Streaming = active;
+            if (!active)
+            {
+                status.StreamingDurationMs = 0;
+            }
+        }
     }
 
     private static bool ReadBool(JsonElement element, string name)

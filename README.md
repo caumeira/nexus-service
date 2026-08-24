@@ -81,6 +81,7 @@ src/
   Widgets/            # nexus.app/1 app host (manifest loader, data sources, worker sandbox)
   Activity/           # screentime, app detection
   Discord/ Steam/ Obs/# third-party integrations
+  Twitch/             # anonymous Twitch chat reader (IRC over WS) + emote CDN proxy, fanned out on twitch/chat/{channel}
   Integrations/
     HomeAssistant/    # Home Assistant: REST+WS client, entity cache, broadcast (GET/POST /home-assistant/*)
   Media/              # media session state (GSMTC on Windows)
