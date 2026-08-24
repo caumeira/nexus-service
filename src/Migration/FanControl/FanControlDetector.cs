@@ -64,7 +64,34 @@ public sealed class FanControlDetector : IFanControlDetector
     private const string HklmUninstall32Path = @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall";
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
 
+    // Detection walks the uninstall registry, the process list and the
+    // filesystem. The dashboard reads it on every navigation to Cooling, and
+    // preview/apply each read it twice, so hold the answer briefly.
+    private static readonly object CacheLock = new();
+    private static readonly TimeSpan CacheWindow = TimeSpan.FromSeconds(5);
+    private static FanControlDetectionResult? _cached;
+    private static DateTime _cachedAtUtc;
+
     public FanControlDetectionResult Detect()
+    {
+        lock (CacheLock)
+        {
+            if (_cached is not null && DateTime.UtcNow - _cachedAtUtc < CacheWindow)
+            {
+                return _cached;
+            }
+        }
+
+        var result = DetectUncached();
+        lock (CacheLock)
+        {
+            _cached = result;
+            _cachedAtUtc = DateTime.UtcNow;
+        }
+        return result;
+    }
+
+    private static FanControlDetectionResult DetectUncached()
     {
         var (installLocation, version) = ReadUninstallEntry();
         var running = IsRunning();
@@ -129,6 +156,8 @@ public sealed class FanControlDetector : IFanControlDetector
             await Task.Delay(250).ConfigureAwait(false);
             if (!IsRunning())
             {
+                // What detection reports just changed.
+                InvalidateCache();
                 return true;
             }
         }
@@ -138,11 +167,13 @@ public sealed class FanControlDetector : IFanControlDetector
             try { if (!p.HasExited) p.Kill(); } catch { /* per-process swallow */ }
         }
         await Task.Delay(500).ConfigureAwait(false);
+        InvalidateCache();
         return !IsRunning();
     }
 
     public bool DisableAutostart()
     {
+        InvalidateCache();
         var ok = true;
 
         if (ScheduledTaskFileExists())
@@ -169,6 +200,14 @@ public sealed class FanControlDetector : IFanControlDetector
         }
 
         return ok;
+    }
+
+    private static void InvalidateCache()
+    {
+        lock (CacheLock)
+        {
+            _cached = null;
+        }
     }
 
     private static bool AutostartPresent()
