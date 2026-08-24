@@ -315,7 +315,9 @@ public static class OpenRgbProtocol
             EnsureBytes(body, pos, 16, $"zone[{i}] fixed block");
             var zoneType = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos, 4));
             pos += 4;
-            pos += 4 + 4; // leds_min + leds_max
+            var ledsMin = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos, 4));
+            var ledsMax = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos + 4, 4));
+            pos += 4 + 4;
             var zoneLeds = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos, 4));
             pos += 4;
             EnsureBytes(body, pos, 2, $"zone[{i}] matrix_len");
@@ -367,6 +369,8 @@ public static class OpenRgbProtocol
             {
                 Name = zoneName,
                 ZoneType = zoneType,
+                LedsMin = ledsMin,
+                LedsMax = ledsMax,
                 LedCount = (int)zoneLeds,
                 MatrixWidth = matrixWidth,
                 MatrixHeight = matrixHeight,

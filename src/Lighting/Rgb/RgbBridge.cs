@@ -82,6 +82,9 @@ public sealed class RgbBridge : IDisposable
     private static readonly TimeSpan InitialRescanMinHold = TimeSpan.FromSeconds(5);
     /// <summary>Distinct settled lists remembered for log de-duplication before the set is dropped.</summary>
     private const int MaxLoggedDeviceSignatures = 16;
+    // TryMarkLogged forgets its whole set past the cap, so this must hold every
+    // zone of every board at once or an unconverged zone re-logs each tick.
+    private const int MaxLoggedResizeOutcomes = 64;
 
     private readonly OpenRgbProcessManager _proc;
     private readonly IRgbController _controller;
@@ -122,6 +125,9 @@ public sealed class RgbBridge : IDisposable
     // flaps between two shapes would otherwise re-log on every poll for the life of
     // the run, and the service log has no size cap. Guarded by _lock.
     private readonly HashSet<string> _loggedDeviceSignatures = new(StringComparer.Ordinal);
+    // Resize outcomes already logged; the resize pass reruns every refresh tick.
+    // Guarded by _lock.
+    private readonly HashSet<string> _loggedResizeOutcomes = new(StringComparer.Ordinal);
     // StableIds already warned about an exclusion the daemon did not honor.
     private readonly HashSet<string> _warnedIneffectiveExclusions = new(StringComparer.Ordinal);
 
@@ -373,6 +379,7 @@ public sealed class RgbBridge : IDisposable
             _directModeApplied = new();
             _drivableLatched.Clear();
             _loggedDeviceSignatures.Clear();
+            _loggedResizeOutcomes.Clear();
         }
 
         if (frameHandler is not null)
@@ -482,7 +489,7 @@ public sealed class RgbBridge : IDisposable
     /// Triggered by the OS power-resume event handler. Tears down and restarts
     /// the subprocess so devices re-init after the USB stack re-enumerates.
     /// </summary>
-    public void OnSystemResume() => BounceSubprocess();
+    public void OnSystemResume() => BounceSubprocess("system-resume");
 
     /// <summary>
     /// User-initiated rescan. The OpenRGB SDK has no RESCAN opcode, so the only
@@ -490,7 +497,7 @@ public sealed class RgbBridge : IDisposable
     /// Use this when a device was plugged but OpenRGB never fired DEVICE_LIST_UPDATED
     /// (plugin that only scans at startup, etc.).
     /// </summary>
-    public void ForceRescan() => BounceSubprocess();
+    public void ForceRescan() => BounceSubprocess("user-rescan");
 
     /// <summary>
     /// Queue a motherboard ARGB zone resize. Applied via OpenRGB's RESIZEZONE
@@ -530,10 +537,11 @@ public sealed class RgbBridge : IDisposable
         _identifyOverrides[id] = (now, expiration);
     }
 
-    private void BounceSubprocess()
+    private void BounceSubprocess(string reason)
     {
         if (!IsActive)
         {
+            ServiceLog.Info($"[rgb-bridge] bounce skipped ({reason}): bridge not active");
             return;
         }
 
@@ -545,6 +553,7 @@ public sealed class RgbBridge : IDisposable
             // The deferred spawn has not run yet. It performs the detection a
             // bounce would force, and starting the process here would skip the
             // SMBus wait that spawn exists for.
+            ServiceLog.Info($"[rgb-bridge] bounce skipped ({reason}): deferred spawn still pending");
             return;
         }
 
@@ -552,10 +561,22 @@ public sealed class RgbBridge : IDisposable
         // Snapshot the current device count so RefreshDevicesAsync can hold the
         // visible list steady until OpenRGB's detection plugins report at least
         // that many devices again (or the grace period expires).
+        int baseline;
         lock (_lock)
         {
             _rescanBaselineCount = _devices.Count;
+            baseline = _rescanBaselineCount;
+            // A bounce reconstructs every controller, so an identical list is still
+            // new information. Only these two reasons can settle unchanged; a
+            // topology or exclusion bounce alters the list, so its signature re-logs
+            // on its own and clearing here would re-print the block on every flap.
+            if (reason is "user-rescan" or "system-resume")
+            {
+                _loggedDeviceSignatures.Clear();
+            }
+            _loggedResizeOutcomes.Clear();
         }
+        ServiceLog.Info($"[rgb-bridge] bouncing subprocess ({reason}), baseline {baseline} device(s)");
         Interlocked.Exchange(ref _rescanStartedTicks, DateTime.UtcNow.Ticks);
         _ = Task.Run(async () =>
         {
@@ -712,15 +733,24 @@ public sealed class RgbBridge : IDisposable
             // Apply any queued or persisted motherboard zone resizes BEFORE the
             // device list becomes the engine's source of truth. Re-fetch the
             // list afterwards so zone LED counts reflect the new sizes.
-            if (await ApplyZoneResizesAsync(devices).ConfigureAwait(false))
+            var resizeAttempts = await ApplyZoneResizesAsync(devices).ConfigureAwait(false);
+            if (resizeAttempts.Count > 0)
             {
+                var refetched = false;
                 try
                 {
                     devices = await _controller.GetDevicesAsync().ConfigureAwait(false);
+                    refetched = true;
                 }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($"[rgb-bridge] re-fetch after resize failed: {ex.Message}");
+                }
+                // The pre-resize list reports every attempt as failed, and the
+                // transient empty the block below absorbs reports -1.
+                if (refetched && devices.Count > 0)
+                {
+                    LogZoneResizeOutcomes(resizeAttempts, devices);
                 }
             }
 
@@ -1163,9 +1193,17 @@ public sealed class RgbBridge : IDisposable
         ServiceLog.Info($"[rgb-bridge] settled on {devices.Count} device(s):");
         foreach (var d in devices)
         {
-            ServiceLog.Info($"[rgb-bridge]   [{d.Index}] {d.Name} leds={d.LedCount}"
+            ServiceLog.Info($"[rgb-bridge]   [{d.Index}] {d.Name} leds={d.LedCount}{DescribeZones(d)}"
                 + $" sn={(string.IsNullOrEmpty(d.Serial) ? "-" : d.Serial)}"
                 + $" loc={(string.IsNullOrEmpty(d.Location) ? "-" : d.Location)}");
+            var zoneTotal = SumZoneLeds(d);
+            if (d.Zones.Count > 0 && zoneTotal != d.LedCount)
+            {
+                // These diverge when a RESIZEZONE changed a zone's count without the
+                // controller rebuilding its LED buffer, leaving every later zone
+                // reading at a stale offset.
+                ServiceLog.Warn($"[rgb-bridge]   [{d.Index}] {d.Name} zone total {zoneTotal} != device leds {d.LedCount}: zone data lands at the wrong offsets on this device");
+            }
         }
     }
 
@@ -1173,13 +1211,13 @@ public sealed class RgbBridge : IDisposable
     /// Records a signature as logged, returning false when it already was. Forgets
     /// everything once the set outgrows its cap so churn cannot grow without bound.
     /// </summary>
-    internal static bool TryMarkLogged(HashSet<string> logged, string signature)
+    internal static bool TryMarkLogged(HashSet<string> logged, string signature, int cap = MaxLoggedDeviceSignatures)
     {
         if (!logged.Add(signature))
         {
             return false;
         }
-        if (logged.Count > MaxLoggedDeviceSignatures)
+        if (logged.Count > cap)
         {
             logged.Clear();
             logged.Add(signature);
@@ -1190,7 +1228,9 @@ public sealed class RgbBridge : IDisposable
     /// <summary>
     /// Change key for the settled list. Covers every field the log line carries, so
     /// a device that re-enumerates onto a different transport path re-logs even
-    /// though its name, index and LED count are unchanged.
+    /// though its name, index and LED count are unchanged. Zone counts are included
+    /// because a controller can hold its device LED count steady while its zone
+    /// table moves.
     /// </summary>
     internal static string BuildDeviceSignature(IReadOnlyList<RgbDevice> devices)
     {
@@ -1198,7 +1238,8 @@ public sealed class RgbBridge : IDisposable
         foreach (var d in devices)
         {
             signature.Append(d.Index).Append('|').Append(d.Name).Append('|').Append(d.LedCount)
-                .Append('|').Append(d.Serial).Append('|').Append(d.Location).Append('\n');
+                .Append('|').Append(d.Serial).Append('|').Append(d.Location)
+                .Append('|').Append(DescribeZones(d)).Append('\n');
         }
         return signature.ToString();
     }
@@ -1248,9 +1289,9 @@ public sealed class RgbBridge : IDisposable
         }
 
         _store.Update(s => OpenRgbDetectorExclusions.Apply(s, delta));
-        ServiceLog.Info($"[rgb-bridge] detector exclusions changed (+{delta.Add.Count}/-{delta.Remove.Count}), bouncing subprocess to apply");
+        ServiceLog.Info($"[rgb-bridge] detector exclusions changed (+{delta.Add.Count}/-{delta.Remove.Count}), applying");
         Interlocked.Exchange(ref _lastBounceTicks, DateTime.UtcNow.Ticks);
-        BounceSubprocess();
+        BounceSubprocess("detector-exclusions");
     }
 
     private void SyncPhysicalBuffers(IReadOnlyList<RgbDevice> devices)
@@ -1297,18 +1338,19 @@ public sealed class RgbBridge : IDisposable
     /// OpenRGB reports as 0 AND the user has never configured. ARGB is one-way so
     /// OpenRGB's reported 0 is really "unset"; the default lights the strip
     /// without the user configuring it first.
-    /// Returns true if any resize opcode was actually sent (caller should re-fetch).
+    /// Returns every resize sent, so the caller can re-fetch and report the outcome.
     /// </summary>
-    private async Task<bool> ApplyZoneResizesAsync(IReadOnlyList<RgbDevice> devices)
+    private async Task<List<ZoneResizeAttempt>> ApplyZoneResizesAsync(IReadOnlyList<RgbDevice> devices)
     {
-        var sent = false;
+        var attempts = new List<ZoneResizeAttempt>();
 
         while (_pendingZoneResizes.TryDequeue(out var req))
         {
+            var queued = DescribeZone(devices, req.physIdx, req.zoneIdx);
             try
             {
                 await _controller.ResizeZoneAsync(req.physIdx, req.zoneIdx, req.newSize).ConfigureAwait(false);
-                sent = true;
+                attempts.Add(new ZoneResizeAttempt(req.physIdx, req.zoneIdx, queued.Name, queued.Current, req.newSize, "queued"));
             }
             catch (Exception ex)
             {
@@ -1333,7 +1375,7 @@ public sealed class RgbBridge : IDisposable
                 try
                 {
                     await _controller.ResizeZoneAsync(d.Index, z, desired).ConfigureAwait(false);
-                    sent = true;
+                    attempts.Add(new ZoneResizeAttempt(d.Index, z, ZoneName(d.Zones[z], z), d.Zones[z].LedCount, desired, "persisted"));
                 }
                 catch (Exception ex)
                 {
@@ -1382,7 +1424,8 @@ public sealed class RgbBridge : IDisposable
                 try
                 {
                     await _controller.ResizeZoneAsync(t.physIdx, t.zoneIdx, DefaultArgbZoneLedCount).ConfigureAwait(false);
-                    sent = true;
+                    var seeded = DescribeZone(devices, t.physIdx, t.zoneIdx);
+                    attempts.Add(new ZoneResizeAttempt(t.physIdx, t.zoneIdx, seeded.Name, seeded.Current, DefaultArgbZoneLedCount, "default"));
                 }
                 catch (Exception ex)
                 {
@@ -1391,7 +1434,107 @@ public sealed class RgbBridge : IDisposable
             }
         }
 
-        return sent;
+        return attempts;
+    }
+
+    /// <summary>One RESIZEZONE we sent, carried to the post-refetch pass that reports whether it took.</summary>
+    private readonly record struct ZoneResizeAttempt(int PhysIdx, int ZoneIdx, string ZoneName, int From, int To, string Source);
+
+    /// <summary>
+    /// RESIZEZONE has no reply, so a re-read is the only confirmation. Both totals
+    /// print because a controller can accept the zone change and leave its device
+    /// LED buffer at the old size, which verifies fine per zone and is still wrong.
+    /// </summary>
+    private void LogZoneResizeOutcomes(IReadOnlyList<ZoneResizeAttempt> attempts, IReadOnlyList<RgbDevice> devices)
+    {
+        foreach (var a in attempts)
+        {
+            var observed = DescribeZone(devices, a.PhysIdx, a.ZoneIdx).Current;
+            var device = FindDevice(devices, a.PhysIdx);
+            var deviceLeds = device is null ? -1 : device.LedCount;
+            var zoneTotal = device is null ? -1 : SumZoneLeds(device);
+            lock (_lock)
+            {
+                if (!TryMarkLogged(_loggedResizeOutcomes, $"{a.PhysIdx}:{a.ZoneIdx}:{a.To}:{observed == a.To}", MaxLoggedResizeOutcomes))
+                {
+                    continue;
+                }
+            }
+            var zone = device is not null && a.ZoneIdx < device.Zones.Count ? device.Zones[a.ZoneIdx] : null;
+            if (zone is not null && zone.IsFixedSize)
+            {
+                ServiceLog.Warn($"[rgb-bridge] dev={a.PhysIdx} zone={a.ZoneIdx} '{a.ZoneName}' advertises leds_min=leds_max={zone.LedsMin}, so it is not resizable and the resize we sent it cannot hold");
+            }
+            var what = $"dev={a.PhysIdx} zone={a.ZoneIdx} '{a.ZoneName}' {a.From} -> {a.To} ({a.Source})";
+            var totals = $"device leds={deviceLeds}, zone total={zoneTotal}";
+            if (observed == a.To)
+            {
+                ServiceLog.Info($"[rgb-bridge] resize took: {what}; {totals}");
+            }
+            else
+            {
+                ServiceLog.Warn($"[rgb-bridge] resize did not take: {what}, zone still reports {observed}; {totals}");
+            }
+        }
+    }
+
+    private static RgbDevice? FindDevice(IReadOnlyList<RgbDevice> devices, int index)
+    {
+        foreach (var d in devices)
+        {
+            if (d.Index == index)
+            {
+                return d;
+            }
+        }
+        return null;
+    }
+
+    private static string ZoneName(RgbZone zone, int zoneIdx)
+        => string.IsNullOrWhiteSpace(zone.Name) ? $"zone {zoneIdx}" : zone.Name;
+
+    /// <summary>Zone name and current LED count, or a placeholder when the index is gone.</summary>
+    private static (string Name, int Current) DescribeZone(IReadOnlyList<RgbDevice> devices, int physIdx, int zoneIdx)
+    {
+        var d = FindDevice(devices, physIdx);
+        if (d is not null && zoneIdx >= 0 && zoneIdx < d.Zones.Count)
+        {
+            return (ZoneName(d.Zones[zoneIdx], zoneIdx), d.Zones[zoneIdx].LedCount);
+        }
+        return ($"zone {zoneIdx}", -1);
+    }
+
+    internal static int SumZoneLeds(RgbDevice d)
+    {
+        var total = 0;
+        foreach (var z in d.Zones)
+        {
+            total += z.LedCount;
+        }
+        return total;
+    }
+
+    /// <summary>Per-zone LED counts for the log. Omitted below two zones, where the device total already says it.</summary>
+    internal static string DescribeZones(RgbDevice d)
+    {
+        if (d.Zones.Count < 2)
+        {
+            return "";
+        }
+        var sb = new StringBuilder(" zones=[");
+        for (int i = 0; i < d.Zones.Count; i++)
+        {
+            if (i > 0)
+            {
+                sb.Append(',');
+            }
+            sb.Append(d.Zones[i].LedCount);
+            if (d.Zones[i].IsFixedSize)
+            {
+                sb.Append("(fixed)");
+            }
+        }
+        return sb.Append(']').ToString();
     }
 
     /// <summary>
@@ -1478,8 +1621,8 @@ public sealed class RgbBridge : IDisposable
             return;
         }
         Interlocked.Exchange(ref _lastBounceTicks, now);
-        ServiceLog.Info($"[rgb-bridge] usb topology changed (+{added}/-{removed}, rgb-relevant), bouncing subprocess for re-detect");
-        BounceSubprocess();
+        ServiceLog.Info($"[rgb-bridge] usb topology changed (+{added}/-{removed}, rgb-relevant), re-detect needed");
+        BounceSubprocess("usb-topology");
     }
 
     private void OnFrame(ReadOnlyMemory<byte> frameMem)

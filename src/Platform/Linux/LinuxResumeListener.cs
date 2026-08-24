@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Lighting.Rgb;
+using Nexus.Service.Platform;
 using Nexus.Service.Platform.Linux.DBus;
 
 namespace Nexus.Service.Platform.Linux;
@@ -89,7 +90,7 @@ public sealed class LinuxResumeListener : IHostedService, IDisposable
                     // resume, which is the only edge that needs the bridge bounced.
                     if (!new DBusReader(signal.Body).ReadBool())
                     {
-                        Console.Error.WriteLine("[power-events] system resumed - bouncing OpenRGB subprocess");
+                        ServiceLog.Info("[power-events] system resumed - bouncing OpenRGB subprocess");
                         _bridge.OnSystemResume();
                     }
                 }
