@@ -19,36 +19,11 @@ public static class CoolingRoutes
         {
             var settings = store.Load();
             var docs = settings.Cooling.Curves;
-            var curves = docs.Select(d => new Curve
+            var curves = docs.Select(d =>
             {
-                Id = d.Id,
-                Name = d.Name,
-                Type = d.Type,
-                Input = new CurveInput { Id = d.Input.Id, Type = d.Input.Type, Device = d.Input.Device },
-                Outputs = d.Outputs.Select(o => new CurveOutput { Id = o.Id, Type = o.Type }).ToList(),
-                Flat = d.Flat is null ? null : new FlatCurve { Speed = d.Flat.Speed },
-                Linear = d.Linear is null ? null : new LinearCurve
-                {
-                    ResponseTime = d.Linear.ResponseTime,
-                    MinTemp = d.Linear.MinTemp,
-                    MaxTemp = d.Linear.MaxTemp,
-                    MinSpeed = d.Linear.MinSpeed,
-                    MaxSpeed = d.Linear.MaxSpeed,
-                },
-                Graph = d.Graph is null ? null : new GraphCurve
-                {
-                    ResponseTime = d.Graph.ResponseTime,
-                    SpeedModifier = d.Graph.SpeedModifier,
-                    Points = d.Graph.Points.Select(p => new Models.Cooling.GraphPoint { Temp = p.Temp, Speed = p.Speed }).ToList(),
-                },
-                Mixed = d.Mixed is null ? null : new MixedCurve
-                {
-                    ResponseTime = d.Mixed.ResponseTime,
-                    CurveIds = new List<string>(d.Mixed.CurveIds),
-                    Fn = d.Mixed.Fn,
-                },
-                Preset = d.Preset,
-                IsDefault = d.Preset is null ? null : FanProfiles.IsPresetCurveAtDefaults(d),
+                var wire = CurveWireMapper.ToWire(d);
+                wire.IsDefault = d.Preset is null ? null : FanProfiles.IsPresetCurveAtDefaults(d);
+                return wire;
             }).ToList();
             return new GetCurvesResponse
             {
@@ -59,6 +34,14 @@ public static class CoolingRoutes
 
         app.MapPost("/cooling/curves/set", (SetCurvesBody body, ICurveProvider c, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
         {
+            // A Mixed curve reading its own output (directly or through a Sync
+            // hop) has no defined value and would chase itself every tick.
+            var cyclic = CurveOrdering.FindCycleMembers(body.Curves.ConvertAll(CurveWireMapper.ToDocument));
+            if (cyclic.Count > 0)
+            {
+                return ApiResponse.Fail($"Curve dependency cycle: {string.Join(", ", cyclic)}");
+            }
+
             // Clamp every stored speed to [0,100] (and the global boost) so a
             // malformed curve can't persist out-of-range values; the write
             // chokepoint clamps the physical output independently.

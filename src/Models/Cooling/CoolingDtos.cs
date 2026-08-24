@@ -44,7 +44,7 @@ public class Curve
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
-    /// <summary>One of: Flat, Linear, Graph, Mixed.</summary>
+    /// <summary>One of: Flat, Linear, Graph, Mixed, Trigger, Sync, Auto.</summary>
     public string Type { get; set; } = "Flat";
     public CurveInput Input { get; set; } = new();
     public List<CurveOutput> Outputs { get; set; } = new();
@@ -52,6 +52,9 @@ public class Curve
     public LinearCurve? Linear { get; set; }
     public GraphCurve? Graph { get; set; }
     public MixedCurve? Mixed { get; set; }
+    public TriggerCurve? Trigger { get; set; }
+    public SyncCurve? Sync { get; set; }
+    public AutoCurve? Auto { get; set; }
     /// <summary>"silent" | "balanced" | "turbo" for the shared preset curves; null for user curves. Independent of Type.</summary>
     public string? Preset { get; set; }
     /// <summary>For preset curves only: true when the curve's Type + Linear params match <see cref="Nexus.Service.Cooling.FanProfiles.PresetDefaults"/>. Null for user curves. Drives the Reset-to-defaults button's enabled state in the SPA, so the FE doesn't have to mirror PresetDefaults locally.</summary>
@@ -77,6 +80,36 @@ public class MixedCurve
     public double ResponseTime { get; set; } = 1.0;
     public List<string> CurveIds { get; set; } = new();
     public string Fn { get; set; } = "max";
+}
+
+/// <summary>Wire twin of <see cref="Nexus.Service.Persistence.TriggerCurveData"/>.</summary>
+public class TriggerCurve
+{
+    public double ResponseTime { get; set; } = 1.0;
+    public double IdleTemp { get; set; }
+    public double LoadTemp { get; set; }
+    public double IdleSpeed { get; set; }
+    public double LoadSpeed { get; set; }
+}
+
+/// <summary>Wire twin of <see cref="Nexus.Service.Persistence.SyncCurveData"/>.</summary>
+public class SyncCurve
+{
+    public string SourceChannelId { get; set; } = "";
+    public double Offset { get; set; }
+    public bool Proportional { get; set; }
+}
+
+/// <summary>Wire twin of <see cref="Nexus.Service.Persistence.AutoCurveData"/>.</summary>
+public class AutoCurve
+{
+    public double ResponseTime { get; set; } = 5.0;
+    public double IdleTemp { get; set; }
+    public double LoadTemp { get; set; }
+    public double MinSpeed { get; set; }
+    public double MaxSpeed { get; set; }
+    public double Step { get; set; } = 5.0;
+    public double Deadband { get; set; } = 2.0;
 }
 
 public class LinearCurve
