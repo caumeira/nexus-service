@@ -62,6 +62,7 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
                         Id = bundleId ?? name,
                         Name = name,
                         Path = appPath,
+                        ProcessName = GetDisplayName(appPath) ?? name,
                     });
                 }
             }
@@ -111,12 +112,7 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
     // MacScreenTimeProvider reports LSDisplayName, which resolves to
     // CFBundleDisplayName ?? CFBundleName ?? the .app file name - "Visual
     // Studio Code.app" reports "Code", so the file name alone is wrong.
-    public string ResolveProcessName(string targetId)
-    {
-        var shortcut = GetById(targetId);
-        if (shortcut is null) return "";
-        return GetDisplayName(shortcut.Path) ?? shortcut.Name;
-    }
+    public string ResolveProcessName(string targetId) => GetById(targetId)?.ProcessName ?? "";
 
     private static string? GetDisplayName(string appPath)
     {

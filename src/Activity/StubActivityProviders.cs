@@ -7,6 +7,7 @@ namespace Nexus.Service.Activity;
 public sealed class StubScreenTimeProvider : IScreenTimeProvider
 {
     public FocusSession? GetCurrentSession() => null;
+    public event Action? FocusChanged { add { } remove { } }
     public IReadOnlyList<AppUsage> GetTodayUsage() => Array.Empty<AppUsage>();
 }
 

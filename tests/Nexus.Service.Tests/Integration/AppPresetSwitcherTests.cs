@@ -19,6 +19,8 @@ public sealed class AppPresetSwitcherTests : IDisposable
     private sealed class FakeScreenTime : IScreenTimeProvider
     {
         public string Focused = "";
+        public event Action? FocusChanged;
+        public void Focus(string app) { Focused = app; FocusChanged?.Invoke(); }
         public FocusSession? GetCurrentSession() =>
             Focused.Length == 0 ? null : new FocusSession { Id = "1", Name = Focused };
         public IReadOnlyList<AppUsage> GetTodayUsage() => Array.Empty<AppUsage>();
@@ -40,7 +42,11 @@ public sealed class AppPresetSwitcherTests : IDisposable
         _ = _factory.CreateClient();
     }
 
-    public void Dispose() => _factory.Dispose();
+    public void Dispose()
+    {
+        _switcher?.Dispose();
+        _factory.Dispose();
+    }
 
     private IConfigStore Store => _factory.Services.GetRequiredService<IConfigStore>();
 
@@ -81,25 +87,28 @@ public sealed class AppPresetSwitcherTests : IDisposable
         return (bound, other);
     }
 
-    // Two ticks past the dwell: the first only records the candidate. One
-    // switcher instance per test, since the tracker state lives on it.
-    private readonly AppPresetSwitcher[] _switcher = new AppPresetSwitcher[1];
+    // One started switcher per test: it subscribes to the provider's
+    // FocusChanged, so the tests drive the real wiring rather than Tick.
+    private AppPresetSwitcher? _switcher;
 
-    private void TickPastDwell()
+    private void Focus(string app)
     {
-        _switcher[0] ??= BuildSwitcher();
-        _switcher[0].Tick();
-        Thread.Sleep(AppPresetFocusTracker.Dwell + TimeSpan.FromMilliseconds(100));
-        _switcher[0].Tick();
+        if (_switcher is null)
+        {
+            _switcher = BuildSwitcher();
+            _switcher.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
+        }
+        _screenTime.Focus(app);
+        // The dwell timer re-evaluates once the candidate has settled.
+        Thread.Sleep(AppPresetFocusTracker.Dwell + TimeSpan.FromMilliseconds(400));
     }
 
     [Fact]
     public void Focusing_a_bound_app_activates_its_preset()
     {
         var (bound, _) = SeedPresets(withBinding: true);
-        _screenTime.Focused = "chrome";
 
-        TickPastDwell();
+        Focus("chrome");
 
         Assert.Equal(bound, Store.Load().Lighting.ActiveLayoutPresetId);
     }
@@ -108,12 +117,10 @@ public sealed class AppPresetSwitcherTests : IDisposable
     public void Focus_moving_to_an_unbound_app_restores_the_previous_preset()
     {
         var (bound, other) = SeedPresets(withBinding: true);
-        _screenTime.Focused = "chrome";
-        TickPastDwell();
+        Focus("chrome");
         Assert.Equal(bound, Store.Load().Lighting.ActiveLayoutPresetId);
 
-        _screenTime.Focused = "notepad";
-        TickPastDwell();
+        Focus("notepad");
 
         Assert.Equal(other, Store.Load().Lighting.ActiveLayoutPresetId);
     }
@@ -122,9 +129,8 @@ public sealed class AppPresetSwitcherTests : IDisposable
     public void A_preset_with_no_bindings_is_never_activated()
     {
         var (_, other) = SeedPresets(withBinding: false);
-        _screenTime.Focused = "chrome";
 
-        TickPastDwell();
+        Focus("chrome");
 
         Assert.Equal(other, Store.Load().Lighting.ActiveLayoutPresetId);
     }
@@ -133,10 +139,27 @@ public sealed class AppPresetSwitcherTests : IDisposable
     public void No_focus_reported_changes_nothing()
     {
         var (_, other) = SeedPresets(withBinding: true);
-        _screenTime.Focused = "";
 
-        TickPastDwell();
+        Focus("");
 
         Assert.Equal(other, Store.Load().Lighting.ActiveLayoutPresetId);
+    }
+
+    [Fact]
+    public void Saving_a_binding_while_its_app_is_focused_activates_without_a_refocus()
+    {
+        var (bound, _) = SeedPresets(withBinding: false);
+        Focus("chrome");
+
+        // No focus event follows a settings write; the store change is what
+        // has to wake the switcher.
+        Store.Update(s =>
+        {
+            s.Lighting.LayoutPresets.Find(p => p.Id == bound)!.Apps =
+                new List<PresetAppBinding> { new() { Id = "proc:chrome", Name = "chrome", ProcessName = "chrome" } };
+        });
+        Thread.Sleep(AppPresetFocusTracker.Dwell + TimeSpan.FromMilliseconds(400));
+
+        Assert.Equal(bound, Store.Load().Lighting.ActiveLayoutPresetId);
     }
 }

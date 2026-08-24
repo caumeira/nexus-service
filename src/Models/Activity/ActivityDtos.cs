@@ -159,6 +159,10 @@ public class Shortcut
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public string Path { get; set; } = "";
+    /// <summary>Process name this app runs under, so a client can tell that an
+    /// installed entry and a running process are the same app. Empty when
+    /// unresolvable (UWP entries, Linux .desktop files).</summary>
+    public string ProcessName { get; set; } = "";
 }
 
 public class GetAllShortcutsResponse : ApiResponse

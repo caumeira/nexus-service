@@ -153,7 +153,12 @@ public static partial class DevicesRoutes
             Layouts = p.Layouts,
             Apps = p.Apps is null
                 ? new List<PresetAppDto>()
-                : p.Apps.ConvertAll(a => new PresetAppDto { Id = a.Id, Name = a.Name }),
+                : p.Apps.ConvertAll(a => new PresetAppDto
+                {
+                    Id = a.Id,
+                    Name = a.Name,
+                    ProcessName = a.ProcessName,
+                }),
         };
 
     private static Dictionary<string, Nexus.Service.Persistence.StaticDeviceLook> DeepCopyStaticLooks(
@@ -475,7 +480,49 @@ public static partial class DevicesRoutes
                 });
             }
 
-            var found = false;
+            var settings = store.Load();
+            if (settings.Lighting.LayoutPresets.Find(p => p.Id == id) is null)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("Layout preset not found"),
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 404);
+            }
+
+            // An app triggers exactly one preset, so a request that would take
+            // one off another preset is refused rather than silently moved -
+            // the client turns this into a message naming the owning preset.
+            // Matched on the resolved process name as well as the id: the same
+            // app can be picked off the running list (proc:<name>) or the
+            // installed list (a shortcut id).
+            foreach (var other in settings.Lighting.LayoutPresets)
+            {
+                if (other.Id == id || other.Apps is null)
+                {
+                    continue;
+                }
+                foreach (var taken in other.Apps)
+                {
+                    var clash = resolved.Find(r =>
+                        string.Equals(r.Id, taken.Id, StringComparison.OrdinalIgnoreCase)
+                        || (r.ProcessName.Length > 0
+                            && string.Equals(r.ProcessName, taken.ProcessName, StringComparison.Ordinal)));
+                    if (clash is not null)
+                    {
+                        return Results.Json(
+                            new PresetAppConflictResponse
+                            {
+                                Error = true,
+                                Msg = "app_already_bound",
+                                AppName = clash.Name,
+                                PresetName = other.Name,
+                            },
+                            Nexus.Service.Serialization.AppJsonContext.Default.PresetAppConflictResponse,
+                            statusCode: 409);
+                    }
+                }
+            }
+
             store.Update(s =>
             {
                 var preset = s.Lighting.LayoutPresets.Find(p => p.Id == id);
@@ -483,32 +530,8 @@ public static partial class DevicesRoutes
                 {
                     return;
                 }
-                found = true;
                 preset.Apps = resolved;
-                // Matched on the resolved process name as well as the id: the
-                // same app can be picked off the running list (proc:<name>) or
-                // the installed list (a shortcut id), and both must count as
-                // one app or "an app activates one preset" would not hold.
-                foreach (var other in s.Lighting.LayoutPresets)
-                {
-                    if (other.Id == id || other.Apps is null)
-                    {
-                        continue;
-                    }
-                    other.Apps.RemoveAll(b => resolved.Exists(r =>
-                        string.Equals(r.Id, b.Id, StringComparison.OrdinalIgnoreCase)
-                        || (r.ProcessName.Length > 0
-                            && string.Equals(r.ProcessName, b.ProcessName, StringComparison.Ordinal))));
-                }
             });
-
-            if (!found)
-            {
-                return Results.Json(
-                    ApiResponse.Fail("Layout preset not found"),
-                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
-                    statusCode: 404);
-            }
             return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
         });
 

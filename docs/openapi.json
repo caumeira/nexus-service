@@ -17888,6 +17888,9 @@
           },
           "name": {
             "type": "string"
+          },
+          "processName": {
+            "type": "string"
           }
         }
       },

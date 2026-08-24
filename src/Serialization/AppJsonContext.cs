@@ -543,6 +543,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(PresetAppDto))]
 [JsonSerializable(typeof(List<PresetAppDto>))]
 [JsonSerializable(typeof(SetPresetAppsBody))]
+[JsonSerializable(typeof(PresetAppConflictResponse))]
 [JsonSerializable(typeof(LayoutPresetDto))]
 [JsonSerializable(typeof(List<LayoutPresetDto>))]
 [JsonSerializable(typeof(LayoutPresetsResponse))]

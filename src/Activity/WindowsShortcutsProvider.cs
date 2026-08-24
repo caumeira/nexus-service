@@ -89,6 +89,7 @@ public sealed class WindowsShortcutsProvider : IShortcutsProvider
                 return Array.Empty<Shortcut>();
 
             var apps = ParseStartAppsJson(output);
+            FillProcessNames(apps);
 
             lock (_appLock)
             {
@@ -101,6 +102,56 @@ public sealed class WindowsShortcutsProvider : IShortcutsProvider
         catch
         {
             return Array.Empty<Shortcut>();
+        }
+    }
+
+    /// <summary>Resolves every shortcut's process name from a single walk of
+    /// the Start-Menu tree. Calling the per-id resolver in a loop would rewalk
+    /// that tree once per app.</summary>
+    private void FillProcessNames(List<Shortcut> apps)
+    {
+        Dictionary<string, string> targetsByLinkName;
+        try
+        {
+            targetsByLinkName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+            foreach (var dir in StartMenuProgramsDirs())
+            {
+                if (!Directory.Exists(dir)) continue;
+                foreach (var lnk in Directory.EnumerateFiles(dir, "*.lnk", options))
+                {
+                    var key = Path.GetFileNameWithoutExtension(lnk);
+                    if (!targetsByLinkName.ContainsKey(key)) targetsByLinkName[key] = lnk;
+                }
+            }
+        }
+        catch
+        {
+            return;
+        }
+
+        foreach (var app in apps)
+        {
+            // A UWP AppUserModelID has no .lnk behind it.
+            if (app.Id.Contains('!')) continue;
+            if (!targetsByLinkName.TryGetValue(app.Name, out var lnkPath)) continue;
+            try
+            {
+                var target = _iconExtractor.ResolveLinkTargetPath(lnkPath);
+                if (target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    app.ProcessName = Path.GetFileNameWithoutExtension(target).ToLowerInvariant();
+                }
+            }
+            catch { }
+        }
+
+        lock (_processNameLock)
+        {
+            foreach (var app in apps)
+            {
+                if (app.ProcessName.Length > 0) _processNameCache[app.Id] = app.ProcessName;
+            }
         }
     }
 
@@ -167,6 +218,7 @@ public sealed class WindowsShortcutsProvider : IShortcutsProvider
         // A UWP AppUserModelID has no .lnk behind it, and the package's real
         // exe name is not derivable from the id.
         if (shortcut is null || shortcut.Id.Contains('!')) return "";
+        if (shortcut.ProcessName.Length > 0) return shortcut.ProcessName;
 
         try
         {

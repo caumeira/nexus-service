@@ -64,8 +64,11 @@ public sealed class MacScreenTimeProvider : IScreenTimeProvider, IDisposable
         catch { }
     }
 
+    public event Action? FocusChanged;
+
     private void ApplyFocus(string appName, int pid)
     {
+        var changed = false;
         lock (_lock)
         {
             var now = NowUtcMs();
@@ -81,6 +84,7 @@ public sealed class MacScreenTimeProvider : IScreenTimeProvider, IDisposable
                 _currentApp = appName;
                 _currentPid = pid;
                 _sessionStartUtcMs = now;
+                changed = true;
             }
             else if (idleGap > IdleThresholdMs && !string.IsNullOrEmpty(_currentApp))
             {
@@ -90,6 +94,10 @@ public sealed class MacScreenTimeProvider : IScreenTimeProvider, IDisposable
 
             _lastPollUtcMs = now;
         }
+
+        // Outside the lock: a subscriber activating a preset must not run
+        // under the focus lock.
+        if (changed) FocusChanged?.Invoke();
     }
 
     public FocusSession? GetCurrentSession()

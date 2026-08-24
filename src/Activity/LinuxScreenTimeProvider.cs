@@ -33,6 +33,8 @@ public sealed class LinuxScreenTimeProvider : IScreenTimeProvider, IHostedServic
     private readonly IConfigStore _config;
     private readonly object _lock = new();
 
+    public event Action? FocusChanged;
+
     private string _currentApp = "";
     private int _currentPid;
     private long _sessionStartUtcMs;
@@ -209,6 +211,7 @@ public sealed class LinuxScreenTimeProvider : IScreenTimeProvider, IHostedServic
             return;
         }
 
+        var changed = false;
         lock (_lock)
         {
             var now = NowUtcMs();
@@ -225,9 +228,14 @@ public sealed class LinuxScreenTimeProvider : IScreenTimeProvider, IHostedServic
                 _currentApp = resolvedName;
                 _currentPid = pid;
                 _sessionStartUtcMs = now;
+                changed = true;
             }
             _lastEventUtcMs = now;
         }
+
+        // Outside the lock: a subscriber activating a preset must not run
+        // under the focus lock.
+        if (changed) FocusChanged?.Invoke();
     }
 
     private long BoundedElapsed()

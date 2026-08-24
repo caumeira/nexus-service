@@ -12,14 +12,12 @@ namespace Nexus.Service.Lighting;
 /// <summary>
 /// Activates a lighting preset when an app it is bound to takes focus, and
 /// restores the preset that was active before when focus moves to an unbound
-/// app. Polls <see cref="IScreenTimeProvider"/> rather than subscribing to a
-/// platform focus event: the three providers deliver focus differently (helper
-/// envelope, lsappinfo poll, KWin script) and only the query is common.
+/// app. Driven by <see cref="IScreenTimeProvider.FocusChanged"/> - the same
+/// engine screen time runs on - so there is no second cadence: Windows and
+/// macOS surface a change on their 2s jittered poll, Linux on a KWin event.
 /// </summary>
 public sealed class AppPresetSwitcher : BackgroundService
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
-
     private readonly IConfigStore _store;
     private readonly IScreenTimeProvider _screenTime;
     private readonly MultiplexHub _hub;
@@ -30,6 +28,9 @@ public sealed class AppPresetSwitcher : BackgroundService
     private readonly Engine.LightingEngine _engine;
     private readonly TimeProvider _time;
     private readonly AppPresetFocusTracker _tracker = new();
+    private readonly object _gate = new();
+    private ITimer? _dwellTimer;
+    private bool _subscribed;
 
     public AppPresetSwitcher(
         IConfigStore store,
@@ -66,19 +67,70 @@ public sealed class AppPresetSwitcher : BackgroundService
         _time = time;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(PollInterval);
-        while (await SafeWaitAsync(timer, stoppingToken).ConfigureAwait(false))
+        _screenTime.FocusChanged += OnFocusChanged;
+        _store.OnChanged += OnStoreChanged;
+        _subscribed = true;
+
+        // A binding saved while its app already holds focus produces no focus
+        // event, so the store change is the other trigger.
+        stoppingToken.Register(Unsubscribe);
+        // Catch an app that was already focused when the service started.
+        Schedule();
+        return Task.CompletedTask;
+    }
+
+    private void Unsubscribe()
+    {
+        lock (_gate)
         {
-            try
-            {
-                Tick();
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[app-presets] tick failed: {ex.Message}");
-            }
+            if (!_subscribed) return;
+            _subscribed = false;
+            _screenTime.FocusChanged -= OnFocusChanged;
+            _store.OnChanged -= OnStoreChanged;
+            _dwellTimer?.Dispose();
+            _dwellTimer = null;
+        }
+    }
+
+    public override void Dispose()
+    {
+        Unsubscribe();
+        base.Dispose();
+    }
+
+    private void OnFocusChanged() => Schedule();
+
+    private void OnStoreChanged() => Schedule();
+
+    /// <summary>Evaluates now (which records the candidate) and again once the
+    /// dwell has elapsed (which acts on it), so a burst of alt-tabs collapses
+    /// to a single evaluation.</summary>
+    private void Schedule()
+    {
+        SafeTick();
+        lock (_gate)
+        {
+            if (!_subscribed) return;
+            _dwellTimer?.Dispose();
+            _dwellTimer = _time.CreateTimer(
+                _ => SafeTick(),
+                null,
+                AppPresetFocusTracker.Dwell + TimeSpan.FromMilliseconds(50),
+                Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void SafeTick()
+    {
+        try
+        {
+            Tick();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[app-presets] evaluation failed: {ex.Message}");
         }
     }
 
@@ -127,15 +179,4 @@ public sealed class AppPresetSwitcher : BackgroundService
         return false;
     }
 
-    private static async Task<bool> SafeWaitAsync(PeriodicTimer timer, CancellationToken ct)
-    {
-        try
-        {
-            return await timer.WaitForNextTickAsync(ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-    }
 }

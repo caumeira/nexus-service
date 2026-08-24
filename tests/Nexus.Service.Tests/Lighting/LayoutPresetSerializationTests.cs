@@ -204,4 +204,63 @@ public sealed class LayoutPresetSerializationTests
         Assert.Null(loaded.Lighting.ActiveLayoutPresetId);
         Assert.True(loaded.Lighting.DeviceLayouts.ContainsKey("openrgb-0"));
     }
+
+    [Fact]
+    public void App_bindings_round_trip_with_the_preset()
+    {
+        var settings = new NexusSettings
+        {
+            Lighting = new LightingSettings
+            {
+                LayoutPresets =
+                {
+                    new LayoutPreset
+                    {
+                        Id = "preset-a",
+                        Name = "Gaming",
+                        Apps = new List<PresetAppBinding>
+                        {
+                            new() { Id = "Chrome", Name = "Google Chrome", ProcessName = "chrome" },
+                            new() { Id = "proc:steam", Name = "steam", ProcessName = "steam" },
+                        },
+                    },
+                    new LayoutPreset { Id = "preset-b", Name = "Work" },
+                },
+            },
+        };
+
+        var json = JsonSerializer.Serialize(settings, PersistenceJsonContext.Default.NexusSettings);
+        var back = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings)!;
+
+        var a = back.Lighting.LayoutPresets.Find(p => p.Id == "preset-a")!;
+        Assert.Equal(2, a.Apps!.Count);
+        Assert.Equal("Chrome", a.Apps[0].Id);
+        Assert.Equal("Google Chrome", a.Apps[0].Name);
+        Assert.Equal("chrome", a.Apps[0].ProcessName);
+        Assert.Equal("proc:steam", a.Apps[1].Id);
+
+        // A preset with no bindings stays null rather than gaining an empty
+        // list, so an older settings.json is unchanged by a round trip.
+        Assert.Null(back.Lighting.LayoutPresets.Find(p => p.Id == "preset-b")!.Apps);
+    }
+
+    [Fact]
+    public void A_preset_saved_before_app_bindings_existed_still_loads()
+    {
+        const string legacy = """
+        {
+          "lighting": {
+            "layoutPresets": [
+              { "id": "old", "name": "Legacy", "layouts": {} }
+            ]
+          }
+        }
+        """;
+
+        var back = JsonSerializer.Deserialize(legacy, PersistenceJsonContext.Default.NexusSettings)!;
+
+        var preset = back.Lighting.LayoutPresets.Find(p => p.Id == "old")!;
+        Assert.Equal("Legacy", preset.Name);
+        Assert.Null(preset.Apps);
+    }
 }

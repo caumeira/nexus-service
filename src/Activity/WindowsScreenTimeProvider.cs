@@ -32,6 +32,8 @@ public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
     private int _currentPid;
     private long _sessionStartUtcMs;
 
+    public event Action? FocusChanged;
+
     public WindowsScreenTimeProvider(IScreenTimeStore store, IConfigStore config, HelperRegistry helper)
     {
         _store = store;
@@ -60,12 +62,15 @@ public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
                         if (env.Payload is null) return;
                         var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.ScreenTimeFocusPayload);
                         if (p is null) return;
+                        bool changed;
                         lock (_lock)
                         {
+                            changed = _currentApp != p.App || _currentPid != p.Pid;
                             _currentApp = p.App;
                             _currentPid = p.Pid;
                             _sessionStartUtcMs = p.StartedUtcMs;
                         }
+                        if (changed) FocusChanged?.Invoke();
                         break;
                     }
             }

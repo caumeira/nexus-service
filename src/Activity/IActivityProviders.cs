@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Nexus.Service.Models.Activity;
 
@@ -7,6 +8,11 @@ public interface IScreenTimeProvider
 {
     FocusSession? GetCurrentSession();
     IReadOnlyList<AppUsage> GetTodayUsage();
+
+    /// <summary>Raised when the focused app changes, from whichever mechanism
+    /// the platform already uses (helper envelope, lsappinfo poll, KWin
+    /// script). Consumers ride this instead of adding a second cadence.</summary>
+    event Action? FocusChanged;
 }
 
 public interface IAppDetectionProvider
