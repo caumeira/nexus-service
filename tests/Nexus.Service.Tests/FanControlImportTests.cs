@@ -1,0 +1,409 @@
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Nexus.Service.Migration.FanControl;
+using Xunit;
+
+namespace Nexus.Service.Tests;
+
+/// <summary>
+/// Parsing and mapping of FanControl configurations.
+///
+/// Two fixtures. <c>userConfig-real.json</c> is a byte copy of a real
+/// FanControl v215 config off the T1 lab box: it is what pins the identifier
+/// handling, because it carries both quirks that matter (an LHM identifier
+/// format one version behind ours, and NVIDIA fans addressed through
+/// FanControl's own NvAPI plugin). <c>all-curve-kinds.json</c> is
+/// hand-authored, since that box has only a flat curve; its key sets come from
+/// the I*FanCurveConfig interfaces in FanControl.Library.dll rather than from
+/// guesswork, but it is not a captured file.
+/// </summary>
+public class FanControlImportTests
+{
+    private static string Fixture(string name) =>
+        File.ReadAllText(Path.Combine("Fixtures", "FanControl", name));
+
+    private static FanControlConfig Real() => FanControlConfigParser.Parse(Fixture("userConfig-real.json"));
+
+    private static FanControlConfig AllKinds() => FanControlConfigParser.Parse(Fixture("all-curve-kinds.json"));
+
+    private static List<LhmIdentifierMatcher.Candidate> Channels(params (string Id, string Name)[] items) =>
+        items.Select(i => new LhmIdentifierMatcher.Candidate(i.Id, i.Name)).ToList();
+
+    // ── Parsing ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_RealConfig_ReadsVersionControlsAndCurves()
+    {
+        var config = Real();
+        Assert.Equal(215, config.Version);
+        Assert.Equal(8, config.Controls.Count);
+        Assert.Single(config.Curves);
+        Assert.Equal(FanControlCurveKinds.Flat, config.Curves[0].Kind);
+        Assert.Equal(50, config.Curves[0].Percent);
+    }
+
+    [Fact]
+    public void Parse_RealConfig_ReadsCalibrationTables()
+    {
+        var control = Real().Controls.First(c => c.Identifier == "/lpc/it8696e/control/0");
+        Assert.Equal(11, control.Calibration.Count);
+        Assert.Equal((0, 0), control.Calibration[0]);
+        Assert.Equal((100, 2744), control.Calibration[^1]);
+        Assert.Equal("CPU Fan", control.NickName);
+    }
+
+    [Fact]
+    public void Parse_DetectsEveryCurveKind()
+    {
+        var kinds = AllKinds().Curves.ToDictionary(c => c.Name, c => c.Kind);
+        Assert.Equal(FanControlCurveKinds.Graph, kinds["CPU Graph"]);
+        Assert.Equal(FanControlCurveKinds.Linear, kinds["GPU Linear"]);
+        Assert.Equal(FanControlCurveKinds.Trigger, kinds["Case Trigger"]);
+        Assert.Equal(FanControlCurveKinds.Auto, kinds["CPU Auto"]);
+        Assert.Equal(FanControlCurveKinds.Sync, kinds["Follow CPU"]);
+        Assert.Equal(FanControlCurveKinds.Mix, kinds["Hottest Of Both"]);
+        Assert.Equal(FanControlCurveKinds.Flat, kinds["Flat Half"]);
+    }
+
+    [Fact]
+    public void Parse_GraphPointsComeFromCommaSeparatedStrings()
+    {
+        var graph = AllKinds().Curves.First(c => c.Name == "CPU Graph");
+        Assert.Equal(5, graph.Points.Count);
+        Assert.Equal(20, graph.Points[0].Temp);
+        Assert.Equal(100, graph.Points[^1].Speed);
+        Assert.Equal(80, graph.Points[^1].Temp);
+    }
+
+    [Fact]
+    public void Parse_ReadsCurveBindingFromTheEmbeddedObject()
+    {
+        var control = AllKinds().Controls.First(c => c.Identifier == "/lpc/nct6797d/control/0");
+        Assert.Equal("CPU Graph", control.SelectedFanCurveName);
+    }
+
+    // ── Identifier matching ───────────────────────────────────────────────
+
+    [Fact]
+    public void Normalize_DropsTheChipInstanceSegment()
+    {
+        Assert.Equal(
+            LhmIdentifierMatcher.Normalize("/lpc/it8696e/0/control/0"),
+            LhmIdentifierMatcher.Normalize("/lpc/it8696e/control/0"));
+    }
+
+    [Fact]
+    public void Normalize_KeepsTheTrailingSensorIndex()
+    {
+        Assert.NotEqual(
+            LhmIdentifierMatcher.Normalize("/lpc/it8696e/control/0"),
+            LhmIdentifierMatcher.Normalize("/lpc/it8696e/control/1"));
+    }
+
+    [Fact]
+    public void Match_PrefersAnExactIdentifier()
+    {
+        var candidates = Channels(("/lpc/it8696e/0/control/0", "CPU"), ("/lpc/it8696e/control/0", "Fan #1"));
+        var (id, tier) = LhmIdentifierMatcher.Match("/lpc/it8696e/control/0", candidates, "Fan #1");
+        Assert.Equal("/lpc/it8696e/control/0", id);
+        Assert.Equal(IdentifierMatchTier.Exact, tier);
+    }
+
+    [Fact]
+    public void Match_BridgesTheLhmVersionDifference()
+    {
+        // The exact case measured on T1: FanControl's identifier is one LHM
+        // version behind ours for the same motherboard fan.
+        var candidates = Channels(
+            ("/lpc/it8696e/0/control/0", "CPU"),
+            ("/lpc/it8696e/0/control/1", "Fan #2"));
+        var (id, tier) = LhmIdentifierMatcher.Match("/lpc/it8696e/control/1", candidates, "Fan #2");
+        Assert.Equal("/lpc/it8696e/0/control/1", id);
+        Assert.Equal(IdentifierMatchTier.Normalized, tier);
+    }
+
+    [Fact]
+    public void Match_AmbiguousNormalizedCandidates_StayUnmatched()
+    {
+        var candidates = Channels(("/lpc/x/0/control/0", "A"), ("/lpc/x/control/0", "B"));
+        var (id, tier) = LhmIdentifierMatcher.Match("/lpc/x/0/0/control/0", candidates, null);
+        Assert.Null(id);
+        Assert.Equal(IdentifierMatchTier.None, tier);
+    }
+
+    [Fact]
+    public void Match_FallsBackToAUniqueSensorName()
+    {
+        var candidates = Channels(("/some/other/control/0", "Fan #7"));
+        var (id, tier) = LhmIdentifierMatcher.Match("/lpc/foo/control/0", candidates, "Fan #7");
+        Assert.Equal("/some/other/control/0", id);
+        Assert.Equal(IdentifierMatchTier.Name, tier);
+    }
+
+    [Fact]
+    public void Match_DuplicateNames_StayUnmatched()
+    {
+        var candidates = Channels(("/a/control/0", "Fan #1"), ("/b/control/0", "Fan #1"));
+        var (id, _) = LhmIdentifierMatcher.Match("/lpc/foo/control/0", candidates, "Fan #1");
+        Assert.Null(id);
+    }
+
+    [Fact]
+    public void PairGpuByPosition_BridgesTheNvApiNamespace()
+    {
+        var pairs = LhmIdentifierMatcher.PairGpuByPosition(
+            new[] { "NVApiWrapper/0-GA102-A/control/0", "NVApiWrapper/0-GA102-A/control/1" },
+            Channels(("/gpu-nvidia/0/control/1", "GPU Fan 1"), ("/gpu-nvidia/0/control/2", "GPU Fan 2")));
+        Assert.Equal("/gpu-nvidia/0/control/1", pairs["NVApiWrapper/0-GA102-A/control/0"]);
+        Assert.Equal("/gpu-nvidia/0/control/2", pairs["NVApiWrapper/0-GA102-A/control/1"]);
+    }
+
+    [Fact]
+    public void PairGpuByPosition_MismatchedCounts_PairNothing()
+    {
+        var pairs = LhmIdentifierMatcher.PairGpuByPosition(
+            new[] { "NVApiWrapper/0-GA102-A/control/0", "NVApiWrapper/0-GA102-A/control/1" },
+            Channels(("/gpu-nvidia/0/control/1", "GPU Fan 1")));
+        Assert.Empty(pairs);
+    }
+
+    [Fact]
+    public void PairGpuByPosition_IgnoresNonGpuLeftovers()
+    {
+        var pairs = LhmIdentifierMatcher.PairGpuByPosition(
+            new[] { "/lpc/it8696e/control/7" },
+            Channels(("/lpc/it8696e/0/control/3", "Fan #4")));
+        Assert.Empty(pairs);
+    }
+
+    // ── Mapping ───────────────────────────────────────────────────────────
+
+    private static readonly List<LhmIdentifierMatcher.Candidate> AllKindsChannels = Channels(
+        ("/lpc/nct6797d/0/control/0", "Fan #1"),
+        ("/lpc/nct6797d/0/control/1", "Fan #2"),
+        ("/lpc/nct6797d/0/control/2", "Fan #3"),
+        ("/lpc/nct6797d/0/control/3", "Fan #4"));
+
+    private static readonly List<LhmIdentifierMatcher.Candidate> AllKindsSensors = Channels(
+        ("/amdcpu/0/temperature/2", "Core (Tctl/Tdie)"),
+        ("/gpu-nvidia/0/temperature/0", "GPU Core"),
+        ("/lpc/nct6797d/0/temperature/1", "Temperature #2"));
+
+    private static FanControlImportPlan Plan() =>
+        FanControlImportMapper.Build(AllKinds(), AllKindsChannels, AllKindsSensors);
+
+    [Fact]
+    public void Map_TranslatesEverySupportedKind()
+    {
+        var byName = Plan().Curves.ToDictionary(c => c.Name, c => c.Type);
+        Assert.Equal("Graph", byName["CPU Graph"]);
+        Assert.Equal("Linear", byName["GPU Linear"]);
+        Assert.Equal("Trigger", byName["Case Trigger"]);
+        Assert.Equal("Auto", byName["CPU Auto"]);
+        Assert.Equal("Sync", byName["Follow CPU"]);
+        Assert.Equal("Mixed", byName["Hottest Of Both"]);
+        Assert.Equal("Flat", byName["Flat Half"]);
+    }
+
+    [Fact]
+    public void Map_GraphKeepsItsPointsAndSensor()
+    {
+        var graph = Plan().Curves.First(c => c.Name == "CPU Graph");
+        Assert.Equal("/amdcpu/0/temperature/2", graph.Input.Id);
+        Assert.NotNull(graph.Graph);
+        Assert.Equal(5, graph.Graph!.Points.Count);
+        Assert.Equal(5, graph.Graph.ResponseTime);
+    }
+
+    [Fact]
+    public void Map_TriggerKeepsBothThresholds()
+    {
+        var trigger = Plan().Curves.First(c => c.Name == "Case Trigger").Trigger;
+        Assert.NotNull(trigger);
+        Assert.Equal(45, trigger!.IdleTemp);
+        Assert.Equal(65, trigger.LoadTemp);
+        Assert.Equal(25, trigger.IdleSpeed);
+        Assert.Equal(80, trigger.LoadSpeed);
+        Assert.Equal(3, trigger.ResponseTime);
+    }
+
+    [Fact]
+    public void Map_AutoKeepsStepAndDeadband()
+    {
+        var auto = Plan().Curves.First(c => c.Name == "CPU Auto").Auto;
+        Assert.NotNull(auto);
+        Assert.Equal(40, auto!.IdleTemp);
+        Assert.Equal(70, auto.LoadTemp);
+        Assert.Equal(25, auto.MinSpeed);
+        Assert.Equal(95, auto.MaxSpeed);
+        Assert.Equal(4, auto.Step);
+        Assert.Equal(3, auto.Deadband);
+    }
+
+    [Fact]
+    public void Map_SyncBindsToTheMatchedChannel()
+    {
+        var sync = Plan().Curves.First(c => c.Name == "Follow CPU").Sync;
+        Assert.NotNull(sync);
+        Assert.Equal("/lpc/nct6797d/0/control/0", sync!.SourceChannelId);
+        Assert.True(sync.Proportional);
+        Assert.Equal(-10, sync.Offset);
+    }
+
+    [Fact]
+    public void Map_MixResolvesMembersToCurveIds()
+    {
+        var plan = Plan();
+        var mix = plan.Curves.First(c => c.Name == "Hottest Of Both");
+        var graphId = plan.Curves.First(c => c.Name == "CPU Graph").Id;
+        var linearId = plan.Curves.First(c => c.Name == "GPU Linear").Id;
+        Assert.NotNull(mix.Mixed);
+        Assert.Equal("max", mix.Mixed!.Fn);
+        Assert.Equal(new[] { graphId, linearId }, mix.Mixed.CurveIds);
+    }
+
+    [Fact]
+    public void Map_BindsCurvesToTheFansThatSelectedThem()
+    {
+        var graph = Plan().Curves.First(c => c.Name == "CPU Graph");
+        Assert.Equal(new[] { "/lpc/nct6797d/0/control/0" }, graph.Outputs.Select(o => o.Id));
+    }
+
+    [Fact]
+    public void Map_SkipsRpmTargetCurves()
+    {
+        var plan = Plan();
+        Assert.DoesNotContain(plan.Curves, c => c.Name == "RPM Target");
+        var preview = plan.Preview.Curves.First(c => c.Name == "RPM Target");
+        Assert.False(preview.Supported);
+        Assert.Contains("RPM", preview.Reason);
+    }
+
+    [Fact]
+    public void Map_SkipsHiddenCurvesNothingReferences()
+    {
+        var plan = Plan();
+        Assert.DoesNotContain(plan.Curves, c => c.Name == "Hidden Spare");
+        Assert.DoesNotContain(plan.Preview.Curves, c => c.Name == "Hidden Spare");
+    }
+
+    [Fact]
+    public void Map_ImportsNicknamesOnlyWhenTheyDifferFromTheHardwareName()
+    {
+        var names = Plan().Names;
+        Assert.Equal("CPU Fan", names["/lpc/nct6797d/0/control/0"]);
+        Assert.Equal("Front Intake", names["/lpc/nct6797d/0/control/1"]);
+        // Fan #3's nickname is just its hardware name.
+        Assert.False(names.ContainsKey("/lpc/nct6797d/0/control/2"));
+    }
+
+    [Fact]
+    public void Map_ImportsCalibrationAndDerivesTheDutyFloor()
+    {
+        var calibration = Plan().Calibrations["/lpc/nct6797d/0/control/0"];
+        Assert.Equal(11, calibration.Curve.Count);
+        Assert.Equal(2100, calibration.MaxRpm);
+        // MinimumPercent (20) raises the floor over the lowest spinning step (10).
+        Assert.Equal(20, calibration.MinDuty);
+    }
+
+    [Fact]
+    public void Map_ImportsManualDutyForAFanOnManualControl()
+    {
+        Assert.Equal(65, Plan().ManualSpeeds["/lpc/nct6797d/0/control/2"]);
+    }
+
+    [Fact]
+    public void Map_ImportsPerFanOffsets()
+    {
+        var offsets = Plan().Offsets;
+        Assert.Equal(5, offsets["/lpc/nct6797d/0/control/0"]);
+        Assert.Single(offsets);
+    }
+
+    [Fact]
+    public void Map_ReportsFansThisPcDoesNotHave()
+    {
+        var plan = Plan();
+        var missing = plan.Preview.Fans.First(f => f.Identifier == "/lpc/nct6797d/control/9");
+        Assert.Null(missing.ChannelId);
+        Assert.Equal("none", missing.Match);
+        Assert.Contains(plan.Preview.Skipped, s => s.Contains("not available here"));
+    }
+
+    [Fact]
+    public void Map_ReportsHowEachFanWasMatched()
+    {
+        var fan = Plan().Preview.Fans.First(f => f.Identifier == "/lpc/nct6797d/control/0");
+        Assert.Equal("normalized", fan.Match);
+        Assert.Equal("/lpc/nct6797d/0/control/0", fan.ChannelId);
+    }
+
+    [Fact]
+    public void Map_CurveNeedingAnAbsentSensorIsReportedNotDropped()
+    {
+        var plan = FanControlImportMapper.Build(
+            AllKinds(),
+            AllKindsChannels,
+            Channels(("/amdcpu/0/temperature/2", "Core (Tctl/Tdie)")));
+        Assert.DoesNotContain(plan.Curves, c => c.Name == "GPU Linear");
+        var preview = plan.Preview.Curves.First(c => c.Name == "GPU Linear");
+        Assert.False(preview.Supported);
+        Assert.Contains("sensor", preview.Reason);
+    }
+
+    [Fact]
+    public void Map_RealConfig_MatchesEveryMotherboardFanAndPairsTheGpuFans()
+    {
+        var channels = Channels(
+            ("/lpc/it8696e/0/control/0", "CPU"),
+            ("/lpc/it8696e/0/control/1", "Fan #2"),
+            ("/lpc/it8696e/0/control/2", "Fan #3"),
+            ("/lpc/it8696e/0/control/4", "Fan #5"),
+            ("/gpu-nvidia/0/control/1", "GPU Fan 1"),
+            ("/gpu-nvidia/0/control/2", "GPU Fan 2"));
+        var plan = FanControlImportMapper.Build(Real(), channels, AllKindsSensors);
+
+        var byIdentifier = plan.Preview.Fans.ToDictionary(f => f.Identifier);
+        Assert.Equal("/lpc/it8696e/0/control/0", byIdentifier["/lpc/it8696e/control/0"].ChannelId);
+        Assert.Equal("normalized", byIdentifier["/lpc/it8696e/control/0"].Match);
+        Assert.Equal("/gpu-nvidia/0/control/1", byIdentifier["NVApiWrapper/0-GA102-A/control/0"].ChannelId);
+        Assert.Equal("position", byIdentifier["NVApiWrapper/0-GA102-A/control/0"].Match);
+        Assert.Equal("/gpu-nvidia/0/control/2", byIdentifier["NVApiWrapper/0-GA102-A/control/1"].ChannelId);
+
+        // Fans 4 and 6 exist in FanControl but not in our enumeration.
+        Assert.Null(byIdentifier["/lpc/it8696e/control/3"].ChannelId);
+        Assert.Null(byIdentifier["/lpc/it8696e/control/5"].ChannelId);
+    }
+
+    [Fact]
+    public void Map_RealConfig_ImportsTheCalibrationsFanControlAlreadyMeasured()
+    {
+        var channels = Channels(
+            ("/lpc/it8696e/0/control/0", "CPU"),
+            ("/lpc/it8696e/0/control/1", "Fan #2"),
+            ("/lpc/it8696e/0/control/4", "Fan #5"),
+            ("/gpu-nvidia/0/control/1", "GPU Fan 1"),
+            ("/gpu-nvidia/0/control/2", "GPU Fan 2"));
+        var plan = FanControlImportMapper.Build(Real(), channels, AllKindsSensors);
+
+        Assert.Equal(5, plan.Calibrations.Count);
+        Assert.Equal(2744, plan.Calibrations["/lpc/it8696e/0/control/0"].MaxRpm);
+        Assert.Equal("CPU Fan", plan.Names["/lpc/it8696e/0/control/0"]);
+    }
+
+    [Fact]
+    public void UniqueId_DeduplicatesRepeatedNames()
+    {
+        var used = new HashSet<string>();
+        Assert.Equal("fc-cpu-graph", FanControlImportMapper.UniqueId("CPU Graph", used));
+        Assert.Equal("fc-cpu-graph-2", FanControlImportMapper.UniqueId("CPU Graph", used));
+    }
+
+    [Fact]
+    public void UniqueId_FallsBackForANamelessCurve()
+    {
+        Assert.Equal("fc-curve", FanControlImportMapper.UniqueId("", new HashSet<string>()));
+    }
+}

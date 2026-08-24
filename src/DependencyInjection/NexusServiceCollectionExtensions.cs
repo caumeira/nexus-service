@@ -1309,6 +1309,8 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<Nexus.Service.Migration.INexus2ConfigReader, Nexus.Service.Migration.Nexus2ConfigReader>();
         }
         services.AddSingleton<Nexus.Service.Migration.Nexus2MigrationService>();
+        services.AddSingleton<Nexus.Service.Migration.FanControl.IFanControlDetector, Nexus.Service.Migration.FanControl.FanControlDetector>();
+        services.AddSingleton<Nexus.Service.Migration.FanControl.FanControlImportService>();
 
         // Replay persisted lighting + cooling state to hardware on startup.
         // Lives in Lifecycle because it doesn't belong to a single domain.

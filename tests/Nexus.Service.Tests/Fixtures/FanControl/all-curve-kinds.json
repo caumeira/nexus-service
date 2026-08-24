@@ -1,0 +1,179 @@
+{
+  "__VERSION__": 215,
+  "Main": {
+    "Controls": [
+      {
+        "Calibration": [[0, 0], [10, 300], [20, 500], [30, 700], [40, 900], [50, 1100], [60, 1300], [70, 1500], [80, 1700], [90, 1900], [100, 2100]],
+        "Enable": true,
+        "ForceApply": false,
+        "Identifier": "/lpc/nct6797d/control/0",
+        "IsHidden": false,
+        "ManualControl": false,
+        "ManualControlValue": 100,
+        "MinimumPercent": 20,
+        "Name": "Fan #1",
+        "NickName": "CPU Fan",
+        "PairedFanSensor": { "Identifier": "/lpc/nct6797d/fan/0", "Name": "Fan #1", "NickName": "CPU Fan" },
+        "SelectedCommandStepDown": 8.0,
+        "SelectedCommandStepUp": 8.0,
+        "SelectedFanCurve": { "Name": "CPU Graph", "SelectedTempSource": { "Identifier": "/amdcpu/0/temperature/2", "Name": "Core (Tctl/Tdie)" } },
+        "SelectedOffset": 5,
+        "SelectedStart": 18,
+        "SelectedStop": 6
+      },
+      {
+        "Calibration": [],
+        "Enable": true,
+        "Identifier": "/lpc/nct6797d/control/1",
+        "IsHidden": false,
+        "ManualControl": false,
+        "ManualControlValue": 50,
+        "MinimumPercent": 0,
+        "Name": "Fan #2",
+        "NickName": "Front Intake",
+        "SelectedFanCurve": { "Name": "Case Trigger" },
+        "SelectedOffset": 0,
+        "SelectedStart": 15,
+        "SelectedStop": 6
+      },
+      {
+        "Calibration": [],
+        "Enable": true,
+        "Identifier": "/lpc/nct6797d/control/2",
+        "IsHidden": false,
+        "ManualControl": true,
+        "ManualControlValue": 65,
+        "MinimumPercent": 0,
+        "Name": "Fan #3",
+        "NickName": "Fan #3",
+        "SelectedFanCurve": null,
+        "SelectedOffset": 0,
+        "SelectedStart": 0,
+        "SelectedStop": 0
+      },
+      {
+        "Calibration": [],
+        "Enable": true,
+        "Identifier": "/lpc/nct6797d/control/3",
+        "IsHidden": false,
+        "ManualControl": false,
+        "ManualControlValue": 50,
+        "MinimumPercent": 0,
+        "Name": "Fan #4",
+        "NickName": "Rear Exhaust",
+        "SelectedFanCurve": { "Name": "Follow CPU" },
+        "SelectedOffset": 0,
+        "SelectedStart": 0,
+        "SelectedStop": 0
+      },
+      {
+        "Calibration": [],
+        "Enable": false,
+        "Identifier": "/lpc/nct6797d/control/9",
+        "IsHidden": false,
+        "ManualControl": false,
+        "ManualControlValue": 50,
+        "MinimumPercent": 0,
+        "Name": "Fan #10",
+        "NickName": "Not On This PC",
+        "SelectedFanCurve": null,
+        "SelectedOffset": 0,
+        "SelectedStart": 0,
+        "SelectedStop": 0
+      }
+    ],
+    "FanCurves": [
+      {
+        "CommandMode": 0,
+        "IgnoreHysteresisAtLimits": false,
+        "IsHidden": false,
+        "MaximumTemperature": 85,
+        "MinimumTemperature": 20,
+        "Name": "CPU Graph",
+        "OneWayHysteresis": true,
+        "Points": ["20,30.0284444444444", "30.5813953488372,30.0284444444444", "41.7,35.1", "52.4,49.5", "80,100"],
+        "SelectedHysteresis": 2.0,
+        "SelectedResponseTime": 5,
+        "SelectedTempSource": { "Identifier": "/amdcpu/0/temperature/2", "Name": "Core (Tctl/Tdie)" }
+      },
+      {
+        "CommandMode": 0,
+        "IgnoreHysteresisAtLimits": false,
+        "IsHidden": false,
+        "MaximumFanSpeed": 90,
+        "MaximumTemperature": 75,
+        "MinimumFanSpeed": 30,
+        "MinimumTemperature": 35,
+        "Name": "GPU Linear",
+        "OneWayHysteresis": false,
+        "SelectedHysteresis": 3.0,
+        "SelectedResponseTime": 4,
+        "SelectedTempSource": { "Identifier": "/gpu-nvidia/0/temperature/0", "Name": "GPU Core" }
+      },
+      {
+        "CommandMode": 0,
+        "IsHidden": false,
+        "Name": "Case Trigger",
+        "IdleFanSpeed": 25,
+        "IdleTemperature": 45,
+        "LoadFanSpeed": 80,
+        "LoadTemperature": 65,
+        "SelectedResponseTime": 3,
+        "SelectedTempSource": { "Identifier": "/lpc/nct6797d/temperature/1", "Name": "Temperature #2" }
+      },
+      {
+        "CommandMode": 0,
+        "Deadband": 3,
+        "IdleTemperature": 40,
+        "IsHidden": false,
+        "LoadTemperature": 70,
+        "MaxFanSpeed": 95,
+        "MinFanSpeed": 25,
+        "Name": "CPU Auto",
+        "SelectedResponseTime": 5,
+        "SelectedTempSource": { "Identifier": "/amdcpu/0/temperature/2", "Name": "Core (Tctl/Tdie)" },
+        "Step": 4
+      },
+      {
+        "CommandMode": 0,
+        "IsHidden": false,
+        "Name": "Follow CPU",
+        "Proportional": true,
+        "SelectedControl": { "Identifier": "/lpc/nct6797d/control/0", "Name": "Fan #1" },
+        "SelectedOffset": -10
+      },
+      {
+        "CommandMode": 0,
+        "IsHidden": false,
+        "Name": "Hottest Of Both",
+        "SelectedFanCurves": [
+          { "Name": "CPU Graph" },
+          { "Name": "GPU Linear" }
+        ],
+        "SelectedMixFunction": 0
+      },
+      {
+        "CommandMode": 1,
+        "IsHidden": false,
+        "Name": "RPM Target",
+        "Percent": 1200
+      },
+      {
+        "CommandMode": 0,
+        "IsHidden": true,
+        "Name": "Hidden Spare",
+        "Percent": 42
+      },
+      {
+        "CommandMode": 0,
+        "IsHidden": false,
+        "Name": "Flat Half",
+        "Percent": 50
+      }
+    ],
+    "FanSensors": [],
+    "TemperatureSensors": [],
+    "CustomSensors": []
+  },
+  "Sensors": { "SensorCount": 23 }
+}

@@ -113,6 +113,16 @@ public sealed class NexusSettings
     /// push/pull, and a factory reset allows re-importing.</summary>
     public bool Nexus2MigrationCompleted { get; set; }
 
+    /// <summary>True once the FanControl import has been offered and dismissed.
+    /// Install-scoped like <see cref="Nexus2MigrationOffered"/>: never rides a
+    /// profile export/import or a cloud push/pull, and a factory reset re-offers
+    /// the screen.</summary>
+    public bool FanControlImportOffered { get; set; }
+
+    /// <summary>True once at least one FanControl category has been imported.
+    /// Same scoping as <see cref="FanControlImportOffered"/>.</summary>
+    public bool FanControlImportCompleted { get; set; }
+
     /// <summary>Physical Stream Deck bindings, keyed by device serial. Profile-scoped via the <see cref="ProfileSharing.Device"/> sharing category (defaults to Shared, so it behaves like a workstation-global setting until the user opts a profile out).</summary>
     public StreamDeckSettings StreamDeck { get; set; } = new();
 

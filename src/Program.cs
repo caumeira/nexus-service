@@ -561,6 +561,7 @@ app.MapServiceControlEndpoints();
 app.MapTelemetryEndpoints();
 app.MapOnboardingEndpoints();
 app.MapNexus2MigrationEndpoints();
+app.MapFanControlMigrationEndpoints();
 app.MapCoolingEndpoints();
 app.MapBenchmarkEndpoints();
 app.MapLightingEndpoints();
