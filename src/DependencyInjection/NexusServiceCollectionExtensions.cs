@@ -424,6 +424,14 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<Nexus.Service.Lighting.Rgb.IRgbController, Nexus.Service.Lighting.Rgb.NoOpRgbController>();
         }
 
+        // RgbBridge is registered only on the desktop platforms above; resolve it
+        // optionally so the coordinator still blanks the non-OpenRGB writers
+        // anywhere the bridge is absent.
+        services.AddSingleton(sp => new Nexus.Service.Lighting.SleepBlackoutCoordinator(
+            sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>(),
+            sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
+            sp.GetService<Nexus.Service.Lighting.Rgb.RgbBridge>()));
+
         if (OperatingSystem.IsWindows())
             services.AddHostedService<Nexus.Service.Lighting.Rgb.PowerEventListener>();
 

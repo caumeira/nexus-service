@@ -371,6 +371,15 @@ public sealed class LightingSettings
     /// Windows writes the DirectX UserGpuPreferences key before the GL context
     /// inits; Linux matches it against the EGL device list. macOS ignores it.</summary>
     public string RenderGpu { get; set; } = "auto";
+    /// <summary>
+    /// When true, Nexus blanks every lighting device it drives as the host
+    /// suspends, and restores the running effect on resume. Devices that keep
+    /// their bus powered across S3 - RAM over SMBus above all - otherwise hold
+    /// the last frame they were sent and stay lit through sleep. Transient at
+    /// the hardware level: nothing about the active mode is persisted, so a
+    /// crash or power loss while asleep comes back to the same effect.
+    /// </summary>
+    public bool SleepBlackout { get; set; } = InstallDefaults.Lighting.SleepBlackout;
 }
 
 /// <summary>

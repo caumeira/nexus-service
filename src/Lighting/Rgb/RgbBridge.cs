@@ -439,6 +439,46 @@ public sealed class RgbBridge : IDisposable
     }
 
     /// <summary>
+    /// Pushes an all-black frame to every device this bridge drives and AWAITS
+    /// each write. The <see cref="OnFrame"/> path fires its pushes and forgets
+    /// them, which is fine at 30 fps and useless on the suspend path, where the
+    /// caller has to know the bytes reached the hardware before the machine
+    /// stops. Devices the user marked not-controlled are skipped: Nexus does not
+    /// drive them, so it has no business blanking them either.
+    /// </summary>
+    public async Task BlackoutAsync(CancellationToken ct = default)
+    {
+        if (!IsActive || !_controller.IsConnected)
+        {
+            return;
+        }
+        // Local scratch, not the _physFullyUncontrolled field OnFrame owns:
+        // this runs on the power-event thread while the engine may still tick.
+        var fullyUncontrolled = new Dictionary<int, bool>();
+        ComputeFullyUncontrolledPhysicals(
+            _engine.Devices, _bridgeFrameIds, _store.Load().Devices.UncontrolledLightingDevices, fullyUncontrolled);
+        foreach (var kv in _physBuffers)
+        {
+            // PushFrameAsync swallows its own failures (cancellation included)
+            // and drops the socket, so this is the only place the budget is
+            // honoured - and the only reason a partial run is safe: resume
+            // bounces the subprocess, which reconnects from scratch.
+            ct.ThrowIfCancellationRequested();
+            if (!_controller.IsConnected)
+            {
+                return;
+            }
+            if (fullyUncontrolled.TryGetValue(kv.Key, out var skip) && skip)
+            {
+                continue;
+            }
+            var buffer = kv.Value;
+            Array.Clear(buffer, 0, buffer.Length);
+            await _controller.PushFrameAsync(kv.Key, buffer, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
     /// Triggered by the OS power-resume event handler. Tears down and restarts
     /// the subprocess so devices re-init after the USB stack re-enumerates.
     /// </summary>

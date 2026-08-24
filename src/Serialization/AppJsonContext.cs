@@ -170,6 +170,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(LightingStatusResponse))]
 [JsonSerializable(typeof(List<float>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.MusicReactiveBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.SleepBlackoutBody))]
 [JsonSerializable(typeof(CalibrationStartResponse))]
 [JsonSerializable(typeof(GetCalibrationsResponse))]
 
