@@ -126,8 +126,10 @@ public sealed class FanControlCurvePreviewDto
     /// <summary>Nexus curve type it becomes, empty when unsupported.</summary>
     public string TargetType { get; set; } = "";
     public bool Supported { get; set; }
-    /// <summary>Why it cannot be imported, when Supported is false.</summary>
-    public string? Reason { get; set; }
+    /// <summary>Machine-readable reason it cannot be imported, when Supported is false: one of rpmMode, noSensor, noPoints, noSyncSource, noMixMembers, noSpeedRange, badPoints, cycle, unknownKind. The client owns the wording.</summary>
+    public string? ReasonCode { get; set; }
+    /// <summary>Fills the reason's placeholder, where it has one (the FanControl curve kind, for unknownKind).</summary>
+    public string? ReasonDetail { get; set; }
     /// <summary>Local temperature source name it binds to, when it needs one.</summary>
     public string? SensorName { get; set; }
     /// <summary>Fans this curve will drive here.</summary>
@@ -157,8 +159,8 @@ public sealed class FanControlPreviewResponse
     public int Version { get; set; }
     public List<FanControlCurvePreviewDto> Curves { get; set; } = new();
     public List<FanControlFanPreviewDto> Fans { get; set; } = new();
-    /// <summary>Things deliberately left behind, phrased for the user.</summary>
-    public List<string> Skipped { get; set; } = new();
+    /// <summary>Things deliberately left behind. Codes, not prose: the client translates them.</summary>
+    public List<FanControlSkipNoteDto> Skipped { get; set; } = new();
     public int CurveCount { get; set; }
     public int CalibrationCount { get; set; }
     public int NameCount { get; set; }
@@ -166,6 +168,15 @@ public sealed class FanControlPreviewResponse
     public int ManualCount { get; set; }
     public bool Error { get; set; }
     public string Msg { get; set; } = "Ok";
+}
+
+/// <summary>One thing the import leaves behind, as a code plus its count.</summary>
+public sealed class FanControlSkipNoteDto
+{
+    /// <summary>One of: fansMissing, rpmCurves, startStop, smoothing.</summary>
+    public string Code { get; set; } = "";
+    /// <summary>How many items the note covers; 0 when it is not a count.</summary>
+    public int Count { get; set; }
 }
 
 public sealed class FanControlApplyRequest

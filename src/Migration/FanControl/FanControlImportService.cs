@@ -192,6 +192,18 @@ public sealed class FanControlImportService
             .ToList();
 
         var plan = FanControlImportMapper.Build(parsed, channels, sensors);
+
+        // Imported curves come from another app's file, so they go through the
+        // same clamp as anything posted to /cooling/curves/set rather than
+        // straight into the store.
+        var sanitized = CoolingSafety.Sanitize(new SetCurvesBody
+        {
+            GlobalSpeedModifier = 1.0,
+            Curves = plan.Curves.ConvertAll(CurveWireMapper.ToWire),
+        });
+        plan.Curves.Clear();
+        plan.Curves.AddRange(sanitized.Curves.ConvertAll(CurveWireMapper.ToDocument));
+
         plan.Preview.ConfigName = config.Name;
         return plan;
     }

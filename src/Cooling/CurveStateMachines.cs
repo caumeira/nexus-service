@@ -297,9 +297,17 @@ internal sealed class AutoCurveState
         var longTrend = _longTrend.Update(temp);
         var shortTrend = _shortTrend.Update(temp);
 
+        // The engine sanitizes these, but this state machine also runs from
+        // tests and imports; a reversed pair would make Math.Clamp throw and
+        // take the whole tick down with it.
+        var floor = Math.Min(cfg.MinSpeed, cfg.MaxSpeed);
+        var ceiling = Math.Max(cfg.MinSpeed, cfg.MaxSpeed);
+
         if (IsUnderLoad(cfg, temp))
         {
-            var target = _lastLoadCommandTarget;
+            // A curve that changed type keeps its previous output in the
+            // engine's feedback, so adopt that rather than driving nothing.
+            var target = _lastLoadCommandTarget ?? previousCommand;
             _underLoad = true;
 
             if (ShouldStepUp(cfg, temp, shortTrend))
@@ -307,7 +315,7 @@ internal sealed class AutoCurveState
                 _responseDown.Reset();
                 if (_responseUp.Trigger())
                 {
-                    target = Math.Clamp(previousCommand.Value + cfg.Step, cfg.MinSpeed, cfg.MaxSpeed);
+                    target = Math.Clamp(previousCommand.Value + cfg.Step, floor, ceiling);
                 }
             }
             else if (ShouldStepDown(cfg, temp, longTrend))
@@ -315,7 +323,7 @@ internal sealed class AutoCurveState
                 _responseUp.Reset();
                 if (_responseDown.Trigger())
                 {
-                    target = Math.Clamp(previousCommand.Value - cfg.Step / 2.0, cfg.MinSpeed, cfg.MaxSpeed);
+                    target = Math.Clamp(previousCommand.Value - cfg.Step / 2.0, floor, ceiling);
                 }
             }
             else
@@ -354,7 +362,7 @@ internal sealed class AutoCurveState
                     return cfg.MaxSpeed;
                 }
                 var slope = (cfg.MaxSpeed - cfg.MinSpeed) / span;
-                return Math.Clamp(cfg.MinSpeed + slope * (temp - cfg.IdleTemp), cfg.MinSpeed, cfg.MaxSpeed);
+                return Math.Clamp(cfg.MinSpeed + slope * (temp - cfg.IdleTemp), floor, ceiling);
             }
         }
 

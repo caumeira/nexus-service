@@ -32,6 +32,8 @@ internal sealed class FanControlCurve
 
     public double Percent { get; set; }
     public List<(double Temp, double Speed)> Points { get; } = new();
+    /// <summary>Points present in the file that could not be read. Any at all makes the curve a different curve, so it is not imported.</summary>
+    public int UnreadablePoints { get; set; }
     public double MinimumTemperature { get; set; }
     public double MaximumTemperature { get; set; }
     public double MinimumFanSpeed { get; set; }
@@ -173,6 +175,10 @@ internal static class FanControlConfigParser
                 if (TryParsePoint(p, out var point))
                 {
                     curve.Points.Add(point);
+                }
+                else
+                {
+                    curve.UnreadablePoints++;
                 }
             }
         }

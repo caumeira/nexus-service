@@ -43,21 +43,29 @@ internal static class FanControlImportMapper
         // Controls first: curves bind to the channels they resolve to.
         var controlMatches = new Dictionary<string, ControlMatch>(StringComparer.OrdinalIgnoreCase);
         var resolved = new Dictionary<string, (string? Id, IdentifierMatchTier Tier)>(StringComparer.OrdinalIgnoreCase);
+        var takenChannels = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var control in config.Controls)
         {
-            resolved[control.Identifier] = LhmIdentifierMatcher.Match(control.Identifier, channels, control.Name);
+            // Only fans nothing has claimed yet: two controls resolving to one
+            // channel would put two curves on one fan.
+            var free = channels.Where(c => !takenChannels.Contains(c.Id)).ToList();
+            var match = LhmIdentifierMatcher.Match(control.Identifier, free, control.Name);
+            resolved[control.Identifier] = match;
+            if (match.Id is not null)
+            {
+                takenChannels.Add(match.Id);
+            }
         }
 
         // GPU fans never match by identifier (FanControl uses its own NvAPI /
         // ADLX plugins) and rarely by name, so pair the leftovers by position.
-        var takenChannels = new HashSet<string>(
-            resolved.Values.Where(r => r.Id is not null).Select(r => r.Id!), StringComparer.OrdinalIgnoreCase);
         var gpuPairs = LhmIdentifierMatcher.PairGpuByPosition(
             resolved.Where(r => r.Value.Id is null).Select(r => r.Key).ToList(),
             channels.Where(c => !takenChannels.Contains(c.Id)).ToList());
         foreach (var (source, target) in gpuPairs)
         {
             resolved[source] = (target, IdentifierMatchTier.Ordinal);
+            takenChannels.Add(target);
         }
 
         foreach (var control in config.Controls)
@@ -152,14 +160,14 @@ internal static class FanControlImportMapper
 
             if (curve.CommandMode == 1)
             {
-                Unsupported(preview, "RPM curves are not supported; Nexus curves are set in percent");
+                Unsupported(preview, "rpmMode");
                 continue;
             }
 
             var type = TargetType(curve.Kind);
             if (type is null)
             {
-                Unsupported(preview, $"Unsupported curve type: {curve.Kind}");
+                Unsupported(preview, "unknownKind", curve.Kind);
                 continue;
             }
             preview.TargetType = type;
@@ -176,7 +184,7 @@ internal static class FanControlImportMapper
                 var (sensorId, tier) = LhmIdentifierMatcher.Match(curve.TempSourceIdentifier ?? "", sensors);
                 if (sensorId is null)
                 {
-                    Unsupported(preview, "Its temperature sensor is not available on this PC");
+                    Unsupported(preview, "noSensor");
                     continue;
                 }
                 var sensor = sensors.FirstOrDefault(s => s.Id == sensorId);
@@ -222,7 +230,7 @@ internal static class FanControlImportMapper
                 }
                 if (doc.Mixed.CurveIds.Count == 0)
                 {
-                    Unsupported(preview, "None of its member curves could be imported");
+                    Unsupported(preview, "noMixMembers");
                     continue;
                 }
             }
@@ -242,7 +250,7 @@ internal static class FanControlImportMapper
             var preview = plan.Preview.Curves.FirstOrDefault(p => p.Name == doc.Name);
             if (preview is not null)
             {
-                Unsupported(preview, "It depends on itself through another curve");
+                Unsupported(preview, "cycle");
             }
         }
 
@@ -274,7 +282,14 @@ internal static class FanControlImportMapper
             case "Graph":
                 if (curve.Points.Count == 0)
                 {
-                    Unsupported(preview, "It has no points");
+                    Unsupported(preview, "noPoints");
+                    return false;
+                }
+                if (curve.UnreadablePoints > 0)
+                {
+                    // Importing the readable half would be a different curve
+                    // from the one the user drew.
+                    Unsupported(preview, "badPoints");
                     return false;
                 }
                 doc.Graph = new GraphCurveData
@@ -309,6 +324,11 @@ internal static class FanControlImportMapper
                 return true;
 
             case "Trigger":
+                if (curve.IdleFanSpeed <= 0 && curve.LoadFanSpeed <= 0)
+                {
+                    Unsupported(preview, "noSpeedRange");
+                    return false;
+                }
                 doc.Trigger = new TriggerCurveData
                 {
                     ResponseTime = curve.ResponseTime,
@@ -320,6 +340,11 @@ internal static class FanControlImportMapper
                 return true;
 
             case "Auto":
+                if (curve.MaximumFanSpeed <= 0)
+                {
+                    Unsupported(preview, "noSpeedRange");
+                    return false;
+                }
                 doc.Auto = new AutoCurveData
                 {
                     ResponseTime = curve.ResponseTime,
@@ -336,7 +361,7 @@ internal static class FanControlImportMapper
                 var source = curve.SyncControlIdentifier ?? "";
                 if (!controls.TryGetValue(source, out var match) || match.ChannelId is null)
                 {
-                    Unsupported(preview, "The fan it follows is not available on this PC");
+                    Unsupported(preview, "noSyncSource");
                     return false;
                 }
                 doc.Sync = new SyncCurveData
@@ -349,7 +374,7 @@ internal static class FanControlImportMapper
                 return true;
 
             default:
-                Unsupported(preview, $"Unsupported curve type: {curve.Kind}");
+                Unsupported(preview, "unknownKind", curve.Kind);
                 return false;
         }
     }
@@ -400,27 +425,28 @@ internal static class FanControlImportMapper
         var unmatched = controls.Values.Count(c => c.ChannelId is null);
         if (unmatched > 0)
         {
-            plan.Preview.Skipped.Add($"{unmatched} fan(s) FanControl knows are not available here");
+            plan.Preview.Skipped.Add(new FanControlSkipNoteDto { Code = "fansMissing", Count = unmatched });
         }
 
         var rpmCurves = config.Curves.Count(c => c.CommandMode == 1);
         if (rpmCurves > 0)
         {
-            plan.Preview.Skipped.Add($"{rpmCurves} RPM-target curve(s): Nexus curves are set in percent");
+            plan.Preview.Skipped.Add(new FanControlSkipNoteDto { Code = "rpmCurves", Count = rpmCurves });
         }
 
         if (controls.Values.Any(c => c.Control.SelectedStart > 0 || c.Control.SelectedStop > 0))
         {
-            plan.Preview.Skipped.Add("Per-fan start and stop thresholds: Nexus derives these from calibration");
+            plan.Preview.Skipped.Add(new FanControlSkipNoteDto { Code = "startStop" });
         }
 
-        plan.Preview.Skipped.Add("Response time and hysteresis are approximate: the two apps smooth differently");
+        plan.Preview.Skipped.Add(new FanControlSkipNoteDto { Code = "smoothing" });
     }
 
-    private static void Unsupported(FanControlCurvePreviewDto preview, string reason)
+    private static void Unsupported(FanControlCurvePreviewDto preview, string code, string? detail = null)
     {
         preview.Supported = false;
-        preview.Reason = reason;
+        preview.ReasonCode = code;
+        preview.ReasonDetail = detail;
         preview.TargetType = "";
     }
 

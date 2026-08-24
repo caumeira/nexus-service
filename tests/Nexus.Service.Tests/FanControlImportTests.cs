@@ -277,7 +277,7 @@ public class FanControlImportTests
         Assert.DoesNotContain(plan.Curves, c => c.Name == "RPM Target");
         var preview = plan.Preview.Curves.First(c => c.Name == "RPM Target");
         Assert.False(preview.Supported);
-        Assert.Contains("RPM", preview.Reason);
+        Assert.Equal("rpmMode", preview.ReasonCode);
     }
 
     [Fact]
@@ -329,7 +329,7 @@ public class FanControlImportTests
         var missing = plan.Preview.Fans.First(f => f.Identifier == "/lpc/nct6797d/control/9");
         Assert.Null(missing.ChannelId);
         Assert.Equal("none", missing.Match);
-        Assert.Contains(plan.Preview.Skipped, s => s.Contains("not available here"));
+        Assert.Contains(plan.Preview.Skipped, s => s.Code == "fansMissing" && s.Count == 1);
     }
 
     [Fact]
@@ -350,7 +350,7 @@ public class FanControlImportTests
         Assert.DoesNotContain(plan.Curves, c => c.Name == "GPU Linear");
         var preview = plan.Preview.Curves.First(c => c.Name == "GPU Linear");
         Assert.False(preview.Supported);
-        Assert.Contains("sensor", preview.Reason);
+        Assert.Equal("noSensor", preview.ReasonCode);
     }
 
     [Fact]

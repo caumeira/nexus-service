@@ -77,6 +77,12 @@ public static class CoolingSafety
                 trigger.LoadSpeed = ClampDuty(trigger.LoadSpeed);
                 trigger.IdleTemp = ClampTemp(trigger.IdleTemp);
                 trigger.LoadTemp = ClampTemp(trigger.LoadTemp);
+                // A load threshold at or below the idle one latches the curve
+                // to one side forever; keep them a degree apart.
+                if (trigger.LoadTemp <= trigger.IdleTemp)
+                {
+                    trigger.LoadTemp = trigger.IdleTemp + 1;
+                }
                 trigger.ResponseTime = ClampResponseTime(trigger.ResponseTime);
             }
 
@@ -91,8 +97,18 @@ public static class CoolingSafety
             {
                 auto.MinSpeed = ClampDuty(auto.MinSpeed);
                 auto.MaxSpeed = ClampDuty(auto.MaxSpeed);
+                // Reversed speed bounds are what Math.Clamp throws on, and the
+                // throw would come from inside the engine tick.
+                if (auto.MaxSpeed < auto.MinSpeed)
+                {
+                    (auto.MinSpeed, auto.MaxSpeed) = (auto.MaxSpeed, auto.MinSpeed);
+                }
                 auto.IdleTemp = ClampTemp(auto.IdleTemp);
                 auto.LoadTemp = ClampTemp(auto.LoadTemp);
+                if (auto.LoadTemp <= auto.IdleTemp)
+                {
+                    auto.LoadTemp = auto.IdleTemp + 1;
+                }
                 // A zero step would freeze the controller at its start value.
                 auto.Step = double.IsFinite(auto.Step) ? Math.Clamp(auto.Step, 0.5, MaxDuty) : 5.0;
                 auto.Deadband = double.IsFinite(auto.Deadband) ? Math.Clamp(auto.Deadband, 0.0, 50.0) : 0.0;

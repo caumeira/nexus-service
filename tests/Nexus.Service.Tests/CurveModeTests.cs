@@ -389,6 +389,29 @@ public class CurveModeTests
     }
 
     [Fact]
+    public void Auto_ReversedSpeedBounds_DoNotThrow()
+    {
+        // Math.Clamp throws when its bounds are reversed, and the throw would
+        // come from inside the engine tick and abort every other curve with it.
+        var state = new AutoCurveState();
+        var cfg = new AutoCurveData { IdleTemp = 40, LoadTemp = 70, MinSpeed = 80, MaxSpeed = 20, Step = 5, Deadband = 2 };
+        state.Evaluate(cfg, 90, null, 1);
+        var result = state.Evaluate(cfg, 90, 50, 1);
+        Assert.NotNull(result);
+        Assert.InRange(result!.Value, 20, 80);
+    }
+
+    [Fact]
+    public void Auto_AdoptsThePreviousCommandWhenItHasNoLoadTargetYet()
+    {
+        // A curve that changed type into Auto arrives with the engine's stored
+        // output but no load target; it must drive, not fall silent.
+        var state = new AutoCurveState();
+        var cfg = Auto();
+        Assert.NotNull(state.Evaluate(cfg, 80, 55, 1));
+    }
+
+    [Fact]
     public void Auto_ResetClearsLoadLatch()
     {
         var state = new AutoCurveState();

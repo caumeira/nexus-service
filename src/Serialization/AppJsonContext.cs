@@ -166,6 +166,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.FanControlPreviewResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.FanControlCurvePreviewDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Routes.FanControlCurvePreviewDto>))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FanControlSkipNoteDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Routes.FanControlSkipNoteDto>))]
 [JsonSerializable(typeof(Nexus.Service.Routes.FanControlFanPreviewDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Routes.FanControlFanPreviewDto>))]
 [JsonSerializable(typeof(Nexus.Service.Routes.FanControlApplyRequest))]

@@ -162,21 +162,28 @@ public sealed class CurveEngine : BackgroundService
         var calculations = new List<CurveCalculation>();
         var drivenChannels = new HashSet<string>();
 
+        // Snapshot both: the store hands back its live objects, and a route
+        // thread can edit curves or offsets while this tick walks them.
+        var snapshot = curves.ToList();
+        var offsets = new Dictionary<string, int>(settings.Cooling.FanOffsets, StringComparer.Ordinal);
+        ForgetStateNotIn(snapshot);
+
         // Mixed reads other curves' output and Sync reads a channel another
         // curve may drive, so evaluate in dependency order.
         var rawByCurve = new Dictionary<string, double>(StringComparer.Ordinal);
-        var offsets = settings.Cooling.FanOffsets;
 
-        foreach (var curveDoc in CurveOrdering.Sort(curves))
+        foreach (var curveDoc in CurveOrdering.Sort(snapshot))
         {
+            // Flat curves do not need a reading to evaluate, but they still
+            // carry a sensor binding that the curve stream reports.
             float? temp = null;
-            if (NeedsTemperature(curveDoc.Type))
+            if (curveDoc.Input.Id.Length > 0)
             {
                 temp = _fans.ReadTemperature(curveDoc.Input.Id);
-                if (temp is null)
-                {
-                    continue;
-                }
+            }
+            if (temp is null && NeedsTemperature(curveDoc.Type))
+            {
+                continue;
             }
 
             double? rawSpeed = curveDoc.Type switch
@@ -483,6 +490,42 @@ public sealed class CurveEngine : BackgroundService
             }
         }
         return state.Evaluate(doc.Auto, temp, PreviousRaw(doc.Id), ToTicks(doc.Auto.ResponseTime));
+    }
+
+    /// <summary>
+    /// Drops per-curve state for curves that no longer exist, so a deleted (or
+    /// retyped) curve cannot hand its old output back to a new state machine
+    /// that reuses the id.
+    /// </summary>
+    private void ForgetStateNotIn(IReadOnlyList<CurveDocument> curves)
+    {
+        var live = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var c in curves)
+        {
+            live.Add(c.Id);
+        }
+
+        lock (_lastRaw)
+        {
+            foreach (var id in _lastRaw.Keys.Where(id => !live.Contains(id)).ToList())
+            {
+                _lastRaw.Remove(id);
+            }
+        }
+        lock (_triggerStates)
+        {
+            foreach (var id in _triggerStates.Keys.Where(id => !live.Contains(id)).ToList())
+            {
+                _triggerStates.Remove(id);
+            }
+        }
+        lock (_autoStates)
+        {
+            foreach (var id in _autoStates.Keys.Where(id => !live.Contains(id)).ToList())
+            {
+                _autoStates.Remove(id);
+            }
+        }
     }
 
     private double? PreviousRaw(string curveId)
