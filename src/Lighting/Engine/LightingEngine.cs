@@ -21,6 +21,7 @@ public sealed class LightingEngine : IDisposable
     // the OS suspend path can wait for the hardware-visible state rather than
     // for a flag it just set itself.
     private readonly ManualResetEventSlim _blackoutApplied = new(false);
+    private bool _disposed;
     // Bumped by every invalidate; the loop latches it before rendering and only
     // marks the frame current if no invalidate landed mid-render.
     private int _frozenEpoch;
@@ -116,7 +117,7 @@ public sealed class LightingEngine : IDisposable
             Interlocked.Increment(ref _frozenEpoch);
             if (!blackout)
             {
-                _blackoutApplied.Reset();
+                ResetBlackoutSignal();
                 return;
             }
             // With the loop running it owns the device buffers; clearing them
@@ -138,6 +139,11 @@ public sealed class LightingEngine : IDisposable
     /// the hardware is still lit.
     /// </summary>
     public bool WaitForBlackout(TimeSpan timeout) => _blackoutApplied.Wait(timeout);
+
+    private void ResetBlackoutSignal()
+    {
+        try { _blackoutApplied.Reset(); } catch (ObjectDisposedException) { }
+    }
 
     private void ApplyBlackout()
     {
@@ -183,7 +189,7 @@ public sealed class LightingEngine : IDisposable
             // The user picking a mode is the escape hatch if a resume event
             // never lands: it always ends in a lit device, never a dark one.
             _blackout = false;
-            _blackoutApplied.Reset();
+            ResetBlackoutSignal();
             Interlocked.Increment(ref _frozenEpoch);
             try
             { old?.Dispose(); }
@@ -204,7 +210,7 @@ public sealed class LightingEngine : IDisposable
             _paused = false;
             _frozen = false;
             _blackout = false;
-            _blackoutApplied.Reset();
+            ResetBlackoutSignal();
             Interlocked.Increment(ref _frozenEpoch);
             try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
             try
@@ -785,5 +791,18 @@ public sealed class LightingEngine : IDisposable
         }
     }
 
-    public void Dispose() { Stop(); try { _cts?.Dispose(); } catch { } _cts = null; _blackoutApplied.Dispose(); }
+    public void Dispose()
+    {
+        // Idempotent: the test host disposes the DI scope and the factory, so
+        // a second pass would reach Stop() and touch the disposed signal.
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
+        Stop();
+        try { _cts?.Dispose(); } catch { }
+        _cts = null;
+        _blackoutApplied.Dispose();
+    }
 }

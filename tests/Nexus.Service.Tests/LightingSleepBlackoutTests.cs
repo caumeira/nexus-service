@@ -178,6 +178,20 @@ public class LightingSleepBlackoutTests : IDisposable
         Assert.True(engine.Blackout);
     }
 
+    [Fact]
+    public void Dispose_IsIdempotent()
+    {
+        // The test host disposes the DI scope and then the factory, so the
+        // engine sees two Dispose calls; the second reaches Stop(), which
+        // touches the blackout signal.
+        var engine = new LightingEngine();
+        engine.UpdateDevices(MakeLitDevices());
+        engine.Dispose();
+
+        engine.Dispose();
+        engine.Stop();
+    }
+
     private static async Task<bool> WaitUntil(Func<bool> predicate, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
