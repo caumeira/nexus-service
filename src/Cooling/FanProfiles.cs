@@ -100,7 +100,7 @@ public static class FanProfiles
     /// Apply the named preset. Returns the canonical preset name actually applied.
     /// "auto" is treated as a synonym for "off" for backward compatibility.
     /// </summary>
-    public static string Apply(string profileName, IFanControlProvider fans, IConfigStore store)
+    public static string Apply(string profileName, IFanControlProvider fans, IConfigStore store, bool forceCustomRestore = false)
     {
         var canonical = Canonicalize(profileName);
         var channels = fans.GetFanChannels();
@@ -166,7 +166,10 @@ public static class FanProfiles
                     }
                 case "custom":
                     {
-                        var wasCustom = s.Cooling.ActivePreset == "custom";
+                        // forceCustomRestore: activating a saved preset whose mode is
+                        // custom must restore its manual duties even when custom is
+                        // already active, which the plain re-apply deliberately skips.
+                        var wasCustom = s.Cooling.ActivePreset == "custom" && !forceCustomRestore;
                         // Detach every preset curve, except locked channels already
                         // sitting on one - a locked channel must not move.
                         foreach (var curve in s.Cooling.Curves.Where(c => c.Preset is not null))
@@ -476,6 +479,13 @@ public static class FanProfiles
             }
         }
         return map;
+    }
+
+    /// <summary>Live fan-to-curve mapping, in <see cref="CoolingSettings.CustomFanCurveAssignments"/> format. Preset curves are excluded, so a machine sitting on Silent/Balanced/Turbo captures an empty map.</summary>
+    public static Dictionary<string, string> CaptureFanCurveMapping(IConfigStore store, IFanControlProvider fans)
+    {
+        var fanIds = fans.GetFanChannels().Select(c => c.Id).ToHashSet();
+        return SnapshotMapping(store.Load().Cooling.Curves, fanIds);
     }
 
     private static CurveDocument EnsurePresetCurve(List<CurveDocument> curves, string presetName, TemperatureSource? inputSensor)
