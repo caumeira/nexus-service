@@ -56,6 +56,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(CoolingComponent))]
 [JsonSerializable(typeof(GetAllCoolingResponse))]
 [JsonSerializable(typeof(SetCurvesBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Cooling.SetFanOffsetBody))]
 [JsonSerializable(typeof(GetCurvesResponse))]
 [JsonSerializable(typeof(CoolingWarning))]
 [JsonSerializable(typeof(List<CoolingWarning>))]

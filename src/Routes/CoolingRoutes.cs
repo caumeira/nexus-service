@@ -68,6 +68,7 @@ public static class CoolingRoutes
                 }
                 ch.Locked = FanProfiles.IsLocked(ch, cooling.FanLockOverrides);
                 ch.Role = cooling.FanRoles.TryGetValue(ch.Id, out var role) ? role : FanRoleKind.None;
+                ch.Offset = cooling.FanOffsets.TryGetValue(ch.Id, out var offset) ? offset : 0;
                 ch.SeriesId = Nexus.Service.Monitoring.History.MetricsHistory.SanitizeId(ch.Id);
             }
             return new GetFanChannelsResponse { Channels = channels };
@@ -147,6 +148,32 @@ public static class CoolingRoutes
             // preset label so it stays truthful for future applies.
             var derived = FanProfiles.DerivePresetFromCurves(store, f);
             store.Update(s => s.Cooling.ActivePreset = derived);
+            PanelTopics.BroadcastCooling(hub);
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
+
+        app.MapPost("/cooling/fan/{id}/offset", (string id, SetFanOffsetBody body, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        {
+            id = Uri.UnescapeDataString(id);
+            if (!f.GetFanChannels().Any(c => c.Id == id))
+            {
+                return Results.BadRequest(new ApiResponse { Error = true, Msg = "Unknown fan channel" });
+            }
+
+            var offset = Math.Clamp(body.Offset, -CoolingSafety.MaxDuty, CoolingSafety.MaxDuty);
+            store.Update(s =>
+            {
+                // No entry rather than a zero, so the dictionary only holds
+                // real deviations.
+                if (offset == 0)
+                {
+                    s.Cooling.FanOffsets.Remove(id);
+                }
+                else
+                {
+                    s.Cooling.FanOffsets[id] = offset;
+                }
+            });
             PanelTopics.BroadcastCooling(hub);
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();

@@ -1147,6 +1147,38 @@
         }
       }
     },
+    "/cooling/fan/{id}/offset": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetFanOffsetBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/cooling/fan/{id}/role": {
       "post": {
         "tags": [
@@ -13790,6 +13822,14 @@
           "locked": {
             "type": "boolean"
           },
+          "offset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
           "role": {
             "type": "string"
           },
@@ -18685,6 +18725,19 @@
         "properties": {
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "SetFanOffsetBody": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
