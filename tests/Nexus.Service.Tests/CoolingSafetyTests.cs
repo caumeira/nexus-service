@@ -115,4 +115,45 @@ public class CoolingSafetyTests
         Assert.Equal(0.0, body.Curves[2].Graph!.Points[0].Speed);    // NaN point -> floor
         Assert.Equal(CoolingSafety.MaxGlobalModifier, body.Curves[2].Graph!.SpeedModifier); // 1000 -> ceiling
     }
+
+    [Fact]
+    public void Sanitize_OrdersReversedAutoSpeedBounds()
+    {
+        var body = new SetCurvesBody
+        {
+            Curves = { new Curve { Id = "a", Type = "Auto", Auto = new AutoCurve { MinSpeed = 80, MaxSpeed = 20 } } },
+        };
+        CoolingSafety.Sanitize(body);
+        Assert.Equal(20, body.Curves[0].Auto!.MinSpeed);
+        Assert.Equal(80, body.Curves[0].Auto!.MaxSpeed);
+    }
+
+    [Fact]
+    public void Sanitize_SeparatesCollapsedTriggerThresholds()
+    {
+        var body = new SetCurvesBody
+        {
+            Curves = { new Curve { Id = "a", Type = "Trigger", Trigger = new TriggerCurve { IdleTemp = 60, LoadTemp = 60, LoadSpeed = 80 } } },
+        };
+        CoolingSafety.Sanitize(body);
+        // Equal thresholds latch the curve to one side forever.
+        Assert.True(body.Curves[0].Trigger!.LoadTemp > body.Curves[0].Trigger!.IdleTemp);
+    }
+
+    [Fact]
+    public void Sanitize_ClampsSyncOffsetAndAutoStep()
+    {
+        var body = new SetCurvesBody
+        {
+            Curves =
+            {
+                new Curve { Id = "s", Type = "Sync", Sync = new SyncCurve { SourceChannelId = "f", Offset = 900 } },
+                new Curve { Id = "a", Type = "Auto", Auto = new AutoCurve { MinSpeed = 20, MaxSpeed = 90, Step = 0, Deadband = -4 } },
+            },
+        };
+        CoolingSafety.Sanitize(body);
+        Assert.Equal(100, body.Curves[0].Sync!.Offset);
+        Assert.True(body.Curves[1].Auto!.Step >= 0.5);
+        Assert.Equal(0, body.Curves[1].Auto!.Deadband);
+    }
 }

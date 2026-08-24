@@ -26,6 +26,10 @@ public static class CoolingSafety
 
     public static int ClampDuty(int dutyPercent) => Math.Clamp(dutyPercent, MinDuty, MaxDuty);
 
+    /// <summary>Bound a curve response time in seconds. Non-finite collapses to 1 s.</summary>
+    public static double ClampResponseTime(double seconds) =>
+        double.IsFinite(seconds) ? Math.Clamp(seconds, 0.0, 600.0) : 1.0;
+
     // Non-finite (NaN/Inf) collapses to the safe floor, so a malformed value never
     // persists or round-trips back as NaN.
     public static double ClampDuty(double duty) =>
@@ -35,6 +39,10 @@ public static class CoolingSafety
     // to 1.0 (no-op), never a negative or absurd boost.
     private static double ClampModifier(double modifier) =>
         double.IsFinite(modifier) ? Math.Clamp(modifier, 0.0, MaxGlobalModifier) : 1.0;
+
+    /// <summary>Bound a curve threshold temperature. Non-finite collapses to 0.</summary>
+    private static double ClampTemp(double temp) =>
+        double.IsFinite(temp) ? Math.Clamp(temp, -273.0, 200.0) : 0.0;
 
     /// <summary>Clamp every speed in a curve-set body in place and return it.</summary>
     public static SetCurvesBody Sanitize(SetCurvesBody body)
@@ -61,6 +69,50 @@ public static class CoolingSafety
                 {
                     point.Speed = ClampDuty(point.Speed);
                 }
+            }
+
+            if (curve.Trigger is { } trigger)
+            {
+                trigger.IdleSpeed = ClampDuty(trigger.IdleSpeed);
+                trigger.LoadSpeed = ClampDuty(trigger.LoadSpeed);
+                trigger.IdleTemp = ClampTemp(trigger.IdleTemp);
+                trigger.LoadTemp = ClampTemp(trigger.LoadTemp);
+                // A load threshold at or below the idle one latches the curve
+                // to one side forever; keep them a degree apart.
+                if (trigger.LoadTemp <= trigger.IdleTemp)
+                {
+                    trigger.LoadTemp = trigger.IdleTemp + 1;
+                }
+                trigger.ResponseTime = ClampResponseTime(trigger.ResponseTime);
+            }
+
+            if (curve.Sync is { } sync)
+            {
+                // An offset can subtract as well as add, so it spans the full
+                // duty range in both directions; the write still clamps to [0,100].
+                sync.Offset = double.IsFinite(sync.Offset) ? Math.Clamp(sync.Offset, -MaxDuty, MaxDuty) : 0;
+            }
+
+            if (curve.Auto is { } auto)
+            {
+                auto.MinSpeed = ClampDuty(auto.MinSpeed);
+                auto.MaxSpeed = ClampDuty(auto.MaxSpeed);
+                // Reversed speed bounds are what Math.Clamp throws on, and the
+                // throw would come from inside the engine tick.
+                if (auto.MaxSpeed < auto.MinSpeed)
+                {
+                    (auto.MinSpeed, auto.MaxSpeed) = (auto.MaxSpeed, auto.MinSpeed);
+                }
+                auto.IdleTemp = ClampTemp(auto.IdleTemp);
+                auto.LoadTemp = ClampTemp(auto.LoadTemp);
+                if (auto.LoadTemp <= auto.IdleTemp)
+                {
+                    auto.LoadTemp = auto.IdleTemp + 1;
+                }
+                // A zero step would freeze the controller at its start value.
+                auto.Step = double.IsFinite(auto.Step) ? Math.Clamp(auto.Step, 0.5, MaxDuty) : 5.0;
+                auto.Deadband = double.IsFinite(auto.Deadband) ? Math.Clamp(auto.Deadband, 0.0, 50.0) : 0.0;
+                auto.ResponseTime = ClampResponseTime(auto.ResponseTime);
             }
         }
 

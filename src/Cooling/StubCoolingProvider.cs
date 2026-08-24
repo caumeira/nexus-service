@@ -29,36 +29,7 @@ public sealed class StubCoolingProvider : ICoolingProvider, ICurveProvider, IFan
             s.Cooling.Curves.Clear();
             foreach (var c in body.Curves)
             {
-                s.Cooling.Curves.Add(new CurveDocument
-                {
-                    Id = c.Id,
-                    Name = c.Name,
-                    Type = c.Type,
-                    Input = new CurveInputDocument { Id = c.Input.Id, Type = c.Input.Type, Device = c.Input.Device },
-                    Outputs = c.Outputs.ConvertAll(o => new CurveOutputDocument { Id = o.Id, Type = o.Type }),
-                    Flat = c.Flat is null ? null : new FlatCurveData { Speed = c.Flat.Speed },
-                    Linear = c.Linear is null ? null : new LinearCurveData
-                    {
-                        ResponseTime = c.Linear.ResponseTime,
-                        MinTemp = c.Linear.MinTemp,
-                        MaxTemp = c.Linear.MaxTemp,
-                        MinSpeed = c.Linear.MinSpeed,
-                        MaxSpeed = c.Linear.MaxSpeed,
-                    },
-                    Graph = c.Graph is null ? null : new GraphCurveData
-                    {
-                        ResponseTime = c.Graph.ResponseTime,
-                        SpeedModifier = c.Graph.SpeedModifier,
-                        Points = c.Graph.Points.ConvertAll(p => new Persistence.GraphPoint { Temp = p.Temp, Speed = p.Speed }),
-                    },
-                    Mixed = c.Mixed is null ? null : new Persistence.MixedCurveData
-                    {
-                        ResponseTime = c.Mixed.ResponseTime,
-                        CurveIds = new List<string>(c.Mixed.CurveIds),
-                        Fn = c.Mixed.Fn,
-                    },
-                    Preset = string.IsNullOrEmpty(c.Preset) ? null : c.Preset,
-                });
+                s.Cooling.Curves.Add(CurveWireMapper.ToDocument(c));
             }
 
             // Attaching a fan to a user curve supersedes its manual

@@ -34,6 +34,16 @@ public sealed class CurveEngine : BackgroundService
     // Last calculated speed per curve ID (for ResponseTime smoothing)
     private readonly Dictionary<string, double> _lastSpeed = new();
 
+    // Last raw (pre global-modifier) output per curve ID. Trigger and Auto feed
+    // their own previous command back in, and Mixed reads its members', so both
+    // need the value before the global boost or it compounds every tick.
+    private readonly Dictionary<string, double> _lastRaw = new();
+
+    // Latch/trend state for the curve types that are not pure functions of the
+    // current temperature.
+    private readonly Dictionary<string, TriggerCurveState> _triggerStates = new();
+    private readonly Dictionary<string, AutoCurveState> _autoStates = new();
+
     // Last duty written per channel + timestamp. Skips a write when the duty
     // is unchanged, and gates the minimum interval between hardware writes per
     // channel so PWM lines don't get hammered if the tick interval is lowered.
@@ -64,6 +74,9 @@ public sealed class CurveEngine : BackgroundService
     public void ResetSmoothing()
     {
         lock (_lastSpeed) { _lastSpeed.Clear(); }
+        lock (_lastRaw) { _lastRaw.Clear(); }
+        lock (_triggerStates) { _triggerStates.Clear(); }
+        lock (_autoStates) { _autoStates.Clear(); }
         lock (_lastWrite) { _lastWrite.Clear(); }
         // Re-arm the manual replay so the incoming profile's saved duties are
         // applied on the next tick (the profile switch released all fans).
@@ -128,9 +141,14 @@ public sealed class CurveEngine : BackgroundService
         // partial list at first, so per-tick presence gates both the curve
         // write dedup and the manual-duty replay below.
         var present = new HashSet<string>(StringComparer.Ordinal);
+        // Seeded from hardware so a Sync curve pointed at a manual or BIOS fan
+        // still has something to follow; curve-driven channels overwrite their
+        // entry as they are evaluated below.
+        var channelDuty = new Dictionary<string, double>(StringComparer.Ordinal);
         foreach (var ch in _fans.GetFanChannels())
         {
             present.Add(ch.Id);
+            channelDuty[ch.Id] = ch.DutyPercent;
         }
 
         ReplayManualDuties(settings, present, owned);
@@ -144,10 +162,26 @@ public sealed class CurveEngine : BackgroundService
         var calculations = new List<CurveCalculation>();
         var drivenChannels = new HashSet<string>();
 
-        foreach (var curveDoc in curves)
+        // Snapshot both: the store hands back its live objects, and a route
+        // thread can edit curves or offsets while this tick walks them.
+        var snapshot = curves.ToList();
+        var offsets = new Dictionary<string, int>(settings.Cooling.FanOffsets, StringComparer.Ordinal);
+        ForgetStateNotIn(snapshot);
+
+        // Mixed reads other curves' output and Sync reads a channel another
+        // curve may drive, so evaluate in dependency order.
+        var rawByCurve = new Dictionary<string, double>(StringComparer.Ordinal);
+
+        foreach (var curveDoc in CurveOrdering.Sort(snapshot))
         {
-            var temp = _fans.ReadTemperature(curveDoc.Input.Id);
-            if (temp is null)
+            // Flat curves do not need a reading to evaluate, but they still
+            // carry a sensor binding that the curve stream reports.
+            float? temp = null;
+            if (curveDoc.Input.Id.Length > 0)
+            {
+                temp = _fans.ReadTemperature(curveDoc.Input.Id);
+            }
+            if (temp is null && NeedsTemperature(curveDoc.Type))
             {
                 continue;
             }
@@ -155,8 +189,12 @@ public sealed class CurveEngine : BackgroundService
             double? rawSpeed = curveDoc.Type switch
             {
                 "Flat" => EvaluateFlat(curveDoc.Flat),
-                "Linear" => EvaluateLinear(curveDoc.Linear, temp.Value),
-                "Graph" => EvaluateGraph(curveDoc.Graph, temp.Value),
+                "Linear" => EvaluateLinear(curveDoc.Linear, temp!.Value),
+                "Graph" => EvaluateGraph(curveDoc.Graph, temp!.Value),
+                "Mixed" => EvaluateMix(curveDoc.Mixed, rawByCurve),
+                "Sync" => EvaluateSync(curveDoc.Sync, channelDuty, curveDoc.Outputs),
+                "Trigger" => EvaluateTrigger(curveDoc, temp!.Value),
+                "Auto" => EvaluateAuto(curveDoc, temp!.Value),
                 _ => null,
             };
             if (rawSpeed is null)
@@ -164,7 +202,14 @@ public sealed class CurveEngine : BackgroundService
                 continue;
             }
 
-            var modifiedSpeed = Math.Clamp(rawSpeed.Value * globalMod, 0, 100);
+            rawByCurve[curveDoc.Id] = rawSpeed.Value;
+            lock (_lastRaw) { _lastRaw[curveDoc.Id] = rawSpeed.Value; }
+
+            // Sync mirrors a channel whose duty already carries the global
+            // boost; applying it again would compound it.
+            var modifiedSpeed = curveDoc.Type == "Sync"
+                ? Math.Clamp(rawSpeed.Value, 0, 100)
+                : Math.Clamp(rawSpeed.Value * globalMod, 0, 100);
 
             var responseTime = GetResponseTime(curveDoc);
             var smoothedSpeed = ApplySmoothing(curveDoc.Id, modifiedSpeed, responseTime);
@@ -176,7 +221,9 @@ public sealed class CurveEngine : BackgroundService
             var nowMs = Environment.TickCount64;
             foreach (var output in curveDoc.Outputs)
             {
-                var appliedSpeed = (int)Math.Round(smoothedSpeed);
+                var offset = offsets.TryGetValue(output.Id, out var off) ? off : 0;
+                var appliedSpeed = CoolingSafety.ClampDuty((int)Math.Round(smoothedSpeed) + offset);
+                channelDuty[output.Id] = appliedSpeed;
                 if (present.Contains(output.Id))
                 {
                     if (TryReserveWrite(output.Id, appliedSpeed, nowMs))
@@ -205,7 +252,7 @@ public sealed class CurveEngine : BackgroundService
             {
                 CurveId = curveDoc.Id,
                 InputSensorId = curveDoc.Input.Id,
-                InputTemperature = temp.Value,
+                InputTemperature = temp ?? 0f,
                 CalculatedSpeed = modifiedSpeed,
                 ActualSpeed = smoothedSpeed,
                 Outputs = outputStates,
@@ -329,6 +376,170 @@ public sealed class CurveEngine : BackgroundService
         return points[points.Count - 1].Speed * graph.SpeedModifier;
     }
 
+    /// <summary>Curve types driven by a temperature sensor. Flat, Mixed and Sync have no input of their own.</summary>
+    internal static bool NeedsTemperature(string type) =>
+        type is "Linear" or "Graph" or "Trigger" or "Auto";
+
+    /// <summary>
+    /// Combine member curves' raw output. A member that did not evaluate this
+    /// tick (missing sensor, dangling id) is skipped; no member at all yields
+    /// null so the curve drives nothing rather than falling to 0.
+    /// </summary>
+    internal static double? EvaluateMix(MixedCurveData? mixed, IReadOnlyDictionary<string, double> rawByCurve)
+    {
+        if (mixed is null || mixed.CurveIds.Count == 0)
+        {
+            return null;
+        }
+
+        var values = new List<double>(mixed.CurveIds.Count);
+        foreach (var id in mixed.CurveIds)
+        {
+            if (rawByCurve.TryGetValue(id, out var v))
+            {
+                values.Add(v);
+            }
+        }
+        if (values.Count == 0)
+        {
+            return null;
+        }
+
+        return mixed.Fn switch
+        {
+            "min" => values.Min(),
+            "avg" => values.Average(),
+            "sum" => Math.Clamp(values.Sum(), 0, 100),
+            "subtract" => Math.Clamp(SubtractAll(values), 0, 100),
+            _ => values.Max(),
+        };
+    }
+
+    private static double SubtractAll(List<double> values)
+    {
+        var result = values[0];
+        for (var i = 1; i < values.Count; i++)
+        {
+            result -= values[i];
+        }
+        return result;
+    }
+
+    /// <summary>Mirror another channel's duty, scaled or offset. Null while that channel is absent.</summary>
+    internal static double? EvaluateSync(
+        SyncCurveData? sync,
+        IReadOnlyDictionary<string, double> channelDuty,
+        IReadOnlyList<CurveOutputDocument>? outputs = null)
+    {
+        if (sync is null || string.IsNullOrEmpty(sync.SourceChannelId))
+        {
+            return null;
+        }
+        // Following a channel this same curve drives would feed its offset back
+        // into itself every tick and ramp to a limit.
+        if (outputs is not null)
+        {
+            foreach (var o in outputs)
+            {
+                if (string.Equals(o.Id, sync.SourceChannelId, StringComparison.Ordinal))
+                {
+                    return null;
+                }
+            }
+        }
+        if (!channelDuty.TryGetValue(sync.SourceChannelId, out var source))
+        {
+            return null;
+        }
+        return sync.Proportional
+            ? source * (1.0 + sync.Offset / 100.0)
+            : source + sync.Offset;
+    }
+
+    private double? EvaluateTrigger(CurveDocument doc, float temp)
+    {
+        if (doc.Trigger is null)
+        {
+            return null;
+        }
+        TriggerCurveState state;
+        lock (_triggerStates)
+        {
+            if (!_triggerStates.TryGetValue(doc.Id, out state!))
+            {
+                state = new TriggerCurveState();
+                _triggerStates[doc.Id] = state;
+            }
+        }
+        return state.Evaluate(doc.Trigger, temp, PreviousRaw(doc.Id), ToTicks(doc.Trigger.ResponseTime));
+    }
+
+    private double? EvaluateAuto(CurveDocument doc, float temp)
+    {
+        if (doc.Auto is null)
+        {
+            return null;
+        }
+        AutoCurveState state;
+        lock (_autoStates)
+        {
+            if (!_autoStates.TryGetValue(doc.Id, out state!))
+            {
+                state = new AutoCurveState();
+                _autoStates[doc.Id] = state;
+            }
+        }
+        return state.Evaluate(doc.Auto, temp, PreviousRaw(doc.Id), ToTicks(doc.Auto.ResponseTime));
+    }
+
+    /// <summary>
+    /// Drops per-curve state for curves that no longer exist, so a deleted (or
+    /// retyped) curve cannot hand its old output back to a new state machine
+    /// that reuses the id.
+    /// </summary>
+    private void ForgetStateNotIn(IReadOnlyList<CurveDocument> curves)
+    {
+        var live = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var c in curves)
+        {
+            live.Add(c.Id);
+        }
+
+        lock (_lastRaw)
+        {
+            foreach (var id in _lastRaw.Keys.Where(id => !live.Contains(id)).ToList())
+            {
+                _lastRaw.Remove(id);
+            }
+        }
+        lock (_triggerStates)
+        {
+            foreach (var id in _triggerStates.Keys.Where(id => !live.Contains(id)).ToList())
+            {
+                _triggerStates.Remove(id);
+            }
+        }
+        lock (_autoStates)
+        {
+            foreach (var id in _autoStates.Keys.Where(id => !live.Contains(id)).ToList())
+            {
+                _autoStates.Remove(id);
+            }
+        }
+    }
+
+    private double? PreviousRaw(string curveId)
+    {
+        lock (_lastRaw)
+        {
+            return _lastRaw.TryGetValue(curveId, out var v) ? v : null;
+        }
+    }
+
+    /// <summary>Response time in seconds to whole engine ticks, floor 1.</summary>
+    private int ToTicks(double seconds) =>
+        Math.Max(1, (int)Math.Round(seconds * 1000.0 / _intervalMs));
+
     private static double GetResponseTime(CurveDocument doc)
     {
         return doc.Type switch
@@ -336,6 +547,9 @@ public sealed class CurveEngine : BackgroundService
             "Linear" => doc.Linear?.ResponseTime ?? 1.0,
             "Graph" => doc.Graph?.ResponseTime ?? 1.0,
             "Mixed" => doc.Mixed?.ResponseTime ?? 1.0,
+            // Trigger latches, Auto steps and Sync mirrors an already-smoothed
+            // channel: each owns its own timing, so no slew limit on top.
+            "Trigger" or "Auto" or "Sync" => 0.0,
             _ => 1.0,
         };
     }

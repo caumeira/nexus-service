@@ -113,6 +113,16 @@ public sealed class NexusSettings
     /// push/pull, and a factory reset allows re-importing.</summary>
     public bool Nexus2MigrationCompleted { get; set; }
 
+    /// <summary>True once the FanControl import has been offered and dismissed.
+    /// Install-scoped like <see cref="Nexus2MigrationOffered"/>: never rides a
+    /// profile export/import or a cloud push/pull, and a factory reset re-offers
+    /// the screen.</summary>
+    public bool FanControlImportOffered { get; set; }
+
+    /// <summary>True once at least one FanControl category has been imported.
+    /// Same scoping as <see cref="FanControlImportOffered"/>.</summary>
+    public bool FanControlImportCompleted { get; set; }
+
     /// <summary>Physical Stream Deck bindings, keyed by device serial. Profile-scoped via the <see cref="ProfileSharing.Device"/> sharing category (defaults to Shared, so it behaves like a workstation-global setting until the user opts a profile out).</summary>
     public StreamDeckSettings StreamDeck { get; set; } = new();
 
@@ -620,6 +630,8 @@ public sealed class CoolingSettings
     public Dictionary<string, Nexus.Service.Models.Cooling.FanCalibration> FanCalibrations { get; set; } = new();
     /// <summary>Manually-set fan duty percentages keyed by channel ID. Persisted so they survive restarts and profile switches.</summary>
     public Dictionary<string, int> ManualSpeeds { get; set; } = new();
+    /// <summary>Per-channel duty offset in points, added to whatever a curve computes for that channel and clamped at the write. Absent entry means 0.</summary>
+    public Dictionary<string, int> FanOffsets { get; set; } = new();
     /// <summary>Per-channel lock override keyed by channel ID. A locked channel is exempt from Silent/Balanced/Turbo/Off/Custom preset applies. An absent entry defaults to locked for pumps, unlocked otherwise; see <see cref="Nexus.Service.Cooling.FanProfiles.IsLocked"/>.</summary>
     public Dictionary<string, bool> FanLockOverrides { get; set; } = new();
     /// <summary>User-assigned display/monitoring-grouping role keyed by raw channel ID: one of <see cref="Nexus.Service.Models.Cooling.FanRoleKind.Cpu"/> / <see cref="Nexus.Service.Models.Cooling.FanRoleKind.Gpu"/>. An absent entry means <see cref="Nexus.Service.Models.Cooling.FanRoleKind.None"/>. Metadata only - does not affect fan control, locking, or preset logic.</summary>
@@ -644,7 +656,7 @@ public sealed class CurveDocument
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
-    /// <summary>"Flat", "Linear", "Graph", "Mixed"</summary>
+    /// <summary>"Flat", "Linear", "Graph", "Mixed", "Trigger", "Sync", "Auto"</summary>
     public string Type { get; set; } = "Flat";
     public CurveInputDocument Input { get; set; } = new();
     public List<CurveOutputDocument> Outputs { get; set; } = new();
@@ -652,6 +664,9 @@ public sealed class CurveDocument
     public LinearCurveData? Linear { get; set; }
     public GraphCurveData? Graph { get; set; }
     public MixedCurveData? Mixed { get; set; }
+    public TriggerCurveData? Trigger { get; set; }
+    public SyncCurveData? Sync { get; set; }
+    public AutoCurveData? Auto { get; set; }
     /// <summary>One of "silent" | "balanced" | "turbo" when this curve is the shared preset curve; null for user-authored curves. Independent of Type so a preset curve can be Linear or Graph.</summary>
     public string? Preset { get; set; }
 }
@@ -661,6 +676,53 @@ public sealed class MixedCurveData
     public double ResponseTime { get; set; } = 1.0;
     public List<string> CurveIds { get; set; } = new();
     public string Fn { get; set; } = "max";
+}
+
+/// <summary>
+/// Two-state latch: hold the current speed until the temperature crosses a
+/// threshold for <see cref="ResponseTime"/> seconds, then step to that side's
+/// speed. Ported from FanControl's TriggerFanCurve so an imported curve behaves
+/// the same here.
+/// </summary>
+public sealed class TriggerCurveData
+{
+    /// <summary>Debounce a threshold crossing must hold for, in seconds.</summary>
+    public double ResponseTime { get; set; } = 1.0;
+    public double IdleTemp { get; set; }
+    public double LoadTemp { get; set; }
+    public double IdleSpeed { get; set; }
+    public double LoadSpeed { get; set; }
+}
+
+/// <summary>
+/// Mirrors another fan channel's duty. <see cref="Proportional"/> scales by
+/// <c>1 + Offset/100</c>; otherwise <see cref="Offset"/> is added in points.
+/// </summary>
+public sealed class SyncCurveData
+{
+    /// <summary>Fan channel whose applied duty this curve follows.</summary>
+    public string SourceChannelId { get; set; } = "";
+    public double Offset { get; set; }
+    public bool Proportional { get; set; }
+}
+
+/// <summary>
+/// Stepping controller that holds a target temperature: ramps linearly between
+/// idle and load below the load latch, and steps by <see cref="Step"/> while
+/// under load. Ported from FanControl's AutoFanCurve.
+/// </summary>
+public sealed class AutoCurveData
+{
+    /// <summary>Trend window and step debounce base, in seconds.</summary>
+    public double ResponseTime { get; set; } = 5.0;
+    public double IdleTemp { get; set; }
+    public double LoadTemp { get; set; }
+    public double MinSpeed { get; set; }
+    public double MaxSpeed { get; set; }
+    /// <summary>Duty points added per step up; a step down is half this.</summary>
+    public double Step { get; set; } = 5.0;
+    /// <summary>Degrees below <see cref="LoadTemp"/> still treated as "at load".</summary>
+    public double Deadband { get; set; } = 2.0;
 }
 
 public sealed class CurveInputDocument
