@@ -179,6 +179,9 @@ public sealed class FanControlApplyResponse
 {
     public bool Error { get; set; }
     public string Msg { get; set; } = "Ok";
+    /// <summary>Cooling preset the import created or replaced, and left active. Null when nothing preset-shaped was selected.</summary>
+    public string? PresetId { get; set; }
+    public string? PresetName { get; set; }
     public int CurvesImported { get; set; }
     public int CalibrationsImported { get; set; }
     public int NamesImported { get; set; }

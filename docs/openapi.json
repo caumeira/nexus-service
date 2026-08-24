@@ -2911,52 +2911,6 @@
         }
       }
     },
-    "/api/discord/config": {
-      "get": {
-        "tags": [
-          "Nexus"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DiscordConfigResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Nexus"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DiscordConfigBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DiscordConfigResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/discord/status": {
       "get": {
         "tags": [
@@ -3094,6 +3048,52 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/discord/presence": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscordPresenceResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscordPresenceBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscordPresenceResponse"
                 }
               }
             }
@@ -13203,49 +13203,6 @@
           }
         }
       },
-      "DiscordConfigBody": {
-        "type": "object",
-        "properties": {
-          "clientId": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "clientSecret": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "clearClientSecret": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          }
-        }
-      },
-      "DiscordConfigResponse": {
-        "type": "object",
-        "properties": {
-          "clientId": {
-            "type": "string"
-          },
-          "hasClientSecret": {
-            "type": "boolean"
-          },
-          "configured": {
-            "type": "boolean"
-          },
-          "error": {
-            "type": "boolean"
-          },
-          "msg": {
-            "type": "string"
-          }
-        }
-      },
       "DiscordGuild": {
         "type": "object",
         "properties": {
@@ -13313,6 +13270,52 @@
         "type": "object",
         "properties": {
           "path": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscordPresenceBody": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "preset": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "DiscordPresenceResponse": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "preset": {
+            "type": "string"
+          },
+          "presets": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "connected": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "boolean"
+          },
+          "msg": {
             "type": "string"
           }
         }

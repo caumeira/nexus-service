@@ -52,8 +52,8 @@ public sealed class FanControlImportService
 
     public FanControlApplyResponse Apply(string? configPath, IReadOnlyList<string> categories)
     {
-        var plan = BuildPlan(configPath, out var error);
-        if (plan is null)
+        var plan = BuildPlan(configPath, out var error, out var config);
+        if (plan is null || config is null)
         {
             return new FanControlApplyResponse { Error = true, Msg = error };
         }
@@ -66,30 +66,55 @@ public sealed class FanControlImportService
 
         var response = new FanControlApplyResponse();
 
+        // What the fans end up doing lives in a preset, not in loose bindings:
+        // pressing any built-in mode reattaches every unlocked fan to that
+        // mode's curve, which would erase an import the moment the user touched
+        // the mode tabs. The curve library is shared, so the curves themselves
+        // go in as ordinary curves and the preset only references them.
+        var assignments = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var curve in plan.Curves)
+        {
+            foreach (var output in curve.Outputs)
+            {
+                assignments[output.Id] = curve.Id;
+            }
+        }
+
+        var wantsPreset = wanted.Contains(CategoryCurves)
+            || wanted.Contains(CategoryOffsets)
+            || wanted.Contains(CategoryManual);
+        var presetName = PresetNameFor(config);
+        string? presetId = null;
+
+        if (wantsPreset && !CanHoldPreset(presetName))
+        {
+            return new FanControlApplyResponse
+            {
+                Error = true,
+                Msg = $"Delete a cooling preset first: the limit of {CoolingPresets.Cap} is reached",
+            };
+        }
+
         _store.Update(s =>
         {
             if (wanted.Contains(CategoryCurves))
             {
-                var importedChannels = new HashSet<string>(
-                    plan.Curves.SelectMany(c => c.Outputs).Select(o => o.Id), StringComparer.Ordinal);
-
-                // Drop the previous import, then release the channels this one
-                // claims from any user curve still driving them: two curves on
-                // one channel would fight every tick.
+                // Drop the previous import's curves, then release the channels
+                // this one claims from any user curve still driving them: two
+                // curves on one channel would fight every tick.
+                var importedChannels = new HashSet<string>(assignments.Keys, StringComparer.Ordinal);
                 s.Cooling.Curves.RemoveAll(c => c.Id.StartsWith(ImportedIdPrefix, StringComparison.Ordinal));
                 foreach (var existing in s.Cooling.Curves)
                 {
                     existing.Outputs.RemoveAll(o => importedChannels.Contains(o.Id));
                 }
 
-                s.Cooling.Curves.AddRange(plan.Curves);
-
-                // A fan on a curve has no manual duty; leaving one behind would
-                // let the engine's replay fight the curve.
-                foreach (var id in importedChannels)
+                // Outputs are the preset's business; activating it binds them.
+                foreach (var curve in plan.Curves)
                 {
-                    s.Cooling.ManualSpeeds.Remove(id);
+                    curve.Outputs.Clear();
                 }
+                s.Cooling.Curves.AddRange(plan.Curves);
                 response.CurvesImported = plan.Curves.Count;
             }
 
@@ -111,33 +136,57 @@ public sealed class FanControlImportService
                 response.NamesImported = plan.Names.Count;
             }
 
-            if (wanted.Contains(CategoryOffsets))
+            if (!wantsPreset)
             {
-                foreach (var (id, offset) in plan.Offsets)
-                {
-                    s.Cooling.FanOffsets[id] = offset;
-                }
-                response.OffsetsImported = plan.Offsets.Count;
+                return;
             }
 
+            // Re-importing replaces the preset this import made last time
+            // rather than stacking another copy of it.
+            var preset = s.Cooling.Presets.Find(
+                p => string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
+            if (preset is null)
+            {
+                preset = new CoolingPreset { Id = Guid.NewGuid().ToString("n"), Name = presetName };
+                s.Cooling.Presets.Add(preset);
+            }
+
+            preset.Mode = "custom";
+            preset.GlobalSpeedModifier = Nexus.Service.Defaults.InstallDefaults.Cooling.GlobalSpeedModifier;
+            preset.FanCurveAssignments = wanted.Contains(CategoryCurves)
+                ? new Dictionary<string, string>(assignments)
+                : new Dictionary<string, string>();
+            preset.FanOffsets = wanted.Contains(CategoryOffsets)
+                ? new Dictionary<string, int>(plan.Offsets)
+                : new Dictionary<string, int>();
+            preset.ManualSpeeds = new Dictionary<string, int>();
             if (wanted.Contains(CategoryManual))
             {
                 foreach (var (id, duty) in plan.ManualSpeeds)
                 {
-                    // A channel this import put on a curve must not also carry
-                    // a manual duty.
-                    if (s.Cooling.Curves.Any(c => c.Outputs.Any(o => o.Id == id)))
+                    // A fan this import put on a curve must not also carry a
+                    // manual duty, or the replay fights the curve.
+                    if (preset.FanCurveAssignments.ContainsKey(id))
                     {
                         continue;
                     }
-                    s.Cooling.ManualSpeeds[id] = duty;
+                    preset.ManualSpeeds[id] = duty;
                     response.ManualImported++;
                 }
             }
 
-            s.FanControlImportCompleted = true;
-            s.FanControlImportOffered = true;
+            response.OffsetsImported = preset.FanOffsets.Count;
+            presetId = preset.Id;
         });
+
+        if (presetId is not null)
+        {
+            // The import takes effect now: the preset is applied and left
+            // selected, so the fans run what was imported.
+            CoolingPresets.Activate(presetId, _store, _fans);
+            response.PresetId = presetId;
+            response.PresetName = presetName;
+        }
 
         // Fans are on user curves now, so the profile bar has to agree.
         var derived = FanProfiles.DerivePresetFromCurves(_store, _fans);
@@ -146,9 +195,25 @@ public sealed class FanControlImportService
         return response;
     }
 
-    private FanControlImportPlan? BuildPlan(string? configPath, out string error)
+    /// <summary>The preset an import writes into, named for the configuration it came from.</summary>
+    private static string PresetNameFor(FanControlConfigFile config) =>
+        config.IsDefault ? "FanControl" : $"FanControl ({config.Name})";
+
+    /// <summary>False when the preset list is full and none of it is ours to replace.</summary>
+    private bool CanHoldPreset(string name)
+    {
+        var presets = _store.Load().Cooling.Presets;
+        return presets.Count < CoolingPresets.Cap
+            || presets.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private FanControlImportPlan? BuildPlan(string? configPath, out string error) =>
+        BuildPlan(configPath, out error, out _);
+
+    private FanControlImportPlan? BuildPlan(string? configPath, out string error, out FanControlConfigFile? source)
     {
         error = "Ok";
+        source = null;
         var detection = _detector.Detect();
         if (detection.Configs.Count == 0)
         {
@@ -166,6 +231,7 @@ public sealed class FanControlImportService
             return null;
         }
 
+        source = config;
         var json = _detector.ReadConfig(config.Path);
         if (string.IsNullOrEmpty(json))
         {

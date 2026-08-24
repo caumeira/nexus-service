@@ -15,11 +15,11 @@ namespace Nexus.Service.Tests;
 
 /// <summary>
 /// Import a FanControl configuration and then run the curve engine over what it
-/// wrote, so the whole chain is covered in one place: parse, match, apply, and
-/// fans actually driven at the duty the imported curve asks for. The pieces are
-/// unit-tested separately; this is the seam between them, and it is the part a
-/// lab box cannot prove unless that box happens to have FanControl actively
-/// driving its fans.
+/// wrote, so the whole chain is covered in one place: parse, match, apply into a
+/// cooling preset, activate it, and fans actually driven at the duty the
+/// imported curve asks for. The pieces are unit-tested separately; this is the
+/// seam between them, and it is the part a lab box cannot prove unless that box
+/// happens to have FanControl actively driving its fans.
 /// </summary>
 public class FanControlImportEndToEndTests
 {
@@ -241,6 +241,124 @@ public class FanControlImportEndToEndTests
             .ToList();
         Assert.Single(owners);
         Assert.StartsWith("fc-", owners[0]);
+    }
+
+    [Fact]
+    public void Apply_LandsInAPresetAndLeavesItActive()
+    {
+        var (import, _, store) = Build();
+        var result = import.Apply(null, AllCategories);
+
+        Assert.False(result.Error);
+        Assert.Equal("FanControl", result.PresetName);
+
+        var cooling = store.Load().Cooling;
+        var preset = Assert.Single(cooling.Presets);
+        Assert.Equal("FanControl", preset.Name);
+        Assert.Equal("custom", preset.Mode);
+        Assert.Equal(preset.Id, cooling.ActivePresetId);
+        Assert.Equal(result.PresetId, preset.Id);
+    }
+
+    [Fact]
+    public void Apply_PutsTheFanBindingsInThePreset_NotOnTheCurves()
+    {
+        // A mode press reattaches every unlocked fan to that mode's curve, so
+        // bindings that live only on the curves are erased by the next press.
+        var (import, _, store) = Build();
+        import.Apply(null, AllCategories);
+
+        var preset = store.Load().Cooling.Presets.Single();
+        Assert.Equal("fc-cpu-graph", preset.FanCurveAssignments["/lpc/nct6797d/0/control/0"]);
+        Assert.Equal("fc-case-trigger", preset.FanCurveAssignments["/lpc/nct6797d/0/control/1"]);
+    }
+
+    [Fact]
+    public void Apply_ActivatingThePresetBindsTheFansForReal()
+    {
+        var (import, fans, store) = Build();
+        import.Apply(null, AllCategories);
+
+        // Activation ran as part of the import, so the engine drives on the
+        // very next tick without anything else being pressed.
+        var engine = new CurveEngine(fans, store, new MultiplexHub());
+        fans.Temperature = 55f;
+        engine.Tick();
+
+        Assert.Contains(fans.Driven, d => d.Id == "/lpc/nct6797d/0/control/0");
+    }
+
+    [Fact]
+    public void Apply_TheImportedPresetSurvivesAModePress()
+    {
+        var (import, fans, store) = Build();
+        import.Apply(null, AllCategories);
+        var presetId = store.Load().Cooling.Presets.Single().Id;
+
+        // The user tries Silent, then comes back to the imported preset.
+        FanProfiles.Apply("silent", fans, store);
+        Assert.True(CoolingPresets.Activate(presetId, store, fans));
+
+        var assignments = store.Load().Cooling.CustomFanCurveAssignments;
+        Assert.Equal("fc-cpu-graph", assignments["/lpc/nct6797d/0/control/0"]);
+    }
+
+    [Fact]
+    public void ReImporting_ReplacesThePresetRatherThanAddingAnother()
+    {
+        var (import, _, store) = Build();
+        import.Apply(null, AllCategories);
+        var first = store.Load().Cooling.Presets.Single().Id;
+
+        import.Apply(null, AllCategories);
+        var preset = Assert.Single(store.Load().Cooling.Presets);
+        Assert.Equal(first, preset.Id);
+    }
+
+    [Fact]
+    public void Apply_ManualFansGoInThePresetToo()
+    {
+        var (import, _, store) = Build();
+        import.Apply(null, AllCategories);
+
+        var preset = store.Load().Cooling.Presets.Single();
+        Assert.Equal(65, preset.ManualSpeeds["/lpc/nct6797d/0/control/2"]);
+        // A fan the import put on a curve carries no manual duty.
+        Assert.False(preset.ManualSpeeds.ContainsKey("/lpc/nct6797d/0/control/0"));
+    }
+
+    [Fact]
+    public void Apply_RefusesWhenThePresetListIsFullOfOtherPeoplesPresets()
+    {
+        var (import, _, store) = Build();
+        store.Update(s =>
+        {
+            for (var i = 0; i < CoolingPresets.Cap; i++)
+            {
+                s.Cooling.Presets.Add(new CoolingPreset { Id = $"p{i}", Name = $"Mine {i}" });
+            }
+        });
+
+        var result = import.Apply(null, AllCategories);
+        Assert.True(result.Error);
+        Assert.Contains("limit", result.Msg);
+        Assert.Equal(CoolingPresets.Cap, store.Load().Cooling.Presets.Count);
+    }
+
+    [Fact]
+    public void Apply_CalibrationAndNamesAloneNeedNoPreset()
+    {
+        var (import, _, store) = Build();
+        var result = import.Apply(null, new[]
+        {
+            FanControlImportService.CategoryCalibration,
+            FanControlImportService.CategoryNames,
+        });
+
+        Assert.False(result.Error);
+        Assert.Null(result.PresetId);
+        Assert.Empty(store.Load().Cooling.Presets);
+        Assert.NotEmpty(store.Load().Cooling.FanCalibrations);
     }
 
     [Fact]
