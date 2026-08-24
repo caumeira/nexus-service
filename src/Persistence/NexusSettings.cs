@@ -642,6 +642,10 @@ public sealed class CoolingSettings
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();
     /// <summary>Snapshot of <see cref="ManualSpeeds"/> taken when leaving the Custom preset, keyed by channel id. Restored (and re-driven) when Custom is re-applied - the manual-fan counterpart of <see cref="CustomFanCurveAssignments"/>, and the only copy that survives the Off preset's per-channel release.</summary>
     public Dictionary<string, int> CustomManualSpeeds { get; set; } = new();
+    /// <summary>User-saved cooling configurations, selectable from the Cooling page's preset dropdown. Distinct from <see cref="ActivePreset"/>, which is the built-in mode (off/silent/balanced/turbo/custom) the UI calls a mode.</summary>
+    public List<CoolingPreset> Presets { get; set; } = new();
+    /// <summary>Id of the <see cref="Presets"/> entry currently loaded, or null when none is.</summary>
+    public string? ActivePresetId { get; set; }
     /// <summary>User-defined display order for fan channels in the Cooling view. Nullable so a partial POST /preferences that omits this field doesn't clobber the saved order.</summary>
     public List<string>? FanChannelOrder { get; set; }
     /// <summary>User-chosen sensor id for the CPU "temperature" reading shown across the Cooling page, Monitoring dashboard, and Cooling widget. Storage layer: null = auto (UI falls back to its default picker), non-null = pinned sensor id. The patch layer collapses an inbound empty string to null on write so the persisted JSON only ever holds null or a real id.</summary>
@@ -650,6 +654,20 @@ public sealed class CoolingSettings
     public string? PreferredGpuTempSensorId { get; set; }
     /// <summary>User-chosen "primary" GPU (by model name) used wherever a single GPU's sensors are shown: the Monitoring widget, sensors/Detailed view, and the GPU temp display. Keyed by model name (not enumeration index) so the choice survives reboots / driver re-enumeration. Same nullable semantics as the temp prefs: null = auto (client defaults to the first discrete GPU), empty string on PATCH collapses to null.</summary>
     public string? PreferredGpuId { get; set; }
+}
+
+/// <summary>One user-saved cooling configuration. Holds fan-to-curve assignments rather than copies of the curves, so the curve library stays shared and editing a curve is visible to every preset that uses it.</summary>
+public sealed class CoolingPreset
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Fan channel id -> curve id, in <see cref="CoolingSettings.CustomFanCurveAssignments"/> format. A fan absent from the map falls through to BIOS control on activate.</summary>
+    public Dictionary<string, string> FanCurveAssignments { get; set; } = new();
+    public Dictionary<string, int> ManualSpeeds { get; set; } = new();
+    public Dictionary<string, int> FanOffsets { get; set; } = new();
+    public double GlobalSpeedModifier { get; set; } = InstallDefaults.Cooling.GlobalSpeedModifier;
+    /// <summary>Built-in mode active when the preset was saved, applied on activate. Same value space as <see cref="CoolingSettings.ActivePreset"/>.</summary>
+    public string Mode { get; set; } = "custom";
 }
 
 public sealed class CurveDocument

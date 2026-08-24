@@ -93,6 +93,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(StrimerLightingSettings))]
 [JsonSerializable(typeof(Galahad2LightingSettings))]
 [JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(CoolingPreset))]
+[JsonSerializable(typeof(List<CoolingPreset>))]
 [JsonSerializable(typeof(LayoutPreset))]
 [JsonSerializable(typeof(List<LayoutPreset>))]
 [JsonSerializable(typeof(PresetAppBinding))]

@@ -238,6 +238,84 @@ public static class CoolingRoutes
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
 
+        // User-saved presets. Distinct from the built-in modes above: a preset
+        // stores fan-to-curve assignments plus which mode was active, and
+        // activating one replays that through FanProfiles.Apply.
+        app.MapGet("/cooling/presets", (IConfigStore store) =>
+        {
+            var cooling = store.Load().Cooling;
+            return new CoolingPresetsResponse
+            {
+                Presets = cooling.Presets.ConvertAll(ToPresetDto),
+                ActiveId = cooling.ActivePresetId,
+            };
+        }).AllowPanel();
+
+        app.MapPost("/cooling/presets", (CreateCoolingPresetBody body, IFanControlProvider f, IConfigStore store) =>
+        {
+            var name = (body.Name ?? "").Trim();
+            if (name.Length == 0)
+            {
+                return Results.BadRequest(new CreateCoolingPresetResponse { Error = true, Msg = "Preset name required" });
+            }
+            if (store.Load().Cooling.Presets.Count >= CoolingPresets.Cap)
+            {
+                return Results.BadRequest(new CreateCoolingPresetResponse { Error = true, Msg = $"Preset cap of {CoolingPresets.Cap} reached" });
+            }
+            var created = CoolingPresets.Capture(Guid.NewGuid().ToString("n"), name, store, f);
+            store.Update(s =>
+            {
+                s.Cooling.Presets.Add(created);
+                s.Cooling.ActivePresetId = created.Id;
+            });
+            return Results.Ok(new CreateCoolingPresetResponse { Preset = ToPresetDto(created), ActiveId = created.Id });
+        }).AllowPanel();
+
+        app.MapPut("/cooling/presets/active", (SetActiveCoolingPresetBody body, IConfigStore store) =>
+        {
+            store.Update(s => s.Cooling.ActivePresetId = body.Id);
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
+
+        app.MapPut("/cooling/presets/{id}", (string id, UpdateCoolingPresetBody body, IFanControlProvider f, IConfigStore store) =>
+        {
+            if (store.Load().Cooling.Presets.Find(p => p.Id == id) is null)
+            {
+                return Results.NotFound(new ApiResponse { Error = true, Msg = "Preset not found" });
+            }
+            store.Update(s =>
+            {
+                var preset = s.Cooling.Presets.Find(p => p.Id == id);
+                if (preset is null) return;
+                var name = (body.Name ?? "").Trim();
+                if (name.Length > 0) preset.Name = name;
+                if (body.SaveCurrent) CoolingPresets.CaptureInto(preset, store, f);
+            });
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
+
+        app.MapDelete("/cooling/presets/{id}", (string id, IConfigStore store) =>
+        {
+            string? activeId = null;
+            store.Update(s =>
+            {
+                s.Cooling.Presets.RemoveAll(p => p.Id == id);
+                if (s.Cooling.ActivePresetId == id) s.Cooling.ActivePresetId = null;
+                activeId = s.Cooling.ActivePresetId;
+            });
+            return Results.Ok(new DeleteCoolingPresetResponse { ActiveId = activeId });
+        }).AllowPanel();
+
+        app.MapPost("/cooling/presets/{id}/activate", (string id, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        {
+            if (!CoolingPresets.Activate(id, store, f))
+            {
+                return Results.NotFound(new ApiResponse { Error = true, Msg = "Preset not found" });
+            }
+            PanelTopics.BroadcastCooling(hub);
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
+
         // Calibration - fire-and-forget, poll status
         app.MapPost("/cooling/calibrate", (StartCalibrationBody body, IFanControlProvider f, CalibrationRunner runner) =>
         {
@@ -268,4 +346,11 @@ public static class CoolingRoutes
             };
         }).AllowPanel();
     }
+
+    private static CoolingPresetDto ToPresetDto(Nexus.Service.Persistence.CoolingPreset p) => new()
+    {
+        Id = p.Id,
+        Name = p.Name,
+        Mode = p.Mode,
+    };
 }
