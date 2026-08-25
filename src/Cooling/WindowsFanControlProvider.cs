@@ -123,6 +123,9 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
     public IReadOnlyList<TemperatureSource> GetTemperatureSources()
     {
+        // The picker lists drive temperatures alongside their current value, so
+        // it is a reader too. User-initiated and rare, so marking costs nothing.
+        _lhm.WantStorage();
         _lhm.Update();
         var sources = new List<TemperatureSource>();
 
@@ -145,7 +148,17 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
         foreach (var hw in _lhm.Instance.Hardware)
         {
             var sensor = FindSensorById(hw, sensorId);
-            if (sensor is not null) return sensor.Value;
+            if (sensor is null) continue;
+
+            // A curve bound to a drive temperature would otherwise follow the
+            // idle 30s storage cadence and react that late. Marking on the node
+            // we actually found it under keeps the group refreshing for as long
+            // as the binding is evaluated, without matching identifier strings.
+            if (hw.HardwareType == HardwareType.Storage)
+            {
+                _lhm.WantStorage();
+            }
+            return sensor.Value;
         }
 
         return null;
