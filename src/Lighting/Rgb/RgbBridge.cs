@@ -1574,10 +1574,17 @@ public sealed class RgbBridge : IDisposable
             {
                 sb.Append(',');
             }
-            sb.Append(d.Zones[i].LedCount);
-            if (d.Zones[i].IsFixedSize)
+            var z = d.Zones[i];
+            sb.Append(z.LedCount);
+            // Printing the bound, not just "fixed", is what shows a count the
+            // controller cannot be holding: a zone pinned at 1 reporting 60.
+            if (z.IsFixedSize)
             {
-                sb.Append("(fixed)");
+                sb.Append("(fixed@").Append(z.LedsMin).Append(')');
+            }
+            else if (z.LedsMax > 0 && (z.LedCount < z.LedsMin || z.LedCount > z.LedsMax))
+            {
+                sb.Append('(').Append(z.LedsMin).Append('-').Append(z.LedsMax).Append(')');
             }
         }
         return sb.Append(']').ToString();
