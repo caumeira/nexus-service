@@ -151,7 +151,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             if (sensor is null) continue;
 
             // A curve bound to a drive temperature would otherwise follow the
-            // idle 30s storage cadence and react that late. Marking on the node
+            // idle storage cadence and react that late. Marking on the node
             // we actually found it under keeps the group refreshing for as long
             // as the binding is evaluated, without matching identifier strings.
             if (hw.HardwareType == HardwareType.Storage)
