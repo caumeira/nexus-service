@@ -26,7 +26,7 @@ public sealed class WindowsPerformanceProvider : IPerformanceProvider
     {
         // 100 ms floor dedupes with whichever caller refreshed the hardware
         // tree most recently (ProcessMonitor, sensor route, cooling tick).
-        _lhm.Update(System.TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         return Task.FromResult(new PerformanceSnapshot
         {
             Cpu = ReadCpuTotal(),

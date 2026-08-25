@@ -141,7 +141,7 @@ public sealed class SmartHealthMonitor : ISmartHealthSource
 
         try
         {
-            _lhm.Update();
+            _lhm.Update(SensorRefresh.Force);
             var drives = new List<SmartDriveInfo>();
             foreach (var hw in _lhm.Instance.Hardware)
             {

@@ -35,6 +35,26 @@ public sealed class LhmComputer : IDisposable
     private readonly Task _openTask;
     private readonly object _updateLock = new();
     private long _lastUpdateTicks;
+    private long _lastStorageTicks;
+
+    // Hard cap of one hardware walk per second. Measured from the walk's START,
+    // not its end, so the cap is a real 1Hz rather than 1Hz-plus-walk-duration
+    // (a walk costs ~100ms). 990 rather than 1000 so the 1s tickers
+    // (CurveEngine, MetricsSampler, MonitoringBroadcaster) always clear it
+    // despite timer jitter instead of beating against it and skipping every
+    // other tick, which would age their data to 2s.
+    private const long NormalFloorMs = 990;
+
+    // Fan calibration samples RPM every 250ms to detect settle; the normal
+    // floor would feed it the same cached value four times.
+    private const long FastFloorMs = 100;
+
+    // SMART/NVMe attributes are read through an ATA pass-through to the drive
+    // itself. Drive temperature moves over minutes, so refreshing it on every
+    // walk buys nothing and costs ~30-50ms per walk (plus a head unpark per
+    // read on rotational drives). Throughput/activity/free-space sensors come
+    // from OS counters inside the same node, so they age at this rate too.
+    private const long StorageIntervalMs = 30_000;
 
     public LhmComputer(IConfigStore config)
     {
@@ -102,34 +122,54 @@ public sealed class LhmComputer : IDisposable
 
     /// <summary>
     /// Update all hardware sensors. Thread-safe - concurrent callers are serialized.
-    /// When <paramref name="minInterval"/> is provided, skips the update if the last
-    /// refresh was more recent than the interval. This collapses redundant updates
-    /// from multiple callers (MonitoringBroadcaster, CurveEngine, HTTP handlers)
-    /// into at most one hardware iteration per interval.
+    /// Capped at one hardware walk per second, which collapses the redundant
+    /// updates from multiple callers (MonitoringBroadcaster, CurveEngine, HTTP
+    /// handlers) into a single iteration; callers inside that window read the
+    /// values the previous walk cached. <see cref="SensorRefresh.Fast"/> lowers
+    /// the cap for fan calibration, <see cref="SensorRefresh.Force"/> bypasses
+    /// it and refreshes every group.
     /// Returns immediately if the background <see cref="Computer.Open"/> hasn't
     /// finished yet - callers see an empty <see cref="Computer.Hardware"/>
     /// collection and degrade to "no sensors" until warmup completes.
     /// </summary>
-    public void Update(TimeSpan? minInterval = null)
+    public void Update(SensorRefresh refresh = SensorRefresh.Normal)
     {
         if (!_openTask.IsCompletedSuccessfully) return;
 
         lock (_updateLock)
         {
-            if (minInterval.HasValue)
+            var now = Environment.TickCount64;
+            if (refresh != SensorRefresh.Force)
             {
-                var now = Environment.TickCount64;
-                if (now - _lastUpdateTicks < (long)minInterval.Value.TotalMilliseconds)
+                var floorMs = refresh == SensorRefresh.Fast ? FastFloorMs : NormalFloorMs;
+                if (now - _lastUpdateTicks < floorMs)
+                {
                     return;
+                }
             }
 
-            foreach (var hw in _computer.Hardware)
+            var storageDue = refresh == SensorRefresh.Force
+                || now - _lastStorageTicks >= StorageIntervalMs;
+
+            _lastUpdateTicks = now;
+            // LibreHardwareMonitor's IntelCpu.Update sleeps 1ms per physical core
+            // in its core-clock loop. At Windows' default 15.6ms timer tick that
+            // is ~188ms on a 12-core part - 57% of the whole walk, all of it
+            // sleeping. Holding 1ms resolution across the walk turns each of
+            // those into ~1-2ms.
+            using (WindowsTimerResolution.Elevate())
             {
-                hw.Update();
-                foreach (var sub in hw.SubHardware)
-                    sub.Update();
+                foreach (var hw in _computer.Hardware)
+                {
+                    if (hw.HardwareType == HardwareType.Storage && !storageDue) continue;
+
+                    hw.Update();
+                    foreach (var sub in hw.SubHardware)
+                        sub.Update();
+                }
             }
-            _lastUpdateTicks = Environment.TickCount64;
+
+            if (storageDue) _lastStorageTicks = now;
         }
     }
 
@@ -141,5 +181,33 @@ public sealed class LhmComputer : IDisposable
         // wait is rare and not on any user-visible path.
         try { _openTask.Wait(); } catch { /* shutdown best-effort */ }
         _computer.Close();
+    }
+}
+
+
+/// <summary>Holds the process timer resolution at 1ms for the duration of the
+/// scope. LibreHardwareMonitor's CPU update sleeps 1ms per core; at the default
+/// 15.6ms tick those sleeps dominate the whole sensor walk.</summary>
+internal static partial class WindowsTimerResolution
+{
+    [System.Runtime.InteropServices.LibraryImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
+    private static partial uint TimeBeginPeriod(uint period);
+
+    [System.Runtime.InteropServices.LibraryImport("winmm.dll", EntryPoint = "timeEndPeriod")]
+    private static partial uint TimeEndPeriod(uint period);
+
+    private const uint PeriodMs = 1;
+    private const uint TimerrNoError = 0;
+
+    internal static Scope Elevate() => new(TimeBeginPeriod(PeriodMs) == TimerrNoError);
+
+    internal readonly struct Scope : IDisposable
+    {
+        private readonly bool _held;
+        internal Scope(bool held) => _held = held;
+        public void Dispose()
+        {
+            if (_held) TimeEndPeriod(PeriodMs);
+        }
     }
 }

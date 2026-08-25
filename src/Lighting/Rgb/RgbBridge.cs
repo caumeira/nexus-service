@@ -148,6 +148,18 @@ public sealed class RgbBridge : IDisposable
     // ConcurrentDictionary so the 30fps OnFrame reader can't tear when
     // SyncPhysicalBuffers mutates on the refresh thread.
     private readonly ConcurrentDictionary<int, RgbColor[]> _physBuffers = new();
+
+    // Dedup + heartbeat, mirroring Slv3LightingFrameWriter's _lastSent /
+    // _lastPushTicks. A frame identical to the last one pushed is skipped, but
+    // every device is re-pushed at least every HeartbeatMs regardless, so a
+    // device that silently lost state - direct-mode timeout, USB
+    // re-enumeration, another OpenRGB client writing over us - still self-heals
+    // the way the unconditional 30fps push did, just a second later instead of
+    // 33ms. Cleared wholesale in SyncPhysicalBuffers (device list changed) and
+    // after BlackoutAsync, so a stale entry can never suppress a real write.
+    private readonly ConcurrentDictionary<int, RgbColor[]> _lastPushed = new();
+    private readonly ConcurrentDictionary<int, long> _lastPushTicks = new();
+    private const long HeartbeatMs = 1000;
     // Reused across frames - set of physical indices that had at least one zone
     // written in the current OnFrame. Cleared at the start of every frame.
     // Only touched inside OnFrame which the engine serialises, so a plain HashSet
@@ -483,6 +495,11 @@ public sealed class RgbBridge : IDisposable
             Array.Clear(buffer, 0, buffer.Length);
             await _controller.PushFrameAsync(kv.Key, buffer, ct).ConfigureAwait(false);
         }
+
+        // This path wrote black outside OnFrame's bookkeeping; drop the
+        // baselines so the first frame after resume always reaches hardware.
+        _lastPushed.Clear();
+        _lastPushTicks.Clear();
     }
 
     /// <summary>
@@ -1294,8 +1311,37 @@ public sealed class RgbBridge : IDisposable
         BounceSubprocess("detector-exclusions");
     }
 
+    /// <summary>True when this device's bytes differ from the last push, or the
+    /// heartbeat is due. Records what it approves as the new baseline.
+    /// Compares as bytes: RgbColor has no IEquatable, so Span.SequenceEqual over
+    /// the structs themselves would fall back to reflective ValueType.Equals and
+    /// cost more than the push it saves.</summary>
+    private bool ShouldPush(int physIdx, RgbColor[] buf)
+    {
+        var now = Environment.TickCount64;
+        if (_lastPushed.TryGetValue(physIdx, out var last)
+            && last.Length == buf.Length
+            && _lastPushTicks.TryGetValue(physIdx, out var when)
+            && now - when < HeartbeatMs
+            && System.Runtime.InteropServices.MemoryMarshal.AsBytes(buf.AsSpan())
+                .SequenceEqual(System.Runtime.InteropServices.MemoryMarshal.AsBytes(last.AsSpan())))
+        {
+            return false;
+        }
+
+        var copy = last is not null && last.Length == buf.Length ? last : new RgbColor[buf.Length];
+        buf.AsSpan().CopyTo(copy);
+        _lastPushed[physIdx] = copy;
+        _lastPushTicks[physIdx] = now;
+        return true;
+    }
+
     private void SyncPhysicalBuffers(IReadOnlyList<RgbDevice> devices)
     {
+        // Indices are being re-derived, so every dedup baseline is suspect.
+        _lastPushed.Clear();
+        _lastPushTicks.Clear();
+
         // Drop buffers for devices that no longer exist.
         var toRemove = new List<int>();
         foreach (var kv in _physBuffers)
@@ -1794,7 +1840,7 @@ public sealed class RgbBridge : IDisposable
 
         foreach (var physIdx in _touchedPhysicals)
         {
-            if (_physBuffers.TryGetValue(physIdx, out var buf))
+            if (_physBuffers.TryGetValue(physIdx, out var buf) && ShouldPush(physIdx, buf))
             {
                 _ = _controller.PushFrameAsync(physIdx, buf);
             }

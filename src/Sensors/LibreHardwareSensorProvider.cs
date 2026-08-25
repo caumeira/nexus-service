@@ -38,14 +38,14 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public string GetCpuModel()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var cpu = FindHardware(HardwareType.Cpu).FirstOrDefault();
         return cpu?.Name ?? "";
     }
 
     public IReadOnlyList<HardwareSensor> GetCpuSensors()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var result = new List<HardwareSensor>();
         foreach (var hw in FindHardware(HardwareType.Cpu))
         {
@@ -58,7 +58,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public (bool Healthy, float DistanceToTJMax) GetCpuHealth()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var cpu = FindHardware(HardwareType.Cpu).FirstOrDefault();
         if (cpu is null) return (true, 0f);
 
@@ -87,7 +87,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public IReadOnlyList<GpuReadout> GetGpus()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var result = new List<GpuReadout>();
         // DXGI adapter descriptions are never Astral/AIB-enriched, so LUID
         // matching below needs each GPU's raw LHM name alongside the
@@ -154,7 +154,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public IReadOnlyList<HardwareSensor> GetMemorySensors()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var result = new List<HardwareSensor>();
         // Skip LHM's `/vram` (pagefile) hardware - it exposes "Memory Used"
         // and "Memory Available" with the same Type/Name as the physical `/ram`,
@@ -191,7 +191,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public string GetMemoryTotalFormatted()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         // LHM reports both physical RAM and virtual memory (pagefile) as HardwareType.Memory.
         // Physical RAM has identifier "/ram", virtual has "/vram". Pick physical.
         var mem = FindHardware(HardwareType.Memory)
@@ -210,7 +210,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true)
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var result = new Dictionary<string, StorageComponent>();
         foreach (var di in System.IO.DriveInfo.GetDrives())
         {
@@ -280,7 +280,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public IReadOnlyList<HardwareSensor> GetMotherboardSensors()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var mobo = FindHardware(HardwareType.Motherboard).FirstOrDefault();
         if (mobo is null) return Array.Empty<HardwareSensor>();
 
@@ -297,7 +297,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public string GetMotherboardModel()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         return FindHardware(HardwareType.Motherboard).FirstOrDefault()?.Name ?? "";
     }
 
@@ -427,7 +427,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public SensorExtras GetSensorExtras()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
 
         var extras = new SensorExtras();
 

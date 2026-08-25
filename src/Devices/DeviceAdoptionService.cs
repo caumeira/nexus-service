@@ -60,6 +60,27 @@ public sealed class DeviceAdoptionService : BackgroundService
     /// <summary>One pass over every device; adopts each eligible one and broadcasts once if anything changed.</summary>
     internal void RunAdoptionPass()
     {
+        // Cheap pre-check first: adoption can only ever change something for a
+        // device that is connected, mapped to a competing app, and never
+        // explicitly set. When nothing qualifies - the common steady state - the
+        // conflict data cannot affect the outcome, so don't ask for it. Reading
+        // DetectionReady forces a process enumeration when the cache is stale.
+        var anyCandidate = false;
+        foreach (var device in _deviceManager.GetAll())
+        {
+            if (device.Connected
+                && DeviceControlPolicy.ConflictAppFor(device.Id) is not null
+                && _gate.IsUnset(device.Id))
+            {
+                anyCandidate = true;
+                break;
+            }
+        }
+        if (!anyCandidate)
+        {
+            return;
+        }
+
         if (!_detector.DetectionReady)
         {
             return;

@@ -62,6 +62,8 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
     private string[] _lastDetectedIds = Array.Empty<string>();
 
     private volatile bool _detectionReady;
+    private readonly object _scanLock = new();
+    private long _lastScanTicks = long.MinValue / 2;
 
     public ConflictWatcher(MultiplexHub hub, OpenRgbProcessManager? openRgb = null)
     {
@@ -70,12 +72,48 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
         _hub.RegisterSnapshotProvider(Topic, GetCachedSnapshotEnvelope);
     }
 
-    public IReadOnlyList<DetectedConflict> GetConflicts() => _latest;
+    public IReadOnlyList<DetectedConflict> GetConflicts()
+    {
+        EnsureFresh();
+        return _latest;
+    }
 
-    public bool DetectionReady => _detectionReady;
+    public bool DetectionReady
+    {
+        get
+        {
+            EnsureFresh();
+            return _detectionReady;
+        }
+    }
+
+    /// <summary>
+    /// Scans if the cache is older than the poll interval. The background loop
+    /// only scans while something is subscribed, so on an idle box (no
+    /// dashboard, no adoption candidates) the process enumeration stops
+    /// happening at all - but every reader still sees data no staler than it
+    /// did when the loop ran unconditionally.
+    /// </summary>
+    private void EnsureFresh()
+    {
+        if (Environment.TickCount64 - Volatile.Read(ref _lastScanTicks) < (long)PollInterval.TotalMilliseconds)
+        {
+            return;
+        }
+
+        lock (_scanLock)
+        {
+            if (Environment.TickCount64 - _lastScanTicks < (long)PollInterval.TotalMilliseconds)
+            {
+                return;
+            }
+            ScanAndPublish();
+        }
+    }
 
     public bool IsAppRunning(string appId)
     {
+        EnsureFresh();
         var latest = _latest;
         foreach (var conflict in latest)
         {
@@ -104,6 +142,9 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
 
     private ReadOnlyMemory<byte>? GetCachedSnapshotEnvelope()
     {
+        // A client subscribing after an idle stretch is a reader like any
+        // other: without this it would be handed whatever the cache last held.
+        EnsureFresh();
         var bytes = _cachedEnvelope;
         return bytes is null ? null : new ReadOnlyMemory<byte>(bytes);
     }
@@ -129,7 +170,15 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
         {
             try
             {
-                ScanAndPublish();
+                // Push updates exist for subscribers only. Everyone else reads
+                // through EnsureFresh, which scans on demand.
+                if (_hub.TopicHasSubscribers(Topic))
+                {
+                    lock (_scanLock)
+                    {
+                        ScanAndPublish();
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -157,6 +206,7 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
         _lastDetectedIds = ids;
         _latest = detected;
         _detectionReady = true;
+        Volatile.Write(ref _lastScanTicks, Environment.TickCount64);
 
         if (!changed && _cachedEnvelope is not null)
             return;

@@ -67,7 +67,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
     public IReadOnlyList<FanChannel> GetFanChannels()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var mappings = EnsureDiscovered();
         var settings = _config.Load();
         var calibrations = settings.Cooling.FanCalibrations;
@@ -123,7 +123,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
     public IReadOnlyList<TemperatureSource> GetTemperatureSources()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var sources = new List<TemperatureSource>();
 
         foreach (var hw in _lhm.Instance.Hardware)
@@ -140,7 +140,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
     public float? ReadTemperature(string sensorId)
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
 
         foreach (var hw in _lhm.Instance.Hardware)
         {
@@ -318,7 +318,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
     private int ReadCalibrationRpm(ChannelMapping mapping)
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update(SensorRefresh.Fast);
         return (int)(mapping.FanSensor.Value ?? 0f);
     }
 
@@ -326,7 +326,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
     public IReadOnlyList<CoolingComponent> GetAll()
     {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var channels = GetFanChannels();
         if (channels.Count == 0) return Array.Empty<CoolingComponent>();
 
@@ -387,7 +387,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             var start = Environment.TickCount;
             while (Environment.TickCount - start < perCallCap)
             {
-                _lhm.Update();
+                _lhm.Update(SensorRefresh.Force);
                 var mobo = _lhm.Instance.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Motherboard);
                 if (mobo is not null && mobo.SubHardware.Length > 0)
                 {
@@ -399,7 +399,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             _warmupBudgetRemainingMs -= Environment.TickCount - start;
         }
 
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        _lhm.Update();
         var result = new List<ChannelMapping>();
         // Per-chip raw tach/control layout, logged only when the channel set
         // changes (below). This is the diagnostic for a tach/PWM index
