@@ -9,14 +9,17 @@ namespace Nexus.Service.Tests;
 /// <summary>
 /// Parsing and mapping of FanControl configurations.
 ///
-/// Two fixtures. <c>userConfig-real.json</c> is a byte copy of a real
+/// Three fixtures. <c>userConfig-real.json</c> is a byte copy of a real
 /// FanControl v215 config off the T1 lab box: it is what pins the identifier
 /// handling, because it carries both quirks that matter (an LHM identifier
 /// format one version behind ours, and NVIDIA fans addressed through
 /// FanControl's own NvAPI plugin). <c>all-curve-kinds.json</c> is
 /// hand-authored, since that box has only a flat curve; its key sets come from
 /// the I*FanCurveConfig interfaces in FanControl.Library.dll rather than from
-/// guesswork, but it is not a captured file.
+/// guesswork, but it is not a captured file. <c>userConfig-v275.json</c> is a
+/// byte copy of a user's v275 config (an ASUS NCT6701D board with an RTX 5090):
+/// v275 renamed the data section and reshaped the graph curves, so it is what
+/// pins the newer layout.
 /// </summary>
 public class FanControlImportTests
 {
@@ -26,6 +29,8 @@ public class FanControlImportTests
     private static FanControlConfig Real() => FanControlConfigParser.Parse(Fixture("userConfig-real.json"));
 
     private static FanControlConfig AllKinds() => FanControlConfigParser.Parse(Fixture("all-curve-kinds.json"));
+
+    private static FanControlConfig V275() => FanControlConfigParser.Parse(Fixture("userConfig-v275.json"));
 
     private static List<LhmIdentifierMatcher.Candidate> Channels(params (string Id, string Name)[] items) =>
         items.Select(i => new LhmIdentifierMatcher.Candidate(i.Id, i.Name)).ToList();
@@ -453,6 +458,153 @@ public class FanControlImportTests
         Assert.Equal(5, plan.Calibrations.Count);
         Assert.Equal(2744, plan.Calibrations["/lpc/it8696e/0/control/0"].MaxRpm);
         Assert.Equal("CPU Fan", plan.Names["/lpc/it8696e/0/control/0"]);
+    }
+
+    // ── Config v275 layout ────────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_V275_ReadsTheRenamedDataSection()
+    {
+        var config = V275();
+        Assert.Equal(275, config.Version);
+        Assert.Equal(9, config.Controls.Count);
+        Assert.Equal(5, config.Curves.Count);
+    }
+
+    [Fact]
+    public void Parse_V275_DetectsCurveKinds()
+    {
+        var kinds = V275().Curves.ToDictionary(c => c.Name, c => c.Kind);
+        Assert.Equal(FanControlCurveKinds.Flat, kinds["Flat"]);
+        Assert.Equal(FanControlCurveKinds.Graph, kinds["CPU Fan Curve"]);
+        Assert.Equal(FanControlCurveKinds.Graph, kinds["GPU Fan Curve"]);
+        Assert.Equal(FanControlCurveKinds.Auto, kinds["Auto CPU"]);
+        Assert.Equal(FanControlCurveKinds.Auto, kinds["Auto GPU"]);
+    }
+
+    [Fact]
+    public void Parse_V275_ReadsGraphResponseTimeFromHysteresisConfig()
+    {
+        var graph = FanControlConfigParser.Parse(
+            Fixture("userConfig-v275.json").Replace("\"ResponseTimeUp\": 1,", "\"ResponseTimeUp\": 4,"))
+            .Curves.First(c => c.Name == "CPU Fan Curve");
+        Assert.Equal(4, graph.ResponseTime);
+    }
+
+    [Fact]
+    public void Parse_V275_ReadsCalibrationRowsThatCarryATrailingFlag()
+    {
+        // v275 calibration rows are [percent, rpm, bool] where v215's were pairs.
+        var control = V275().Controls.First(c => c.Identifier == "/lpc/nct6701d/control/1");
+        Assert.Equal(11, control.Calibration.Count);
+        Assert.Equal((1, 0), control.Calibration[0]);
+        Assert.Equal((100, 1737), control.Calibration[^1]);
+        Assert.Equal("AIO Fans", control.NickName);
+    }
+
+    [Fact]
+    public void Map_V275_ImportsOnlyTheNamesTheUserActuallyChanged()
+    {
+        // v275 drops Control.Name, so a nickname is a rename only when it differs
+        // from the paired fan sensor's label. Without that comparison every
+        // FanControl default ("AIO Pump", "Control 1 - NVIDIA GeForce RTX 5090")
+        // would overwrite the user's own fan names.
+        var channels = Channels(
+            ("/lpc/nct6701d/0/control/0", "Fan #1"),
+            ("/lpc/nct6701d/0/control/1", "Fan #2"),
+            ("/lpc/nct6701d/0/control/2", "Fan #3"),
+            ("/lpc/nct6701d/0/control/4", "Fan #5"),
+            ("/lpc/nct6701d/0/control/6", "Fan #7"),
+            ("/gpu-nvidia/0/control/0", "GPU Fan 1"),
+            ("/gpu-nvidia/0/control/1", "GPU Fan 2"));
+        var plan = FanControlImportMapper.Build(V275(), channels, AllKindsSensors);
+        var names = plan.Names;
+
+        Assert.Equal("Front & Rear Fans", names["/lpc/nct6701d/0/control/0"]);
+        Assert.Equal("AIO Fans", names["/lpc/nct6701d/0/control/1"]);
+        Assert.Equal("Bottom Fans", names["/lpc/nct6701d/0/control/4"]);
+        Assert.Equal(3, names.Count);
+
+        // Every excluded control below bound to a channel, so exclusion is the
+        // predicate's doing and not a failed match.
+        foreach (var id in new[]
+                 {
+                     "/lpc/nct6701d/0/control/2", "/lpc/nct6701d/0/control/6",
+                     "/gpu-nvidia/0/control/0", "/gpu-nvidia/0/control/1",
+                 })
+        {
+            Assert.Contains(plan.Preview.Fans, f => f.ChannelId == id);
+            Assert.DoesNotContain(id, names.Keys);
+        }
+    }
+
+    [Fact]
+    public void Map_V275_DropsANicknameItCannotTellApartFromTheGeneratedLabel()
+    {
+        // The two branches that exclude a name are different and only one is the
+        // equality test: the GPU controls are paired and their nickname equals the
+        // paired sensor's label, while control/2 and control/6 have no paired
+        // sensor at all, so nothing is left to compare against.
+        var config = V275();
+        var gpu = config.Controls.First(c => c.Identifier == "NVApiWrapper/0-GB202-A/control/0");
+        Assert.Equal(
+            config.FanSensorNames[gpu.PairedFanSensorIdentifier!],
+            gpu.NickName);
+
+        foreach (var id in new[] { "/lpc/nct6701d/control/2", "/lpc/nct6701d/control/6" })
+        {
+            Assert.Null(config.Controls.First(c => c.Identifier == id).PairedFanSensorIdentifier);
+        }
+    }
+
+    [Fact]
+    public void Parse_ReadsTheGeneratedFanLabel_FromNameOnV215_AndNickNameOnV275()
+    {
+        // v215 carries both, and there NickName mirrors the paired control's label
+        // rather than the hardware - so Name is the one that means "generated".
+        Assert.Equal("Fan #1", Real().FanSensorNames["/lpc/it8696e/fan/0"]);
+        Assert.Equal(
+            "Fan 1 - NVIDIA GeForce RTX 3080",
+            Real().FanSensorNames["NVApiWrapper/0-GA102-A/fan/0"]);
+
+        var config = V275();
+        Assert.Equal("Chassis Fan #1", config.FanSensorNames["/lpc/nct6701d/fan/0"]);
+        Assert.Equal(
+            "/lpc/nct6701d/fan/1",
+            config.Controls.First(c => c.Identifier == "/lpc/nct6701d/control/1").PairedFanSensorIdentifier);
+        Assert.Null(config.Controls.First(c => c.Identifier == "/lpc/nct6701d/control/2").PairedFanSensorIdentifier);
+    }
+
+    [Fact]
+    public void Map_V275_BindsTheReportedConfigToThisPcsFans()
+    {
+        var channels = Channels(
+            ("/lpc/nct6701d/0/control/0", "Fan #1"),
+            ("/lpc/nct6701d/0/control/1", "Fan #2"),
+            ("/lpc/nct6701d/0/control/4", "Fan #5"),
+            ("/gpu-nvidia/0/control/0", "GPU Fan 1"),
+            ("/gpu-nvidia/0/control/1", "GPU Fan 2"));
+        var sensors = Channels(
+            ("/amdcpu/0/temperature/2", "Core (Tctl/Tdie)"),
+            ("/amdcpu/0/temperature/3", "CCD1 (Tdie)"),
+            ("/gpu-nvidia/0/temperature/0", "GPU Core"));
+        var plan = FanControlImportMapper.Build(V275(), channels, sensors);
+
+        var byIdentifier = plan.Preview.Fans.ToDictionary(f => f.Identifier);
+        Assert.Equal("/lpc/nct6701d/0/control/1", byIdentifier["/lpc/nct6701d/control/1"].ChannelId);
+        Assert.Equal("normalized", byIdentifier["/lpc/nct6701d/control/1"].Match);
+        Assert.Equal("/gpu-nvidia/0/control/0", byIdentifier["NVApiWrapper/0-GB202-A/control/0"].ChannelId);
+        Assert.Equal("position", byIdentifier["NVApiWrapper/0-GB202-A/control/0"].Match);
+
+        var gpuCurve = plan.Curves.First(c => c.Name == "GPU Fan Curve");
+        Assert.Equal("/gpu-nvidia/0/temperature/0", gpuCurve.Input.Id);
+        Assert.Equal(
+            new[] { "/lpc/nct6701d/0/control/0", "/lpc/nct6701d/0/control/4" },
+            gpuCurve.Outputs.Select(o => o.Id).Order());
+        Assert.Equal(
+            new[] { "/lpc/nct6701d/0/control/1" },
+            plan.Curves.First(c => c.Name == "Auto CPU").Outputs.Select(o => o.Id));
+        Assert.Equal("AIO Fans", plan.Names["/lpc/nct6701d/0/control/1"]);
     }
 
     [Fact]

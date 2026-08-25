@@ -72,6 +72,8 @@ internal sealed class FanControlControl
     public int MinimumPercent { get; set; }
     public bool ManualControl { get; set; }
     public double ManualControlValue { get; set; }
+    /// <summary>The fan sensor this control is paired with; null when unpaired.</summary>
+    public string? PairedFanSensorIdentifier { get; set; }
     /// <summary>Duty-to-RPM steps, as measured by FanControl's own calibration.</summary>
     public List<(int Percent, int Rpm)> Calibration { get; } = new();
 }
@@ -82,6 +84,14 @@ internal sealed class FanControlConfig
     public int Version { get; set; }
     public List<FanControlCurve> Curves { get; } = new();
     public List<FanControlControl> Controls { get; } = new();
+    /// <summary>
+    /// Fan-sensor identifier to FanControl's generated label for that channel.
+    /// v215 spells it Name, alongside a NickName that mirrors the paired control's
+    /// label; v275 dropped Name and leaves the generated label under NickName. It
+    /// is read here because v275 also dropped the control's own Name, and this is
+    /// then the only surviving copy to compare a nickname against.
+    /// </summary>
+    public Dictionary<string, string> FanSensorNames { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 /// <summary>
@@ -105,7 +115,8 @@ internal static class FanControlConfigParser
         // Written as a JSON string in shipping configs, so this cannot use TryGetInt32.
         config.Version = (int)Num(root, "__VERSION__");
 
-        if (!root.TryGetProperty("Main", out var main) || main.ValueKind != JsonValueKind.Object)
+        // v275 renamed the data section from "Main" to "FanControl".
+        if (!TrySection(root, "FanControl", out var main) && !TrySection(root, "Main", out main))
         {
             return config;
         }
@@ -118,6 +129,21 @@ internal static class FanControlConfigParser
                 if (curve is not null)
                 {
                     config.Curves.Add(curve);
+                }
+            }
+        }
+
+        if (main.TryGetProperty("FanSensors", out var fanSensors) && fanSensors.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var element in fanSensors.EnumerateArray())
+            {
+                var id = Str(element, "Identifier");
+                // Name where the version has one, so this dictionary holds the
+                // generated label on both and never a v215 mirror of the nickname.
+                var label = Str(element, "Name") ?? Str(element, "NickName");
+                if (!string.IsNullOrEmpty(id) && !string.IsNullOrWhiteSpace(label))
+                {
+                    config.FanSensorNames[id] = label!;
                 }
             }
         }
@@ -151,7 +177,7 @@ internal static class FanControlConfigParser
             CommandMode = (int)Num(e, "CommandMode"),
             TempSourceIdentifier = Identifier(e, "SelectedTempSource"),
             TempSourceName = Identifier(e, "SelectedTempSource", "Name"),
-            ResponseTime = Num(e, "SelectedResponseTime", 1),
+            ResponseTime = Num(e, "SelectedResponseTime", HysteresisResponseTime(e)),
             MinimumTemperature = Num(e, "MinimumTemperature"),
             MaximumTemperature = Num(e, "MaximumTemperature"),
             // Linear spells these Minimum/MaximumFanSpeed; Auto spells the same
@@ -246,6 +272,7 @@ internal static class FanControlConfigParser
             MinimumPercent = (int)Num(e, "MinimumPercent"),
             ManualControl = Bool(e, "ManualControl"),
             ManualControlValue = Num(e, "ManualControlValue"),
+            PairedFanSensorIdentifier = Identifier(e, "PairedFanSensor"),
         };
 
         if (e.TryGetProperty("Calibration", out var cal) && cal.ValueKind == JsonValueKind.Array)
@@ -316,6 +343,20 @@ internal static class FanControlConfigParser
             }
         }
 
+        return false;
+    }
+
+    /// <summary>v275 splits response time into up/down; Nexus curves carry one, so take the rising time.</summary>
+    private static double HysteresisResponseTime(JsonElement e) =>
+        TrySection(e, "HysteresisConfig", out var h) ? Num(h, "ResponseTimeUp", 1) : 1;
+
+    private static bool TrySection(JsonElement root, string name, out JsonElement section)
+    {
+        if (root.TryGetProperty(name, out section) && section.ValueKind == JsonValueKind.Object)
+        {
+            return true;
+        }
+        section = default;
         return false;
     }
 

@@ -84,7 +84,7 @@ internal static class FanControlImportMapper
                 ChannelId = channelId,
                 ChannelName = channelName,
                 Match = TierName(tier),
-                NickName = Nickname(control),
+                NickName = Nickname(config, control),
                 HasCalibration = control.Calibration.Count >= 2,
                 ManualDuty = control.ManualControl && control.Enable
                     ? (int)Math.Round(control.ManualControlValue)
@@ -98,7 +98,7 @@ internal static class FanControlImportMapper
                 continue;
             }
 
-            if (Nickname(control) is { } nickname)
+            if (Nickname(config, control) is { } nickname)
             {
                 plan.Names[channelId] = nickname;
             }
@@ -270,8 +270,8 @@ internal static class FanControlImportMapper
     /// <summary>
     /// Every temperature source the config's curves point at, resolved to a
     /// local sensor id (null when nothing here matches). Identifier, then the
-    /// sensor's hardware-reported name - which is the same string on both sides,
-    /// since both read LibreHardwareMonitor - then position within the GPU class,
+    /// sensor's hardware-reported name - the same string on both sides, but absent
+    /// from every temperature source in the v275 capture - then position within the GPU class,
     /// which is the only bridge for a GPU sensor FanControl reads through its own
     /// NvAPI or ADLX plugin.
     /// </summary>
@@ -478,11 +478,31 @@ internal static class FanControlImportMapper
         preview.TargetType = "";
     }
 
-    private static string? Nickname(FanControlControl control) =>
-        !string.IsNullOrWhiteSpace(control.NickName)
-        && !string.Equals(control.NickName, control.Name, StringComparison.Ordinal)
+    /// <summary>
+    /// A control's nickname, but only when the user actually set one - FanControl
+    /// seeds it with the channel's generated label, which is noise here.
+    ///
+    /// Up to v215 that label is the control's own Name. v275 dropped Name and the
+    /// paired fan sensor carries the last copy, so it is read from there; with
+    /// neither available the predicate cannot be evaluated and no name is imported,
+    /// since importing would overwrite the user's own fan names with strings like
+    /// "Control 1 - NVIDIA GeForce RTX 5090". Dropping a rename is recoverable and
+    /// shows as an empty nickname in the preview; an overwrite is not.
+    /// </summary>
+    private static string? Nickname(FanControlConfig config, FanControlControl control)
+    {
+        if (string.IsNullOrWhiteSpace(control.NickName))
+        {
+            return null;
+        }
+        var generated = !string.IsNullOrEmpty(control.Name)
+            ? control.Name
+            : control.PairedFanSensorIdentifier is { } paired
+                && config.FanSensorNames.TryGetValue(paired, out var label) ? label : null;
+        return generated is not null && !string.Equals(control.NickName, generated, StringComparison.Ordinal)
             ? control.NickName
             : null;
+    }
 
     private static string? TargetType(string kind) => kind switch
     {

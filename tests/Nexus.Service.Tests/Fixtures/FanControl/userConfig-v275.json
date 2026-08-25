@@ -1,0 +1,651 @@
+{
+  "__VERSION__": "275",
+  "FanControl": {
+    "Controls": [
+      {
+        "NickName": "AIO Fans",
+        "Identifier": "/lpc/nct6701d/control/1",
+        "IsHidden": false,
+        "Enable": true,
+        "SelectedFanCurve": {
+          "Name": "Auto CPU"
+        },
+        "SelectedOffset": 0,
+        "PairedFanSensor": {
+          "Identifier": "/lpc/nct6701d/fan/1"
+        },
+        "SelectedStart": 13,
+        "SelectedStop": 7,
+        "MinimumPercent": 0,
+        "SelectedCommandStepUp": 8,
+        "SelectedCommandStepDown": 8,
+        "ManualControlValue": 50,
+        "ManualControl": false,
+        "ForceApply": false,
+        "Calibration": [
+          [
+            1,
+            0,
+            false
+          ],
+          [
+            10,
+            168,
+            false
+          ],
+          [
+            20,
+            442,
+            false
+          ],
+          [
+            30,
+            669,
+            false
+          ],
+          [
+            40,
+            877,
+            false
+          ],
+          [
+            50,
+            1053,
+            false
+          ],
+          [
+            60,
+            1207,
+            false
+          ],
+          [
+            70,
+            1341,
+            false
+          ],
+          [
+            80,
+            1473,
+            false
+          ],
+          [
+            90,
+            1596,
+            false
+          ],
+          [
+            100,
+            1737,
+            false
+          ]
+        ]
+      },
+      {
+        "NickName": "Front & Rear Fans",
+        "Identifier": "/lpc/nct6701d/control/0",
+        "IsHidden": false,
+        "Enable": true,
+        "SelectedFanCurve": {
+          "Name": "GPU Fan Curve"
+        },
+        "SelectedOffset": 0,
+        "PairedFanSensor": {
+          "Identifier": "/lpc/nct6701d/fan/0"
+        },
+        "SelectedStart": 13,
+        "SelectedStop": 7,
+        "MinimumPercent": 0,
+        "SelectedCommandStepUp": 8,
+        "SelectedCommandStepDown": 8,
+        "ManualControlValue": 50,
+        "ManualControl": false,
+        "ForceApply": false,
+        "Calibration": [
+          [
+            1,
+            0,
+            false
+          ],
+          [
+            10,
+            227,
+            false
+          ],
+          [
+            20,
+            491,
+            false
+          ],
+          [
+            30,
+            695,
+            false
+          ],
+          [
+            40,
+            869,
+            false
+          ],
+          [
+            50,
+            1011,
+            false
+          ],
+          [
+            60,
+            1138,
+            false
+          ],
+          [
+            70,
+            1258,
+            false
+          ],
+          [
+            80,
+            1360,
+            false
+          ],
+          [
+            90,
+            1459,
+            false
+          ],
+          [
+            100,
+            1552,
+            false
+          ]
+        ]
+      },
+      {
+        "NickName": "Chassis Fan #2",
+        "Identifier": "/lpc/nct6701d/control/2",
+        "IsHidden": true,
+        "Enable": false,
+        "SelectedFanCurve": {
+          "Name": "Flat"
+        },
+        "SelectedOffset": 0,
+        "PairedFanSensor": null,
+        "SelectedStart": 0,
+        "SelectedStop": 0,
+        "MinimumPercent": 0,
+        "SelectedCommandStepUp": 8,
+        "SelectedCommandStepDown": 8,
+        "ManualControlValue": 50,
+        "ManualControl": false,
+        "ForceApply": false,
+        "Calibration": []
+      },
+      {
+        "NickName": "Chassis Fan #3",
+        "Identifier": "/lpc/nct6701d/control/3",
+        "IsHidden": true,
+        "Enable": false,
+        "SelectedFanCurve": {
+          "Name": "Flat"
+        },
+        "SelectedOffset": 0,
+        "PairedFanSensor": null,
+        "SelectedStart": 0,
+        "SelectedStop": 0,
+        "MinimumPercent": 0,
+        "SelectedCommandStepUp": 8,
+        "SelectedCommandStepDown": 8,
+        "ManualControlValue": 50,
+        "ManualControl": false,
+        "ForceApply": false,
+        "Calibration": []
+      },
+      {
+        "NickName": "Bottom Fans",
+        "Identifier": "/lpc/nct6701d/control/4",
+        "IsHidden": false,
+        "Enable": true,
+        "SelectedFanCurve": {
+          "Name": "GPU Fan Curve"
+        },
+        "SelectedOffset": 0,
+        "PairedFanSensor": {
+          "Identifier": "/lpc/nct6701d/fan/4"
+        },
+        "SelectedStart": 0,
+        "SelectedStop": 0,
+        "MinimumPercent": 0,
+        "SelectedCommandStepUp": 8,
+        "SelectedCommandStepDown": 8,
+        "ManualControlValue": 50,
+        "ManualControl": false,
+        "ForceApply": false,
+        "Calibration": [
+          [
+            0,
+            850,
+            false
+          ],
+          [
+            20,
+            853,
+            false
+          ],
+          [
+            30,
+            855,
+            false
+          ],
+          [
+            40,
+            955,
+            false
+          ],
+          [
+            50,
+            1123,
+            false
+          ],
+          [
+            60,
+            1286,
+            false
+          ],
+          [
+            70,
+            1417,
+            false
+          ],
+          [
+            80,
+            1551,
+            false
+          ],
+          [
+            90,
+            1679,
+            false
+          ],
+          [
+            100,
+            1817,
+            false
+          ]
+        ]
+      },
+      {
+        "NickName": "Control 1 - NVIDIA GeForce RTX 5090",
+        "Identifier": "NVApiWrapper/0-GB202-A/control/0",
+        "IsHidden": true,
+        "Enable": false,
+        "SelectedFanCurve": {
+          "Name": "GPU Fan Curve"
+        },
+        "SelectedOffset": 0,
+        "PairedFanSensor": {
+          "Identifier": "NVApiWrapper/0-GB202-A/fan/0"
+        },
+        "SelectedStart": 0,
+        "SelectedStop": 0,
+        "MinimumPercent": 0,
+        "SelectedCommandStepUp": 8,
+        "SelectedCommandStepDown": 8,
+        "ManualControlValue": 50,
+        "ManualControl": false,
+        "ForceApply": false,
+        "Calibration": [
+          [
+            0,
+            1080,
+            false
+          ],
+          [
+            1,
+            1080,
+            false
+          ],
+          [
+            10,
+            1080,
+            false
+          ],
+          [
+            20,
+            1080,
+            false
+          ],
+          [
+            30,
+            1080,
+            false
+          ],
+          [
+            40,
+            1342,
+            false
+          ],
+          [
+            50,
+            1600,
+            false
+          ],
+          [
+            60,
+            1857,
+            false
+          ],
+          [
+            70,
+            2125,
+            false
+          ],
+          [
+            80,
+            2378,
+            false
+          ],
+          [
+            90,
+            2636,
+            false
+          ],
+          [
+            100,
+            2862,
+            false
+          ]
+        ]
+      },
+      {
+        "NickName": "Chassis Fan #5",
+        "Identifier": "/lpc/nct6701d/control/5",
+        "IsHidden": true,
+        "Enable": false,
+        "SelectedFanCurve": null,
+        "SelectedOffset": 0,
+        "PairedFanSensor": null,
+        "SelectedStart": 0,
+        "SelectedStop": 0,
+        "MinimumPercent": 0,
+        "SelectedCommandStepUp": 8,
+        "SelectedCommandStepDown": 8,
+        "ManualControlValue": 50,
+        "ManualControl": false,
+        "ForceApply": false,
+        "Calibration": []
+      },
+      {
+        "NickName": "AIO Pump",
+        "Identifier": "/lpc/nct6701d/control/6",
+        "IsHidden": true,
+        "Enable": false,
+        "SelectedFanCurve": null,
+        "SelectedOffset": 0,
+        "PairedFanSensor": null,
+        "SelectedStart": 0,
+        "SelectedStop": 0,
+        "MinimumPercent": 0,
+        "SelectedCommandStepUp": 8,
+        "SelectedCommandStepDown": 8,
+        "ManualControlValue": 50,
+        "ManualControl": false,
+        "ForceApply": false,
+        "Calibration": []
+      },
+      {
+        "NickName": "Control 2 - NVIDIA GeForce RTX 5090",
+        "Identifier": "NVApiWrapper/0-GB202-A/control/1",
+        "IsHidden": true,
+        "Enable": false,
+        "SelectedFanCurve": {
+          "Name": "GPU Fan Curve"
+        },
+        "SelectedOffset": 0,
+        "PairedFanSensor": {
+          "Identifier": "NVApiWrapper/0-GB202-A/fan/1"
+        },
+        "SelectedStart": 0,
+        "SelectedStop": 0,
+        "MinimumPercent": 0,
+        "SelectedCommandStepUp": 8,
+        "SelectedCommandStepDown": 8,
+        "ManualControlValue": 50,
+        "ManualControl": false,
+        "ForceApply": false,
+        "Calibration": [
+          [
+            0,
+            1080,
+            false
+          ],
+          [
+            1,
+            1080,
+            false
+          ],
+          [
+            10,
+            1080,
+            false
+          ],
+          [
+            20,
+            1080,
+            false
+          ],
+          [
+            30,
+            1080,
+            false
+          ],
+          [
+            40,
+            1343,
+            false
+          ],
+          [
+            50,
+            1605,
+            false
+          ],
+          [
+            60,
+            1859,
+            false
+          ],
+          [
+            70,
+            2124,
+            false
+          ],
+          [
+            80,
+            2382,
+            false
+          ],
+          [
+            90,
+            2661,
+            false
+          ],
+          [
+            100,
+            2876,
+            false
+          ]
+        ]
+      }
+    ],
+    "CustomSensors": [],
+    "FanCurves": [
+      {
+        "Name": "Flat",
+        "IsHidden": false,
+        "CommandMode": 0,
+        "Percent": 40
+      },
+      {
+        "Name": "CPU Fan Curve",
+        "IsHidden": false,
+        "CommandMode": 0,
+        "SelectedTempSource": {
+          "Identifier": "/amdcpu/0/temperature/3"
+        },
+        "Points": [
+          "40,20",
+          "64.9,30.98844444444444",
+          "77.23598517502407,50.98844444444444",
+          "79.95431692476136,80.0551111111111",
+          "87.35422002126842,100"
+        ],
+        "MaximumTemperature": 100,
+        "MinimumTemperature": 20,
+        "MaximumCommand": 100,
+        "HysteresisConfig": {
+          "ResponseTimeUp": 1,
+          "ResponseTimeDown": 1,
+          "HysteresisValueUp": 2,
+          "HysteresisValueDown": 2,
+          "IgnoreHysteresisAtLimits": true
+        }
+      },
+      {
+        "Name": "GPU Fan Curve",
+        "IsHidden": false,
+        "CommandMode": 0,
+        "SelectedTempSource": {
+          "Identifier": "NVApiWrapper/0-GB202-A/sensor/0"
+        },
+        "Points": [
+          "40,20",
+          "66.8,40.321777777777775",
+          "80.02982614003184,70.45511111111111"
+        ],
+        "MaximumTemperature": 120,
+        "MinimumTemperature": 20,
+        "MaximumCommand": 100,
+        "HysteresisConfig": {
+          "ResponseTimeUp": 1,
+          "ResponseTimeDown": 1,
+          "HysteresisValueUp": 2,
+          "HysteresisValueDown": 2,
+          "IgnoreHysteresisAtLimits": true
+        }
+      },
+      {
+        "Name": "Auto CPU",
+        "IsHidden": false,
+        "CommandMode": 0,
+        "SelectedTempSource": {
+          "Identifier": "/amdcpu/0/temperature/2"
+        },
+        "Step": 2,
+        "Deadband": 3,
+        "SelectedResponseTime": 2,
+        "IdleTemperature": 36,
+        "MinFanSpeed": 40,
+        "MaxFanSpeed": 80,
+        "LoadTemperature": 80
+      },
+      {
+        "Name": "Auto GPU",
+        "IsHidden": false,
+        "CommandMode": 0,
+        "SelectedTempSource": {
+          "Identifier": "NVApiWrapper/0-GB202-A/sensor/0"
+        },
+        "Step": 2,
+        "Deadband": 3,
+        "SelectedResponseTime": 2,
+        "IdleTemperature": 35,
+        "MinFanSpeed": 50,
+        "MaxFanSpeed": 80,
+        "LoadTemperature": 70
+      }
+    ],
+    "FanSensors": [
+      {
+        "Identifier": "/lpc/nct6701d/fan/0",
+        "IsHidden": false,
+        "NickName": "Chassis Fan #1"
+      },
+      {
+        "Identifier": "/lpc/nct6701d/fan/1",
+        "IsHidden": false,
+        "NickName": "CPU Fan"
+      },
+      {
+        "Identifier": "/lpc/nct6701d/fan/2",
+        "IsHidden": false,
+        "NickName": "Chassis Fan #2"
+      },
+      {
+        "Identifier": "/lpc/nct6701d/fan/3",
+        "IsHidden": false,
+        "NickName": "Chassis Fan #3"
+      },
+      {
+        "Identifier": "/lpc/nct6701d/fan/4",
+        "IsHidden": false,
+        "NickName": "Chassis Fan #4"
+      },
+      {
+        "Identifier": "/lpc/nct6701d/fan/5",
+        "IsHidden": false,
+        "NickName": "Chassis Fan #5"
+      },
+      {
+        "Identifier": "/lpc/nct6701d/fan/6",
+        "IsHidden": false,
+        "NickName": "AIO Pump"
+      },
+      {
+        "Identifier": "NVApiWrapper/0-GB202-A/fan/0",
+        "IsHidden": false,
+        "NickName": "Control 1 - NVIDIA GeForce RTX 5090"
+      },
+      {
+        "Identifier": "NVApiWrapper/0-GB202-A/fan/1",
+        "IsHidden": false,
+        "NickName": "Control 2 - NVIDIA GeForce RTX 5090"
+      }
+    ],
+    "TemperatureSensors": []
+  },
+  "Sensors": {
+    "AdlxWrapperSettings": {
+      "Enabled": true
+    },
+    "DisabledPlugins": [],
+    "DisableStorageSensors": true,
+    "LibreHardwareMonitorSettings": {
+      "Controller": true,
+      "CPU": true,
+      "EmbeddedEC": false,
+      "GPU": true,
+      "Memory": false,
+      "Motherboard": true,
+      "PowerMonitor": false,
+      "PSU": false,
+      "Storage": false,
+      "StorageUpdateInterval": "00:01:00",
+      "ZeroRPMOverride": true
+    },
+    "NvAPIWrapperSettings": {
+      "Enabled": true,
+      "ZeroRPMOverride": true
+    }
+  },
+  "MainWindow": {
+    "Fahrenheit": false,
+    "HideCalibration": false,
+    "HideFanSpeedCards": true,
+    "HorizontalUIOrientation": false,
+    "PrimaryColor": "#FF607D8B",
+    "SecondaryColor": "#FFAEEA00",
+    "SelectedTheme": "",
+    "ShowHiddenCards": false,
+    "SyncThemeWithWindows": true,
+    "SyncTrayIconColorWithWindows": true,
+    "TrayIconColor": null,
+    "TrayIcons": []
+  }
+}
