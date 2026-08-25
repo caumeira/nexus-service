@@ -95,6 +95,10 @@ function Resolve-Dlib {
     throw "Azure.CodeSigning.Dlib.dll (x64) not found. Install Microsoft.Azure.ArtifactSigningClientTools (winget) or pass -DlibPath."
 }
 
+# Signing retries: the service fails a small fraction of operations outright.
+$signMaxAttempts = 4
+$signRetryBaseSeconds = 5
+
 function Invoke-NexusSigning {
     param([string[]]$Files)
     $targets = @($Files | Where-Object { $_ -and (Test-Path $_) })
@@ -104,10 +108,22 @@ function Invoke-NexusSigning {
     $dlib = Resolve-Dlib
     Write-Host "Signing $($targets.Count) file(s): $st"
     $targets | ForEach-Object { Write-Host "  sign: $_" }
+    # Azure Artifact Signing and the RFC3161 timestamp server are both network
+    # services: either can return a per-operation failure (HTTP 200 with
+    # status "Failed", surfacing as SignerSign() 0x80004005) that succeeds on a
+    # retry. One flaked file used to fail the whole release build.
     foreach ($f in $targets) {
-        & $st sign /v /fd SHA256 /tr $timestampUrl /td SHA256 `
-            /dlib $dlib /dmdf $signMetadata $f
-        if ($LASTEXITCODE -ne 0) { throw "signtool failed (exit $LASTEXITCODE) on $f" }
+        for ($attempt = 1; ; $attempt++) {
+            & $st sign /v /fd SHA256 /tr $timestampUrl /td SHA256 `
+                /dlib $dlib /dmdf $signMetadata $f
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($attempt -ge $signMaxAttempts) {
+                throw "signtool failed (exit $LASTEXITCODE) on $f after $attempt attempt(s)"
+            }
+            $delay = $signRetryBaseSeconds * $attempt
+            Write-Host "  sign attempt $attempt failed on $f; retrying in ${delay}s"
+            Start-Sleep -Seconds $delay
+        }
     }
 }
 
