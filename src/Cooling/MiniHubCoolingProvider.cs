@@ -29,9 +29,10 @@ namespace Nexus.Service.Cooling;
 public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvider
 {
     private readonly MiniHubHub _hub;
-    // Diagnostic: log GetFanChannels return shape once per minute so a
-    // missing-on-cooling-page report can be diagnosed without a redeploy.
-    private DateTime _nextTraceUtc = DateTime.MinValue;
+    // Diagnostic for "MiniHub missing from the cooling page". RPM and duty are
+    // excluded from the compared shape: MiniHubHeartbeatWorker traces them
+    // whenever the hub is connected.
+    private string _lastTrace = "";
 
     // Channels the user has placed under software control (Manual mode or
     // curve-bound). Tracked here because the MiniHub firmware only has a
@@ -56,7 +57,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
         var connected = _hub.IsConnected;
         var state = _hub.State;
         var serial = state.Serial;
-        TraceIfDue(connected, serial, state);
+        TraceIfChanged(connected, serial, state);
         if (!connected) return Array.Empty<FanChannel>();
         if (string.IsNullOrEmpty(serial)) return Array.Empty<FanChannel>();
         var deviceId = _hub.DeviceId;
@@ -248,14 +249,13 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
     private static string Port1Id(string serial) => $"minihub:{serial}:port1";
     private static string Port2Id(string serial) => $"minihub:{serial}:port2";
 
-    private void TraceIfDue(bool connected, string serial, MiniHubState state)
+    private void TraceIfChanged(bool connected, string serial, MiniHubState state)
     {
-        var now = DateTime.UtcNow;
-        if (now < _nextTraceUtc) return;
-        _nextTraceUtc = now.AddSeconds(60);
-        ServiceLog.Info(
-            $"[minihub-cooling] GetFanChannels connected={connected} serial={serial} " +
-            $"port1Fans={state.Port1Fans} port2Fans={state.Port2Fans} " +
-            $"port1Rpm={state.Port1Rpm} port2Rpm={state.Port2Rpm}");
+        var shape =
+            $"connected={connected} serial={serial} " +
+            $"port1Fans={state.Port1Fans} port2Fans={state.Port2Fans}";
+        if (string.Equals(shape, _lastTrace, StringComparison.Ordinal)) return;
+        _lastTrace = shape;
+        ServiceLog.Info($"[minihub-cooling] GetFanChannels {shape}");
     }
 }
