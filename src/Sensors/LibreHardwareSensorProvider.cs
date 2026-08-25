@@ -210,6 +210,9 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true)
     {
+        // Only the SMART half reads the LHM storage nodes; a volume-only caller
+        // must not pull drives out of their idle cadence.
+        if (includeSmart) _lhm.WantStorage();
         _lhm.Update();
         var result = new Dictionary<string, StorageComponent>();
         foreach (var di in System.IO.DriveInfo.GetDrives())
@@ -427,6 +430,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public SensorExtras GetSensorExtras()
     {
+        _lhm.WantStorage();
         _lhm.Update();
 
         var extras = new SensorExtras();

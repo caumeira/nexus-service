@@ -50,11 +50,19 @@ public sealed class LhmComputer : IDisposable
     private const long FastFloorMs = 100;
 
     // SMART/NVMe attributes are read through an ATA pass-through to the drive
-    // itself. Drive temperature moves over minutes, so refreshing it on every
-    // walk buys nothing and costs ~30-50ms per walk (plus a head unpark per
-    // read on rotational drives). Throughput/activity/free-space sensors come
-    // from OS counters inside the same node, so they age at this rate too.
+    // itself, and on a rotational drive each read parks and unparks the heads.
+    // Nobody watching, nobody asking: drive temperature moves over minutes, so
+    // the idle cadence is 30s. Throughput/activity/free-space sensors live in
+    // the same node and age with it.
     private const long StorageIntervalMs = 30_000;
+
+    // ...but a client actually looking at drive data gets it every walk, which
+    // the 1Hz cap makes per-second. WantStorage is called by the reads that
+    // surface it (storage components with SMART, sensor extras), so "someone is
+    // watching" needs no plumbing: it is simply whether one of those was asked
+    // for recently. Two seconds outlives the 1s poll the details page makes.
+    private const long StorageDemandWindowMs = 2_000;
+    private long _storageWantedTicks = long.MinValue / 2;
 
     public LhmComputer(IConfigStore config)
     {
@@ -132,6 +140,13 @@ public sealed class LhmComputer : IDisposable
     /// finished yet - callers see an empty <see cref="Computer.Hardware"/>
     /// collection and degrade to "no sensors" until warmup completes.
     /// </summary>
+    /// <summary>
+    /// Signals that a caller is about to read drive data, so the next walks
+    /// refresh the storage group instead of leaving it on its idle cadence.
+    /// Call it immediately before <see cref="Update"/>.
+    /// </summary>
+    public void WantStorage() => Volatile.Write(ref _storageWantedTicks, Environment.TickCount64);
+
     public void Update(SensorRefresh refresh = SensorRefresh.Normal)
     {
         if (!_openTask.IsCompletedSuccessfully) return;
@@ -149,6 +164,7 @@ public sealed class LhmComputer : IDisposable
             }
 
             var storageDue = refresh == SensorRefresh.Force
+                || now - Volatile.Read(ref _storageWantedTicks) <= StorageDemandWindowMs
                 || now - _lastStorageTicks >= StorageIntervalMs;
 
             _lastUpdateTicks = now;
