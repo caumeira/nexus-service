@@ -154,8 +154,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly Dictionary<string, QSeriesTransportRecord> _promoted;
 
     /// <summary>
-    /// Serials ever seen as Q-series. An <c>offline</c> entry's model field is
-    /// unreliable, so re-identify by membership here. Cleared only on unplug.
+    /// Serials seen ONLINE as Q-series this run (model-string match). An <c>offline</c>
+    /// entry's model field is unreliable, so re-identify by membership here. Never
+    /// removed from - it is the identity proof the USB-reset paths gate on, so an entry
+    /// must outlive the detach that recovery is trying to undo.
     /// </summary>
     private readonly HashSet<string> _knownQSeriesSerials = new(StringComparer.Ordinal);
 
@@ -655,6 +657,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
             _qshellVersionCodeBySerial.Remove(key);
         }
         _qshellPresenceUnknownLogged.RemoveWhere(k => !seenSerials.Contains(k));
+        _activityMissingBySerial.RemoveWhere(k => !seenSerials.Contains(k));
+        _activityMissingSuppressLogged.RemoveWhere(k => !seenSerials.Contains(k));
         // Re-pin the default HOME on a re-attach (a reboot drops the pin on Android 11).
         foreach (var key in _homePinnedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
         {
@@ -773,29 +777,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
         var invisibleFor = now - since;
         if (invisibleFor < AdbInvisibleRecoveryThreshold) return;
 
-        // 0x0E8D is MediaTek's whole VID, not a Q-series identity - a phone enumerates
-        // there too and must never be devnode-reset. A serial seen online as Q-series
-        // this run is proof; otherwise require the panel's own cooler on USB, which
-        // ships with every Q60/Q80.
-        var coolerPresent = _presence.UsbPresent(
-            QSeriesCoolerProtocol.VendorId, QSeriesCoolerProtocol.Q60ProductId, QSeriesCoolerProtocol.Q80ProductId);
-
-        var candidates = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var panel in panels)
-        {
-            if (IsRecoverableQSeriesSerial(
-                    panel.Serial,
-                    _knownQSeriesSerials.Contains(panel.Serial),
-                    coolerPresent,
-                    _offlineNonQSeriesSerials.Contains(panel.Serial)))
-            {
-                candidates.Add(panel.Serial);
-            }
-        }
-        foreach (var serial in _knownQSeriesSerials)
-        {
-            if (!QSeriesTransport.IsTcpSerial(serial)) candidates.Add(serial);
-        }
+        // Only serials seen ONLINE as Q-series this run. A PnP entry proves nothing
+        // (0x0E8D is MediaTek's whole VID), and a never-seen serial is indistinguishable
+        // from a panel still enumerating on a cold boot.
+        var candidates = _knownQSeriesSerials
+            .Where(serial => !QSeriesTransport.IsTcpSerial(serial)
+                && IsRecoverableQSeriesSerial(
+                    serial, knownQSeries: true, classifiedNonQSeries: _offlineNonQSeriesSerials.Contains(serial)))
+            .ToList();
 
         foreach (var serial in candidates)
         {
@@ -1532,6 +1521,17 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// the verdict resolves. A boot window re-probes every 15 s.</summary>
     private readonly HashSet<string> _qshellPresenceUnknownLogged = new(StringComparer.Ordinal);
 
+    /// <summary>Serials whose last am-start reported the qshell activity missing while
+    /// the package probe stayed inconclusive. Not a timestamp: the escalation grace is
+    /// anchored by <see cref="_firstSeenAtBySerial"/>, so this only records what the
+    /// most recent observation said. Cleared when am start succeeds, when the probe
+    /// resolves either way, and on detach.</summary>
+    private readonly HashSet<string> _activityMissingBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>Serials whose backstop-suppression line has been logged; re-armed on
+    /// detach so a re-attach reports it once more.</summary>
+    private readonly HashSet<string> _activityMissingSuppressLogged = new(StringComparer.Ordinal);
+
     /// <summary>Re-push the host clock to the panel this often; covers RTC drift
     /// without spamming set-time every tick.</summary>
     private static readonly TimeSpan ClockSyncInterval = TimeSpan.FromMinutes(30);
@@ -1576,6 +1576,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         if (focusReceiver.ToString().Contains(QshellFocusMarker, StringComparison.Ordinal))
         {
             _qshellMissingBySerial.Remove(device.Serial);
+            _activityMissingBySerial.Remove(device.Serial);
             await ReassertQshellHomeAsync(device, ct);
             return;
         }
@@ -1598,10 +1599,13 @@ public sealed class QSeriesPortWatcher : BackgroundService
             // still scanning seconds into boot. Only dumpsys separates them.
             if (startOut.Contains("does not exist", StringComparison.OrdinalIgnoreCase))
             {
-                await ProbeQshellPresenceAsync(device, "am start reported the activity does not exist", ct);
+                var presence = await ProbeQshellPresenceAsync(
+                    device, "am start reported the activity does not exist", ct);
+                if (presence == QshellPresence.Unknown) _activityMissingBySerial.Add(device.Serial);
             }
             else
             {
+                _activityMissingBySerial.Remove(device.Serial);
                 _qshellMissingBySerial.Remove(device.Serial);
                 await ReassertQshellHomeAsync(device, ct);
             }
@@ -1616,13 +1620,22 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// Whether a serial enumerating on MediaTek's VID may be devnode-reset. 0x0E8D is
-    /// the whole vendor, so a phone lands there too; proof is either having been seen
-    /// online as Q-series this run, or the panel's own cooler being on USB.
+    /// Whether a sustained "activity does not exist" stands in for an unresolved
+    /// package probe. Requires the grace to have elapsed: the field failure this
+    /// guards against was a single such report ~31 s after a reboot latching
+    /// suppression on a panel that had qshell installed.
     /// </summary>
-    internal static bool IsRecoverableQSeriesSerial(
-        string serial, bool knownQSeries, bool coolerPresent, bool classifiedNonQSeries)
-        => !string.IsNullOrEmpty(serial) && !classifiedNonQSeries && (knownQSeries || coolerPresent);
+    internal static bool PreInstallSuppressesEscalation(
+        bool activityMissing, TimeSpan sinceFirstSeen, TimeSpan grace)
+        => activityMissing && sinceFirstSeen >= grace;
+
+    /// <summary>
+    /// Whether a serial enumerating on MediaTek's VID may be devnode-reset. 0x0E8D is
+    /// the whole vendor id, so nothing about the PnP entry proves a panel: only having
+    /// been seen online as Q-series this run does.
+    /// </summary>
+    internal static bool IsRecoverableQSeriesSerial(string serial, bool knownQSeries, bool classifiedNonQSeries)
+        => !string.IsNullOrEmpty(serial) && !classifiedNonQSeries && knownQSeries;
 
     /// <summary>Tri-state result of a <c>dumpsys package</c> qshell probe.</summary>
     internal enum QshellPresence
@@ -1669,6 +1682,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 var versionCode = AdbHelpers.ParseVersionCode(output);
                 _qshellMissingBySerial.Remove(device.Serial);
                 _qshellPresenceUnknownLogged.Remove(device.Serial);
+                _activityMissingBySerial.Remove(device.Serial);
                 // Logged on first read and on change only - a per-tick version line
                 // would bury the events that matter.
                 if (!_qshellVersionCodeBySerial.TryGetValue(device.Serial, out var known) || known != versionCode)
@@ -1681,6 +1695,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             case QshellPresence.Absent:
                 _qshellVersionCodeBySerial[device.Serial] = -1;
                 _qshellPresenceUnknownLogged.Remove(device.Serial);
+                _activityMissingBySerial.Remove(device.Serial);
                 if (_qshellMissingBySerial.Add(device.Serial))
                 {
                     ServiceLog.Info(
@@ -2121,6 +2136,22 @@ public sealed class QSeriesPortWatcher : BackgroundService
         var now = DateTimeOffset.UtcNow;
         var sinceFirstSeen = now - firstSeenAt;
         if (sinceFirstSeen < EscalationGrace) return;
+
+        // Backstop for a probe that never resolves: "Activity class ... does not exist"
+        // is the field-observed signal for an uninstalled qshell, and the classifier's
+        // dumpsys literals are not backed by a capture from a real panel. Read only
+        // past the grace - longer than any package-service boot window - so a booting
+        // panel that says it once cannot suppress its own recovery.
+        if (PreInstallSuppressesEscalation(
+                _activityMissingBySerial.Contains(device.Serial), sinceFirstSeen, EscalationGrace))
+        {
+            if (_activityMissingSuppressLogged.Add(device.Serial))
+            {
+                ServiceLog.Info(
+                    $"[qseries-port-watcher] {device.Serial}: am start still reports the qshell activity missing {sinceFirstSeen.TotalSeconds:F0}s after attach and the package probe never resolved; treating the panel as pre-install and suppressing the escalation reboot");
+            }
+            return;
+        }
 
         // Liveness gate: skip the reboot if the panel contacted the service since we
         // started watching it this run. A reboot here would bounce a recovered panel

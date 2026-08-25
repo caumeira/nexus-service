@@ -70,28 +70,31 @@ public class RecoverableQSeriesSerialTests
     public void Recoverable_when_the_serial_was_seen_online_as_q_series()
     {
         Assert.True(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            "0123456789ABCDEF", knownQSeries: true, coolerPresent: false, classifiedNonQSeries: false));
+            "0123456789ABCDEF", knownQSeries: true, classifiedNonQSeries: false));
     }
 
+    // A cooler on USB is not proof the MediaTek node beside it is the panel, and a
+    // serial never seen online is indistinguishable from a panel still enumerating
+    // after a cold boot - resetting either is worse than declining to rescue.
     [Fact]
-    public void Recoverable_for_an_unseen_serial_when_the_panel_cooler_is_on_usb()
+    public void Not_recoverable_for_a_serial_never_seen_online_this_run()
     {
-        Assert.True(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            "0123456789ABCDEF", knownQSeries: false, coolerPresent: true, classifiedNonQSeries: false));
+        Assert.False(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
+            "0123456789ABCDEF", knownQSeries: false, classifiedNonQSeries: false));
     }
 
     [Fact]
     public void Not_recoverable_for_a_bare_mediatek_device_with_no_q_series_corroboration()
     {
         Assert.False(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            "somephone", knownQSeries: false, coolerPresent: false, classifiedNonQSeries: false));
+            "somephone", knownQSeries: false, classifiedNonQSeries: false));
     }
 
     [Fact]
     public void Not_recoverable_once_classified_a_non_q_series_device()
     {
         Assert.False(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            "somephone", knownQSeries: false, coolerPresent: true, classifiedNonQSeries: true));
+            "somephone", knownQSeries: true, classifiedNonQSeries: true));
     }
 
     [Theory]
@@ -100,6 +103,56 @@ public class RecoverableQSeriesSerialTests
     public void Not_recoverable_without_a_serial(string? serial)
     {
         Assert.False(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            serial!, knownQSeries: true, coolerPresent: true, classifiedNonQSeries: false));
+            serial!, knownQSeries: true, classifiedNonQSeries: false));
+    }
+}
+
+/// <summary>
+/// The classifier's Absent literals are not backed by a capture from a real Q60, so an
+/// unrecognised phrasing leaves the verdict Unknown. `am start` reporting the activity
+/// missing IS field-observed and stands in - but only past the grace, or it recreates
+/// the latch the probe was written to remove.
+/// </summary>
+public class QshellAbsentBackstopTests
+{
+    private static readonly TimeSpan Grace = TimeSpan.FromSeconds(180);
+
+    [Fact]
+    public void An_unrecognized_dumpsys_phrasing_still_classifies_as_unknown()
+    {
+        Assert.Equal(
+            QSeriesPortWatcher.QshellPresence.Unknown,
+            QSeriesPortWatcher.ClassifyQshellDumpsys("Failure [not installed for user 0]"));
+    }
+
+    [Theory]
+    [InlineData("Unable to find package: com.hellonexus.qshell")]
+    [InlineData("Unable to find package com.hellonexus.qshell")]
+    public void Known_absent_phrasings_classify_as_absent(string output)
+    {
+        Assert.Equal(QSeriesPortWatcher.QshellPresence.Absent, QSeriesPortWatcher.ClassifyQshellDumpsys(output));
+    }
+
+    // The field failure: a reboot at T, "does not exist" at T+31s, qshell installed.
+    // Suppressing there disabled the panel's only recovery for the rest of the run.
+    [Fact]
+    public void A_report_inside_the_grace_does_not_suppress_the_escalation_reboot()
+    {
+        Assert.False(QSeriesPortWatcher.PreInstallSuppressesEscalation(
+            activityMissing: true, sinceFirstSeen: TimeSpan.FromSeconds(31), grace: Grace));
+    }
+
+    [Fact]
+    public void A_report_still_standing_past_the_grace_suppresses_it()
+    {
+        Assert.True(QSeriesPortWatcher.PreInstallSuppressesEscalation(
+            activityMissing: true, sinceFirstSeen: Grace, grace: Grace));
+    }
+
+    [Fact]
+    public void A_panel_whose_am_start_succeeded_never_suppresses_however_long_it_has_been_up()
+    {
+        Assert.False(QSeriesPortWatcher.PreInstallSuppressesEscalation(
+            activityMissing: false, sinceFirstSeen: TimeSpan.FromHours(4), grace: Grace));
     }
 }
