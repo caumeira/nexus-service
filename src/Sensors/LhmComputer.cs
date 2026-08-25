@@ -51,10 +51,12 @@ public sealed class LhmComputer : IDisposable
 
     // SMART/NVMe attributes are read through an ATA pass-through to the drive
     // itself, and on a rotational drive each read parks and unparks the heads.
-    // Nobody watching, nobody asking: drive temperature moves over minutes, so
-    // the idle cadence is 30s. Throughput/activity/free-space sensors live in
-    // the same node and age with it.
-    private const long StorageIntervalMs = 30_000;
+    // No reader actually needs this cadence: history and diagnostics take drive
+    // temperature from SmartHealthMonitor's own 10 minute snapshot, and every
+    // live reader marks demand below. It exists as a backstop, bounding how
+    // stale a reader that forgets to mark can get. Throughput/activity/free
+    // space sensors live in the same node and age with it.
+    private const long StorageIntervalMs = 60_000;
 
     // ...but a client actually looking at drive data gets it every walk, which
     // the 1Hz cap makes per-second. WantStorage is called by the reads that
