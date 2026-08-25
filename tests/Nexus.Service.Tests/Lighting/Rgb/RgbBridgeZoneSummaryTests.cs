@@ -40,6 +40,36 @@ public class RgbBridgeZoneSummaryTests
     }
 
     [Fact]
+    public void DescribeZones_ShowsTheBoundOfAFixedZone()
+    {
+        // The count a corrupt controller reports against the bound it is pinned
+        // to: the pair is what identifies a resize that did not rebuild.
+        var d = Device(60, 80);
+        d.Zones[0].LedsMin = 1;
+        d.Zones[0].LedsMax = 1;
+        d.Zones[1].LedsMin = 0;
+        d.Zones[1].LedsMax = 100;
+
+        Assert.Equal(" zones=[60(fixed@1),80]", RgbBridge.DescribeZones(d));
+    }
+
+    [Fact]
+    public void DescribeZones_ShowsTheRangeWhenACountEscapesIt()
+    {
+        var d = Device(140, 80);
+        d.Zones[0].LedsMin = 0;
+        d.Zones[0].LedsMax = 100;
+
+        Assert.Equal(" zones=[140(0-100),80]", RgbBridge.DescribeZones(d));
+    }
+
+    [Fact]
+    public void DescribeZones_AnnotatesNothingWhenBoundsAreUnset()
+    {
+        Assert.Equal(" zones=[60,80]", RgbBridge.DescribeZones(Device(60, 80)));
+    }
+
+    [Fact]
     public void DescribeZones_OmittedBelowTwoZones()
     {
         Assert.Equal("", RgbBridge.DescribeZones(Device(84)));
