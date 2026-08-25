@@ -49,11 +49,13 @@ public sealed class SleepBlackoutCoordinator
     internal static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(1200);
 
     /// <summary>
-    /// Wall clock the fade ramps over when the budget allows it in full. Short
-    /// on purpose: this is time the machine spends not-yet-suspending, and the
-    /// longer it runs the more of it a slow OpenRGB write can strand mid-fade.
+    /// Wall clock the ramp runs over. Short because it races the host tearing
+    /// down USB: devices behind it stop receiving frames partway with no error,
+    /// since the writes report success into a handle that is going away. Longer
+    /// ramps measurably left them lit; only SMBus devices, RAM among them, take
+    /// the ramp at any length.
     /// </summary>
-    internal static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(800);
+    internal static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(200);
 
     /// <summary>
     /// Tail of the budget the fade may not touch, kept for the terminal black
@@ -63,19 +65,20 @@ public sealed class SleepBlackoutCoordinator
     private static readonly TimeSpan TerminalReserve = TimeSpan.FromMilliseconds(600);
 
     /// <summary>
-    /// Interval between fade steps, roughly the engine's own frame rate. A
-    /// cadence, not a wait for anything: there is no signal to ride, the fade is
-    /// a function of elapsed time and the level is recomputed from the clock, so
-    /// a late or coalesced step shortens the fade rather than skewing it.
-    /// </summary>
-    private static readonly TimeSpan FadeStepInterval = TimeSpan.FromMilliseconds(33);
-
-    /// <summary>
     /// Share of the budget allowed for the engine to publish the final black
     /// frame. Bounded well under one budget so a stalled render loop still
     /// leaves time for the direct OpenRGB push.
     /// </summary>
     private static readonly TimeSpan EnginePublishBudget = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>Two engine ticks of slack: the ramp reaches zero on the first tick past the window.</summary>
+    private TimeSpan FrameSlack => TimeSpan.FromMilliseconds(Math.Max(1, _engine.FrameIntervalMs) * 2);
+
+    /// <summary>
+    /// Windows only: the timings above were measured there and nowhere else.
+    /// Elsewhere this blanks in one write, as it always has.
+    /// </summary>
+    internal static bool FadeSupported => OperatingSystem.IsWindows();
 
     private readonly LightingEngine _engine;
     private readonly IConfigStore _store;
@@ -96,11 +99,9 @@ public sealed class SleepBlackoutCoordinator
     public void OnSuspending() => BlankOut(Budget, "suspend");
 
     /// <summary>
-    /// Call inline from the service's fast teardown, on a real OS shutdown or
-    /// restart only. A stop that is not the machine going down (tray quit,
-    /// /service/stop, an OTA install, a restart for a GPU change) leaves the
-    /// lighting alone: the user is not walking away from a dark machine, and the
-    /// service is about to come back and repaint.
+    /// Call inline from the service's fast teardown, on a real OS shutdown only.
+    /// Any other stop (tray quit, /service/stop, an OTA install, a GPU-change
+    /// restart) leaves lighting alone - the service comes back and repaints.
     /// </summary>
     public void OnHostShutdown() => BlankOut(ShutdownBudget, "shutdown");
 
@@ -162,88 +163,44 @@ public sealed class SleepBlackoutCoordinator
     }
 
     /// <summary>
-    /// Ramps every device from what it is showing down to black, inline, and
-    /// returns what happened for the log line. Stops at
-    /// <paramref name="deadline"/> minus <see cref="TerminalReserve"/> whatever
-    /// state it is in; the caller blacks out unconditionally afterwards, so a
-    /// short fade is a cosmetic loss and nothing more.
+    /// Ramps every device from what it is showing down to black and waits for
+    /// it to land. Only when the render loop is publishing frames: that loop is
+    /// what paints the ramp and what feeds the OpenRGB bridge, so with no effect
+    /// running there is nothing to ramp and the caller's blackout cuts instead -
+    /// which is what shipped before the fade existed.
+    ///
+    /// Bounded by <paramref name="deadline"/> minus <see cref="TerminalReserve"/>
+    /// whatever state it reaches; the caller blacks out unconditionally
+    /// afterwards, so a short ramp costs appearance and nothing else.
     /// </summary>
     private string FadeOut(DateTime deadline)
     {
-        var start = DateTime.UtcNow;
-        var lastStepBy = deadline - TerminalReserve;
-        var span = FadeDuration;
-        if (start + span > lastStepBy)
+        if (!FadeSupported)
         {
-            span = lastStepBy - start;
+            return "unsupported";
+        }
+        if (!_engine.LoopPublishing)
+        {
+            return "no-loop";
+        }
+
+        var span = FadeDuration;
+        var room = deadline - TerminalReserve - DateTime.UtcNow;
+        if (room < span)
+        {
+            span = room;
         }
         if (span <= TimeSpan.Zero)
         {
             return "no-budget";
         }
-
-        // Engages the hold at full brightness: from here the effect is frozen
-        // and this loop is the only thing deciding how bright devices are.
-        _engine.SetBlackoutLevel(1f);
-        var snapshot = _bridge?.CaptureFadeSnapshot();
-
-        var steps = 0;
-        while (true)
+        if (!_engine.BeginBlackoutFade(span))
         {
-            var elapsed = DateTime.UtcNow - start;
-            if (elapsed >= span)
-            {
-                break;
-            }
+            return "held";
+        }
 
-            var t = 1f - (float)(elapsed.TotalMilliseconds / span.TotalMilliseconds);
-            // Squared: the byte we write is roughly linear in emitted light but
-            // perception is not, so a linear ramp reads as a hard drop that then
-            // crawls. t*t is close enough to perceptually even over this span.
-            var level = t * t;
-            _engine.SetBlackoutLevel(level);
-            if (snapshot is not null && !PushFadeStep(snapshot, level, lastStepBy))
-            {
-                // A dropped socket or a step that ran past the reserve: stop
-                // pushing, let the engine keep fading the writers that poll it,
-                // and leave the terminal blackout to reach OpenRGB.
-                snapshot = null;
-            }
-            steps++;
-
-            var remaining = span - (DateTime.UtcNow - start);
-            if (remaining <= TimeSpan.Zero)
-            {
-                break;
-            }
-            Thread.Sleep(remaining < FadeStepInterval ? remaining : FadeStepInterval);
-        }
-        return $"{steps}steps/{(int)span.TotalMilliseconds}ms";
-    }
-
-    private bool PushFadeStep(RgbFadeSnapshot snapshot, float level, DateTime lastStepBy)
-    {
-        if (_bridge is null)
-        {
-            return false;
-        }
-        var remaining = lastStepBy - DateTime.UtcNow;
-        if (remaining <= TimeSpan.Zero)
-        {
-            return false;
-        }
-        using var cts = new CancellationTokenSource(remaining);
-        try
-        {
-            // Blocking on purpose, same as the terminal push: the machine stops
-            // when this returns, so there is no later to continue on.
-            _bridge.PushFadeStepAsync(snapshot, level, cts.Token).GetAwaiter().GetResult();
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        var reached = _engine.WaitForBlackout(span + FrameSlack);
+        return $"{(int)span.TotalMilliseconds}ms{(reached ? "" : "/timeout")}";
     }
 
     /// <summary>
