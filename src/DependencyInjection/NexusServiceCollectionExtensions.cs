@@ -613,6 +613,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton(sp => new System.Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(
             () => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>()));
         services.AddSingleton<Nexus.Service.Audio.AudioFilePlayer>();
+        services.AddSingleton<Nexus.Service.Audio.AudioMixerService>();
         services.AddSingleton<Nexus.Service.Deck.DeckActionExecutor>();
         services.AddSingleton<Nexus.Service.Deck.IDeckActionExecutor>(sp =>
             sp.GetRequiredService<Nexus.Service.Deck.DeckActionExecutor>());
@@ -1206,7 +1207,13 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IProcessActionsProvider, HelperProcessActionsProxy>();
         services.AddSingleton<IMediaProvider, WindowsMediaProvider>();
         services.AddSingleton<IVolumeProvider, WindowsVolumeProvider>();
-        services.AddSingleton<IAudioDeviceProvider, WindowsAudioDeviceProvider>();
+        // Explicit factory: the two constructors would otherwise leave which one
+        // DI picks (and so whether the helper route is wired) to overload rules.
+        services.AddSingleton<IAudioDeviceProvider>(sp =>
+            new WindowsAudioDeviceProvider(sp.GetRequiredService<Nexus.Service.Helper.HelperRegistry>()));
+        // Audio sessions belong to the interactive logon session, so the walk
+        // runs in the helper and this side caches its pushes.
+        services.AddSingleton<IAudioSessionProvider, WindowsAudioSessionProvider>();
         services.AddSingleton<IBeatsProvider, WasapiLoopbackBeatsProvider>();
         services.AddSingleton<IWindowSetProvider, WindowsWindowSetProvider>();
 #elif MACOS
@@ -1220,6 +1227,9 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IMediaProvider, MacMediaProvider>();
         services.AddSingleton<IVolumeProvider, MacVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, MacAudioDeviceProvider>();
+        // macOS exposes no per-app volume API; the only implementations ship a
+        // HAL driver, which Nexus does not.
+        services.AddSingleton<IAudioSessionProvider, StubAudioSessionProvider>();
         services.AddSingleton<IBeatsProvider, MacAudioBeatsProvider>();
 #elif LINUX
         services.AddSingleton<Nexus.Service.Activity.LinuxScreenTimeProvider>();
@@ -1233,6 +1243,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
         services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, LinuxAudioDeviceProvider>();
+        // PipeWire/PulseAudio do expose per-sink-input volume; not wired yet.
+        services.AddSingleton<IAudioSessionProvider, StubAudioSessionProvider>();
         services.AddSingleton<IBeatsProvider, BeatsProvider>();
 #else
         services.AddSingleton<IScreenTimeProvider, StubScreenTimeProvider>();
@@ -1243,6 +1255,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IMediaProvider, StubMediaProvider>();
         services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, StubAudioDeviceProvider>();
+        services.AddSingleton<IAudioSessionProvider, StubAudioSessionProvider>();
         services.AddSingleton<IBeatsProvider, StubBeatsProvider>();
 #endif
         services.AddSingleton<IAlbumArtHdResolver, AlbumArtHdResolver>();

@@ -41,6 +41,8 @@ public sealed class NexusSettings
     public UnitsSettings Units { get; set; } = new();
     public ScreenTimeSettings ScreenTime { get; set; } = new();
     public ObsSettings Obs { get; set; } = new();
+    /// <summary>Per-app volume mixer: remembered levels and named presets. NOT profile-scoped (absent from ProfileManager.CloneSettings): which apps are loud is a property of this workstation, not of a lighting/cooling persona.</summary>
+    public AudioMixerSettings AudioMixer { get; set; } = new();
     public SteamSettings Steam { get; set; } = new();
     public DiscordSettings Discord { get; set; } = new();
     public HomeAssistantSettings HomeAssistant { get; set; } = new();
@@ -232,6 +234,20 @@ public sealed class ObsSettings
     public string Host { get; set; } = InstallDefaults.Obs.Host;
     public int Port { get; set; } = InstallDefaults.Obs.Port;
     public string Password { get; set; } = "";
+}
+
+public sealed class AudioMixerSettings
+{
+    /// <summary>Re-apply a remembered level when that app next opens a session.
+    /// On by default: Windows resets app levels on relaunch and reboot, which is
+    /// the complaint this feature exists to answer.</summary>
+    public bool StickyLevels { get; set; } = true;
+
+    /// <summary>Remembered levels keyed by strip id (process name, lowercased).
+    /// Only apps the user has actually moved in the mixer land here.</summary>
+    public Dictionary<string, Nexus.Service.Models.Activity.AudioMixerLevelDto> Levels { get; set; } = new();
+
+    public List<Nexus.Service.Models.Activity.AudioMixerPresetDto> Presets { get; set; } = new();
 }
 
 public sealed class SteamSettings

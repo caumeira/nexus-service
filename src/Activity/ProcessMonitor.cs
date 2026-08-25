@@ -142,7 +142,11 @@ public sealed class ProcessMonitor : BackgroundService
         var match = candidates
             .OrderByDescending(p => p.StartedAtMs ?? 0)
             .FirstOrDefault();
-        if (match is null)
+        // The sampling loop only runs while something subscribes, so an empty
+        // _latest means "not sampled", not "not running" - callers off the
+        // monitoring topic (the volume mixer) resolve against live processes.
+        var pid = match?.Pid ?? ResolveLivePidByName(name);
+        if (pid is null)
         {
             return null;
         }
@@ -150,16 +154,36 @@ public sealed class ProcessMonitor : BackgroundService
         string? path = null;
         try
         {
-            using var proc = Process.GetProcessById(match.Pid);
+            using var proc = Process.GetProcessById(pid.Value);
             path = proc.MainModule?.FileName;
         }
         catch { }
 
         if (!string.IsNullOrEmpty(path))
         {
-            InsertPathCache(name, path, match.Pid);
+            InsertPathCache(name, path, pid.Value);
         }
         return path;
+    }
+
+    private static int? ResolveLivePidByName(string name)
+    {
+        try
+        {
+            var live = Process.GetProcessesByName(name);
+            try
+            {
+                return live.Length == 0 ? null : live[0].Id;
+            }
+            finally
+            {
+                foreach (var p in live) p.Dispose();
+            }
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void InsertPathCache(string name, string path, int pid)

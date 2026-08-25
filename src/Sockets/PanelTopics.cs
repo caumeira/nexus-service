@@ -17,6 +17,12 @@ public static class PanelTopics
     public const string Cooling = "cooling";
     public const string Volume = "volume";
     /// <summary>
+    /// Per-app mixer strips. Carries the strips inline rather than a refetch
+    /// revision: while a mixer is open this fires at meter rate, and a revision
+    /// frame would turn every peak sample into an HTTP GET.
+    /// </summary>
+    public const string AudioMixer = "audio/mixer";
+    /// <summary>
     /// Gallery sources changed (reference added/removed, upload). Subscribers
     /// refetch GET /gallery/items.
     /// </summary>

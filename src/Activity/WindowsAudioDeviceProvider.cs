@@ -15,16 +15,31 @@ namespace Nexus.Service.Activity;
 /// vtable indirection (AOT-safe), all on a dedicated MTA thread - same model as
 /// <see cref="WindowsVolumeProvider"/>.
 ///
-/// NOTE: IPolicyConfig is undocumented; its vtable slot for SetDefaultEndpoint
-/// (13) has been stable across Win10/11 but is not contractual. SetDefault*
-/// returns false on any failure HR rather than throwing. Validate on real
-/// Windows hardware.
+/// NOTE: PolicyConfig is undocumented. Bench-probed on Windows 11 (26100):
+/// CPolicyConfigClient exposes NEITHER IPolicyConfig nor IPolicyConfigVista
+/// (E_NOINTERFACE), while CPolicyConfigVistaClient exposes IPolicyConfigVista,
+/// whose SetDefaultEndpoint is vtable slot 12 - IPolicyConfig carries an extra
+/// ResetDeviceFormat ahead of it and lands at 13. Verified live: slot 12 moves
+/// the default endpoint and the change reads back. SetDefault* returns false on
+/// any failure HR rather than throwing.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed unsafe class WindowsAudioDeviceProvider : IAudioDeviceProvider, IDisposable
 {
     private readonly Thread _comThread;
     private readonly BlockingCollection<Action> _queue = new(new ConcurrentQueue<Action>());
+#if WINDOWS
+    // Null in the --set-audio-default one-shot, which IS the user session and
+    // calls SetDefaultDirect straight through.
+    private readonly Nexus.Service.Helper.HelperRegistry? _helper;
+#endif
+
+#if WINDOWS
+    public WindowsAudioDeviceProvider(Nexus.Service.Helper.HelperRegistry? helper = null) : this()
+    {
+        _helper = helper;
+    }
+#endif
 
     public WindowsAudioDeviceProvider()
     {
@@ -56,16 +71,35 @@ public sealed unsafe class WindowsAudioDeviceProvider : IAudioDeviceProvider, ID
         return list;
     }, fallback: new AudioDeviceList(), op: "list");
 
-    // The default audio endpoint is a per-user setting; IPolicyConfig can't
-    // change it from the Session-0 LocalSystem service (same constraint as
-    // LockWorkStation). Route the switch to a one-shot Nexus.exe in the active
-    // console session, which runs the COM directly (SetDefaultDirect).
+    // The default audio endpoint is a per-user setting, so the switch has to run
+    // as the console user. The helper is already there and answers with the real
+    // result; the schtasks one-shot behind it only ever reported "task started",
+    // so a failed switch came back as success.
     public bool SetDefaultOutput(string deviceId) => RouteToUserSession(deviceId);
     public bool SetDefaultInput(string deviceId) => RouteToUserSession(deviceId);
 
-    private static bool RouteToUserSession(string deviceId)
+    private bool RouteToUserSession(string deviceId)
     {
         if (string.IsNullOrEmpty(deviceId)) return false;
+#if WINDOWS
+        if (_helper is not null && _helper.IsAnyConnected)
+        {
+            try
+            {
+                return Nexus.Service.Helper.Domains.AudioMixerCommands
+                    .SetDefaultDeviceAsync(_helper, deviceId).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[audio-win] helper set-default failed: {ex.Message}");
+            }
+        }
+#endif
+        return RunOneShotInUserSession(deviceId);
+    }
+
+    private static bool RunOneShotInUserSession(string deviceId)
+    {
 #if WINDOWS
         var exe = System.IO.Path.Combine(AppContext.BaseDirectory, "Nexus.exe");
         return Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession(
@@ -82,9 +116,12 @@ public sealed unsafe class WindowsAudioDeviceProvider : IAudioDeviceProvider, ID
     private bool SetDefault(string deviceId) => RunOnComThread(() =>
     {
         if (string.IsNullOrEmpty(deviceId)) return false;
-        var clsid = PolicyConfigClsid;
-        var iid = IID_IPolicyConfig;
-        var cc = CoCreateInstance(ref clsid, IntPtr.Zero, ClsCtxAll, ref iid, out var pc);
+        var clsid = PolicyConfigVistaClsid;
+        var iid = IID_IPolicyConfigVista;
+        // INPROC only: PolicyConfig lives in AudioSes.dll, and asking for
+        // CLSCTX_ALL reports a missing local server (REGDB_E_CLASSNOTREG),
+        // masking the real E_NOINTERFACE from a wrong IID.
+        var cc = CoCreateInstance(ref clsid, IntPtr.Zero, ClsCtxInprocServer, ref iid, out var pc);
         if (cc < 0 || pc == IntPtr.Zero)
         {
             Console.Error.WriteLine($"[audio-win] PolicyConfig CoCreateInstance failed hr=0x{cc:X8}");
@@ -96,7 +133,7 @@ public sealed unsafe class WindowsAudioDeviceProvider : IAudioDeviceProvider, ID
             // Set as default across roles; succeed if any role takes (some
             // endpoints reject eCommunications). IPolicyConfig is undocumented,
             // so log the HR per role to diagnose failures on real hardware.
-            var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int, int>)GetVTableSlot(pc, 13);
+            var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int, int>)GetVTableSlot(pc, 12);
             var any = false;
             foreach (var role in new[] { ERole.eConsole, ERole.eMultimedia, ERole.eCommunications })
             {
@@ -242,15 +279,14 @@ public sealed unsafe class WindowsAudioDeviceProvider : IAudioDeviceProvider, ID
 
     private static readonly Guid MMDeviceEnumeratorClsid = new("BCDE0395-E52F-467C-8E3D-C4579291692E");
     private static readonly Guid IID_IMMDeviceEnumerator = new("A95664D2-9614-4F35-A746-DE8DB63617E6");
-    private static readonly Guid PolicyConfigClsid = new("870af99c-171d-4f9e-af0d-e63df40c2bc9");
-    private static readonly Guid IID_IPolicyConfig = new("f8679f50-850a-455c-9d37-b9a0a17e2e74");
+    private static readonly Guid PolicyConfigVistaClsid = new("294935ce-f637-4e7c-a41b-ab255460b862");
+    private static readonly Guid IID_IPolicyConfigVista = new("568b9108-44bf-40b4-9006-86afe5b5a620");
     private static readonly PROPERTYKEY PKEY_Device_FriendlyName = new()
     {
         fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"),
         pid = 14,
     };
     private const int ClsCtxInprocServer = 0x1;
-    private const int ClsCtxAll = 0x17;
     private const int STGM_READ = 0x0;
     private const int DEVICE_STATE_ACTIVE = 0x1;
 

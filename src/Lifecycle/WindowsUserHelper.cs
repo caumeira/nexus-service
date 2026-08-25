@@ -164,6 +164,7 @@ internal static class WindowsUserHelper
         using var media = new MediaPusher(outbound);
         using var screenCapture = new ScreenCapturePusher(outbound);
         using var windowSet = new WindowSetPoller(outbound);
+        using var audioMixer = new AudioSessionPusher(outbound);
         var brightness = new Platform.Displays.WindowsDisplayBrightnessProvider();
 
         // Each domain registers its own envelope handler against this
@@ -232,6 +233,13 @@ internal static class WindowsUserHelper
         };
         new OrientationHandler(new Platform.Displays.WindowsDisplayOrientationProvider()).Register(handlerRegistry);
         new ScreenMirrorHandler(screenCapture.Start, screenCapture.Stop).Register(handlerRegistry);
+        // The default-endpoint switch is per-user, so it runs here rather than in
+        // the Session-0 service.
+        var audioDevices = new Nexus.Service.Activity.WindowsAudioDeviceProvider();
+        new AudioMixerHandler(
+            audioMixer.SetStreaming,
+            audioMixer.Apply,
+            audioDevices.SetDefaultDirect).Register(handlerRegistry);
         // Foregrounded variant of LogsFolder.Open: the helper is a background
         // process, so a plain explorer spawn lands behind the app window.
         new DiagnosticsHandler(

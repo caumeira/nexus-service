@@ -111,10 +111,22 @@ public static class SystemRoutes
 
         // ── Audio device enumeration + default switching ──
         app.MapGet("/system/audio/devices", (IAudioDeviceProvider a) => a.ListDevices()).AllowPanel();
-        app.MapPost("/system/audio/default-output", (SetAudioDefaultBody body, Nexus.Service.Actions.SystemActions actions) =>
-            actions.SetDefaultOutput(body.DeviceId) ? ApiResponse.Ok() : ApiResponse.Fail("failed to set output device")).AllowPanel();
-        app.MapPost("/system/audio/default-input", (SetAudioDefaultBody body, Nexus.Service.Actions.SystemActions actions) =>
-            actions.SetDefaultInput(body.DeviceId) ? ApiResponse.Ok() : ApiResponse.Fail("failed to set input device")).AllowPanel();
+        // The bump is what tells other open mixers to re-read the endpoints; the
+        // caller's own view updates off its POST resolving.
+        app.MapPost("/system/audio/default-output", (SetAudioDefaultBody body,
+            Nexus.Service.Actions.SystemActions actions, Nexus.Service.Audio.AudioMixerService mixer) =>
+        {
+            if (!actions.SetDefaultOutput(body.DeviceId)) return ApiResponse.Fail("failed to set output device");
+            mixer.NotifyEndpointsChanged();
+            return ApiResponse.Ok();
+        }).AllowPanel();
+        app.MapPost("/system/audio/default-input", (SetAudioDefaultBody body,
+            Nexus.Service.Actions.SystemActions actions, Nexus.Service.Audio.AudioMixerService mixer) =>
+        {
+            if (!actions.SetDefaultInput(body.DeviceId)) return ApiResponse.Fail("failed to set input device");
+            mixer.NotifyEndpointsChanged();
+            return ApiResponse.Ok();
+        }).AllowPanel();
 
         // Touch deck widget's Play Audio press - the physical-deck path goes
         // through DeckActionExecutor directly; this is the same playback for
@@ -124,5 +136,55 @@ public static class SystemRoutes
             player.Play(body.Path, body.Volume);
             return ApiResponse.Ok();
         }).AllowPanel();
+
+        // ── Per-app volume mixer ──
+        // Strips are pushed on the audio/mixer topic while a mixer is open; these
+        // cover the first paint and every write.
+        app.MapGet("/system/audio/mixer", (Nexus.Service.Audio.AudioMixerService mixer) =>
+            mixer.GetState()).AllowPanel();
+
+        app.MapPost("/system/audio/mixer/volume", (SetSessionVolumeBody body, Nexus.Service.Audio.AudioMixerService mixer) =>
+        {
+            mixer.SetVolume(body.Id, body.Volume, body.Commit ?? true);
+            return ApiResponse.Ok();
+        }).AllowPanel();
+
+        app.MapPost("/system/audio/mixer/mute", (SetSessionMutedBody body, Nexus.Service.Audio.AudioMixerService mixer) =>
+        {
+            mixer.SetMuted(body.Id, body.Muted);
+            return ApiResponse.Ok();
+        }).AllowPanel();
+
+        app.MapPost("/system/audio/mixer/sticky", (AudioMixerStickyBody body, Nexus.Service.Audio.AudioMixerService mixer) =>
+        {
+            mixer.SetSticky(body.Enabled);
+            return ApiResponse.Ok();
+        }).AllowPanel();
+
+        app.MapPost("/system/audio/mixer/levels/clear", (Nexus.Service.Audio.AudioMixerService mixer) =>
+        {
+            mixer.ClearLevels();
+            return ApiResponse.Ok();
+        }).AllowPanel();
+
+        app.MapPost("/system/audio/mixer/presets", (SaveAudioMixerPresetBody body, Nexus.Service.Audio.AudioMixerService mixer) =>
+        {
+            var result = mixer.SavePreset(body);
+            return result.Preset is null
+                ? Results.BadRequest(ApiResponse.Fail(result.Error))
+                : Results.Ok(result.Preset);
+        }).AllowPanel();
+
+        app.MapPost("/system/audio/mixer/presets/rename", (RenameAudioMixerPresetBody body, Nexus.Service.Audio.AudioMixerService mixer) =>
+        {
+            var error = mixer.RenamePreset(body.Id, body.Name);
+            return error.Length == 0 ? Results.Ok(ApiResponse.Ok()) : Results.BadRequest(ApiResponse.Fail(error));
+        }).AllowPanel();
+
+        app.MapPost("/system/audio/mixer/presets/delete", (AudioMixerPresetIdBody body, Nexus.Service.Audio.AudioMixerService mixer) =>
+            mixer.DeletePreset(body.Id) ? ApiResponse.Ok() : ApiResponse.Fail("no such preset")).AllowPanel();
+
+        app.MapPost("/system/audio/mixer/presets/apply", (AudioMixerPresetIdBody body, Nexus.Service.Audio.AudioMixerService mixer) =>
+            mixer.ApplyPreset(body.Id) ? ApiResponse.Ok() : ApiResponse.Fail("no such preset")).AllowPanel();
     }
 }

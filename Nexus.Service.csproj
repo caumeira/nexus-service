@@ -680,6 +680,8 @@
     <Compile Remove="src/Cooling/FanCalibrator.cs" />
     <Compile Remove="src/Activity/WindowsScreenTimeProvider.cs" />
     <Compile Remove="src/Activity/WindowsMediaProvider.cs" />
+    <Compile Remove="src/Activity/WindowsAudioSessionProvider.cs" />
+    <Compile Remove="src/Activity/WindowsAudioSessionEnumerator.cs" />
     <Compile Remove="src/Activity/WindowsNetworkProvider.cs" />
     <Compile Remove="src/Activity/WindowsVolumeProvider.cs" />
     <Compile Remove="src/Fps/WindowsFpsProvider.cs" />

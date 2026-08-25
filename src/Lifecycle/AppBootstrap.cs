@@ -192,6 +192,15 @@ internal static class AppBootstrap
         { if (topic == PanelTopics.Lighting && !muxHub.TopicHasSubscribers(PanelTopics.Lighting)) smartLights.StopReachabilityPolling(); };
         if (muxHub.TopicHasSubscribers(PanelTopics.Lighting)) smartLights.StartReachabilityPolling();
 
+        // Meter-rate sampling of per-app audio sessions costs a poll in the
+        // user-session helper, so it runs only while a mixer is actually open.
+        var mixer = app.Services.GetRequiredService<Nexus.Service.Audio.AudioMixerService>();
+        muxHub.OnTopicFirstSubscriber += topic =>
+        { if (topic == PanelTopics.AudioMixer) mixer.StartStreaming(); };
+        muxHub.OnTopicLastUnsubscriber += topic =>
+        { if (topic == PanelTopics.AudioMixer && !muxHub.TopicHasSubscribers(PanelTopics.AudioMixer)) mixer.StopStreaming(); };
+        if (muxHub.TopicHasSubscribers(PanelTopics.AudioMixer)) mixer.StartStreaming();
+
         // Resolve ILightingProvider to force its construction (wires OnEffectChanged),
         // then reconcile capture: start only when MusicReactive is on and an audio-reactive
         // effect is active.
