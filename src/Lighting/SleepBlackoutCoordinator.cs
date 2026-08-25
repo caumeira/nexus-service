@@ -9,14 +9,14 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Lighting;
 
 /// <summary>
-/// Blanks lighting as the host suspends and restores it on resume, when
-/// <see cref="LightingSettings.SleepBlackout"/> is on.
+/// Fades lighting out as the host suspends or shuts down, and restores it on
+/// resume, when <see cref="LightingSettings.SleepBlackout"/> is on.
 ///
 /// Sleep already takes most devices dark for free, because the host cuts their
-/// bus. RAM does not: DIMMs stay powered across S3 and the SMBus controller
-/// holds whatever frame it was last written, so the sticks glow all night. The
-/// fix is to write black BEFORE the machine stops - after it stops there is no
-/// one left to write.
+/// bus. RAM does not: DIMMs stay powered across S3 (and across S5 on a board
+/// without ErP) and the SMBus controller holds whatever frame it was last
+/// written, so the sticks glow all night. The fix is to write black BEFORE the
+/// machine stops - after it stops there is no one left to write.
 ///
 /// That deadline shapes the whole class. The OS gives suspend subscribers a
 /// short window and then goes down regardless, so <see cref="OnSuspending"/>
@@ -24,6 +24,12 @@ namespace Nexus.Service.Lighting;
 /// race) under a hard <see cref="Budget"/>, and every wait is on a real signal
 /// - the engine publishing black, the OpenRGB writes completing - rather than a
 /// guessed delay.
+///
+/// The fade is the one part that is time-based rather than signalled, so it is
+/// deadline-first: it never eats into <see cref="TerminalReserve"/>, and the run
+/// ALWAYS ends by engaging the hard blackout and pushing black, whether the fade
+/// completed, was cut short, or never started. A fade that runs out of budget
+/// leaves the lights dark, never parked half-lit.
 /// </summary>
 public sealed class SleepBlackoutCoordinator
 {
@@ -36,12 +42,43 @@ public sealed class SleepBlackoutCoordinator
     internal static readonly TimeSpan Budget = TimeSpan.FromMilliseconds(1500);
 
     /// <summary>
-    /// Share of <see cref="Budget"/> allowed for the engine to publish a black
-    /// frame. Bounded well under one budget so a stalled render loop still
-    /// leaves time for the direct OpenRGB push, which is the leg that reaches
-    /// RAM - the device this exists for.
+    /// Budget for the OS-shutdown path. Under the 1500ms cap on the fast
+    /// teardown that calls it (Program.cs FastServiceShutdown), so the terminal
+    /// black frame lands inside the cap instead of being cut off by it.
     /// </summary>
-    private static readonly TimeSpan EnginePublishBudget = TimeSpan.FromMilliseconds(400);
+    internal static readonly TimeSpan ShutdownBudget = TimeSpan.FromMilliseconds(1200);
+
+    /// <summary>
+    /// Wall clock the ramp runs over. Short because it races the host tearing
+    /// down USB: devices behind it stop receiving frames partway with no error,
+    /// since the writes report success into a handle that is going away. Longer
+    /// ramps measurably left them lit; only SMBus devices, RAM among them, take
+    /// the ramp at any length.
+    /// </summary>
+    internal static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(200);
+
+    /// <summary>
+    /// Tail of the budget the fade may not touch, kept for the terminal black
+    /// frame. Sized for the engine publish plus an awaited push to every OpenRGB
+    /// device, which is the leg that reaches RAM.
+    /// </summary>
+    private static readonly TimeSpan TerminalReserve = TimeSpan.FromMilliseconds(600);
+
+    /// <summary>
+    /// Share of the budget allowed for the engine to publish the final black
+    /// frame. Bounded well under one budget so a stalled render loop still
+    /// leaves time for the direct OpenRGB push.
+    /// </summary>
+    private static readonly TimeSpan EnginePublishBudget = TimeSpan.FromMilliseconds(300);
+
+    /// <summary>Two engine ticks of slack: the ramp reaches zero on the first tick past the window.</summary>
+    private TimeSpan FrameSlack => TimeSpan.FromMilliseconds(Math.Max(1, _engine.FrameIntervalMs) * 2);
+
+    /// <summary>
+    /// Windows only: the timings above were measured there and nowhere else.
+    /// Elsewhere this blanks in one write, as it always has.
+    /// </summary>
+    internal static bool FadeSupported => OperatingSystem.IsWindows();
 
     private readonly LightingEngine _engine;
     private readonly IConfigStore _store;
@@ -59,7 +96,16 @@ public sealed class SleepBlackoutCoordinator
     /// off. Swallows everything: a failure here must never abort the host's
     /// suspend handling.
     /// </summary>
-    public void OnSuspending()
+    public void OnSuspending() => BlankOut(Budget, "suspend");
+
+    /// <summary>
+    /// Call inline from the service's fast teardown, on a real OS shutdown only.
+    /// Any other stop (tray quit, /service/stop, an OTA install, a GPU-change
+    /// restart) leaves lighting alone - the service comes back and repaints.
+    /// </summary>
+    public void OnHostShutdown() => BlankOut(ShutdownBudget, "shutdown");
+
+    private void BlankOut(TimeSpan budget, string reason)
     {
         try
         {
@@ -68,21 +114,29 @@ public sealed class SleepBlackoutCoordinator
                 return;
             }
 
-            var deadline = DateTime.UtcNow + Budget;
+            var deadline = DateTime.UtcNow + budget;
+            // A hold already engaged (a second suspend notification, or a
+            // shutdown that follows one) is dark or on its way there; re-running
+            // the fade from full brightness would light the machine back up.
+            var fade = _engine.Blackout ? "held" : FadeOut(deadline);
+
+            // The terminal state, reached on every path: the hold at level 0, so
+            // every later engine tick republishes black and any device that
+            // arrives mid-suspend is blanked too.
             _engine.SetBlackout(true);
 
             // Every non-OpenRGB writer (NP50, Lian Li, Keeb, the hubs) polls the
             // engine's device frames on its own timer, so publishing black is
             // what hands them the blank frame to push.
-            var published = _engine.WaitForBlackout(EnginePublishBudget);
+            var published = _engine.WaitForBlackout(Clamp(EnginePublishBudget, deadline));
 
             var pushed = PushBridgeBlackout(deadline);
             ServiceLog.Info(
-                $"[lighting-sleep] blanked for suspend (engine={(published ? "published" : "timeout")}, openrgb={pushed})");
+                $"[lighting-sleep] blanked for {reason} (fade={fade}, engine={(published ? "published" : "timeout")}, openrgb={pushed})");
         }
         catch (Exception ex)
         {
-            ServiceLog.Info($"[lighting-sleep] blackout on suspend failed: {ex.GetType().Name}: {ex.Message}");
+            ServiceLog.Info($"[lighting-sleep] blackout on {reason} failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -106,6 +160,47 @@ public sealed class SleepBlackoutCoordinator
         {
             ServiceLog.Info($"[lighting-sleep] blackout release failed: {ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Ramps every device from what it is showing down to black and waits for
+    /// it to land. Only when the render loop is publishing frames: that loop is
+    /// what paints the ramp and what feeds the OpenRGB bridge, so with no effect
+    /// running there is nothing to ramp and the caller's blackout cuts instead -
+    /// which is what shipped before the fade existed.
+    ///
+    /// Bounded by <paramref name="deadline"/> minus <see cref="TerminalReserve"/>
+    /// whatever state it reaches; the caller blacks out unconditionally
+    /// afterwards, so a short ramp costs appearance and nothing else.
+    /// </summary>
+    private string FadeOut(DateTime deadline)
+    {
+        if (!FadeSupported)
+        {
+            return "unsupported";
+        }
+        if (!_engine.LoopPublishing)
+        {
+            return "no-loop";
+        }
+
+        var span = FadeDuration;
+        var room = deadline - TerminalReserve - DateTime.UtcNow;
+        if (room < span)
+        {
+            span = room;
+        }
+        if (span <= TimeSpan.Zero)
+        {
+            return "no-budget";
+        }
+        if (!_engine.BeginBlackoutFade(span))
+        {
+            return "held";
+        }
+
+        var reached = _engine.WaitForBlackout(span + FrameSlack);
+        return $"{(int)span.TotalMilliseconds}ms{(reached ? "" : "/timeout")}";
     }
 
     /// <summary>
@@ -140,5 +235,15 @@ public sealed class SleepBlackoutCoordinator
         {
             return $"failed:{ex.GetType().Name}";
         }
+    }
+
+    private static TimeSpan Clamp(TimeSpan wanted, DateTime deadline)
+    {
+        var remaining = deadline - DateTime.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+        return remaining < wanted ? remaining : wanted;
     }
 }

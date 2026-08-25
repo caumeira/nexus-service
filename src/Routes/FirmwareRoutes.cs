@@ -81,6 +81,10 @@ public static partial class DevicesRoutes
                     var installedCode = AdbHelpers.ParseVersionCode(dumpsys);
                     var latestEntry = await apkFlasher.GetLatestCachedAsync(ct);
                     var availableVersion = latestEntry?.Version ?? "";
+                    // ExternalToolManager swallows every fetch failure to null, so a null
+                    // entry means "could not check", not "nothing newer" - the two need
+                    // different UI, since only the first leaves no version to install.
+                    var availableUnknown = latestEntry is null;
                     // installedCode is -1 when qshell is absent (a 2.0->3.0 panel still on the
                     // OEM launcher): offer the first install. Otherwise gate on a newer build.
                     var updateAvailable = latestEntry?.VersionCode is int pub && (installedCode < 0 || pub > installedCode);
@@ -93,13 +97,16 @@ public static partial class DevicesRoutes
                         CurrentVersion = currentVersion,
                         AvailableVersion = availableVersion,
                         UpdateAvailable = updateAvailable,
+                        AvailableUnknown = availableUnknown,
                         AvailableVersions = string.IsNullOrEmpty(availableVersion) ? new() : new() { availableVersion },
                         DevImages = new(),
                     });
                 }
                 catch
                 {
-                    // Device read or manifest fetch failed; omit entry rather than showing stale data.
+                    // The manifest fetch reports failure as null, not an exception, so
+                    // reaching here means the device read (or cancellation) failed: omit
+                    // the entry and let the page report the panel as disconnected.
                 }
             }
 

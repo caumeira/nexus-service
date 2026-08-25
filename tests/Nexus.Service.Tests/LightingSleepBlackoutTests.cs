@@ -120,6 +120,56 @@ public class LightingSleepBlackoutTests : IDisposable
     }
 
     [Fact]
+    public async Task Coordinator_WithAnEffectRunning_RampsThenEndsBlack()
+    {
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 10;
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetEffect(new FillEffect(200, 200, 200));
+        Assert.True(await WaitUntil(() => !AllBlack(devices[0]), TimeSpan.FromSeconds(2)));
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        coordinator.OnSuspending();
+        sw.Stop();
+
+        if (!SleepBlackoutCoordinator.FadeSupported)
+        {
+            // Off Windows this blanks in one write by design; the ramp itself is
+            // covered platform-neutrally by the engine test.
+            Assert.All(devices, d => Assert.True(AllBlack(d)));
+            return;
+        }
+
+        // The ramp waits on the loop reaching black, and a wait only overshoots,
+        // so a run shorter than the ramp never ramped.
+        Assert.True(sw.Elapsed >= SleepBlackoutCoordinator.FadeDuration - TimeSpan.FromMilliseconds(60),
+            $"suspend returned in {sw.ElapsedMilliseconds}ms, too fast to have ramped");
+        Assert.True(engine.Blackout);
+        Assert.All(devices, d => Assert.True(AllBlack(d)));
+    }
+
+    [Fact]
+    public void Coordinator_WithNoEffectRunning_CutsWithoutRamping()
+    {
+        // No effect means no render loop, so nothing would paint the ramp. It
+        // blanks immediately instead, which is what shipped before the fade.
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        coordinator.OnSuspending();
+        sw.Stop();
+
+        Assert.True(sw.Elapsed < SleepBlackoutCoordinator.Budget,
+            $"blanked in {sw.ElapsedMilliseconds}ms, past its whole budget");
+        Assert.All(devices, d => Assert.True(AllBlack(d)));
+    }
+
+    [Fact]
     public void Coordinator_WhenSettingOff_LeavesLightingAlone()
     {
         using var engine = new LightingEngine();
@@ -190,6 +240,159 @@ public class LightingSleepBlackoutTests : IDisposable
 
         engine.Dispose();
         engine.Stop();
+    }
+
+    [Fact]
+    public void Coordinator_WhenAlreadyHeld_SkipsTheFade()
+    {
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetBlackout(true);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        coordinator.OnSuspending();
+        sw.Stop();
+
+        Assert.True(sw.Elapsed < SleepBlackoutCoordinator.FadeDuration,
+            $"a second suspend re-ran the fade ({sw.ElapsedMilliseconds}ms)");
+        Assert.All(devices, d => Assert.True(AllBlack(d)));
+    }
+
+    [Fact]
+    public void Coordinator_OnHostShutdown_BlanksEverything()
+    {
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        coordinator.OnHostShutdown();
+
+        Assert.True(engine.Blackout);
+        Assert.All(devices, d => Assert.True(AllBlack(d)));
+    }
+
+    [Fact]
+    public void Coordinator_OnHostShutdown_WhenSettingOff_LeavesLightingAlone()
+    {
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        _store.Update(s => s.Lighting.SleepBlackout = false);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        coordinator.OnHostShutdown();
+
+        Assert.False(engine.Blackout);
+        Assert.False(AllBlack(devices[0]));
+    }
+
+    [Fact]
+    public void Coordinator_ShutdownBudget_LeavesTheTerminalBlackFrameRoom()
+    {
+        // The fast teardown that calls OnHostShutdown caps every task at 1500ms;
+        // a budget at or above that would see the terminal black push cut off.
+        Assert.True(SleepBlackoutCoordinator.ShutdownBudget < TimeSpan.FromMilliseconds(1500));
+        Assert.True(SleepBlackoutCoordinator.FadeDuration < SleepBlackoutCoordinator.Budget);
+    }
+
+    [Fact]
+    public async Task BeginBlackoutFade_RampsDownWithoutEverBrightening()
+    {
+        // Sampled from outside, the way the hardware sees it: the ramp has to
+        // fall the whole way. It used to be driven from a second thread on its
+        // own timer, which republished the same level whenever the two clocks
+        // collided, and that reads as the ramp pausing partway down.
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 10;
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetEffect(new FillEffect(200, 200, 200));
+        Assert.True(await WaitUntil(() => devices[0].LedBytes[0] == 200, TimeSpan.FromSeconds(2)));
+
+        Assert.True(engine.BeginBlackoutFade(TimeSpan.FromMilliseconds(400)));
+        var samples = new List<byte>();
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (DateTime.UtcNow < deadline)
+        {
+            var v = devices[0].LedBytes[0];
+            if (samples.Count == 0 || samples[^1] != v) samples.Add(v);
+            if (v == 0) break;
+            await Task.Delay(5);
+        }
+
+        Assert.True(samples.Count >= 4, $"expected a ramp, saw {samples.Count} distinct levels");
+        Assert.Equal(0, samples[^1]);
+        for (var i = 1; i < samples.Count; i++)
+        {
+            Assert.True(samples[i] < samples[i - 1], $"level rose: {string.Join(",", samples)}");
+        }
+    }
+
+    [Fact]
+    public void BeginBlackoutFade_WhenAHoldIsEngaged_IsRefused()
+    {
+        using var engine = new LightingEngine();
+        engine.UpdateDevices(MakeLitDevices());
+        Assert.True(engine.BeginBlackoutFade(TimeSpan.FromMilliseconds(200)));
+
+        Assert.False(engine.BeginBlackoutFade(TimeSpan.FromMilliseconds(200)));
+    }
+
+    [Fact]
+    public void Coordinator_OnHostShutdown_StaysInsideItsBudget()
+    {
+        // The shutdown budget is tighter than the suspend one; the black frame
+        // has to land inside it either way.
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        coordinator.OnHostShutdown();
+        sw.Stop();
+
+        Assert.True(sw.Elapsed < SleepBlackoutCoordinator.ShutdownBudget,
+            $"shutdown blank overran its budget at {sw.ElapsedMilliseconds}ms");
+        Assert.True(engine.Blackout);
+        Assert.True(engine.Blackout);
+        Assert.All(devices, d => Assert.True(AllBlack(d)));
+    }
+
+    [Fact]
+    public void DeviceArrivingMidHold_GoesStraightToBlack()
+    {
+        // It has no baseline to scale, so it must not be left showing whatever
+        // it arrived with for the rest of the suspend.
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices(count: 1);
+        engine.UpdateDevices(devices);
+        engine.BeginBlackoutFade(TimeSpan.FromMilliseconds(400));
+
+        var late = MakeLitDevices(count: 1)[0];
+        engine.UpdateDevices(new[] { devices[0], late });
+        engine.SetBlackout(true);
+
+        Assert.True(AllBlack(late));
+    }
+
+    [Fact]
+    public void LoopPublishing_TracksTheRenderLoop()
+    {
+        // The ramp only runs while this holds: the loop is what paints it.
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 5;
+        engine.UpdateDevices(MakeLitDevices());
+        Assert.False(engine.LoopPublishing);
+
+        engine.SetEffect(new FillEffect(10, 10, 10));
+        Assert.True(engine.LoopPublishing);
+
+        engine.Stop();
+        Assert.False(engine.LoopPublishing);
     }
 
     private static async Task<bool> WaitUntil(Func<bool> predicate, TimeSpan timeout)

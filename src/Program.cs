@@ -742,7 +742,9 @@ return 0;
 #if WINDOWS
 // Do only what the OS won't do on process exit, concurrently under one hard
 // cap: persist debounced settings + dirty profile, release fans (the hubs hold
-// the last commanded PWM with no failsafe), reset any connected Stream Deck
+// the last commanded PWM with no failsafe), fade lighting out when the machine
+// itself is going down (RGB RAM keeps its bus in S5 on a board without ErP, so
+// it holds its last frame), reset any connected Stream Deck
 // (it holds its last-pushed frame with no failsafe either), kill the external
 // driver tools (plain Process.Start children, so no kill-job holds them), and
 // reap the cross-session UI the kill-job can't hold (overlay host + tray
@@ -762,6 +764,21 @@ static void FastServiceShutdown(WebApplication app)
             try { sp.GetService<Nexus.Service.Cloud.CloudProfileSyncService>()?.FlushPendingSyncBlocking(TimeSpan.FromMilliseconds(1000)); } catch { }
         }),
         Task.Run(() => { try { sp.GetService<IFanControlProvider>()?.ReleaseAll(); } catch { } }),
+        // Only when the OS is going down. A stop that is not that (tray quit,
+        // /service/stop, an OTA install, a GPU-change restart) is followed by a
+        // service that comes back and repaints, so blanking would just be a
+        // blink - and it would cost every one of those stops the fade's second.
+        Task.Run(() =>
+        {
+            try
+            {
+                if (Nexus.Service.Lifecycle.HostShutdown.IsOsShutdown)
+                {
+                    sp.GetService<Nexus.Service.Lighting.SleepBlackoutCoordinator>()?.OnHostShutdown();
+                }
+            }
+            catch { }
+        }),
         Task.Run(() => { try { sp.GetService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>()?.ResetConnectedSurfacesForShutdown(); } catch { } }),
         Task.Run(() => { try { sp.GetService<Nexus.Service.Common.ExternalTools.ExternalToolManager>()?.TerminateAll(); } catch { } }),
         Task.Run(() => { try { sp.GetService<Nexus.Service.Mcp.Assistant.OllamaRuntimeManager>()?.StopChildForShutdown(); } catch { } }),

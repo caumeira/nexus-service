@@ -17,6 +17,20 @@ public sealed class LightingEngine : IDisposable
     private volatile bool _paused;
     private volatile bool _frozen;
     private volatile bool _blackout;
+    // Scale applied to the blackout baseline while the hold is engaged: 1 = the
+    // frame the devices were showing when it engaged, 0 = black. Only read while
+    // _blackout is true.
+    private volatile float _blackoutLevel = 1f;
+    // Fade window. The level is derived from this clock by whoever publishes the
+    // frame, never pushed in from another thread: a setter on its own timer beats
+    // against the render loop's, and each collision republishes a level, which
+    // reads as the ramp pausing partway down.
+    private long _fadeStartedMs;
+    private volatile int _fadeDurationMs;
+    // What each device was publishing when the hold engaged. Levels scale THIS,
+    // not the live frame, so steps cannot compound. Replaced wholesale and never
+    // mutated after, so the render loop reads it without taking _lock.
+    private Dictionary<DeviceFrame, byte[]>? _blackoutBaseline;
     // Set by whichever path actually publishes the black frame, so a caller on
     // the OS suspend path can wait for the hardware-visible state rather than
     // for a flag it just set itself.
@@ -50,6 +64,22 @@ public sealed class LightingEngine : IDisposable
     public bool Paused => _paused;
     public bool Frozen => _frozen;
     public bool Blackout => _blackout;
+
+    /// <summary>
+    /// True when the render loop is publishing frames. A ramp is only visible
+    /// while this holds: the loop is what paints it and what feeds
+    /// <see cref="OnFrame"/>.
+    /// </summary>
+    public bool LoopPublishing
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _currentEffect is not null && _loopTask is not null && !_loopTask.IsCompleted;
+            }
+        }
+    }
     public void UpdateDevices(DeviceFrame[] devices) { _devices = devices; }
 
     /// <summary>
@@ -104,23 +134,33 @@ public sealed class LightingEngine : IDisposable
     /// </summary>
     public void SetBlackout(bool blackout)
     {
-        bool applyInline;
+        var applyInline = false;
         lock (_lock)
         {
-            if (_blackout == blackout)
-            {
-                return;
-            }
-            _blackout = blackout;
-            // A frozen effect renders once per epoch; without this it would
-            // hold the blacked-out canvas after release instead of repainting.
-            Interlocked.Increment(ref _frozenEpoch);
             if (!blackout)
             {
-                ResetBlackoutSignal();
+                if (!_blackout)
+                {
+                    return;
+                }
+                ReleaseBlackoutState();
+                // A frozen effect renders once per epoch; without this it would
+                // hold the blacked-out canvas after release instead of repainting.
+                Interlocked.Increment(ref _frozenEpoch);
                 return;
             }
-            // With the loop running it owns the device buffers; clearing them
+
+            if (!_blackout)
+            {
+                _blackoutBaseline = CaptureBlackoutBaseline();
+                _blackout = true;
+            }
+            // Ends any ramp: this is the cut, and it is also what the fade path
+            // calls once its window is spent.
+            _fadeDurationMs = 0;
+            _blackoutLevel = 0f;
+            Interlocked.Increment(ref _frozenEpoch);
+            // With the loop running it owns the device buffers; writing them
             // from this thread would race its paint and could publish a torn
             // frame. Without it, nothing else writes them, so apply here - and
             // that is the path that matters, since a device holding its last
@@ -131,6 +171,67 @@ public sealed class LightingEngine : IDisposable
         {
             ApplyBlackout();
         }
+    }
+
+    /// <summary>
+    /// Engages the hold and ramps to black over <paramref name="duration"/>, the
+    /// level recomputed on every published frame. False when a hold is already
+    /// engaged, changing nothing: a second suspend notification mid-ramp must
+    /// not restart it bright. Wait on <see cref="WaitForBlackout"/> for the end.
+    /// </summary>
+    public bool BeginBlackoutFade(TimeSpan duration)
+    {
+        var ms = (int)Math.Clamp(duration.TotalMilliseconds, 0, int.MaxValue);
+        if (ms <= 0)
+        {
+            // No window to ramp over; a hold at level 1 would park every device
+            // at full brightness with nothing to move it.
+            SetBlackout(true);
+            return true;
+        }
+        lock (_lock)
+        {
+            if (_blackout)
+            {
+                return false;
+            }
+            _blackoutBaseline = CaptureBlackoutBaseline();
+            Volatile.Write(ref _fadeStartedMs, Environment.TickCount64);
+            _fadeDurationMs = ms;
+            _blackoutLevel = 1f;
+            // The ramp has not reached black; a signal left set by an earlier
+            // hold would tell a waiter it already had.
+            ResetBlackoutSignal();
+            _blackout = true;
+            Interlocked.Increment(ref _frozenEpoch);
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Level for right now: derived from the ramp's clock while one is running,
+    /// otherwise whatever level was set explicitly. Derived and never written
+    /// back - a write-back from the render thread can land after
+    /// <see cref="SetBlackout"/> has set the cut under _lock, restoring a dim
+    /// level that then sticks because the ramp is over.
+    /// </summary>
+    private float CurrentFadeLevel()
+    {
+        var durationMs = _fadeDurationMs;
+        if (durationMs <= 0)
+        {
+            return _blackoutLevel;
+        }
+        var elapsed = Environment.TickCount64 - Volatile.Read(ref _fadeStartedMs);
+        if (elapsed >= durationMs)
+        {
+            return 0f;
+        }
+        // Monotone because elapsed only grows. Squared: the byte we write is
+        // roughly linear in emitted light, perception is not, so a linear ramp
+        // reads as a hard drop that then crawls.
+        var t = 1f - (float)elapsed / durationMs;
+        return t * t;
     }
 
     /// <summary>
@@ -145,14 +246,62 @@ public sealed class LightingEngine : IDisposable
         try { _blackoutApplied.Reset(); } catch (ObjectDisposedException) { }
     }
 
+    /// <summary>Call under <see cref="_lock"/>. Drops the hold and everything it captured.</summary>
+    private void ReleaseBlackoutState()
+    {
+        _blackout = false;
+        _blackoutLevel = 1f;
+        _fadeDurationMs = 0;
+        Volatile.Write(ref _blackoutBaseline, null);
+        ResetBlackoutSignal();
+    }
+
+    private Dictionary<DeviceFrame, byte[]> CaptureBlackoutBaseline()
+    {
+        var devices = _devices;
+        var baseline = new Dictionary<DeviceFrame, byte[]>(devices.Length);
+        foreach (var dev in devices)
+        {
+            baseline[dev] = dev.LedBytes.ToArray();
+        }
+        return baseline;
+    }
+
+    /// <summary>
+    /// Publishes the hold's current level to every device. Re-run every tick, so
+    /// the ramp advances and hardware arriving mid-hold is caught too.
+    /// </summary>
     private void ApplyBlackout()
     {
-        _canvas.Clear();
+        var level = CurrentFadeLevel();
+        var baseline = Volatile.Read(ref _blackoutBaseline);
+        if (level <= 0f || baseline is null)
+        {
+            _canvas.Clear();
+            foreach (var dev in _devices)
+            {
+                dev.Clear();
+            }
+            // Only full black satisfies a WaitForBlackout caller: it is waiting
+            // to know the hardware is dark, not that a fade is under way.
+            _blackoutApplied.Set();
+            return;
+        }
         foreach (var dev in _devices)
         {
-            dev.Clear();
+            if (!baseline.TryGetValue(dev, out var frame))
+            {
+                // Arrived after the hold engaged, so it was never part of the
+                // fade: black it outright rather than lighting it up mid-suspend.
+                dev.Clear();
+                continue;
+            }
+            for (int i = 0, led = 0; i + 2 < frame.Length; i += 3, led++)
+            {
+                dev.SetLed(led, (byte)(frame[i] * level), (byte)(frame[i + 1] * level), (byte)(frame[i + 2] * level));
+            }
+            dev.Publish();
         }
-        _blackoutApplied.Set();
     }
 
     /// <summary>
@@ -188,8 +337,7 @@ public sealed class LightingEngine : IDisposable
             _frozen = false;
             // The user picking a mode is the escape hatch if a resume event
             // never lands: it always ends in a lit device, never a dark one.
-            _blackout = false;
-            ResetBlackoutSignal();
+            ReleaseBlackoutState();
             Interlocked.Increment(ref _frozenEpoch);
             try
             { old?.Dispose(); }
@@ -209,8 +357,7 @@ public sealed class LightingEngine : IDisposable
             _currentEffect = null;
             _paused = false;
             _frozen = false;
-            _blackout = false;
-            ResetBlackoutSignal();
+            ReleaseBlackoutState();
             Interlocked.Increment(ref _frozenEpoch);
             try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
             try

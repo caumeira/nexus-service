@@ -48,6 +48,15 @@ public sealed class FirmwareStatusItem
     public string AvailableVersion { get; set; } = "";
     /// <summary>True when the bundled version is strictly newer than the device's current version.</summary>
     public bool UpdateAvailable { get; set; }
+    /// <summary>
+    /// True when the available version could not be determined at all - the remote
+    /// manifest fetch failed (offline host, CDN blip). Distinct from
+    /// <see cref="UpdateAvailable"/> = false, which means "checked, nothing newer".
+    /// Without the distinction a panel that needs its app installed renders as an
+    /// inert "unknown" row with no action, because both states arrive as an empty
+    /// <see cref="AvailableVersion"/>.
+    /// </summary>
+    public bool AvailableUnknown { get; set; }
     /// <summary>All bundled versions for this device's connected variant (newest first).</summary>
     public List<string> AvailableVersions { get; set; } = new();
     /// <summary>
