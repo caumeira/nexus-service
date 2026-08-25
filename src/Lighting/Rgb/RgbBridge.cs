@@ -458,6 +458,71 @@ public sealed class RgbBridge : IDisposable
     }
 
     /// <summary>
+    /// Copies what every device this bridge drives is showing right now, so a
+    /// fade can push baseline*level per step. It has to be a copy: the engine is
+    /// dimming the live buffers on its own, and scaling an already-dimmed buffer
+    /// compounds into a fade that reaches black far too early. Null when there is
+    /// nothing to fade (no subprocess, no connection).
+    /// </summary>
+    public RgbFadeSnapshot? CaptureFadeSnapshot()
+    {
+        if (!IsActive || !_controller.IsConnected)
+        {
+            return null;
+        }
+        var snapshot = new RgbFadeSnapshot();
+        // Local scratch, not the _physFullyUncontrolled field OnFrame owns:
+        // this runs on the power-event thread while the engine may still tick.
+        ComputeFullyUncontrolledPhysicals(
+            _engine.Devices, _bridgeFrameIds, _store.Load().Devices.UncontrolledLightingDevices, snapshot.Uncontrolled);
+        foreach (var kv in _physBuffers)
+        {
+            snapshot.Baseline[kv.Key] = (RgbColor[])kv.Value.Clone();
+            snapshot.Scratch[kv.Key] = new RgbColor[kv.Value.Length];
+        }
+        return snapshot;
+    }
+
+    /// <summary>
+    /// Pushes one fade step - the snapshot scaled to <paramref name="level"/> -
+    /// and AWAITS each write, same reason <see cref="BlackoutAsync"/> does.
+    /// Devices the user marked not-controlled are skipped, and so is any device
+    /// whose LED count changed since the snapshot (a mid-fade device-list
+    /// change): a fade step is cosmetic, and the terminal blackout re-reads the
+    /// live buffers anyway.
+    /// </summary>
+    public async Task PushFadeStepAsync(RgbFadeSnapshot snapshot, float level, CancellationToken ct = default)
+    {
+        if (!IsActive || !_controller.IsConnected)
+        {
+            return;
+        }
+        foreach (var kv in snapshot.Baseline)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!_controller.IsConnected)
+            {
+                return;
+            }
+            if (snapshot.Uncontrolled.TryGetValue(kv.Key, out var skip) && skip)
+            {
+                continue;
+            }
+            var baseline = kv.Value;
+            if (!_physBuffers.TryGetValue(kv.Key, out var live) || live.Length != baseline.Length)
+            {
+                continue;
+            }
+            var scaled = snapshot.Scratch[kv.Key];
+            for (int i = 0; i < baseline.Length; i++)
+            {
+                scaled[i] = baseline[i].Scale(level);
+            }
+            await _controller.PushFrameAsync(kv.Key, scaled, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
     /// Pushes an all-black frame to every device this bridge drives and AWAITS
     /// each write. The <see cref="OnFrame"/> path fires its pushes and forgets
     /// them, which is fine at 30 fps and useless on the suspend path, where the
