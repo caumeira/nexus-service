@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Cooling;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Persistence;
 using Nexus.Service.Sockets;
@@ -26,6 +27,7 @@ public class CurveEngineTests
         public readonly List<(string Id, int Duty)> Driven = new();
         public readonly List<(string Id, int Duty)> ManualSet = new();
         public float Temperature = 50f;
+        public Action? OnReleaseAll;
 
         public IReadOnlyList<FanChannel> GetFanChannels() =>
             Present.Select(id => new FanChannel { Id = id, Name = id }).ToList();
@@ -45,7 +47,7 @@ public class CurveEngineTests
             Driven.Add((channelId, dutyPercent));
 
         public void ReleaseFan(string channelId) { }
-        public void ReleaseAll() { }
+        public void ReleaseAll() => OnReleaseAll?.Invoke();
 
         public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
             IReadOnlyList<string> fanIds, IProgress<FanCalibrationProgress> progress, CancellationToken ct)
@@ -295,6 +297,76 @@ public class CurveEngineTests
 
         engine.ResetSmoothing();
         engine.Tick();
+        Assert.Equal(2, fans.ManualSet.Count);
+    }
+
+    [Fact]
+    public void GateOff_Tick_WritesNothing()
+    {
+        var fans = new FakeFanProvider();
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Cooling.Curves.Add(FlatCurve("x", 40));
+            s.Cooling.ManualSpeeds["y"] = 60;
+            s.Features.Cooling = false;
+        });
+        fans.Present.Add("x");
+        fans.Present.Add("y");
+        var engine = new CurveEngine(fans, store, new MultiplexHub(), new FeatureGates(store));
+
+        engine.Tick();
+
+        Assert.Empty(fans.Driven);
+        Assert.Empty(fans.ManualSet);
+    }
+
+    [Fact]
+    public async Task GateOff_StopAsync_NeverReleases()
+    {
+        var fans = new FakeFanProvider();
+        var store = new InMemoryConfigStore();
+        store.Update(s => s.Features.Cooling = false);
+        var engine = new CurveEngine(fans, store, new MultiplexHub(), new FeatureGates(store));
+        var released = false;
+        fans.OnReleaseAll = () => released = true;
+
+        await engine.StopAsync(CancellationToken.None);
+
+        Assert.False(released);
+    }
+
+    [Fact]
+    public void GateOff_ThenReEnable_ReDrivesCurvesAndManualDuties()
+    {
+        // A curve-owned fan already driven, plus a stale manual entry for a
+        // different fan, must both re-drive on the first tick after
+        // re-enable - the disabled branch clears write dedup and the manual-
+        // replay latch the same way the idle branch does for a curve reattach.
+        var fans = new FakeFanProvider();
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Cooling.Curves.Add(FlatCurve("x", 40));
+            s.Cooling.ManualSpeeds["y"] = 60;
+        });
+        fans.Present.Add("x");
+        fans.Present.Add("y");
+        var engine = new CurveEngine(fans, store, new MultiplexHub(), new FeatureGates(store));
+        engine.Tick();
+        Assert.Single(fans.Driven);
+        Assert.Single(fans.ManualSet);
+
+        store.Update(s => s.Features.Cooling = false);
+        engine.Tick();
+        engine.Tick();
+        Assert.Single(fans.Driven);
+        Assert.Single(fans.ManualSet);
+
+        store.Update(s => s.Features.Cooling = true);
+        engine.Tick();
+
+        Assert.Equal(2, fans.Driven.Count);
         Assert.Equal(2, fans.ManualSet.Count);
     }
 }

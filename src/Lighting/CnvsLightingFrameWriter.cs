@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Peripherals.Hyte.Cnvs;
 using Nexus.Service.Persistence;
@@ -45,9 +46,12 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
     private string _lastConnectedSerial = "";
     private bool _fwAnimSilenced;
 
-    public CnvsLightingFrameWriter(LightingEngine engine, CnvsHub hub, IConfigStore store, Np50IdentifyTracker identify)
+    private readonly FeatureGates _gates;
+
+    public CnvsLightingFrameWriter(LightingEngine engine, CnvsHub hub, IConfigStore store, Np50IdentifyTracker identify, FeatureGates? gates = null)
     {
         _engine = engine; _hub = hub; _store = store; _identify = identify;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -87,6 +91,7 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
 
     private void Tick()
     {
+        if (!_gates.Lighting) return;
         if (!_hub.IsConnected)
         {
             _fwAnimSilenced = false;

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.Strimer;
@@ -33,18 +34,22 @@ public sealed class StrimerLightingFrameWriter : IHostedService, IDisposable
     // Last firmware-mode signature committed; null forces re-commit on next tick.
     private int? _lastFirmwareSig;
 
+    private readonly FeatureGates _gates;
+
     public StrimerLightingFrameWriter(
         LightingEngine engine,
         StrimerHub hub,
         IConfigStore store,
         Np50IdentifyTracker identify,
-        StrimerLightingDeviceProvider provider)
+        StrimerLightingDeviceProvider provider,
+        FeatureGates? gates = null)
     {
         _engine   = engine;
         _hub      = hub;
         _store    = store;
         _identify = identify;
         _provider = provider;
+        _gates    = gates ?? FeatureGates.AllEnabled;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -89,6 +94,7 @@ public sealed class StrimerLightingFrameWriter : IHostedService, IDisposable
 
     private void Tick()
     {
+        if (!_gates.Lighting) return;
         if (!_hub.IsConnected)
         {
             _lastFirmwareSig = null;

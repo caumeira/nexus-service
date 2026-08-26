@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Peripherals.Hyte.Keeb;
 using Nexus.Service.Peripherals.Hyte.Np50;
@@ -54,7 +55,9 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 
     private RgbColor[][] _segmentBuffers = Array.Empty<RgbColor[]>();
 
-    public KeebLightingFrameWriter(LightingEngine engine, KeebHub hub, IConfigStore store, Np50IdentifyTracker identify, KeebSettingsApplier applier, KeebReactiveRenderer renderer)
+    private readonly FeatureGates _gates;
+
+    public KeebLightingFrameWriter(LightingEngine engine, KeebHub hub, IConfigStore store, Np50IdentifyTracker identify, KeebSettingsApplier applier, KeebReactiveRenderer renderer, FeatureGates? gates = null)
     {
         _engine = engine;
         _hub = hub;
@@ -62,6 +65,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         _identify = identify;
         _applier = applier;
         _renderer = renderer;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -103,6 +107,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 
     private void Tick()
     {
+        if (!_gates.Lighting) return;
         if (!_hub.IsConnected) return;
 
         var settings = _store.Load();

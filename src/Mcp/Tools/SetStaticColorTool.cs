@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
 using Nexus.Service.Models.Lighting;
 using Nexus.Service.Models.Mcp;
@@ -46,12 +47,14 @@ public sealed class SetStaticColorTool : IMcpTool
     private readonly ILightingProvider _lighting;
     private readonly IConfigStore _store;
     private readonly MultiplexHub _hub;
+    private readonly FeatureGates _gates;
 
-    public SetStaticColorTool(ILightingProvider lighting, IConfigStore store, MultiplexHub hub)
+    public SetStaticColorTool(ILightingProvider lighting, IConfigStore store, MultiplexHub hub, FeatureGates? gates = null)
     {
         _lighting = lighting;
         _store = store;
         _hub = hub;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public string Name => "set_static_color";
@@ -74,6 +77,10 @@ public sealed class SetStaticColorTool : IMcpTool
 
     public Task<McpToolExecutionResult> ExecuteAsync(JsonElement? args, CancellationToken ct)
     {
+        if (!_gates.Lighting)
+        {
+            return Task.FromResult(McpToolExecutionResult.Error("Lighting is disabled in Settings."));
+        }
         var color = McpArgs.StringArg(args, "color");
         if (!TryParseHexColor(color, out var r, out var g, out var b))
         {

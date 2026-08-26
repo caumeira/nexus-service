@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Monitoring.History;
@@ -24,14 +25,16 @@ public sealed class PrivacyAccessWatcher : BackgroundService
     private readonly IPrivacyAccessRegistryReader _reader;
     private readonly IPrivacySessionStore _store;
     private readonly PrivacyAccessTransitions _transitions = new();
+    private readonly FeatureGates _gates;
 
     private DateTime _lastPruneUtc = DateTime.MinValue;
     private DateTime _lastWarnUtc = DateTime.MinValue;
 
-    public PrivacyAccessWatcher(IPrivacyAccessRegistryReader reader, IPrivacySessionStore store)
+    public PrivacyAccessWatcher(IPrivacyAccessRegistryReader reader, IPrivacySessionStore store, FeatureGates? gates = null)
     {
         _reader = reader;
         _store = store;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -69,6 +72,10 @@ public sealed class PrivacyAccessWatcher : BackgroundService
 
     internal void Tick(DateTime nowUtc)
     {
+        if (!_gates.Monitoring)
+        {
+            return;
+        }
         var snapshot = _reader.ReadAll();
         var updates = _transitions.Advance(snapshot, new DateTimeOffset(nowUtc).ToUnixTimeSeconds());
         foreach (var update in updates)

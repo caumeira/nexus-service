@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
@@ -65,15 +66,41 @@ public sealed class CurveEngine : BackgroundService
     private readonly HashSet<string> _releasedUncontrolled = new(StringComparer.Ordinal);
 
     private int _intervalMs = 1000;
+    private readonly FeatureGates _gates;
+
+    // Set by FeatureReconciler on the Cooling ON->OFF edge, consumed by the
+    // next disabled Tick (or StopAsync, if shutdown lands first) so the
+    // release is serialized through the same single-threaded tick loop as
+    // every curve write - it can never race ahead of or behind an in-flight
+    // tick that already read the gate as enabled this cycle.
+    private int _pendingRelease;
 
     public CurveEngine(
         IFanControlProvider fans,
         IConfigStore store,
-        MultiplexHub hub)
+        MultiplexHub hub,
+        FeatureGates? gates = null)
     {
         _fans = fans;
         _store = store;
         _hub = hub;
+        _gates = gates ?? FeatureGates.AllEnabled;
+    }
+
+    public void RequestRelease() => Interlocked.Exchange(ref _pendingRelease, 1);
+
+    private void ReleaseIfPending()
+    {
+        if (Interlocked.Exchange(ref _pendingRelease, 0) != 1)
+        {
+            return;
+        }
+        try
+        {
+            _fans.ReleaseAll();
+            Console.Error.WriteLine("[curve-engine] released all fans (Cooling disabled)");
+        }
+        catch { /* swallow */ }
     }
 
     public int GetInterval() => _intervalMs;
@@ -116,6 +143,14 @@ public sealed class CurveEngine : BackgroundService
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         await base.StopAsync(cancellationToken);
+        if (!_gates.Cooling)
+        {
+            // Fulfills a still-pending release if shutdown lands before the
+            // next disabled tick would have; otherwise a prior tick already
+            // released and this is a no-op write the Cooling-off contract forbids.
+            ReleaseIfPending();
+            return;
+        }
         try
         {
             _fans.ReleaseAll();
@@ -124,8 +159,26 @@ public sealed class CurveEngine : BackgroundService
         catch { /* swallow */ }
     }
 
+    /// <summary>Drops every id whose persisted manual duty has been replayed
+    /// this run, so the next enabled tick replays every manual duty from
+    /// scratch. Called from the disabled branch below so a Cooling re-enable
+    /// always re-drives, the same guarantee the idle branch gives a curve
+    /// re-attach.</summary>
+    private void ClearManualReplayed()
+    {
+        lock (_manualReplayed) { _manualReplayed.Clear(); }
+    }
+
     internal void Tick()
     {
+        if (!_gates.Cooling)
+        {
+            ReleaseIfPending();
+            ForgetWritesNotOwned(null);
+            ClearManualReplayed();
+            return;
+        }
+
         var settings = _store.Load();
         var curves = settings.Cooling.Curves;
         if (curves.Count == 0

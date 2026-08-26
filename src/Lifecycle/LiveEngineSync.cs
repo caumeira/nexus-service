@@ -25,14 +25,21 @@ namespace Nexus.Service.Lifecycle;
 public static class LiveEngineSync
 {
     /// <summary>Apply cooling preset + lighting sync from the current store state.</summary>
-    public static void Apply(IConfigStore store, IFanControlProvider fans, ILightingProvider lighting)
+    public static void Apply(IConfigStore store, IFanControlProvider fans, ILightingProvider lighting, FeatureGates gates)
     {
-        ApplyCooling(store, fans);
+        ApplyCooling(store, fans, gates);
         ApplyLighting(store, lighting);
     }
 
-    private static void ApplyCooling(IConfigStore store, IFanControlProvider fans)
+    private static void ApplyCooling(IConfigStore store, IFanControlProvider fans, FeatureGates gates)
     {
+        // Profile switch / reset must not drive fans while Cooling is off;
+        // unlike lighting, FanProfiles.Apply below writes hardware directly
+        // with no per-tick gate downstream to catch it.
+        if (!gates.Cooling)
+        {
+            return;
+        }
         try
         {
             var preset = (store.Load().Cooling.ActivePreset ?? "").ToLowerInvariant();

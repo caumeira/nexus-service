@@ -18,11 +18,15 @@ public static class GameSyncRoutes
         // Activate Game Sync mode and deploy the Chroma shim DLLs into
         // System32/SysWOW64 when not already current. The shim install is
         // idempotent: no-op if the files are already ours at the same version.
-        app.MapPost("/lighting/game-sync/start", (ILightingProvider l, MultiplexHub hub) =>
+        app.MapPost("/lighting/game-sync/start", (ILightingProvider l, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             l.StartGameSync();
             PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         }).LocalhostOnly();
 
         // Per-device frame receiver. The native shim posts one body per device

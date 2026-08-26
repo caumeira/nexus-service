@@ -100,34 +100,47 @@ internal static class AppBootstrap
         // dictionary lookup against the DI cache.
         var sp = app.Services;
         profileManager.OnProfileSwitched += () =>
-        {
-            try
-            {
-                var fans = sp.GetRequiredService<IFanControlProvider>();
-                fans.ReleaseAll();
-                curveEngine.ResetSmoothing();
-                lightingEngine.Stop();
-                // Re-engage engines with the incoming profile's settings so
-                // a profile that has "silent" cooling + a plasma effect
-                // resumes after the switch instead of leaving the engines
-                // idle until the user clicks something.
-                LiveEngineSync.Apply(configStore, fans, lightingProvider);
+            ReapplyAfterProfileSwitch(sp, curveEngine, lightingEngine, lightingProvider, configStore);
+    }
 
-                // Keeb is profile-scoped via the Device sharing category;
-                // push the incoming profile's game mode/firmware lighting/
-                // rotary and re-send persisted key overrides + macros so the
-                // physical keyboard follows the switch. Both no-op when no
-                // keyboard is connected.
-                var keebApplier = sp.GetRequiredService<KeebSettingsApplier>();
-                var keebProvider = sp.GetRequiredService<IKeebProvider>();
-                keebApplier.Apply();
-                keebProvider.ApplyPersistedAssignments();
-            }
-            catch (Exception ex)
+    // Extracted from InitializeProfiles' OnProfileSwitched closure so it is
+    // callable directly against a hand-built IServiceProvider in tests.
+    internal static void ReapplyAfterProfileSwitch(
+        IServiceProvider sp, CurveEngine curveEngine, LightingEngine lightingEngine,
+        ILightingProvider lightingProvider, IConfigStore configStore)
+    {
+        try
+        {
+            var fans = sp.GetRequiredService<IFanControlProvider>();
+            var gates = sp.GetRequiredService<FeatureGates>();
+            // Cooling off already released every fan at the toggle; releasing
+            // again here is the write the Cooling-off contract forbids.
+            if (gates.Cooling)
             {
-                Console.Error.WriteLine($"[profiles] reapply failed: {ex.Message}");
+                fans.ReleaseAll();
             }
-        };
+            curveEngine.ResetSmoothing();
+            lightingEngine.Stop();
+            // Re-engage engines with the incoming profile's settings so
+            // a profile that has "silent" cooling + a plasma effect
+            // resumes after the switch instead of leaving the engines
+            // idle until the user clicks something.
+            LiveEngineSync.Apply(configStore, fans, lightingProvider, gates);
+
+            // Keeb is profile-scoped via the Device sharing category;
+            // push the incoming profile's game mode/firmware lighting/
+            // rotary and re-send persisted key overrides + macros so the
+            // physical keyboard follows the switch. Both no-op when no
+            // keyboard is connected.
+            var keebApplier = sp.GetRequiredService<KeebSettingsApplier>();
+            var keebProvider = sp.GetRequiredService<IKeebProvider>();
+            keebApplier.Apply();
+            keebProvider.ApplyPersistedAssignments();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[profiles] reapply failed: {ex.Message}");
+        }
     }
 
     // BeatsProvider.OnBeat fires each analysis window while capture runs; when

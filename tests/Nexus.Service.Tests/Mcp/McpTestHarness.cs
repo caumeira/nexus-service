@@ -102,6 +102,7 @@ internal static class McpTestHarness
         public string GetSync() => "none";
         public void SetSync(string sync) { }
         public void StopAll() => StopAllCallCount++;
+        public void Suspend() { }
         public bool IsPaused => false;
         public void SetPaused(bool paused) { }
         public void SetBrightness(BrightnessScale scale) { }

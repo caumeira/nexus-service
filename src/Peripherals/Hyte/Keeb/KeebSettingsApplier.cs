@@ -1,4 +1,5 @@
 using System;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
@@ -57,12 +58,15 @@ public sealed class KeebSettingsApplier
     // our yellow alternating with the firmware's animation).
     private volatile bool _streaming;
 
-    public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel, IHidEnumerator? hid = null)
+    private readonly FeatureGates _gates;
+
+    public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel, IHidEnumerator? hid = null, FeatureGates? gates = null)
     {
         _hub = hub;
         _store = store;
         _panel = panel;
         _hid = hid;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     /// <summary>
@@ -106,6 +110,7 @@ public sealed class KeebSettingsApplier
     /// <summary>Build the page from current settings and write it. No-op (false) when disconnected.</summary>
     public bool Apply()
     {
+        if (!_gates.Lighting) return false;
         if (!_hub.IsConnected) return false;
         try
         {

@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Cooling;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Models.Widgets;
 using Nexus.Service.Persistence;
@@ -37,6 +38,8 @@ public static class CoolingActions
 
         registry.Register("cooling.setDuty", (services, args, _) =>
         {
+            if (!services.GetRequiredService<FeatureGates>().Cooling)
+                return Task.FromResult<JsonElement?>(Ack(false, "cooling is disabled in Settings"));
             var id = Str(args, "channelId") ?? Str(args, "id");
             if (string.IsNullOrEmpty(id))
                 return Task.FromResult<JsonElement?>(Ack(false, "missing channelId"));
@@ -50,6 +53,8 @@ public static class CoolingActions
 
         registry.Register("cooling.applyPreset", (services, args, _) =>
         {
+            if (!services.GetRequiredService<FeatureGates>().Cooling)
+                return Task.FromResult<JsonElement?>(Ack(false, "cooling is disabled in Settings"));
             var name = Str(args, "name") ?? Str(args, "preset");
             if (string.IsNullOrEmpty(name))
                 return Task.FromResult<JsonElement?>(Ack(false, "missing name"));
@@ -66,6 +71,8 @@ public static class CoolingActions
         // panel is broadcast. This is the curve-editor counterpart to setDuty.
         registry.Register("cooling.setCurve", (services, args, _) =>
         {
+            if (!services.GetRequiredService<FeatureGates>().Cooling)
+                return Task.FromResult<JsonElement?>(Ack(false, "cooling is disabled in Settings"));
             var channelId = Str(args, "channelId") ?? Str(args, "id");
             if (string.IsNullOrEmpty(channelId))
                 return Task.FromResult<JsonElement?>(Ack(false, "missing channelId"));

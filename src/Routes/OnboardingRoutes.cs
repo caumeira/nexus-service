@@ -8,14 +8,16 @@ namespace Nexus.Service.Routes;
 
 /// <summary>
 /// First-run onboarding state (dashboard-only, loopback). The desktop
-/// dashboard shows a one-time welcome screen on first launch, then a one-time
-/// lighting device-selection screen, and marks each complete so it never
-/// reappears, unless a factory reset wipes settings.json.
+/// dashboard shows a one-time welcome screen on first launch, then the
+/// feature-pillars screen, then a one-time lighting device-selection screen,
+/// and marks each complete so it never reappears, unless a factory reset
+/// wipes settings.json.
 /// Dashboard-only by design - a paired phone has no onboarding, so these
 /// are <see cref="LocalhostOnlyEndpointExtensions.LocalhostOnly"/> (no
 /// .AllowPanel()).
-///   GET  /onboarding                    -> { completed, lightingCompleted }
+///   GET  /onboarding                    -> { completed, featuresCompleted, lightingCompleted }
 ///   POST /onboarding/complete           -> set completed, return status
+///   POST /onboarding/features-complete  -> set featuresCompleted, return status
 ///   POST /onboarding/lighting-complete  -> set lightingCompleted, return status
 /// </summary>
 internal static class OnboardingRoutes
@@ -23,7 +25,9 @@ internal static class OnboardingRoutes
     public static void MapOnboardingEndpoints(this WebApplication app)
     {
         // Existing installs start open; a fresh one holds notifications until
-        // the sequence ends.
+        // the sequence ends. featuresCompleted sits before lighting-complete
+        // in the sequence, so it does not gate the notification hold - only
+        // the last step (lighting) matters for when it releases.
         var initial = app.Services.GetRequiredService<IConfigStore>().Load();
         Nexus.Service.Notifications.NotificationGate.Initialize(
             initial.OnboardingCompleted && initial.LightingOnboardingCompleted);
@@ -39,6 +43,12 @@ internal static class OnboardingRoutes
             {
                 _ = Nexus.Service.Notifications.NotificationGate.ReleaseAsync();
             }
+            return Results.Ok(Status(store));
+        }).LocalhostOnly();
+
+        app.MapPost("/onboarding/features-complete", (IConfigStore store) =>
+        {
+            store.Update(s => s.FeaturesOnboardingCompleted = true);
             return Results.Ok(Status(store));
         }).LocalhostOnly();
 
@@ -61,6 +71,7 @@ internal static class OnboardingRoutes
             store.Update(s =>
             {
                 s.OnboardingCompleted = false;
+                s.FeaturesOnboardingCompleted = false;
                 s.LightingOnboardingCompleted = false;
                 s.Nexus2MigrationOffered = false;
                 s.FanControlImportOffered = false;
@@ -77,6 +88,7 @@ internal static class OnboardingRoutes
         return new OnboardingStatusDto
         {
             Completed = s.OnboardingCompleted,
+            FeaturesCompleted = s.FeaturesOnboardingCompleted,
             LightingCompleted = s.LightingOnboardingCompleted,
         };
     }
@@ -85,5 +97,6 @@ internal static class OnboardingRoutes
 public sealed class OnboardingStatusDto
 {
     public bool Completed { get; set; }
+    public bool FeaturesCompleted { get; set; }
     public bool LightingCompleted { get; set; }
 }

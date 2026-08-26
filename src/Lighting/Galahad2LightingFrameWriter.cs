@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.Galahad2;
@@ -29,12 +30,15 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
     // Null forces re-commit on next firmware-mode tick even when settings are unchanged.
     private int? _lastFirmwareSig;
 
-    public Galahad2LightingFrameWriter(LightingEngine engine, Galahad2Hub hub, IConfigStore store, Galahad2LightingDeviceProvider provider)
+    private readonly FeatureGates _gates;
+
+    public Galahad2LightingFrameWriter(LightingEngine engine, Galahad2Hub hub, IConfigStore store, Galahad2LightingDeviceProvider provider, FeatureGates? gates = null)
     {
         _engine   = engine;
         _hub      = hub;
         _store    = store;
         _provider = provider;
+        _gates    = gates ?? FeatureGates.AllEnabled;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -82,6 +86,7 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
 
     private void Tick()
     {
+        if (!_gates.Lighting) return;
         if (!_hub.IsConnected)
         {
             _lastFirmwareSig = null;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.CorsairLink;
@@ -44,13 +45,16 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
     private readonly List<DeviceStructure> _tickStructures = new();
     private readonly List<IReadOnlyList<ResolvedZone>> _tickZones = new();
 
+    private readonly FeatureGates _gates;
+
     public CorsairLinkLightingFrameWriter(
-        LightingEngine engine, CorsairLinkHub hub, IConfigStore store, Np50IdentifyTracker identify)
+        LightingEngine engine, CorsairLinkHub hub, IConfigStore store, Np50IdentifyTracker identify, FeatureGates? gates = null)
     {
         _engine = engine;
         _hub = hub;
         _store = store;
         _identify = identify;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -95,6 +99,7 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
 
     private void Tick()
     {
+        if (!_gates.Lighting) return;
         if (!_hub.IsConnected) return;
         var devices = _engine.Devices;
         if (devices.Length == 0) return;

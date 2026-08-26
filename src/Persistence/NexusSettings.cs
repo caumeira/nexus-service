@@ -19,9 +19,9 @@ public sealed class NexusSettings
     /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
     /// tests and tooling can reference "current" without bit-rotting.
     /// </summary>
-    public const int CurrentSchemaVersion = 15;
+    public const int CurrentSchemaVersion = 16;
 
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. v9 prunes <see cref="AnimateSettings.Templates"/> to user deltas against the canonical defaults (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults"/>). v10 prunes <see cref="AnimateSettings.States"/> entries equal to the effect's resolved selected-slot look. v11 rewrites the legacy <c>marketplace:</c> app-placement prefix to <c>app:</c> across all persisted widget types (see <see cref="Nexus.Service.Widgets.AppPrefixMigration"/>). v12 adds the <see cref="ProfileSharing.Device"/> sharing category (Stream Deck bindings), defaulted to Shared so an upgrading install keeps today's workstation-global behavior. v13 marks any pre-existing settings.json as already lighting-onboarded (see <see cref="LightingOnboardingCompleted"/>) so the lighting device-selection screen only shows for fresh installs. v14 seeded a per-page density mode that was later removed; it is now a plain version bump. v15 seeds <see cref="UiSettings.LightingDashboardMode"/> and <see cref="UiSettings.CoolingDashboardMode"/> to "advanced" for any pre-existing settings.json, so the reintroduced per-page density mode default ("simple") only applies to fresh installs. The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. v9 prunes <see cref="AnimateSettings.Templates"/> to user deltas against the canonical defaults (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults"/>). v10 prunes <see cref="AnimateSettings.States"/> entries equal to the effect's resolved selected-slot look. v11 rewrites the legacy <c>marketplace:</c> app-placement prefix to <c>app:</c> across all persisted widget types (see <see cref="Nexus.Service.Widgets.AppPrefixMigration"/>). v12 adds the <see cref="ProfileSharing.Device"/> sharing category (Stream Deck bindings), defaulted to Shared so an upgrading install keeps today's workstation-global behavior. v13 marks any pre-existing settings.json as already lighting-onboarded (see <see cref="LightingOnboardingCompleted"/>) so the lighting device-selection screen only shows for fresh installs. v14 seeded a per-page density mode that was later removed; it is now a plain version bump. v15 seeds <see cref="UiSettings.LightingDashboardMode"/> and <see cref="UiSettings.CoolingDashboardMode"/> to "advanced" for any pre-existing settings.json, so the reintroduced per-page density mode default ("simple") only applies to fresh installs. v16 marks any pre-existing settings.json as already features-onboarded (see <see cref="FeaturesOnboardingCompleted"/>) so the feature-pillars onboarding screen only shows for fresh installs; <see cref="Features"/> itself is additive (every flag already defaults true) and carries no migration arm. The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public ThemeSettings Theme { get; set; } = new();
@@ -48,6 +48,7 @@ public sealed class NexusSettings
     public HomeAssistantSettings HomeAssistant { get; set; } = new();
     public TelemetrySettings Telemetry { get; set; } = new();
     public DiagnosticsSettings Diagnostics { get; set; } = new();
+    public FeaturesSettings Features { get; set; } = new();
     /// <summary>Registered panel devices keyed by opaque deviceId. Each record carries the per-device layout + theme overrides + capabilities. NOT profile-scoped: device identity is hardware-level and survives profile switches.</summary>
     public Dictionary<string, Nexus.Service.Models.Panel.PanelDeviceRecord> PanelDevices { get; set; } = new();
 
@@ -108,6 +109,15 @@ public sealed class NexusSettings
     /// wiped by factory reset so the screen reappears.</summary>
     public bool LightingOnboardingCompleted { get; set; }
 
+    /// <summary>True once the feature-pillars onboarding screen ("How much
+    /// control do you want?", shown right before the Import-from-apps step)
+    /// has been dismissed. Same scoping rules as <see cref="OnboardingCompleted"/>:
+    /// install-scoped, never profile-synced, wiped by factory reset so the
+    /// screen reappears. Schema v16 marks any pre-existing settings.json as
+    /// already-complete (see <see cref="JsonConfigStore"/>), so only a fresh
+    /// install sees the screen.</summary>
+    public bool FeaturesOnboardingCompleted { get; set; }
+
     /// <summary>True once at least one Nexus 2 personalization category has been
     /// imported through the migration screen. Install-scoped like
     /// <see cref="Nexus2MigrationOffered"/>: excluded from CloneSettings and
@@ -161,6 +171,17 @@ public sealed class AiIntegrationSettings
     /// <summary>Port the managed (or detected system) Ollama runtime binds.
     /// 0 means the Ollama default (11434).</summary>
     public int AssistantRuntimePort { get; set; }
+}
+
+/// <summary>Global on/off for each functional pillar. Additive, all default
+/// true, no migration arm needed: absent on any pre-existing settings.json
+/// deserializes every flag to true via these initializers.</summary>
+public sealed class FeaturesSettings
+{
+    public bool Lighting { get; set; } = true;
+    public bool Cooling { get; set; } = true;
+    public bool Monitoring { get; set; } = true;
+    public bool Diagnostics { get; set; } = true;
 }
 
 /// <summary>
@@ -410,6 +431,17 @@ public sealed class LightingSettings
     /// crash or power loss while asleep comes back to the same effect.
     /// </summary>
     public bool SleepBlackout { get; set; } = InstallDefaults.Lighting.SleepBlackout;
+
+    /// <summary>
+    /// When true, Nexus fades every lighting device it drives to black when the
+    /// session locks, and fades the running effect back in when it unlocks. The
+    /// host stays powered throughout, so unlike <see cref="SleepBlackout"/> this
+    /// fixes nothing - it is there because a machine nobody is at has no reason
+    /// to be lit. Applied on lock TRANSITIONS only, never
+    /// seeded from the lock state at startup, so a cold boot sitting at the
+    /// login screen comes up lit.
+    /// </summary>
+    public bool LockBlackout { get; set; } = InstallDefaults.Lighting.LockBlackout;
 }
 
 /// <summary>
@@ -829,6 +861,12 @@ public sealed class QSeriesSettings
     /// <summary>When true, the panel screen sleeps when Windows suspends (or
     /// shuts down) and wakes on resume.</summary>
     public bool SleepWithHost { get; set; } = true;
+
+    /// <summary>When true, the panel screen sleeps while the desktop session is
+    /// locked and wakes on unlock. Separate from <see cref="SleepWithHost"/>:
+    /// the host stays up here, so this is about not lighting a room nobody is
+    /// in, not about following the host's power state.</summary>
+    public bool SleepWhenLocked { get; set; } = true;
 }
 
 /// <summary>Persisted shape of one Tryx overlay item; see

@@ -4,6 +4,7 @@ using System.Linq;
 using Nexus.Service.Activity;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Activity;
 using Nexus.Service.Monitoring.Events;
 using Nexus.Service.Sockets;
@@ -406,5 +407,27 @@ public class MonitoringEventCollectorTests
     public void ResolveEventTime_WithNoKnownStart_UsesDetectionTime()
     {
         Assert.Equal(500L, MonitoringEventCollector.ResolveEventTime(null, 500L));
+    }
+
+    [Fact]
+    public void Tick_GateOff_NoOps()
+    {
+        var usb = new FakeUsbEnumerator { Next = new List<UsbDeviceEntry> { Usb(0x1234, 0x0001, "Mouse") } };
+        var processes = new ProcessMonitor(new MultiplexHub());
+        processes.SetProcessesForTest(new List<ProcessInfo> { new() { Pid = 1, Name = "notepad.exe", HasWindow = true } });
+        var store = new RecordingEventStore();
+        var configStore = new Nexus.Service.Tests.InMemoryConfigStore();
+        configStore.Update(s => s.Features.Monitoring = false);
+        var collector = new MonitoringEventCollector(usb, processes, new FakeAppDetection(), store,
+            useWindowedProcesses: true, gates: new FeatureGates(configStore));
+
+        // Priming tick, then a real bus/app change - both must be skipped
+        // wholesale, not merely primed-and-diffed-into-nothing.
+        collector.Tick(DateTime.UtcNow);
+        usb.Next = new List<UsbDeviceEntry> { Usb(0x5678, 0x0002, "Keyboard") };
+        processes.SetProcessesForTest(new List<ProcessInfo> { new() { Pid = 2, Name = "calc.exe", HasWindow = true } });
+        collector.Tick(DateTime.UtcNow);
+
+        Assert.Empty(store.Appends);
     }
 }

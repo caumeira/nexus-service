@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Platform;
@@ -10,7 +11,10 @@ namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Fades lighting out as the host suspends or shuts down, and restores it on
-/// resume, when <see cref="LightingSettings.SleepBlackout"/> is on.
+/// resume, when <see cref="LightingSettings.SleepBlackout"/> is on. Also owns
+/// the session-lock path (<see cref="LightingSettings.LockBlackout"/>), which
+/// is the same hold reached under none of the same constraints - see
+/// <see cref="OnSessionLocked"/>.
 ///
 /// Sleep already takes most devices dark for free, because the host cuts their
 /// bus. RAM does not: DIMMs stay powered across S3 (and across S5 on a board
@@ -71,6 +75,18 @@ public sealed class SleepBlackoutCoordinator
     /// </summary>
     private static readonly TimeSpan EnginePublishBudget = TimeSpan.FromMilliseconds(300);
 
+    /// <summary>
+    /// Ramp down on lock. An order of magnitude longer than
+    /// <see cref="FadeDuration"/> because none of what shortens that one
+    /// applies: the host stays up, every bus with it, and no deadline is
+    /// running. It is only allowed to look good.
+    /// </summary>
+    internal static readonly TimeSpan LockFadeDuration = TimeSpan.FromMilliseconds(1500);
+
+    /// <summary>Ramp back up on unlock. Shorter than the way down: the user is
+    /// already at the machine waiting for it.</summary>
+    internal static readonly TimeSpan UnlockFadeDuration = TimeSpan.FromMilliseconds(900);
+
     /// <summary>Two engine ticks of slack: the ramp reaches zero on the first tick past the window.</summary>
     private TimeSpan FrameSlack => TimeSpan.FromMilliseconds(Math.Max(1, _engine.FrameIntervalMs) * 2);
 
@@ -83,12 +99,23 @@ public sealed class SleepBlackoutCoordinator
     private readonly LightingEngine _engine;
     private readonly IConfigStore _store;
     private readonly RgbBridge? _bridge;
+    private readonly FeatureGates _gates;
 
-    public SleepBlackoutCoordinator(LightingEngine engine, IConfigStore store, RgbBridge? bridge = null)
+    /// <summary>
+    /// True between a lock and its unlock. Load-bearing for exactly one path:
+    /// a machine that sleeps while locked wakes to the LOCK SCREEN, and the
+    /// resume that follows must not hand the lighting back there. Nothing
+    /// re-derives lock state at startup (see <see cref="OnSessionLocked"/>), so
+    /// this flag is the only record that the session is still locked.
+    /// </summary>
+    private volatile bool _lockHold;
+
+    public SleepBlackoutCoordinator(LightingEngine engine, IConfigStore store, RgbBridge? bridge = null, FeatureGates? gates = null)
     {
         _engine = engine;
         _store = store;
         _bridge = bridge;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     /// <summary>
@@ -105,10 +132,88 @@ public sealed class SleepBlackoutCoordinator
     /// </summary>
     public void OnHostShutdown() => BlankOut(ShutdownBudget, "shutdown");
 
+    /// <summary>
+    /// Call when the session locks. Unlike every other path here nothing is
+    /// tearing down: the machine keeps running, so this returns immediately and
+    /// lets the render loop paint the ramp, with no budget, no inline wait and
+    /// no terminal push - the loop is still
+    /// feeding every writer, including the OpenRGB bridge.
+    ///
+    /// Deliberately reachable only from a real lock TRANSITION. Lock state is
+    /// never seeded at startup: a machine sitting at the login screen after a
+    /// cold boot has never been locked by anyone, and blanking there would read
+    /// as lighting that does not come on until you sign in.
+    /// </summary>
+    public void OnSessionLocked()
+    {
+        try
+        {
+            if (!_store.Load().Lighting.LockBlackout)
+            {
+                return;
+            }
+            _lockHold = true;
+            if (_engine.Blackout && !_engine.BlackoutReleasing)
+            {
+                // Already dark or on its way (a second lock notification, or a
+                // lock arriving on top of the suspend blackout).
+                return;
+            }
+            if (_engine.LoopPublishing && _engine.BeginBlackoutFade(LockFadeDuration))
+            {
+                ServiceLog.Info($"[lighting-lock] fading out over {(int)LockFadeDuration.TotalMilliseconds}ms");
+                return;
+            }
+
+            // Nothing is painting, so there is no ramp to run and no frames
+            // reaching the OpenRGB bridge either - the hold on its own would
+            // leave those devices lit. The push is off-thread because it blocks
+            // and this runs on an OS notification callback.
+            _engine.SetBlackout(true);
+            _ = Task.Run(() =>
+            {
+                var pushed = PushBridgeBlackout(DateTime.UtcNow + Budget);
+                ServiceLog.Info($"[lighting-lock] blanked (no render loop, openrgb={pushed})");
+            });
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[lighting-lock] lock blackout failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Call when the session unlocks. Releases whatever hold is engaged, not
+    /// only one this class engaged for the lock, and unconditionally of the
+    /// setting - same reason <see cref="OnResumed"/> does: a user who turned it
+    /// off mid-lock must get their lighting back, not stay dark.
+    /// </summary>
+    public void OnSessionUnlocked()
+    {
+        try
+        {
+            _lockHold = false;
+            if (!_engine.Blackout || _engine.BlackoutReleasing)
+            {
+                return;
+            }
+            _engine.BeginBlackoutRelease(UnlockFadeDuration);
+            ServiceLog.Info($"[lighting-lock] fading in over {(int)UnlockFadeDuration.TotalMilliseconds}ms");
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[lighting-lock] unlock release failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
     private void BlankOut(TimeSpan budget, string reason)
     {
         try
         {
+            if (!_gates.Lighting)
+            {
+                return;
+            }
             if (!_store.Load().Lighting.SleepBlackout)
             {
                 return;
@@ -141,6 +246,32 @@ public sealed class SleepBlackoutCoordinator
     }
 
     /// <summary>
+    /// Call from FeatureReconciler on the Lighting ON->OFF transition, before
+    /// the settings commit and before Suspend. Unlike OnSuspending/
+    /// OnHostShutdown this checks neither the Lighting gate (about to flip)
+    /// nor the SleepBlackout setting (a different, unrelated preference) -
+    /// calling it while the gate still reads on is what lets every writer's
+    /// per-tick gate check pick up and push this frame instead of dropping
+    /// it, so the caller must sequence it ahead of the settings write.
+    /// </summary>
+    public void BlankOutForFeatureOff()
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow + Budget;
+            _engine.SetBlackout(true);
+            var published = _engine.WaitForBlackout(Clamp(EnginePublishBudget, deadline));
+            var pushed = PushBridgeBlackout(deadline);
+            ServiceLog.Info(
+                $"[lighting-sleep] blanked for feature-off (engine={(published ? "published" : "timeout")}, openrgb={pushed})");
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[lighting-sleep] blackout on feature-off failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Call on resume. Safe to call unconditionally - releasing a blackout that
     /// was never engaged is a no-op, which is what keeps a setting toggled off
     /// mid-sleep from stranding the user dark.
@@ -149,8 +280,21 @@ public sealed class SleepBlackoutCoordinator
     {
         try
         {
+            if (!_gates.Lighting)
+            {
+                return;
+            }
             if (!_engine.Blackout)
             {
+                return;
+            }
+            if (_lockHold)
+            {
+                // Woken to the lock screen: a machine that suspended while
+                // locked is still locked now, so handing the lighting back here
+                // would light an unattended machine and leave the later unlock
+                // with nothing to release.
+                ServiceLog.Info("[lighting-lock] resumed while locked - holding the blackout");
                 return;
             }
             _engine.SetBlackout(false);

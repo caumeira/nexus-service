@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Activity;
 using Nexus.Service.Devices;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Persistence;
 using Nexus.Service.Sockets;
 
@@ -39,6 +40,7 @@ public sealed class AppPresetSwitcher : BackgroundService
     private ITimer? _promptTimer;
     private ITimer? _dwellTimer;
     private bool _subscribed;
+    private readonly FeatureGates _gates;
 
     public AppPresetSwitcher(
         IConfigStore store,
@@ -48,8 +50,9 @@ public sealed class AppPresetSwitcher : BackgroundService
         ILightingProvider lighting,
         Rgb.RgbBridge? bridge,
         Smart.SmartLightProvider smart,
-        Engine.LightingEngine engine)
-        : this(store, screenTime, hub, lightingDevices, lighting, bridge, smart, engine, TimeProvider.System)
+        Engine.LightingEngine engine,
+        FeatureGates? gates = null)
+        : this(store, screenTime, hub, lightingDevices, lighting, bridge, smart, engine, TimeProvider.System, gates)
     {
     }
 
@@ -62,7 +65,8 @@ public sealed class AppPresetSwitcher : BackgroundService
         Rgb.RgbBridge? bridge,
         Smart.SmartLightProvider smart,
         Engine.LightingEngine engine,
-        TimeProvider time)
+        TimeProvider time,
+        FeatureGates? gates = null)
     {
         _store = store;
         _screenTime = screenTime;
@@ -73,6 +77,7 @@ public sealed class AppPresetSwitcher : BackgroundService
         _smart = smart;
         _engine = engine;
         _time = time;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -152,6 +157,10 @@ public sealed class AppPresetSwitcher : BackgroundService
 
     internal void Tick()
     {
+        if (!_gates.Lighting)
+        {
+            return;
+        }
         var settings = _store.Load();
         var presets = SnapshotPresets(settings);
         if (!AnyBindings(presets))

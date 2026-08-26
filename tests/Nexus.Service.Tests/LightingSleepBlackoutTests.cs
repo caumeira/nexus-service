@@ -395,6 +395,250 @@ public class LightingSleepBlackoutTests : IDisposable
         Assert.False(engine.LoopPublishing);
     }
 
+    [Fact]
+    public void LockBlackout_DefaultsOn()
+    {
+        Assert.True(_store.Load().Lighting.LockBlackout);
+    }
+
+    [Fact]
+    public void Coordinator_OnSessionLocked_WhenSettingOff_LeavesLightingAlone()
+    {
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        _store.Update(s => s.Lighting.LockBlackout = false);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        coordinator.OnSessionLocked();
+
+        Assert.False(engine.Blackout);
+        Assert.False(AllBlack(devices[0]));
+    }
+
+    [Fact]
+    public void Coordinator_OnSessionLocked_WithNoEffectRunning_BlanksImmediately()
+    {
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        coordinator.OnSessionLocked();
+
+        Assert.True(engine.Blackout);
+        Assert.All(devices, d => Assert.True(AllBlack(d)));
+    }
+
+    [Fact]
+    public async Task Coordinator_OnSessionLocked_ReturnsAtOnceAndRampsToBlack()
+    {
+        // The opposite of the suspend path: this runs on an OS callback with
+        // nothing tearing down, so it must hand the ramp to the render loop and
+        // return rather than blocking for the length of it.
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 10;
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetEffect(new FillEffect(200, 200, 200));
+        Assert.True(await WaitUntil(() => devices[0].LedBytes[0] == 200, TimeSpan.FromSeconds(2)));
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        coordinator.OnSessionLocked();
+        sw.Stop();
+
+        Assert.True(sw.Elapsed < TimeSpan.FromMilliseconds(250),
+            $"lock blocked its caller for {sw.ElapsedMilliseconds}ms");
+        Assert.True(engine.Blackout);
+        Assert.False(AllBlack(devices[0]));
+        Assert.True(engine.WaitForBlackout(SleepBlackoutCoordinator.LockFadeDuration + TimeSpan.FromSeconds(1)));
+        Assert.All(devices, d => Assert.True(AllBlack(d)));
+    }
+
+    [Fact]
+    public async Task Coordinator_OnSessionUnlocked_RampsBackUpToTheLiveEffect()
+    {
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 10;
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetEffect(new FillEffect(200, 200, 200));
+        Assert.True(await WaitUntil(() => devices[0].LedBytes[0] == 200, TimeSpan.FromSeconds(2)));
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+        coordinator.OnSessionLocked();
+        Assert.True(engine.WaitForBlackout(SleepBlackoutCoordinator.LockFadeDuration + TimeSpan.FromSeconds(1)));
+
+        coordinator.OnSessionUnlocked();
+
+        // Sampled the way the hardware sees it: it has to climb, and land on
+        // the effect's own value rather than stopping short or stepping to it.
+        var samples = new List<byte>();
+        var deadline = DateTime.UtcNow.AddSeconds(4);
+        while (DateTime.UtcNow < deadline)
+        {
+            var v = devices[0].LedBytes[0];
+            if (samples.Count == 0 || samples[^1] != v) samples.Add(v);
+            if (v == 200) break;
+            await Task.Delay(5);
+        }
+
+        Assert.Equal(200, samples[^1]);
+        Assert.True(samples.Count >= 4, $"expected a ramp, saw {samples.Count} distinct levels");
+        for (var i = 1; i < samples.Count; i++)
+        {
+            Assert.True(samples[i] > samples[i - 1], $"level fell: {string.Join(",", samples)}");
+        }
+        Assert.False(engine.Blackout);
+    }
+
+    [Fact]
+    public void Coordinator_OnSessionUnlocked_ReleasesEvenWithTheSettingOff()
+    {
+        // Same reason OnResumed releases unconditionally: someone who turned it
+        // off while a hold was engaged must get their lighting back.
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetBlackout(true);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        coordinator.OnSessionUnlocked();
+
+        Assert.False(engine.Blackout);
+    }
+
+    [Fact]
+    public void Coordinator_OnSessionUnlocked_WithoutALock_IsANoOp()
+    {
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        coordinator.OnSessionUnlocked();
+
+        Assert.False(engine.Blackout);
+        Assert.False(AllBlack(devices[0]));
+    }
+
+    [Fact]
+    public void BeginBlackoutRelease_WithNoHold_IsRefused()
+    {
+        using var engine = new LightingEngine();
+        engine.UpdateDevices(MakeLitDevices());
+
+        Assert.False(engine.BeginBlackoutRelease(TimeSpan.FromMilliseconds(200)));
+    }
+
+    [Fact]
+    public void BeginBlackoutRelease_WithNoLoopToPaintIt_CutsBack()
+    {
+        using var engine = new LightingEngine();
+        engine.UpdateDevices(MakeLitDevices());
+        engine.SetBlackout(true);
+
+        Assert.True(engine.BeginBlackoutRelease(TimeSpan.FromMilliseconds(200)));
+
+        Assert.False(engine.Blackout);
+        Assert.False(engine.BlackoutReleasing);
+    }
+
+    [Fact]
+    public async Task BeginBlackoutFade_DuringARelease_FadesBackDown()
+    {
+        // Locking again while the lights are still coming up: the down ramp has
+        // to re-arm from the dimmed frame, not be refused as "already held".
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 10;
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetEffect(new FillEffect(200, 200, 200));
+        Assert.True(await WaitUntil(() => devices[0].LedBytes[0] == 200, TimeSpan.FromSeconds(2)));
+        Assert.True(engine.BeginBlackoutFade(TimeSpan.FromMilliseconds(100)));
+        Assert.True(engine.WaitForBlackout(TimeSpan.FromSeconds(2)));
+        Assert.True(engine.BeginBlackoutRelease(TimeSpan.FromSeconds(3)));
+        Assert.True(await WaitUntil(() => devices[0].LedBytes[0] > 0, TimeSpan.FromSeconds(2)));
+
+        Assert.True(engine.BeginBlackoutFade(TimeSpan.FromMilliseconds(200)));
+
+        Assert.False(engine.BlackoutReleasing);
+        Assert.True(engine.WaitForBlackout(TimeSpan.FromSeconds(2)));
+        Assert.All(devices, d => Assert.True(AllBlack(d)));
+    }
+
+    [Fact]
+    public void PublishScaled_DoesNotCompoundIntoTheNextFrame()
+    {
+        // Publish seeds the next frame from what it published, so a ramp that
+        // scaled in place would re-scale every LED the next paint pass does not
+        // rewrite - which walks a static device to black over a second.
+        var frame = new DeviceFrame(0, "test", 1);
+        frame.Fill(200, 200, 200);
+        frame.Publish();
+
+        frame.PublishScaled(0.5f);
+        Assert.Equal(100, frame.LedBytes[0]);
+
+        // Nothing repaints; the next publish must carry the ORIGINAL value.
+        frame.Publish();
+        Assert.Equal(200, frame.LedBytes[0]);
+    }
+
+    [Fact]
+    public void Coordinator_OnResumed_WhileLocked_KeepsTheBlackout()
+    {
+        // Sleeping a locked machine wakes it to the lock screen. Releasing there
+        // would light an unattended machine, and the later unlock would have
+        // nothing left to release.
+        using var engine = new LightingEngine();
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+
+        coordinator.OnSessionLocked();
+        Assert.True(engine.Blackout);
+        coordinator.OnSuspending();
+        coordinator.OnResumed();
+
+        Assert.True(engine.Blackout);
+        Assert.All(devices, d => Assert.True(AllBlack(d)));
+
+        coordinator.OnSessionUnlocked();
+        Assert.False(engine.Blackout);
+    }
+
+    [Fact]
+    public async Task BeginBlackoutRelease_MidFade_PicksUpFromTheCurrentLevel()
+    {
+        // Unlocking while the lights are still going down must not finish the
+        // trip to black first.
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 10;
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetEffect(new FillEffect(200, 200, 200));
+        Assert.True(await WaitUntil(() => devices[0].LedBytes[0] == 200, TimeSpan.FromSeconds(2)));
+
+        Assert.True(engine.BeginBlackoutFade(TimeSpan.FromSeconds(3)));
+        Assert.True(await WaitUntil(() => devices[0].LedBytes[0] is > 0 and < 150, TimeSpan.FromSeconds(3)));
+
+        Assert.True(engine.BeginBlackoutRelease(TimeSpan.FromMilliseconds(600)));
+
+        var floor = 255;
+        var deadline = DateTime.UtcNow.AddSeconds(4);
+        while (DateTime.UtcNow < deadline)
+        {
+            var v = devices[0].LedBytes[0];
+            if (v < floor) floor = v;
+            if (v == 200) break;
+            await Task.Delay(5);
+        }
+
+        Assert.Equal(200, devices[0].LedBytes[0]);
+        Assert.True(floor > 0, "the release dropped the lights to black before ramping up");
+    }
+
     private static async Task<bool> WaitUntil(Func<bool> predicate, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;

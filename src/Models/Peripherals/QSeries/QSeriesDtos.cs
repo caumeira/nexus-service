@@ -20,4 +20,8 @@ public class QSeriesDisplayParams : ApiResponse
     /// <summary>Null on a POST body leaves the stored value unchanged; GET
     /// always returns the stored value.</summary>
     public bool? SleepWithHost { get; set; }
+
+    /// <summary>Null on a POST body leaves the stored value unchanged; GET
+    /// always returns the stored value.</summary>
+    public bool? SleepWhenLocked { get; set; }
 }
