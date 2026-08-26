@@ -206,6 +206,7 @@ public static class ProfileRoutes
                 Diagnostics = s.Diagnostics,
                 StartupDelaySeconds = s.StartupDelaySeconds,
                 DisableGpuMonitoring = s.DisableGpuMonitoring,
+                Features = s.Features,
             };
         }).AllowPanel();
 
@@ -313,7 +314,7 @@ public static class ProfileRoutes
         // Shared categories are untouched. If the named profile is the active
         // one, in-memory state is updated and a broadcast fires; otherwise the
         // reset only touches that profile's JSON on disk.
-        app.MapPost("/profiles/{id}/reset", (string id, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store) =>
+        app.MapPost("/profiles/{id}/reset", (string id, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store, Nexus.Service.Lifecycle.FeatureGates gates) =>
         {
             try
             {
@@ -338,7 +339,7 @@ public static class ProfileRoutes
                 // instead of leaving the engines idle.
                 if (isActive)
                 {
-                    LiveEngineSync.Apply(store, fans, lp);
+                    LiveEngineSync.Apply(store, fans, lp, gates);
                 }
                 PanelTopics.BroadcastPrefs(hub);
                 PanelTopics.BroadcastLighting(hub);
@@ -355,7 +356,7 @@ public static class ProfileRoutes
         // redirected to the Primary's data and affects every profile. If the
         // category is per-profile, only the named profile's JSON is touched
         // (and in-memory state if the named profile is active).
-        app.MapPost("/profiles/{id}/reset/{category}", (string id, string category, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store) =>
+        app.MapPost("/profiles/{id}/reset/{category}", (string id, string category, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store, Nexus.Service.Lifecycle.FeatureGates gates) =>
         {
             try
             {
@@ -387,7 +388,7 @@ public static class ProfileRoutes
                 // that writes through to active).
                 if (isActive || categoryIsShared)
                 {
-                    LiveEngineSync.Apply(store, fans, lp);
+                    LiveEngineSync.Apply(store, fans, lp, gates);
                 }
                 PanelTopics.BroadcastPrefs(hub);
                 PanelTopics.BroadcastLighting(hub);
@@ -404,9 +405,13 @@ public static class ProfileRoutes
             }
         });
 
-        app.MapPost("/preferences", (PreferencesPatch body, IConfigStore store, ProfileManager pm, MultiplexHub hub) =>
+        app.MapPost("/preferences", (PreferencesPatch body, ProfileManager pm, MultiplexHub hub, Nexus.Service.Lifecycle.FeatureReconciler reconciler) =>
         {
-            store.Update(s =>
+            // ApplyPatch runs the mutation and the Features before/after
+            // transition under the reconciler's own lock, so a concurrent
+            // PATCH /preferences cannot interleave its own before-snapshot
+            // or mutation with this one.
+            reconciler.ApplyPatch(s =>
             {
                 if (body.Theme is { } theme)
                 {
@@ -416,6 +421,7 @@ public static class ProfileRoutes
                     if (theme.ResolvedThemeMode is not null) s.Theme.ResolvedThemeMode = theme.ResolvedThemeMode;
                     if (theme.BackgroundMode is not null) s.Theme.BackgroundMode = theme.BackgroundMode;
                     if (theme.AccentSource is not null) s.Theme.AccentSource = theme.AccentSource;
+                    if (theme.CustomAccentColor is not null) s.Theme.CustomAccentColor = theme.CustomAccentColor;
                 }
                 if (body.Panel is { } panel)
                 {
@@ -530,6 +536,13 @@ public static class ProfileRoutes
                 {
                     s.DisableGpuMonitoring = disableGpu;
                 }
+                if (body.Features is { } features)
+                {
+                    if (features.Lighting.HasValue) s.Features.Lighting = features.Lighting.Value;
+                    if (features.Cooling.HasValue) s.Features.Cooling = features.Cooling.Value;
+                    if (features.Monitoring.HasValue) s.Features.Monitoring = features.Monitoring.Value;
+                    if (features.Diagnostics.HasValue) s.Features.Diagnostics = features.Diagnostics.Value;
+                }
                 if (body.Diagnostics is { } diagnostics)
                 {
                     if (diagnostics.Thresholds is { } thresholds)
@@ -563,7 +576,7 @@ public static class ProfileRoutes
                         if (components.System.HasValue)  s.Diagnostics.Components.System  = components.System.Value;
                     }
                 }
-            });
+            }, lightingPatchValue: body.Features?.Lighting);
             pm.MarkDirty();
             PanelTopics.BroadcastPrefs(hub);
             return ApiResponse.Ok();

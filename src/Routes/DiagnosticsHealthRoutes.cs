@@ -17,6 +17,7 @@ using Nexus.Service.Diagnostics.Report;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Diagnostics.Temperature;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
 using Nexus.Service.Models;
 using Nexus.Service.Monitoring.History;
@@ -53,8 +54,10 @@ public static class DiagnosticsHealthRoutes
 
     public static void MapDiagnosticsHealthEndpoints(this WebApplication app)
     {
-        app.MapGet("/diagnostics/health", (string? refresh, DiagnosticsHealthModel model) =>
-            model.BuildHealth(IsRefresh(refresh))).AllowPanel();
+        app.MapGet("/diagnostics/health", (string? refresh, DiagnosticsHealthModel model, FeatureGates gates) =>
+            gates.Diagnostics
+                ? model.BuildHealth(IsRefresh(refresh))
+                : new DiagnosticsHealthResponse { Enabled = false }).AllowPanel();
 
         // gpuDriver is excluded from the live feed (too noisy to act on) but
         // still collected internally and still shown in the support bundle's
@@ -80,10 +83,14 @@ public static class DiagnosticsHealthRoutes
             return BuildMemoryResponse(memDiag);
         });
 
-        app.MapPost("/diagnostics/memory/test", (MemoryDiagnosticOrchestrator memDiag) =>
+        app.MapPost("/diagnostics/memory/test", (MemoryDiagnosticOrchestrator memDiag, FeatureGates gates) =>
         {
+            if (!gates.Diagnostics)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Diagnostics });
+            }
             memDiag.Schedule();
-            return new MemoryTestScheduleResponse { Scheduled = memDiag.IsScheduled(), RequiresReboot = true };
+            return Results.Ok(new MemoryTestScheduleResponse { Scheduled = memDiag.IsScheduled(), RequiresReboot = true });
         });
 
         app.MapDelete("/diagnostics/memory/test", (MemoryDiagnosticOrchestrator memDiag) =>

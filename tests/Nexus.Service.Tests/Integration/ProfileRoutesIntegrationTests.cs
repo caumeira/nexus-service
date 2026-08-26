@@ -356,6 +356,51 @@ public sealed class ProfileRoutesIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Preferences_GET_defaults_all_four_features_to_true()
+    {
+        var client = AuthedClient();
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        var features = body.GetProperty("features");
+
+        Assert.True(features.GetProperty("lighting").GetBoolean());
+        Assert.True(features.GetProperty("cooling").GetBoolean());
+        Assert.True(features.GetProperty("monitoring").GetBoolean());
+        Assert.True(features.GetProperty("diagnostics").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Preferences_features_patch_persists_and_round_trips_through_GET()
+    {
+        var client = AuthedClient();
+
+        var postRes = await client.PostAsJsonAsync("/preferences", new { features = new { monitoring = false } });
+        Assert.Equal(HttpStatusCode.OK, postRes.StatusCode);
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        var features = body.GetProperty("features");
+        Assert.False(features.GetProperty("monitoring").GetBoolean());
+        // Untouched flags in the same patch stay at their default.
+        Assert.True(features.GetProperty("lighting").GetBoolean());
+        Assert.True(features.GetProperty("cooling").GetBoolean());
+        Assert.True(features.GetProperty("diagnostics").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Preferences_features_absent_patch_block_leaves_values_unchanged()
+    {
+        var client = AuthedClient();
+        await client.PostAsJsonAsync("/preferences", new { features = new { cooling = false } });
+
+        // A wholly unrelated patch with no "features" key at all must not
+        // reset the flags to their initializer defaults.
+        await client.PostAsJsonAsync("/preferences", new { units = new { temperature = "f" } });
+
+        var body = await (await client.GetAsync("/preferences")).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(body.GetProperty("features").GetProperty("cooling").GetBoolean());
+    }
+
+    [Fact]
     public async Task Import_with_replace_true_overwrites_the_colliding_profile_in_place()
     {
         var client = AuthedClient();

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.LianLiWireless;
@@ -74,7 +75,7 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
 
     public Slv3LightingFrameWriter(
         LightingEngine engine, Slv3Hub hub, IConfigStore store, Np50IdentifyTracker identify, Slv3LightingDeviceProvider provider,
-        Func<long>? nowTicks = null)
+        Func<long>? nowTicks = null, FeatureGates? gates = null)
     {
         _engine = engine;
         _hub = hub;
@@ -82,9 +83,11 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
         _identify = identify;
         _provider = provider;
         _nowTicks = nowTicks ?? (() => DateTime.UtcNow.Ticks);
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     private readonly Func<long> _nowTicks;
+    private readonly FeatureGates _gates;
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -131,6 +134,7 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
 
     internal void Tick()
     {
+        if (!_gates.Lighting) return;
         if (!_hub.IsConnected)
         {
             _lastSent.Clear();

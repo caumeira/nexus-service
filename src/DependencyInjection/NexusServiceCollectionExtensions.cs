@@ -42,6 +42,8 @@ public static class NexusServiceCollectionExtensions
 #endif
         services.AddSingleton<IConfigStore, JsonConfigStore>();
         services.AddSingleton<TokenService>();
+        services.AddSingleton<Nexus.Service.Lifecycle.FeatureGates>();
+        services.AddSingleton<Nexus.Service.Lifecycle.FeatureReconciler>();
 
 #if WINDOWS
         services.AddSingleton<IFpsProvider, WindowsFpsProvider>();
@@ -450,10 +452,16 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton(sp => new Nexus.Service.Lighting.SleepBlackoutCoordinator(
             sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>(),
             sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
-            sp.GetService<Nexus.Service.Lighting.Rgb.RgbBridge>()));
+            sp.GetService<Nexus.Service.Lighting.Rgb.RgbBridge>(),
+            sp.GetRequiredService<Nexus.Service.Lifecycle.FeatureGates>()));
 
         if (OperatingSystem.IsWindows())
             services.AddHostedService<Nexus.Service.Lighting.Rgb.PowerEventListener>();
+
+        // Session-lock blanking. One hosted service on every desktop platform;
+        // which source it uses is a compile-time branch inside it.
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
+            services.AddHostedService<Nexus.Service.Lighting.SessionLockListener>();
 
         return services;
     }

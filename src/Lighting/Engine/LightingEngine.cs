@@ -27,6 +27,12 @@ public sealed class LightingEngine : IDisposable
     // reads as the ramp pausing partway down.
     private long _fadeStartedMs;
     private volatile int _fadeDurationMs;
+    // Release ramp, and deliberately not the same clock as the fade above: it
+    // scales the LIVE frame - the loop renders again while it runs - instead of
+    // the captured baseline, so reaching level 1 lands on exactly what the
+    // effect is already publishing and the release cannot step.
+    private long _wakeStartedMs;
+    private volatile int _wakeDurationMs;
     // What each device was publishing when the hold engaged. Levels scale THIS,
     // not the live frame, so steps cannot compound. Replaced wholesale and never
     // mutated after, so the render loop reads it without taking _lock.
@@ -64,6 +70,10 @@ public sealed class LightingEngine : IDisposable
     public bool Paused => _paused;
     public bool Frozen => _frozen;
     public bool Blackout => _blackout;
+
+    /// <summary>True while a hold is ramping back up, so a caller can tell a
+    /// blackout that is on its way out from one that is parked at black.</summary>
+    public bool BlackoutReleasing => _wakeDurationMs > 0;
 
     /// <summary>
     /// True when the render loop is publishing frames. A ramp is only visible
@@ -158,6 +168,7 @@ public sealed class LightingEngine : IDisposable
             // Ends any ramp: this is the cut, and it is also what the fade path
             // calls once its window is spent.
             _fadeDurationMs = 0;
+            _wakeDurationMs = 0;
             _blackoutLevel = 0f;
             Interlocked.Increment(ref _frozenEpoch);
             // With the loop running it owns the device buffers; writing them
@@ -191,10 +202,15 @@ public sealed class LightingEngine : IDisposable
         }
         lock (_lock)
         {
-            if (_blackout)
+            if (_blackout && _wakeDurationMs <= 0)
             {
                 return false;
             }
+            // A hold already ramping back up re-arms downwards from where it
+            // is: the baseline re-capture below reads the dimmed frame the
+            // release ramp last published, so a lock landing mid-release fades
+            // down from there instead of jumping to full brightness first.
+            _wakeDurationMs = 0;
             _blackoutBaseline = CaptureBlackoutBaseline();
             Volatile.Write(ref _fadeStartedMs, Environment.TickCount64);
             _fadeDurationMs = ms;
@@ -235,6 +251,104 @@ public sealed class LightingEngine : IDisposable
     }
 
     /// <summary>
+    /// Releases the hold by ramping the live effect back up from black over
+    /// <paramref name="duration"/>, instead of cutting straight to it. For the
+    /// lock path, where the host stays up and nothing is racing a teardown, so
+    /// the ramp is free to be as long as it looks good.
+    ///
+    /// False when no hold is engaged or one is already ramping up. Falls back
+    /// to the cut when nothing would paint the ramp - no effect, no loop, or no
+    /// window - which is what a release has always done.
+    /// </summary>
+    public bool BeginBlackoutRelease(TimeSpan duration)
+    {
+        var ms = (int)Math.Clamp(duration.TotalMilliseconds, 0, int.MaxValue);
+        lock (_lock)
+        {
+            if (!_blackout)
+            {
+                return false;
+            }
+            if (_wakeDurationMs > 0)
+            {
+                // Already on its way up; a second unlock notification must not
+                // restart the ramp from black.
+                return true;
+            }
+            if (ms <= 0 || _currentEffect is null || _loopTask is null || _loopTask.IsCompleted)
+            {
+                // Nothing will paint the ramp, and nothing will repaint after
+                // the drop either, so put the captured frame back by hand.
+                RestoreBlackoutBaseline();
+                SetBlackout(false);
+                return true;
+            }
+            // Start the ramp at whatever level is on the devices now, not at 0:
+            // unlocking mid-fade-down would otherwise drop the lights the rest
+            // of the way to black before bringing them up. Inverting the level
+            // curve (t squared) gives the elapsed offset that starts there.
+            var level = Math.Clamp(CurrentFadeLevel(), 0f, 1f);
+            var offsetMs = (long)(Math.Sqrt(level) * ms);
+            Volatile.Write(ref _wakeStartedMs, Environment.TickCount64 - offsetMs);
+            _wakeDurationMs = ms;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Drops the hold once the release ramp has reached full. Re-checked under
+    /// the lock rather than from the level the loop just published: a lock
+    /// landing mid-release cancels the ramp, and acting on the pre-cancel read
+    /// would release the hold the lock just re-armed - lights back on, locked
+    /// machine.
+    /// </summary>
+    private void CompleteReleaseIfDone()
+    {
+        lock (_lock)
+        {
+            if (_wakeDurationMs > 0 && CurrentWakeLevel() >= 1f)
+            {
+                SetBlackout(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Level for the release ramp, on the same derive-never-write-back terms as
+    /// <see cref="CurrentFadeLevel"/>. 1 whenever no ramp is running, so the
+    /// loop can scale by it unconditionally.
+    /// </summary>
+    private float CurrentWakeLevel() => CurrentWakeLevel(_wakeDurationMs);
+
+    /// <summary>
+    /// Overload taking a duration the caller has already read. The loop uses it
+    /// so the level and the "is a ramp running" decision come from ONE read: a
+    /// lock cancelling the ramp between two reads would otherwise return 1 to a
+    /// caller that had decided a ramp was running, publishing one frame at full
+    /// brightness on the way down.
+    /// </summary>
+    private float CurrentWakeLevel(int durationMs)
+    {
+        if (durationMs <= 0)
+        {
+            return 1f;
+        }
+        var elapsed = Environment.TickCount64 - Volatile.Read(ref _wakeStartedMs);
+        if (elapsed >= durationMs)
+        {
+            return 1f;
+        }
+        if (elapsed <= 0)
+        {
+            return 0f;
+        }
+        // Squared, mirroring the fade-out curve for the same reason: the byte is
+        // roughly linear in emitted light and perception is not.
+        var t = (float)elapsed / durationMs;
+        return t * t;
+    }
+
+    /// <summary>
     /// Blocks until an all-black frame has actually been published to the
     /// device buffers. False on timeout, in which case the caller should assume
     /// the hardware is still lit.
@@ -246,12 +360,40 @@ public sealed class LightingEngine : IDisposable
         try { _blackoutApplied.Reset(); } catch (ObjectDisposedException) { }
     }
 
+    /// <summary>
+    /// Republishes the frame the hold captured, at full level. For the paths
+    /// where the hold is being dropped and NOTHING will repaint - paused, or no
+    /// effect running - which would otherwise leave the devices sitting on the
+    /// black frame the hold published.
+    /// </summary>
+    private void RestoreBlackoutBaseline()
+    {
+        var baseline = Volatile.Read(ref _blackoutBaseline);
+        if (baseline is null)
+        {
+            return;
+        }
+        foreach (var dev in _devices)
+        {
+            if (!baseline.TryGetValue(dev, out var frame))
+            {
+                continue;
+            }
+            for (int i = 0, led = 0; i + 2 < frame.Length; i += 3, led++)
+            {
+                dev.SetLed(led, frame[i], frame[i + 1], frame[i + 2]);
+            }
+            dev.Publish();
+        }
+    }
+
     /// <summary>Call under <see cref="_lock"/>. Drops the hold and everything it captured.</summary>
     private void ReleaseBlackoutState()
     {
         _blackout = false;
         _blackoutLevel = 1f;
         _fadeDurationMs = 0;
+        _wakeDurationMs = 0;
         Volatile.Write(ref _blackoutBaseline, null);
         ResetBlackoutSignal();
     }
@@ -399,7 +541,11 @@ public sealed class LightingEngine : IDisposable
                     // Paused holds the last rendered canvas/device buffers untouched
                     // and still broadcasts them every tick, so hardware and preview
                     // keep receiving frames without the effect clock advancing.
-                    if (_blackout)
+                    // A hold that is ramping back up takes the render path
+                    // below instead: the ramp scales frames the effect is
+                    // painting live, not the captured baseline.
+                    var wakeMs = _wakeDurationMs;
+                    if (_blackout && wakeMs <= 0)
                     {
                         // Re-applied every tick, not once: UpdateDevices can swap
                         // in frames for hardware that arrived mid-blackout.
@@ -421,13 +567,37 @@ public sealed class LightingEngine : IDisposable
                         {
                             gs.WriteToDevices(_devices);
                         }
+                        // Dim as part of publishing, so the ramp is in the one
+                        // frame readers see rather than a second write on top of
+                        // a published one.
+                        var wakeLevel = CurrentWakeLevel(wakeMs);
                         // One publish per tick, after every pass that paints:
                         // readers never see a frame with the canvas sample on
                         // some LEDs and an override on the rest.
                         foreach (var dev in _devices)
                         {
-                            dev.Publish();
+                            if (wakeLevel < 1f)
+                            {
+                                dev.PublishScaled(wakeLevel);
+                            }
+                            else
+                            {
+                                dev.Publish();
+                            }
                         }
+                        if (wakeMs > 0)
+                        {
+                            CompleteReleaseIfDone();
+                        }
+                    }
+                    else if (wakeMs > 0)
+                    {
+                        // Paused mid-ramp: nothing repaints, so the ramp cannot
+                        // advance and pause would hold the black frame the hold
+                        // published. Put the captured frame back first, then
+                        // drop the hold, so pause resumes holding what it held.
+                        RestoreBlackoutBaseline();
+                        SetBlackout(false);
                     }
                     SerializeAndBroadcast();
                 }

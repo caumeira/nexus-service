@@ -1,5 +1,6 @@
 using System.IO;
 using Nexus.Service.Auth;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
 using Nexus.Service.Media;
 using Nexus.Service.Models;
@@ -258,8 +259,12 @@ public static class MediaLibraryRoutes
             return Results.File(thumbPath, "image/jpeg");
         }).AllowPanel();
 
-        app.MapPost("/media/{id}/play", (string id, ILightingProvider lighting, MultiplexHub hub) =>
+        app.MapPost("/media/{id}/play", (string id, ILightingProvider lighting, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             if (!MediaLibrary.IsValidId(id))
             {
                 return Results.BadRequest(new MediaPlayResponse { Error = true, Msg = "invalid media id" });
@@ -276,11 +281,15 @@ public static class MediaLibraryRoutes
                 : Results.NotFound();
         }).AllowPanel();
 
-        app.MapPost("/media/idle", (ILightingProvider lighting, MultiplexHub hub) =>
+        app.MapPost("/media/idle", (ILightingProvider lighting, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             lighting.StartMediaIdle();
             PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
 
         app.MapGet("/media/current", (Nexus.Service.Persistence.IConfigStore store, MediaLibrary lib) =>

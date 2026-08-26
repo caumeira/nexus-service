@@ -236,6 +236,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 #if WINDOWS
     /// <summary>Guards the Unsubscribe in StopAsync against a failed Subscribe.</summary>
     private bool _powerEventsSubscribed;
+    private bool _sessionLockSubscribed;
 #endif
 
     public override Task StartAsync(CancellationToken cancellationToken)
@@ -247,6 +248,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
             {
                 SystemEvents.PowerModeChanged += OnPowerModeChanged;
                 _powerEventsSubscribed = true;
+                // Lock arrives over SCM, not SystemEvents: a service sits in
+                // session 0 and never sees the window messages SessionSwitch
+                // rides on.
+                Lifecycle.WindowsServiceHost.SessionLockChanged += OnSessionLockChanged;
+                _sessionLockSubscribed = true;
             }
             catch (Exception ex)
             {
@@ -305,6 +311,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
             try { SystemEvents.PowerModeChanged -= OnPowerModeChanged; }
             catch { }
             _powerEventsSubscribed = false;
+        }
+        if (_sessionLockSubscribed)
+        {
+            try { Lifecycle.WindowsServiceHost.SessionLockChanged -= OnSessionLockChanged; }
+            catch { }
+            _sessionLockSubscribed = false;
         }
 #endif
         if (Lifecycle.HostShutdown.IsOsShutdown)
@@ -425,6 +437,71 @@ public sealed class QSeriesPortWatcher : BackgroundService
         if (lastResumeAtTicks == 0) return false;
         return now - new DateTimeOffset(lastResumeAtTicks, TimeSpan.Zero) < window;
     }
+
+    /// <summary>
+    /// Session lock/unlock. Handed off rather than run inline: nothing is
+    /// tearing down here, so there is no window to race, and SCM is waiting on
+    /// this callback. The keyevent costs ~1.7s per panel (it execs a JVM).
+    /// </summary>
+    private void OnSessionLockChanged(bool locked)
+    {
+        _ = Task.Run(() => TrySetPanelsForSessionLock(locked));
+    }
+
+    /// <summary>
+    /// Sleeps the panels while the session is locked and wakes them on unlock,
+    /// when SleepWhenLocked is on. Unlock respects a screen the user turned off
+    /// by hand, the same way the resume path does.
+    /// </summary>
+    private void TrySetPanelsForSessionLock(bool locked)
+    {
+        try
+        {
+            // Unlock wakes whenever WE slept the panels, even if the setting
+            // was switched off in between: re-reading it there would strand the
+            // panel asleep with no control that turns it back on.
+            var qseries = _configStore.Load().QSeries;
+            if (locked ? !qseries.SleepWhenLocked : !_sleptForSessionLock) return;
+            // Unlike the suspend hook, which bypasses the tick thread because
+            // the host is going down, this fires several times a day: a
+            // keyevent landing mid-flash or mid-APK-install shares the transport
+            // with a bulk transfer, which is what wedges USB-FFS.
+            if (FlashActive || _deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) return;
+            _sleptForSessionLock = locked;
+            if (_knownQSeriesSerials.Count == 0) return;
+            var keycode = SessionLockKeycode(locked, qseries.ScreenOff);
+            // The record no longer matches the panel once this drives the
+            // screen, so the tick loop's diff would skip the command that undoes
+            // it; same reason the suspend/resume hooks mark it.
+            Interlocked.Exchange(ref _displayRecordStale, 1);
+            foreach (var serial in _knownQSeriesSerials.ToArray())
+            {
+                if (QSeriesTransport.IsTcpSerial(serial)) continue;
+                SendKeyeventBestEffort(serial, keycode);
+            }
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[qseries-port-watcher] session-lock screen change failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// <summary>
+    /// Set while the desktop session is locked AND this watcher put the panels
+    /// to sleep for it. Read by <see cref="ReassertPanelDisplayAsync"/>, which
+    /// otherwise re-applies "awake unless the user turned the screen off" and
+    /// would wake a panel mid-lock on any re-attach, escalation reboot, or
+    /// display POST from the phone.
+    /// </summary>
+    private volatile bool _sleptForSessionLock;
+
+    /// Which keyevent a lock transition calls for. Unlock does NOT unconditionally
+    /// wake: a user who turned the screen off by hand still wants it off when
+    /// they come back, the same rule the resume path follows.
+    /// </summary>
+    internal static int SessionLockKeycode(bool locked, bool screenOff) =>
+        locked || screenOff ? KeyeventSleep : KeyeventWakeup;
 
     /// <summary>
     /// Called inline on Windows suspend, and at OS shutdown from StopAsync
@@ -1940,7 +2017,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
         var qseries = _configStore.Load().QSeries;
         var userRotation = ToUserRotation(qseries.Orientation);
         var brightnessByte = PercentToBrightnessByte(qseries.Brightness);
-        var wantAwake = !qseries.ScreenOff;
+        // A panel slept for the session lock stays asleep through a re-attach
+        // or a reassert; without this the panel wakes mid-lock and nothing
+        // turns it back off until the unlock.
+        var wantAwake = !qseries.ScreenOff && !_sleptForSessionLock;
 
         // Without a record of what this panel already has, its state is unknown
         // (a reboot resets user_rotation) so everything is pushed. Afterwards

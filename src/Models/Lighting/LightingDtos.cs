@@ -86,6 +86,13 @@ public sealed class SleepBlackoutBody
     public bool Enabled { get; set; }
 }
 
+/// <summary>GET/POST body for /lighting/lock-blackout: blank lighting while
+/// the session is locked.</summary>
+public sealed class LockBlackoutBody
+{
+    public bool Enabled { get; set; }
+}
+
 /// <summary>Replaces the persisted AnimateSettings.Templates dictionary in one shot.
 /// The frontend holds the authoritative set of per-effect templates + selected slot
 /// and posts the whole map every time the user clicks a slot or edits one. Backend

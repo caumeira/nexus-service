@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Nexus.Service.Activity;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Activity;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Platform;
@@ -87,19 +88,21 @@ public sealed class MonitoringEventCollector : BackgroundService
     private DateTime _lastDetectedPollUtc = DateTime.MinValue;
 
     private readonly bool _useWindowedProcesses;
+    private readonly FeatureGates _gates;
 
     /// <summary>useWindowedProcesses selects the app source and defaults to
     /// the platform that has an IWindowSetProvider; tests pin it so both
     /// sources are exercised regardless of the host OS.</summary>
     public MonitoringEventCollector(
         IUsbEnumerator usb, ProcessMonitor processes, IAppDetectionProvider appDetection, IMonitoringEventStore store,
-        bool? useWindowedProcesses = null)
+        bool? useWindowedProcesses = null, FeatureGates? gates = null)
     {
         _usb = usb;
         _processes = processes;
         _appDetection = appDetection;
         _store = store;
         _useWindowedProcesses = useWindowedProcesses ?? OperatingSystem.IsWindows();
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -140,6 +143,10 @@ public sealed class MonitoringEventCollector : BackgroundService
 
     internal void Tick(DateTime nowUtc)
     {
+        if (!_gates.Monitoring)
+        {
+            return;
+        }
         var nowMs = new DateTimeOffset(nowUtc).ToUnixTimeMilliseconds();
         TickUsb(nowUtc, nowMs);
         TickApps(nowUtc, nowMs);

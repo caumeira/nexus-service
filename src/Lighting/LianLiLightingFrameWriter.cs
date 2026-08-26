@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.LianLi;
@@ -52,12 +53,15 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
     // True while timeBeginPeriod(1) is active; matches the custom-streaming lifetime.
     private bool _highResTimer;
 
-    public LianLiLightingFrameWriter(LightingEngine engine, LianLiHub hub, IConfigStore store, Np50IdentifyTracker identify)
+    private readonly FeatureGates _gates;
+
+    public LianLiLightingFrameWriter(LightingEngine engine, LianLiHub hub, IConfigStore store, Np50IdentifyTracker identify, FeatureGates? gates = null)
     {
         _engine = engine;
         _hub = hub;
         _store = store;
         _identify = identify;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -110,6 +114,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
 
     private void Tick()
     {
+        if (!_gates.Lighting) return;
         if (!_hub.IsConnected)
         {
             if (_highResTimer && OperatingSystem.IsWindows())

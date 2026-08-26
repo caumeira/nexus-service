@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Monitoring.History;
 using Xunit;
 
@@ -152,5 +153,23 @@ public class PrivacyAccessWatcherTests
     private sealed class ThrowingRegistryReader : IPrivacyAccessRegistryReader
     {
         public IReadOnlyList<PrivacyAccessRawEntry> ReadAll() => throw new InvalidOperationException("boom");
+    }
+
+    [Fact]
+    public void Tick_GateOff_NoOps()
+    {
+        var reader = new StubRegistryReader
+        {
+            NextSnapshot = new[] { new PrivacyAccessRawEntry("microphone", "app.exe", StartFileTime, 0) },
+        };
+        var store = new RecordingSessionStore();
+        var configStore = new Nexus.Service.Tests.InMemoryConfigStore();
+        configStore.Update(s => s.Features.Monitoring = false);
+        var watcher = new PrivacyAccessWatcher(reader, store, new FeatureGates(configStore));
+
+        watcher.Tick(DateTime.UtcNow);
+
+        Assert.Empty(store.Upserts);
+        Assert.Empty(store.PruneCalls);
     }
 }

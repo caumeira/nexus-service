@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Nexus.Service.Devices;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Devices;
 
@@ -578,8 +579,13 @@ public static partial class DevicesRoutes
             Nexus.Service.Lighting.ILightingProvider lighting,
             Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
             Nexus.Service.Lighting.Smart.SmartLightProvider smart,
-            Nexus.Service.Lighting.Engine.LightingEngine engine) =>
+            Nexus.Service.Lighting.Engine.LightingEngine engine,
+            FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             if (!ActivateLayoutPreset(id, store, hub, lightingProvider, lighting, bridge, smart, engine))
             {
                 return Results.Json(
@@ -593,11 +599,16 @@ public static partial class DevicesRoutes
         app.MapPost("/devices/lighting-devices/power", (
             SetLightingDevicePowerBody body,
             ILightingDeviceProvider ld,
-            Nexus.Service.Persistence.IConfigStore store) =>
+            Nexus.Service.Persistence.IConfigStore store,
+            FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             ld.SetPower(body.Id, body.On);
             CaptureDeviceStateIntoActive(store);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         });
         // Uncontrolled ids are pure persisted state - no provider owns a "not
         // controlled" action, so this writes the shared store directly rather
@@ -613,8 +624,13 @@ public static partial class DevicesRoutes
             SetLightingDeviceControlledBody body,
             Nexus.Service.Persistence.IConfigStore store,
             Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
-            Nexus.Service.Lighting.Smart.SmartLightProvider smart) =>
+            Nexus.Service.Lighting.Smart.SmartLightProvider smart,
+            FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             Nexus.Service.Lighting.LightingControlledState.SetControlled(body.Id, body.Controlled, store);
             CaptureDeviceStateIntoActive(store);
             bridge?.RequestTopologyRefresh();
@@ -622,12 +638,16 @@ public static partial class DevicesRoutes
             {
                 smart.RestoreStatic(body.Id);
             }
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         });
-        app.MapPost("/devices/lighting-devices/brightness", (SetLightingDeviceBrightness body, ILightingDeviceProvider ld) =>
+        app.MapPost("/devices/lighting-devices/brightness", (SetLightingDeviceBrightness body, ILightingDeviceProvider ld, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             ld.SetBrightness(body.Id, body.Brightness);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         });
         app.MapPost("/devices/lighting-devices/color", (
             SetLightingDeviceColor body,
@@ -636,8 +656,13 @@ public static partial class DevicesRoutes
             // [FromServices] is load-bearing under AOT: the request-delegate
             // generator reads a concrete class parameter as a second body
             // parameter and the route 400s on binding.
-            [Microsoft.AspNetCore.Mvc.FromServices] Nexus.Service.Lighting.StaticDeviceEffectTracker staticEffects) =>
+            [Microsoft.AspNetCore.Mvc.FromServices] Nexus.Service.Lighting.StaticDeviceEffectTracker staticEffects,
+            FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             ld.SetHue(body.Id, body.Hue);
             ld.SetSaturation(body.Id, body.Saturation);
             // The prefs above are device metadata the UI reads back. The
@@ -664,21 +689,29 @@ public static partial class DevicesRoutes
                 });
             }
             CaptureDeviceStateIntoActive(store);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         });
 
         // Motherboard ARGB zone LED count - persists and applies via OpenRGB RESIZEZONE
-        app.MapPost("/devices/lighting-devices/zone-size", (SetZoneLedCountBody body, ILightingDeviceProvider ld) =>
+        app.MapPost("/devices/lighting-devices/zone-size", (SetZoneLedCountBody body, ILightingDeviceProvider ld, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             ld.SetZoneLedCount(body.Id, body.Count);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         });
 
         // Identify a strip / zone with a unique colour pulse
-        app.MapPost("/devices/lighting-devices/identify", (IdentifyLightingDeviceBody body, ILightingDeviceProvider ld) =>
+        app.MapPost("/devices/lighting-devices/identify", (IdentifyLightingDeviceBody body, ILightingDeviceProvider ld, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             ld.Identify(body.Id, body.DurationMs);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         });
 
         // Force-rescan: restart OpenRGB subprocess (only for plugins that scan once at boot)

@@ -82,20 +82,25 @@ public static class DisplayRoutes
                 Brightness = qseries.Brightness,
                 ScreenOff = qseries.ScreenOff,
                 SleepWithHost = qseries.SleepWithHost,
+                SleepWhenLocked = qseries.SleepWhenLocked,
             };
         }).AllowPanel();
         app.MapPost("/qseries/display", (QSeriesDisplayParams body, IConfigStore store, IServiceProvider sp) =>
         {
             if (body.Brightness is int brightness && (brightness < 0 || brightness > 100))
                 return Results.BadRequest(ApiResponse.Fail("brightness must be between 0 and 100"));
-            if (body.Brightness is null && body.ScreenOff is null && body.SleepWithHost is null)
+            if (body.Brightness is null && body.ScreenOff is null && body.SleepWithHost is null
+                && body.SleepWhenLocked is null)
+            {
                 return Results.Ok(ApiResponse.Ok());
+            }
 
             store.Update(s =>
             {
                 if (body.Brightness is int b) s.QSeries.Brightness = b;
                 if (body.ScreenOff is bool off) s.QSeries.ScreenOff = off;
                 if (body.SleepWithHost is bool sleepWithHost) s.QSeries.SleepWithHost = sleepWithHost;
+                if (body.SleepWhenLocked is bool sleepWhenLocked) s.QSeries.SleepWhenLocked = sleepWhenLocked;
             });
             sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.AnnounceDisplayChange();
             return Results.Ok(ApiResponse.Ok());
