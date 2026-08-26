@@ -63,6 +63,9 @@ public static class ConflictAppCatalog
             DisplayName = "NZXT CAM",
             Category = "lighting",
             ProcessNames = new[] { "NZXT CAM", "CAM", "NZXT CAM Beta", "NZXT CAM Service", "NZXTCAM" },
+            // CAMService is NZXT's own; Windows' unrelated "camsvc" (svchost -k
+            // osprivacy) must never appear here.
+            WindowsServiceNames = new[] { "CAMService" },
         },
         new()
         {
@@ -79,6 +82,8 @@ public static class ConflictAppCatalog
             DisplayName = "SignalRGB",
             Category = "lighting",
             ProcessNames = new[] { "SignalRgb", "SignalRgbLauncher", "SignalRgbService", "SignalRgb.Service" },
+            // SignalRGB has no Run value; the Automatic service is how it starts.
+            WindowsServiceNames = new[] { "SignalRgb.Service" },
         },
         new()
         {
