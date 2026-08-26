@@ -70,7 +70,7 @@ public class RecoverableQSeriesSerialTests
     public void Recoverable_when_the_serial_was_seen_online_as_q_series()
     {
         Assert.True(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            "0123456789ABCDEF", knownQSeries: true, classifiedNonQSeries: false));
+            "0123456789ABCDEF", provenQSeries: true, classifiedNonQSeries: false));
     }
 
     // A cooler on USB is not proof the MediaTek node beside it is the panel, and a
@@ -80,21 +80,21 @@ public class RecoverableQSeriesSerialTests
     public void Not_recoverable_for_a_serial_never_seen_online_this_run()
     {
         Assert.False(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            "0123456789ABCDEF", knownQSeries: false, classifiedNonQSeries: false));
+            "0123456789ABCDEF", provenQSeries: false, classifiedNonQSeries: false));
     }
 
     [Fact]
     public void Not_recoverable_for_a_bare_mediatek_device_with_no_q_series_corroboration()
     {
         Assert.False(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            "somephone", knownQSeries: false, classifiedNonQSeries: false));
+            "somephone", provenQSeries: false, classifiedNonQSeries: false));
     }
 
     [Fact]
     public void Not_recoverable_once_classified_a_non_q_series_device()
     {
         Assert.False(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            "somephone", knownQSeries: true, classifiedNonQSeries: true));
+            "somephone", provenQSeries: true, classifiedNonQSeries: true));
     }
 
     [Theory]
@@ -103,7 +103,7 @@ public class RecoverableQSeriesSerialTests
     public void Not_recoverable_without_a_serial(string? serial)
     {
         Assert.False(QSeriesPortWatcher.IsRecoverableQSeriesSerial(
-            serial!, knownQSeries: true, classifiedNonQSeries: false));
+            serial!, provenQSeries: true, classifiedNonQSeries: false));
     }
 }
 

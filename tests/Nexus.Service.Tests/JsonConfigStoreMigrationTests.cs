@@ -401,6 +401,72 @@ public class JsonConfigStoreMigrationTests : IDisposable
         }
     }
 
+    [Fact]
+    public void Load_V15_MigratesFeaturesOnboardingCompletedForExistingInstall()
+    {
+        var json = """
+        {
+          "schemaVersion": 15
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.Equal(NexusSettings.CurrentSchemaVersion, s.SchemaVersion);
+            Assert.True(s.FeaturesOnboardingCompleted);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_NoSettingsFile_FeaturesOnboardingCompletedDefaultsFalse()
+    {
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.False(s.FeaturesOnboardingCompleted);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_PreFeaturesJson_LoadsAllFeatureFlagsTrue()
+    {
+        // Features is additive with no migration arm: a document from before
+        // the field existed simply never sets it, and the initializers on
+        // FeaturesSettings resolve every flag to true.
+        var json = """
+        {
+          "schemaVersion": 11
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.True(s.Features.Lighting);
+            Assert.True(s.Features.Cooling);
+            Assert.True(s.Features.Monitoring);
+            Assert.True(s.Features.Diagnostics);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
     /// <summary>
     /// The frost slider replaced the "backgroundFrost" step with the numeric
     /// BackgroundFrostLevel and drops the old value instead of migrating it.

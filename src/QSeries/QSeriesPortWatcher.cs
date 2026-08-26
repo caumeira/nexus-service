@@ -96,6 +96,17 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private static readonly TimeSpan AdbInvisibleRecoveryThreshold = TimeSpan.FromSeconds(90);
 
+    /// <summary>
+    /// After a host resume, how long a changed transport id is treated as the USB
+    /// stack re-enumerating rather than a reseat. A resume always re-enumerates, so
+    /// without this every sleep/wake cycle rebooted the panel, and each reboot is
+    /// another chance for the MediaTek driver to bind the composite parent and take
+    /// the panel off adb entirely. Covers the observed resume-to-adb gap (~13 s worst
+    /// case in the field logs) with margin; a genuinely wedged panel is still
+    /// recovered by the liveness-gated escalation reboot.
+    /// </summary>
+    private static readonly TimeSpan ResumeSettleWindow = TimeSpan.FromSeconds(60);
+
     private readonly int _servicePort;
     /// <summary>Device-side reverse spec - the port qshell connects to on the
     /// panel's loopback. Never changes: qshell hardcodes it.</summary>
@@ -178,6 +189,15 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// powershell, so it runs on the recovery-threshold cadence, not per tick.
     /// Cleared when the serial returns online or detaches.</summary>
     private readonly Dictionary<string, DateTimeOffset> _lastInstanceIdLookupBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Serial -> last instance-id lookup for the present-but-invisible path. Separate
+    /// from <see cref="_lastInstanceIdLookupBySerial"/> because that one is cleared
+    /// whenever a serial is absent from the adb device list - always true here.
+    /// Cleared when a Q-series becomes visible again.
+    /// </summary>
+    private readonly Dictionary<string, DateTimeOffset> _lastInvisibleLookupBySerial = new(StringComparer.Ordinal);
+
 
     /// <summary>
     /// Signature last logged while Q-series hardware was present with no online
@@ -379,10 +399,44 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
         else if (e.Mode == PowerModes.Resume)
         {
+            // Stamped inline as well as in the handed-off handler: the tick loop can
+            // reach the reseat check before a saturated thread pool runs the hand-off,
+            // and the stamp has to be visible by then. The second call only pushes the
+            // window out by the hand-off delay.
+            MarkHostResumed();
             _ = Task.Run(TryRestorePanelsForHostResume);
         }
     }
 #endif
+
+    /// <summary>
+    /// Stamps the resume so <see cref="TryRebootOnReseatAsync"/> can tell a
+    /// resume's re-enumeration from a real reseat. Written from the power-event
+    /// thread and from the handed-off resume handler, read by the tick loop.
+    /// </summary>
+    private void MarkHostResumed() =>
+        Interlocked.Exchange(ref _lastResumeAtTicks, DateTimeOffset.UtcNow.UtcTicks);
+
+    private long _lastResumeAtTicks;
+
+    /// <summary>
+    /// True while a host resume is recent enough that a changed transport id is
+    /// more likely the USB stack re-enumerating than a reseat.
+    /// </summary>
+    private bool WithinResumeSettleWindow(DateTimeOffset now) =>
+        IsResumeReenumeration(now, Interlocked.Read(ref _lastResumeAtTicks), ResumeSettleWindow);
+
+    /// <summary>
+    /// Whether <paramref name="now"/> falls inside <paramref name="window"/> of the
+    /// resume stamped at <paramref name="lastResumeAtTicks"/>. A zero stamp means the
+    /// host has not resumed this run, which must never suppress a reseat reboot.
+    /// </summary>
+    internal static bool IsResumeReenumeration(
+        DateTimeOffset now, long lastResumeAtTicks, TimeSpan window)
+    {
+        if (lastResumeAtTicks == 0) return false;
+        return now - new DateTimeOffset(lastResumeAtTicks, TimeSpan.Zero) < window;
+    }
 
     /// <summary>
     /// Session lock/unlock. Handed off rather than run inline: nothing is
@@ -484,6 +538,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// user had the screen off already.</summary>
     private void TryRestorePanelsForHostResume()
     {
+        MarkHostResumed();
         try
         {
             // Resume races the USB stack re-enumerating, so this one-shot can
@@ -560,7 +615,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         // for this device class.
         if (!_gate.IsEnabled("qseries"))
         {
-            _adbInvisibleSince = null;
+            ClearAdbInvisibleState();
             return;
         }
 
@@ -573,7 +628,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             && !_presence.UsbPresent(QSeriesCoolerProtocol.VendorId, QSeriesCoolerProtocol.Q60ProductId, QSeriesCoolerProtocol.Q80ProductId)
             && !_presence.UsbPresent(MediaTekAdbVendorId))
         {
-            _adbInvisibleSince = null;
+            ClearAdbInvisibleState();
             return;
         }
 
@@ -590,7 +645,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             _reverseAppliedBySerial.Clear();
             _reverseRefreshedThisRun.Clear();
             _lanIpUnavailableLogged.Clear();
-            _adbInvisibleSince = null;
+            ClearAdbInvisibleState();
             if (TryStartAdbServer())
             {
                 try
@@ -613,7 +668,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             _reverseAppliedBySerial.Clear();
             _reverseRefreshedThisRun.Clear();
             _lanIpUnavailableLogged.Clear();
-            _adbInvisibleSince = null;
+            ClearAdbInvisibleState();
             throw;
         }
 
@@ -834,14 +889,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
             || FlashActive
             || _deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true)
         {
-            _adbInvisibleSince = null;
+            ClearAdbInvisibleState();
             return;
         }
 
         var panels = _presence.UsbEntriesFor(MediaTekAdbVendorId);
         if (panels.Count == 0)
         {
-            _adbInvisibleSince = null;
+            ClearAdbInvisibleState();
             return;
         }
 
@@ -854,13 +909,17 @@ public sealed class QSeriesPortWatcher : BackgroundService
         var invisibleFor = now - since;
         if (invisibleFor < AdbInvisibleRecoveryThreshold) return;
 
-        // Only serials seen ONLINE as Q-series this run. A PnP entry proves nothing
-        // (0x0E8D is MediaTek's whole VID), and a never-seen serial is indistinguishable
-        // from a panel still enumerating on a cold boot.
+        // Two proofs a serial is a panel: seen ONLINE as Q-series this run, or a
+        // devnode reporting a Q-series product name. The VID alone proves nothing
+        // (0x0E8D is MediaTek's whole vendor id, so a phone matches). The name proof
+        // is what covers a service start that finds the panel already misbound: it
+        // was never seen online, so the run-scoped set is empty exactly then.
         var candidates = _knownQSeriesSerials
-            .Where(serial => !QSeriesTransport.IsTcpSerial(serial)
+            .Concat(panels.Where(IsQSeriesUsbEntry).Select(e => e.Serial))
+            .Where(serial => LooksLikeDeviceSerial(serial)
                 && IsRecoverableQSeriesSerial(
-                    serial, knownQSeries: true, classifiedNonQSeries: _offlineNonQSeriesSerials.Contains(serial)))
+                    serial, provenQSeries: true, classifiedNonQSeries: _offlineNonQSeriesSerials.Contains(serial)))
+            .Distinct(StringComparer.Ordinal)
             .ToList();
 
         foreach (var serial in candidates)
@@ -874,13 +933,15 @@ public sealed class QSeriesPortWatcher : BackgroundService
             }
 
             // The lookup spawns powershell, so throttle it to the recovery cadence
-            // rather than every tick - the offline path does the same.
-            if (_lastInstanceIdLookupBySerial.TryGetValue(serial, out var lastLookup)
+            // rather than every tick. Deliberately NOT the offline path's dictionary:
+            // that one is cleared for every serial absent from the adb list, which is
+            // this path's defining state, so sharing it meant no throttle at all.
+            if (_lastInvisibleLookupBySerial.TryGetValue(serial, out var lastLookup)
                 && now - lastLookup < AdbInvisibleRecoveryThreshold)
             {
                 continue;
             }
-            _lastInstanceIdLookupBySerial[serial] = now;
+            _lastInvisibleLookupBySerial[serial] = now;
 
             var instanceId = TryFindUsbInstanceId(serial);
             if (instanceId is null || !IsMediaTekInstanceId(instanceId)) continue;
@@ -896,7 +957,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             {
                 ServiceLog.Info(
                     $"[qseries-port-watcher] {serial}: pnputil restart succeeded; awaiting re-enumeration ({pnputilOut})");
-                _adbInvisibleSince = null;
+                ClearAdbInvisibleState();
             }
             else
             {
@@ -1025,11 +1086,23 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private static string? TryFindUsbInstanceId(string adbSerial)
     {
         if (!OperatingSystem.IsWindows()) return null;
-        if (string.IsNullOrEmpty(adbSerial)) return null;
-        // Single-quote the serial so PowerShell doesn't interpolate it.
+        // Both callers reach this with a serial read off a device, so the charset is
+        // enforced here rather than at one call site: a quote would escape the
+        // PowerShell literal and run as LocalSystem, and a wildcard would silently
+        // widen the match to another devnode.
+        if (!LooksLikeDeviceSerial(adbSerial)) return null;
+        // No -Class USB filter: a misbound panel does not enumerate under the USB
+        // setup class, so that filter excluded the exact devnode this lookup exists to
+        // find (measured on the Y70: the live parent is class USB, the misbind ghost
+        // is class USBDevice). -PresentOnly is load-bearing, not an optimisation: this
+        // serial also matches stale preloader devnodes, and without it -First 1
+        // returned the not-present PID_2048 ghost rather than the live panel. The
+        // USB\ prefix keeps the match on the USB enumerator; the serial charset is
+        // enforced above, so it cannot break out of the single-quoted literal or
+        // smuggle a -like wildcard.
         var psScript =
-            "Get-PnpDevice -Class USB " +
-            "| Where-Object { $_.InstanceId -like '*\\" + adbSerial + "' } " +
+            "Get-PnpDevice -PresentOnly " +
+            "| Where-Object { $_.InstanceId -like 'USB\\*\\" + adbSerial + "' } " +
             "| Select-Object -First 1 -ExpandProperty InstanceId";
         try
         {
@@ -1228,6 +1301,38 @@ public sealed class QSeriesPortWatcher : BackgroundService
             errorOutput = $"{ex.GetType().Name}: {ex.Message}";
             return false;
         }
+    }
+
+    /// <summary>
+    /// True when a USB devnode's product name marks it a Q-series panel - the only
+    /// proof left once the MediaTek driver binds the composite parent and there is no
+    /// adb device line for <see cref="IsQSeries"/> to read. Delegates to the handler's
+    /// bench-verified matcher rather than <see cref="QSeriesModels"/>, which holds
+    /// adb <c>ro.product.model</c> values and misses the "HYTE THICC Q60" descriptor
+    /// the panel reports in some USB modes. The extra vendor-name check narrows that
+    /// matcher's bare "Q60"/"Q80" substring: it decides a devnode reset here, not a
+    /// device-list row, and every bench-verified descriptor carries "HYTE".
+    /// </summary>
+    internal static bool IsQSeriesUsbEntry(UsbDeviceEntry entry) =>
+        Devices.Handlers.QSeriesHandler.MatchesQseries(entry)
+        && entry.Name.Contains("HYTE", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A device's own serial, not a synthesised one, and safe to interpolate into the
+    /// instance-id query. Rejects the parent-id token a composite interface node
+    /// carries (<c>7&amp;1a2b3c&amp;0&amp;0000</c>), which would address the wrong
+    /// devnode, and anything outside the alphanumeric/-/_ set real serials use - which
+    /// also rules out a quote breaking out of the PowerShell literal and the
+    /// <c>-like</c> wildcards that would silently widen the match.
+    /// </summary>
+    internal static bool LooksLikeDeviceSerial(string serial)
+    {
+        if (string.IsNullOrEmpty(serial)) return false;
+        foreach (var c in serial)
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && c != '-' && c != '_') return false;
+        }
+        return true;
     }
 
     private static bool IsQSeries(DeviceData device)
@@ -1551,6 +1656,17 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private DateTimeOffset? _adbInvisibleSince;
 
     /// <summary>
+    /// Leaves the present-but-invisible state: forgets both when it started and the
+    /// lookup throttle, so a later spell starts from a clean timer rather than one
+    /// left over from the last.
+    /// </summary>
+    private void ClearAdbInvisibleState()
+    {
+        _adbInvisibleSince = null;
+        _lastInvisibleLookupBySerial.Clear();
+    }
+
+    /// <summary>
     /// Time a serial was first seen this run; anchors <see cref="EscalationGrace"/>.
     /// Cleared on detach (a re-attach re-arms it).
     /// </summary>
@@ -1708,11 +1824,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     /// <summary>
     /// Whether a serial enumerating on MediaTek's VID may be devnode-reset. 0x0E8D is
-    /// the whole vendor id, so nothing about the PnP entry proves a panel: only having
-    /// been seen online as Q-series this run does.
+    /// the whole vendor id, so the VID alone never proves a panel. The caller supplies
+    /// the proof - seen online as Q-series this run, or a Q-series USB product name.
     /// </summary>
-    internal static bool IsRecoverableQSeriesSerial(string serial, bool knownQSeries, bool classifiedNonQSeries)
-        => !string.IsNullOrEmpty(serial) && !classifiedNonQSeries && knownQSeries;
+    internal static bool IsRecoverableQSeriesSerial(string serial, bool provenQSeries, bool classifiedNonQSeries)
+        => !string.IsNullOrEmpty(serial) && !classifiedNonQSeries && provenQSeries;
 
     /// <summary>Tri-state result of a <c>dumpsys package</c> qshell probe.</summary>
     internal enum QshellPresence
@@ -2099,6 +2215,20 @@ public sealed class QSeriesPortWatcher : BackgroundService
             _qshellFirstSeenThisRun.Remove(device.Serial);
             ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: transport id {lastTransportId} -> {transportId} (reseat) but a reboot is within cooldown; re-arming first-sighting handling instead");
+            return false;
+        }
+
+        // A resume re-enumerates USB, so the transport id always changes - rebooting
+        // on that is self-inflicted churn, not recovery. Re-arm first sighting (which
+        // re-anchors EscalationGrace and re-probes qshell; the reverse refresh is
+        // gated separately by _reverseRefreshedThisRun and does not re-run) and let
+        // the panel reconnect. A panel that really is wedged is then recovered by the
+        // liveness-gated escalation reboot, on its existing per-run budget.
+        if (WithinResumeSettleWindow(now))
+        {
+            _qshellFirstSeenThisRun.Remove(device.Serial);
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: transport id {lastTransportId} -> {transportId} within {ResumeSettleWindow.TotalSeconds:F0}s of host resume; treating as resume re-enumeration, not a reseat");
             return false;
         }
 

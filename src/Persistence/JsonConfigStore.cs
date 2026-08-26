@@ -129,6 +129,9 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// v15: any pre-existing settings.json predates the dashboard density
     /// mode, so it is pinned to "advanced"; only a fresh install keeps the
     /// "simple" default. Same shape as v8/v13.
+    /// v16: any pre-existing settings.json predates the feature-pillars
+    /// onboarding screen, so it is marked already-complete; only a fresh
+    /// install sees the screen. Same shape as v8/v13/v15.
     /// </summary>
     private static void Migrate(NexusSettings doc)
     {
@@ -190,6 +193,10 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             doc.Ui ??= new UiSettings();
             doc.Ui.LightingDashboardMode = "advanced";
             doc.Ui.CoolingDashboardMode = "advanced";
+        }
+        if (doc.SchemaVersion < 16)
+        {
+            doc.FeaturesOnboardingCompleted = true;
         }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }

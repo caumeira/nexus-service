@@ -30,6 +30,8 @@ public sealed record DiagnosticsHealthResponse
     public bool Supported { get; init; }
     public string Overall { get; init; } = HealthStatuses.Unknown;
     public IReadOnlyList<HealthComponent> Components { get; init; } = Array.Empty<HealthComponent>();
+    /// <summary>False when the Diagnostics feature pillar is off. BuildHealth is never called in that case, so every other field stays at its default.</summary>
+    public bool Enabled { get; init; } = true;
 }
 
 public sealed record HealthComponent

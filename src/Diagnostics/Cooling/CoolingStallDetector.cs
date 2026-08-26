@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Cooling;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Platform;
 
@@ -267,11 +268,13 @@ public sealed class CoolingStallFeeder : BackgroundService
 
     private readonly IFanControlProvider _fans;
     private readonly CoolingStallDetector _detector;
+    private readonly FeatureGates _gates;
 
-    public CoolingStallFeeder(IFanControlProvider fans, CoolingStallDetector detector)
+    public CoolingStallFeeder(IFanControlProvider fans, CoolingStallDetector detector, FeatureGates? gates = null)
     {
         _fans = fans;
         _detector = detector;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public CoolingStallSnapshot Snapshot() => _detector.Snapshot();
@@ -295,6 +298,10 @@ public sealed class CoolingStallFeeder : BackgroundService
 
     internal void Tick()
     {
+        if (!_gates.Diagnostics)
+        {
+            return;
+        }
         var now = DateTime.UtcNow;
         IReadOnlyList<FanChannel> channels;
         try { channels = _fans.GetFanChannels(); }

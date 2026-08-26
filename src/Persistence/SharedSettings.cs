@@ -29,6 +29,9 @@ public sealed class ThemeSettings
     // server once, so an upgrade doesn't clobber an existing choice.
     public string BackgroundMode { get; set; } = "";
     public string AccentSource { get; set; } = "";
+    // Kept apart from AccentColor so the palette's custom slot still shows this
+    // colour after a preset is chosen. Empty = the slot has never been used.
+    public string CustomAccentColor { get; set; } = "";
 }
 
 public sealed class MonitoringSettings
@@ -142,6 +145,7 @@ public sealed class Preferences
     public DiagnosticsSettings Diagnostics { get; set; } = new();
     public int StartupDelaySeconds { get; set; }
     public bool DisableGpuMonitoring { get; set; }
+    public FeaturesSettings Features { get; set; } = new();
 }
 
 public sealed class CoolingPrefs
@@ -261,6 +265,15 @@ public sealed class PreferencesPatch
     public DiagnosticsSettingsPatch? Diagnostics { get; set; }
     public int? StartupDelaySeconds { get; set; }
     public bool? DisableGpuMonitoring { get; set; }
+    public FeaturesSettingsPatch? Features { get; set; }
+}
+
+public sealed class FeaturesSettingsPatch
+{
+    public bool? Lighting { get; set; }
+    public bool? Cooling { get; set; }
+    public bool? Monitoring { get; set; }
+    public bool? Diagnostics { get; set; }
 }
 
 public sealed class ThemeSettingsPatch
@@ -271,6 +284,7 @@ public sealed class ThemeSettingsPatch
     public string? ResolvedThemeMode { get; set; }
     public string? BackgroundMode { get; set; }
     public string? AccentSource { get; set; }
+    public string? CustomAccentColor { get; set; }
 }
 
 public sealed class PanelSettingsPatch

@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Platform;
@@ -98,6 +99,7 @@ public sealed class SleepBlackoutCoordinator
     private readonly LightingEngine _engine;
     private readonly IConfigStore _store;
     private readonly RgbBridge? _bridge;
+    private readonly FeatureGates _gates;
 
     /// <summary>
     /// True between a lock and its unlock. Load-bearing for exactly one path:
@@ -108,11 +110,12 @@ public sealed class SleepBlackoutCoordinator
     /// </summary>
     private volatile bool _lockHold;
 
-    public SleepBlackoutCoordinator(LightingEngine engine, IConfigStore store, RgbBridge? bridge = null)
+    public SleepBlackoutCoordinator(LightingEngine engine, IConfigStore store, RgbBridge? bridge = null, FeatureGates? gates = null)
     {
         _engine = engine;
         _store = store;
         _bridge = bridge;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     /// <summary>
@@ -207,6 +210,10 @@ public sealed class SleepBlackoutCoordinator
     {
         try
         {
+            if (!_gates.Lighting)
+            {
+                return;
+            }
             if (!_store.Load().Lighting.SleepBlackout)
             {
                 return;
@@ -239,6 +246,32 @@ public sealed class SleepBlackoutCoordinator
     }
 
     /// <summary>
+    /// Call from FeatureReconciler on the Lighting ON->OFF transition, before
+    /// the settings commit and before Suspend. Unlike OnSuspending/
+    /// OnHostShutdown this checks neither the Lighting gate (about to flip)
+    /// nor the SleepBlackout setting (a different, unrelated preference) -
+    /// calling it while the gate still reads on is what lets every writer's
+    /// per-tick gate check pick up and push this frame instead of dropping
+    /// it, so the caller must sequence it ahead of the settings write.
+    /// </summary>
+    public void BlankOutForFeatureOff()
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow + Budget;
+            _engine.SetBlackout(true);
+            var published = _engine.WaitForBlackout(Clamp(EnginePublishBudget, deadline));
+            var pushed = PushBridgeBlackout(deadline);
+            ServiceLog.Info(
+                $"[lighting-sleep] blanked for feature-off (engine={(published ? "published" : "timeout")}, openrgb={pushed})");
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[lighting-sleep] blackout on feature-off failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Call on resume. Safe to call unconditionally - releasing a blackout that
     /// was never engaged is a no-op, which is what keeps a setting toggled off
     /// mid-sleep from stranding the user dark.
@@ -247,6 +280,10 @@ public sealed class SleepBlackoutCoordinator
     {
         try
         {
+            if (!_gates.Lighting)
+            {
+                return;
+            }
             if (!_engine.Blackout)
             {
                 return;

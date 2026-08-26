@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Sensors;
@@ -135,9 +136,11 @@ public class MetricsSamplerTests
 
     private static MetricsSampler CreateSampler(
         StubMetricsSource source, RecordingMetricsHistoryStore store, MetricsSampleBuffer? buffer = null,
-        IAppUsageSource? appSource = null, AppSampleBuffer? appBuffer = null, IAppUsageHistoryStore? appStore = null) =>
+        IAppUsageSource? appSource = null, AppSampleBuffer? appBuffer = null, IAppUsageHistoryStore? appStore = null,
+        FeatureGates? gates = null) =>
         new(new StubSensors(), source, buffer ?? new MetricsSampleBuffer(), store,
-            appSource ?? new StubAppUsageSource(), appBuffer ?? new AppSampleBuffer(), appStore ?? new RecordingAppUsageHistoryStore());
+            appSource ?? new StubAppUsageSource(), appBuffer ?? new AppSampleBuffer(), appStore ?? new RecordingAppUsageHistoryStore(),
+            gates);
 
     [Fact]
     public async Task Tick_AppendsOneSampleToTheBuffer_PerCall()
@@ -384,5 +387,54 @@ public class MetricsSamplerTests
     {
         public Task<MetricSample> SampleAsync(long tsSec, CancellationToken ct) =>
             throw new InvalidOperationException("boom");
+    }
+
+    [Fact]
+    public async Task Tick_GateOff_AppendsNothing()
+    {
+        var source = new StubMetricsSource();
+        var buffer = new MetricsSampleBuffer();
+        var store = new RecordingMetricsHistoryStore();
+        var configStore = new Nexus.Service.Tests.InMemoryConfigStore();
+        configStore.Update(s => s.Features.Monitoring = false);
+        var sampler = CreateSampler(source, store, buffer, gates: new FeatureGates(configStore));
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var i = 0; i < MetricsHistory.FlushSeconds * 2; i++)
+        {
+            await sampler.Tick(start.AddSeconds(i), CancellationToken.None);
+        }
+
+        Assert.Equal(0, source.Calls);
+        Assert.Empty(buffer.PendingSnapshot());
+        Assert.Empty(store.AppendCalls);
+    }
+
+    [Fact]
+    public async Task Tick_GateOff_FlushesThePreToggleTailExactlyOnce()
+    {
+        var source = new StubMetricsSource();
+        var buffer = new MetricsSampleBuffer();
+        var store = new RecordingMetricsHistoryStore();
+        var configStore = new Nexus.Service.Tests.InMemoryConfigStore();
+        var sampler = CreateSampler(source, store, buffer, gates: new FeatureGates(configStore));
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        // A few enabled ticks buffer samples without reaching a flush boundary.
+        for (var i = 0; i < 3; i++)
+        {
+            await sampler.Tick(start.AddSeconds(i), CancellationToken.None);
+        }
+        Assert.Empty(store.AppendCalls);
+
+        configStore.Update(s => s.Features.Monitoring = false);
+        await sampler.Tick(start.AddSeconds(3), CancellationToken.None);
+        var call = Assert.Single(store.AppendCalls);
+        Assert.Equal(3, call.Count);
+        Assert.Empty(buffer.PendingSnapshot());
+
+        // A later disabled tick must not flush again (nothing buffered since).
+        await sampler.Tick(start.AddSeconds(4), CancellationToken.None);
+        Assert.Single(store.AppendCalls);
     }
 }

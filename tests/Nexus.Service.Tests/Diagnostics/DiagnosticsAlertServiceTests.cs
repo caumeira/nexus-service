@@ -1,7 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Nexus.Service.Diagnostics;
+using Nexus.Service.Diagnostics.Cooling;
+using Nexus.Service.Diagnostics.EventLog;
+using Nexus.Service.Diagnostics.Gpu;
+using Nexus.Service.Diagnostics.Memory;
+using Nexus.Service.Diagnostics.Storage;
+using Nexus.Service.Diagnostics.SystemInfo;
+using Nexus.Service.Lifecycle;
+using Nexus.Service.Models.Sensors;
+using Nexus.Service.Monitoring.History;
 using Nexus.Service.Persistence;
+using Nexus.Service.Sensors;
 using Xunit;
 
 namespace Nexus.Service.Tests.Diagnostics;
@@ -9,6 +21,69 @@ namespace Nexus.Service.Tests.Diagnostics;
 public class DiagnosticsAlertServiceTests
 {
     private static readonly DateTime T0 = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+    // Throws only where BuildHealth reaches it (GetGpuModels, evaluated after
+    // every Snapshot()/LastResult() call in the Compute() argument list) - a
+    // gate-off Tick that reaches this stub without throwing proves BuildHealth
+    // was never called, the same shell GET /diagnostics/health returns.
+    private sealed class ThrowingSensorProvider : ISensorProvider
+    {
+        public string GetCpuModel() => "";
+        public IReadOnlyList<HardwareSensor> GetCpuSensors() => Array.Empty<HardwareSensor>();
+        public (bool Healthy, float DistanceToTJMax) GetCpuHealth() => (true, 0f);
+        public IReadOnlyList<string> GetGpuModels() => throw new InvalidOperationException("BuildHealth must not run while Diagnostics is off");
+        public IReadOnlyList<HardwareSensor> GetGpuSensors() => Array.Empty<HardwareSensor>();
+        public IReadOnlyList<GpuReadout> GetGpus() => Array.Empty<GpuReadout>();
+        public IReadOnlyList<HardwareSensor> GetMemorySensors() => Array.Empty<HardwareSensor>();
+        public string GetMemoryTotalFormatted() => "";
+        public string GetRamBrandModel() => "";
+        public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true) => new Dictionary<string, StorageComponent>();
+        public IReadOnlyList<string> GetStoragePartitions() => Array.Empty<string>();
+        public IReadOnlyList<StorageDriveInfo> GetStorageInfo() => Array.Empty<StorageDriveInfo>();
+        public string GetStorageBrandModel() => "";
+        public IReadOnlyList<HardwareSensor> GetMotherboardSensors() => Array.Empty<HardwareSensor>();
+        public string GetMotherboardModel() => "";
+        public SensorExtras GetSensorExtras() => new();
+        public string GetOsVersion() => "";
+        public void SetPollingRate(int pollingRate) { }
+        public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class EmptyMetricsHistoryStore : IMetricsHistoryStore
+    {
+        public void Append(IReadOnlyList<MetricSample> samples, long? pruneCutoffSec) { }
+        public IReadOnlyList<MetricSample> Query(long fromSec, long toSec) => Array.Empty<MetricSample>();
+        public IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimated(long fromSec, long toSec, int stepSeconds) => Array.Empty<ScalarDecimatedSlot>();
+        public IReadOnlyList<GpuDecimatedSlot> QueryGpuDecimated(long fromSec, long toSec, int stepSeconds) => Array.Empty<GpuDecimatedSlot>();
+        public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs) => Array.Empty<TemperatureBucketRow>();
+        public IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds) => Array.Empty<FanDecimatedSlot>();
+        public IReadOnlyList<ComponentTempDecimatedSlot> QueryComponentTempDecimated(long fromSec, long toSec, int stepSeconds) => Array.Empty<ComponentTempDecimatedSlot>();
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public void Tick_GateOff_NeverCallsBuildHealth_AndNeverNotifies()
+    {
+        var configStore = new Nexus.Service.Tests.InMemoryConfigStore();
+        configStore.Update(s => s.Features.Diagnostics = false);
+        var health = new DiagnosticsHealthModel(
+            new SmartHealthMonitor(),
+            new CoolingStallDetector(),
+            new GpuHealthMonitor(),
+            new EventLogMonitor(),
+            new MemoryDiagnosticOrchestrator(),
+            new PnpProblemScanner(),
+            new ThrowingSensorProvider(),
+            new EmptyMetricsHistoryStore(),
+            configStore);
+        var service = new DiagnosticsAlertService(health, configStore, new FeatureGates(configStore));
+        var fired = false;
+        service.AlertNeedsAttention += _ => fired = true;
+
+        service.Tick();
+
+        Assert.False(fired);
+    }
 
     private static HealthComponent Component(string id, string kind, string status, string reasonSeverity, string code = "x.reason") =>
         new()

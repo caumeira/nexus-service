@@ -20999,6 +20999,9 @@
           },
           "accentSource": {
             "type": "string"
+          },
+          "customAccentColor": {
+            "type": "string"
           }
         }
       },
@@ -21036,6 +21039,12 @@
             ]
           },
           "accentSource": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "customAccentColor": {
             "type": [
               "null",
               "string"

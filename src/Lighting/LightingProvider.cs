@@ -64,8 +64,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // frames that arrive while the effect is already running are not dropped.
     private GameSyncEffect? _gameSyncEffect;
 
-    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null, GameSyncGameScanner? scanner = null, IBeatsProvider? beats = null)
+    private readonly FeatureGates _gates;
+
+    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null, GameSyncGameScanner? scanner = null, IBeatsProvider? beats = null, FeatureGates? gates = null)
     {
+        _gates = gates ?? FeatureGates.AllEnabled;
         _store = store;
         _engine = engine;
         // The engine renders per-device Static assignments but must not know how
@@ -205,6 +208,14 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         { ServiceLog.Warn($"[lighting] stop blackout failed: {ex.Message}"); }
     }
 
+    public void Suspend()
+    {
+        _engine.Stop();
+        BlackoutBeforeRelinquish();
+        _rgb?.Deactivate();
+        _rgb?.AwaitShutdown();
+    }
+
     public void SetBrightness(BrightnessScale scale) => _store.Update(s =>
     {
         s.Lighting.BrightnessScale = scale.Scale;
@@ -241,6 +252,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void StartAnimate(AnimateHeadlessStart body)
     {
+        if (!_gates.Lighting)
+        {
+            return;
+        }
         EnsureRgbActive();
         var name = (body.Effect ?? "rainbow").ToLowerInvariant();
         // The static catalog lives in Static mode now. Callers that predate it -
@@ -364,6 +379,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void StartStatic(StaticHeadlessStart body)
     {
+        if (!_gates.Lighting)
+        {
+            return;
+        }
         EnsureRgbActive();
         _engine.StaticEffects?.Enabled = true;
         var name = (body.Effect ?? "").ToLowerInvariant();
@@ -1021,6 +1040,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void StartMusic(MusicHeadlessStart body)
     {
+        if (!_gates.Lighting)
+        {
+            return;
+        }
         // No audio capture impl yet. Persist intent so the SPA can reflect it,
         // but the engine doesn't render anything.
         _store.Update(s =>
@@ -1032,6 +1055,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void StartScreen(ScreenHeadlessStart body)
     {
+        if (!_gates.Lighting)
+        {
+            return;
+        }
         EnsureRgbActive();
         _engine.FrameIntervalMs = 16;
         // Do NOT overwrite _screenPP from body. The post-process holder is the
@@ -1142,6 +1169,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void StartGameSync()
     {
+        if (!_gates.Lighting)
+        {
+            return;
+        }
         EnsureRgbActive();
         // Reuse the existing effect instance so frames ingested before the
         // mode selection round-trip arrives are not lost.
@@ -1202,6 +1233,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public bool StartMedia(string mediaId)
     {
+        if (!_gates.Lighting)
+        {
+            return false;
+        }
         var item = _media.GetItem(mediaId);
         if (item is null)
         {
@@ -1226,6 +1261,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void StartMediaIdle()
     {
+        if (!_gates.Lighting)
+        {
+            return;
+        }
         EnsureRgbActive();
         _engine.SetEffect(new Engine.Effects.BlackEffect());
         _store.Update(s =>

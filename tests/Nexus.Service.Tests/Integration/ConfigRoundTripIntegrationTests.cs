@@ -95,6 +95,24 @@ public sealed class ConfigRoundTripIntegrationTests : IClassFixture<NexusAppFact
     }
 
     [Fact]
+    public async Task Custom_accent_slot_persists_and_survives_an_accent_color_patch()
+    {
+        var client = AuthedClient();
+
+        var post = await client.PostAsync("/preferences",
+            Json("{\"theme\":{\"customAccentColor\":\"#abcdef\"}}"));
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+
+        // A preset accent patch must not clear the slot.
+        await client.PostAsync("/preferences", Json("{\"theme\":{\"accentColor\":\"#2563eb\"}}"));
+
+        using var doc = JsonDocument.Parse(await (await client.GetAsync("/preferences")).Content.ReadAsStringAsync());
+        var theme = doc.RootElement.GetProperty("theme");
+        Assert.Equal("#abcdef", theme.GetProperty("customAccentColor").GetString());
+        Assert.Equal("#2563eb", theme.GetProperty("accentColor").GetString());
+    }
+
+    [Fact]
     public async Task Units_persist_across_post_then_get()
     {
         var client = AuthedClient();

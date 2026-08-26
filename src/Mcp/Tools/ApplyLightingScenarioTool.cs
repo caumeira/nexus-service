@@ -2,6 +2,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Engine.Gpu;
 using Nexus.Service.Models.Lighting;
@@ -24,11 +25,13 @@ public sealed class ApplyLightingScenarioTool : IMcpTool
 
     private readonly ILightingProvider _lighting;
     private readonly MultiplexHub _hub;
+    private readonly FeatureGates _gates;
 
-    public ApplyLightingScenarioTool(ILightingProvider lighting, MultiplexHub hub)
+    public ApplyLightingScenarioTool(ILightingProvider lighting, MultiplexHub hub, FeatureGates? gates = null)
     {
         _lighting = lighting;
         _hub = hub;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public string Name => "apply_lighting_scenario";
@@ -45,6 +48,10 @@ public sealed class ApplyLightingScenarioTool : IMcpTool
 
     public Task<McpToolExecutionResult> ExecuteAsync(JsonElement? args, CancellationToken ct)
     {
+        if (!_gates.Lighting)
+        {
+            return Task.FromResult(McpToolExecutionResult.Error("Lighting is disabled in Settings."));
+        }
         var scenario = McpArgs.StringArg(args, "scenario");
         if (string.IsNullOrEmpty(scenario) || !ShaderLibrary.AllEffectKeys.Contains(scenario))
         {
