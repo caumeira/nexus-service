@@ -68,6 +68,36 @@ public class ConflictAutostartLocatorTests
     }
 
     [Fact]
+    public void SameDirectory_MatchesAStubLauncherAboveAVersionedInstall()
+    {
+        // SignalRGB runs from VortxEngine\\app-<ver>\\ while its Run value points
+        // at a version-agnostic launcher one directory up.
+        Assert.True(ConflictAutostartLocator.SameDirectory(
+            "C:\\Users\\nicol\\AppData\\Local\\VortxEngine\\SignalRgbLauncher.exe",
+            "C:\\Users\\nicol\\AppData\\Local\\VortxEngine\\app-2.5.72\\SignalRgbLauncher.exe"));
+    }
+
+    [Fact]
+    public void SameDirectory_RejectsAnAncestorThatIsASharedRoot()
+    {
+        // AppData\\Local contains every per-user install, so a launcher sitting
+        // directly in it must not match an unrelated app underneath.
+        Assert.False(ConflictAutostartLocator.SameDirectory(
+            "C:\\Users\\nicol\\AppData\\Local\\updater.exe",
+            "C:\\Users\\nicol\\AppData\\Local\\VortxEngine\\app-2.5.72\\SignalRgbLauncher.exe"));
+    }
+
+    [Fact]
+    public void SameDirectory_RejectsADescendantTarget()
+    {
+        // Containment only runs the one way: a target buried below the running
+        // exe's directory is a different program.
+        Assert.False(ConflictAutostartLocator.SameDirectory(
+            "C:\\Program Files\\Vendor\\App\\plugins\\thing.exe",
+            "C:\\Program Files\\Vendor\\App\\app.exe"));
+    }
+
+    [Fact]
     public void SameDirectory_RejectsASharedInstallRoot()
     {
         // Two unrelated vendors both dropping an exe into Common Files would

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using Nexus.Service.Models.Conflicts;
@@ -54,8 +55,12 @@ public static class ConflictAutostartLocator
             }
         }
 
-        var exePath = ResolveExePath(conflict.Pid);
-        if (string.IsNullOrEmpty(exePath))
+        // Every running process of this app, not just the watcher's pid: one app
+        // spans several executables in unrelated trees (SignalRGB's service runs
+        // from WhirlwindFX while its Run value points into VortxEngine), and
+        // resolving one pid finds only the entries that tree happens to carry.
+        var exePaths = ResolveExePaths(conflict, definition);
+        if (exePaths.Count == 0)
         {
             return found;
         }
@@ -67,7 +72,7 @@ public static class ConflictAutostartLocator
         var exact = new List<ConflictAutostartEntry>();
         foreach (var (kind, entry, target) in rows)
         {
-            if (SamePath(target, exePath!))
+            if (exePaths.Any(exe => SamePath(target, exe)))
             {
                 exact.Add(new ConflictAutostartEntry { Kind = kind, EntryName = entry });
             }
@@ -82,12 +87,42 @@ public static class ConflictAutostartLocator
         {
             // Without the existence check any Run value naming a missing file
             // in the same directory matches.
-            if (SameDirectory(target, exePath!) && File.Exists(target))
+            if (exePaths.Any(exe => SameDirectory(target, exe)) && File.Exists(target))
             {
                 found.Add(new ConflictAutostartEntry { Kind = kind, EntryName = entry });
             }
         }
         return found;
+    }
+
+    /// <summary>Distinct executable paths of every running process belonging to this app.</summary>
+    [SupportedOSPlatform("windows")]
+    private static List<string> ResolveExePaths(DetectedConflict conflict, ConflictAppDefinition definition)
+    {
+        var paths = new List<string>();
+        void Add(string? path)
+        {
+            if (!string.IsNullOrEmpty(path)
+                && !paths.Contains(path!, StringComparer.OrdinalIgnoreCase))
+            {
+                paths.Add(path!);
+            }
+        }
+
+        Add(ResolveExePath(conflict.Pid));
+        foreach (var name in definition.ProcessNames)
+        {
+            Process[] procs;
+            try { procs = Process.GetProcessesByName(name); }
+            catch { continue; }
+            foreach (var proc in procs)
+            {
+                try { Add(proc.MainModule?.FileName); }
+                catch { /* denied for elevated / cross-session processes */ }
+                finally { proc.Dispose(); }
+            }
+        }
+        return paths;
     }
 
     /// <summary>Removes every entry, returning how many were verified gone; only ever called from an explicit user action.</summary>
@@ -276,7 +311,7 @@ public static class ConflictAutostartLocator
         return string.Equals(Normalize(target), Normalize(exePath), StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Whether an entry's target sits beside the running executable in the app's own install directory; a shared or system directory never qualifies, since every unrelated app under it would match too.</summary>
+    /// <summary>Whether an entry's target sits beside the running executable, or in a directory containing it; a shared or system directory never qualifies, since every unrelated app under it would match too.</summary>
     internal static bool SameDirectory(string target, string exePath)
     {
         if (string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(exePath))
@@ -285,11 +320,16 @@ public static class ConflictAutostartLocator
         }
         var targetDir = DirectoryOf(Normalize(target));
         var exeDir = DirectoryOf(Normalize(exePath));
-        if (targetDir.Length == 0 || !string.Equals(targetDir, exeDir, StringComparison.OrdinalIgnoreCase))
+        if (targetDir.Length == 0 || IsSharedDirectory(targetDir))
         {
             return false;
         }
-        return !IsSharedDirectory(targetDir);
+        // Beside the running executable, or in a directory containing it: a
+        // version-agnostic stub launcher sits above the versioned install
+        // (SignalRGB runs from VortxEngine\app-<ver>\ but its Run value points
+        // at VortxEngine\SignalRgbLauncher.exe).
+        return string.Equals(targetDir, exeDir, StringComparison.OrdinalIgnoreCase)
+            || exeDir.StartsWith(targetDir + "\\", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>A directory that holds programs from more than one vendor.</summary>
