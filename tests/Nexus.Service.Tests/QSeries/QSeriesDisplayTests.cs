@@ -47,6 +47,32 @@ public class PercentToBrightnessByteTests
     }
 }
 
+public class SessionLockKeycodeTests
+{
+    private const int Sleep = 223;
+    private const int Wakeup = 224;
+
+    [Fact]
+    public void Lock_sleeps_the_panel()
+    {
+        Assert.Equal(Sleep, QSeriesPortWatcher.SessionLockKeycode(locked: true, screenOff: false));
+    }
+
+    [Fact]
+    public void Unlock_wakes_the_panel()
+    {
+        Assert.Equal(Wakeup, QSeriesPortWatcher.SessionLockKeycode(locked: false, screenOff: false));
+    }
+
+    [Fact]
+    public void Unlock_leaves_a_hand_turned_off_screen_off()
+    {
+        // The user turned the screen off before locking; coming back must not
+        // undo that, same rule the resume path follows.
+        Assert.Equal(Sleep, QSeriesPortWatcher.SessionLockKeycode(locked: false, screenOff: true));
+    }
+}
+
 public class PanelBrightnessTookTests
 {
     [Fact]

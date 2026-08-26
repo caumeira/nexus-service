@@ -118,6 +118,23 @@ public static class LightingRoutes
             }
             return ApiResponse.Ok();
         }).LocalhostOnly();
+        // Blank lighting while the session is locked. Host-only for the same
+        // reason as sleep-blackout: it is a property of this machine.
+        app.MapGet("/lighting/lock-blackout", (Nexus.Service.Persistence.IConfigStore store) =>
+            new Models.Lighting.LockBlackoutBody { Enabled = store.Load().Lighting.LockBlackout }).LocalhostOnly();
+        app.MapPost("/lighting/lock-blackout", (Models.Lighting.LockBlackoutBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Lighting.SleepBlackoutCoordinator blackout) =>
+        {
+            store.Update(s => s.Lighting.LockBlackout = body.Enabled);
+            // Turning it off while a lock blackout is engaged (a missed unlock
+            // event) must give the lighting back, not leave the user dark.
+            if (!body.Enabled)
+            {
+                blackout.OnSessionUnlocked();
+            }
+            return ApiResponse.Ok();
+        }).LocalhostOnly();
         app.MapGet("/lighting/shaders/{name}", (string name) =>
         {
             name = name.ToLowerInvariant();

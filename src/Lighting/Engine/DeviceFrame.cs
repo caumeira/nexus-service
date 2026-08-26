@@ -21,6 +21,9 @@ public sealed class DeviceFrame
     // is what showed up as flicker on the Keeb.
     private byte[] _back;
     private byte[] _front;
+    // Scratch for PublishScaled's undimmed seed. Only ever touched by the
+    // engine thread, which is the only caller.
+    private byte[]? _scaleSeed;
 
     public DeviceFrame(int index, string id, int ledCount, float x = 0, float y = 0, float w = 120, float h = 30, int rotation = 0, int physicalIndex = -1, int zoneIndex = -1, int zoneOffset = 0)
     {
@@ -91,6 +94,34 @@ public sealed class DeviceFrame
         var back = _back;
         for (int i = 0; i < back.Length; i += 3)
         { back[i] = r; back[i + 1] = g; back[i + 2] = b; }
+    }
+
+    /// <summary>
+    /// Publishes the painted frame dimmed to <paramref name="level"/>, leaving
+    /// the NEXT frame's seed undimmed. Used by the blackout release ramp, which
+    /// scales the live frame rather than a captured one so the ramp ends on
+    /// exactly what the effect is publishing.
+    ///
+    /// The restore at the end is the whole point: <see cref="Publish"/> seeds
+    /// the back buffer from what it just published, so scaling in place would
+    /// re-scale every LED the next paint pass does not rewrite, and that
+    /// compounds to black over a ramp.
+    /// </summary>
+    public void PublishScaled(float level)
+    {
+        var painted = _back;
+        if (_scaleSeed is null || _scaleSeed.Length != painted.Length)
+        {
+            _scaleSeed = new byte[painted.Length];
+        }
+        var seed = _scaleSeed;
+        Array.Copy(painted, seed, painted.Length);
+        for (int i = 0; i < painted.Length; i++)
+        {
+            painted[i] = (byte)(painted[i] * level);
+        }
+        Publish();
+        Array.Copy(seed, _back, seed.Length);
     }
 
     public void Clear()
