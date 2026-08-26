@@ -29,6 +29,9 @@ public sealed class ThemeSettings
     // server once, so an upgrade doesn't clobber an existing choice.
     public string BackgroundMode { get; set; } = "";
     public string AccentSource { get; set; } = "";
+    // Kept apart from AccentColor so the palette's custom slot still shows this
+    // colour after a preset is chosen. Empty = the slot has never been used.
+    public string CustomAccentColor { get; set; } = "";
 }
 
 public sealed class MonitoringSettings
@@ -271,6 +274,7 @@ public sealed class ThemeSettingsPatch
     public string? ResolvedThemeMode { get; set; }
     public string? BackgroundMode { get; set; }
     public string? AccentSource { get; set; }
+    public string? CustomAccentColor { get; set; }
 }
 
 public sealed class PanelSettingsPatch
