@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 #if WINDOWS
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -35,17 +36,19 @@ public sealed class EventLogMonitor : BackgroundService
     // is missing" from "journalctl ran and found nothing" once both produce
     // empty output.
     private readonly Func<string[], Nexus.Service.Diagnostics.ShellResult> _runJournalctl;
+    private readonly FeatureGates _gates;
     private volatile bool _linuxSupported;
 
-    public EventLogMonitor()
-        : this(args => Nexus.Service.Diagnostics.DiagnosticsShell.Run("journalctl", JournalctlTimeoutMs, args))
+    public EventLogMonitor(FeatureGates? gates = null)
+        : this(args => Nexus.Service.Diagnostics.DiagnosticsShell.Run("journalctl", JournalctlTimeoutMs, args), gates)
     {
     }
 
     // Injected journalctl seam for tests (no real journalctl needed).
-    internal EventLogMonitor(Func<string[], Nexus.Service.Diagnostics.ShellResult> runJournalctl)
+    internal EventLogMonitor(Func<string[], Nexus.Service.Diagnostics.ShellResult> runJournalctl, FeatureGates? gates = null)
     {
         _runJournalctl = runJournalctl;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     /// <summary>True once a journalctl query has run and returned parseable
@@ -220,6 +223,10 @@ public sealed class EventLogMonitor : BackgroundService
         using var timer = new PeriodicTimer(LinuxPollInterval);
         while (await WaitForNextTickSafe(timer, stoppingToken).ConfigureAwait(false))
         {
+            if (!_gates.Diagnostics)
+            {
+                continue;
+            }
             watermark = PollJournalOnceSafe(watermark);
         }
     }
@@ -506,6 +513,10 @@ public sealed class EventLogMonitor : BackgroundService
                 state = GCHandle.FromIntPtr(userContext).Target as SubscriptionState;
             }
             if (action != WevtApi.EvtSubscribeActionDeliver || state is null)
+            {
+                return 0;
+            }
+            if (!state.Monitor._gates.Diagnostics)
             {
                 return 0;
             }

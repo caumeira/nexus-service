@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -39,15 +40,20 @@ public sealed class MetricsSampler : IHostedService, IDisposable
 
     private readonly CancellationTokenSource _stopCts = new();
     private Thread? _thread;
+    private readonly FeatureGates _gates;
 
     private int _tickCount;
     private DateTime _lastPruneUtc = DateTime.MinValue;
     private DateTime _lastWarnUtc = DateTime.MinValue;
+    // Tracks the Monitoring flag's previous tick so the disabled edge flushes
+    // the pre-toggle tail exactly once instead of on every later tick.
+    private bool _monitoringWasEnabled = true;
 
     public MetricsSampler(
         ISensorProvider sensors, IMetricsSource source, MetricsSampleBuffer buffer,
         IMetricsHistoryStore store,
-        IAppUsageSource appSource, AppSampleBuffer appBuffer, IAppUsageHistoryStore appStore)
+        IAppUsageSource appSource, AppSampleBuffer appBuffer, IAppUsageHistoryStore appStore,
+        FeatureGates? gates = null)
     {
         _sensors = sensors;
         _source = source;
@@ -56,6 +62,7 @@ public sealed class MetricsSampler : IHostedService, IDisposable
         _appSource = appSource;
         _appBuffer = appBuffer;
         _appStore = appStore;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     // Test seam: set at the top of Run() from inside the dedicated thread, so
@@ -159,10 +166,15 @@ public sealed class MetricsSampler : IHostedService, IDisposable
         }
 
         // Graceful stop: flush whatever the buffer holds so a clean shutdown
-        // never drops up to FlushSeconds worth of unflushed samples.
+        // never drops up to FlushSeconds worth of unflushed samples. Skipped
+        // while disabled - the disabled edge in Tick already flushed the tail
+        // and no samples have buffered since.
         try
         {
-            Flush(DateTime.UtcNow);
+            if (_gates.Monitoring)
+            {
+                Flush(DateTime.UtcNow);
+            }
         }
         catch (Exception ex)
         {
@@ -172,6 +184,20 @@ public sealed class MetricsSampler : IHostedService, IDisposable
 
     internal async Task Tick(DateTime nowUtc, CancellationToken ct)
     {
+        if (!_gates.Monitoring)
+        {
+            // Enabled->disabled edge: persist the pre-toggle tail once, then
+            // no-op every later tick until re-enabled. The thread keeps
+            // running so re-enable resumes on the next tick with no restart.
+            if (_monitoringWasEnabled)
+            {
+                Flush(nowUtc);
+                _monitoringWasEnabled = false;
+            }
+            return;
+        }
+        _monitoringWasEnabled = true;
+
         var tsSec = new DateTimeOffset(nowUtc).ToUnixTimeSeconds();
         var sample = await _source.SampleAsync(tsSec, ct).ConfigureAwait(false);
         _buffer.Append(sample);

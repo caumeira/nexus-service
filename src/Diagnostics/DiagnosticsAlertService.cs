@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 
@@ -39,6 +40,7 @@ public sealed class DiagnosticsAlertService : BackgroundService
     private readonly IConfigStore _store;
     private readonly HashSet<string> _alerted = new(StringComparer.Ordinal);
     private readonly Dictionary<string, DateTime> _lastNotifiedUtc = new(StringComparer.Ordinal);
+    private readonly FeatureGates _gates;
 
     /// <summary>Raised when a component needs attention and the user's
     /// notification settings allow it. Platform bootstraps subscribe to
@@ -46,10 +48,11 @@ public sealed class DiagnosticsAlertService : BackgroundService
     /// Linux notify-send).</summary>
     public event Action<DiagnosticsAlertNotice>? AlertNeedsAttention;
 
-    public DiagnosticsAlertService(DiagnosticsHealthModel health, IConfigStore store)
+    public DiagnosticsAlertService(DiagnosticsHealthModel health, IConfigStore store, FeatureGates? gates = null)
     {
         _health = health;
         _store = store;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -80,6 +83,10 @@ public sealed class DiagnosticsAlertService : BackgroundService
 
     internal void Tick()
     {
+        if (!_gates.Diagnostics)
+        {
+            return;
+        }
         var health = _health.BuildHealth();
         var notifications = _store.Load().Diagnostics.Notifications;
         var now = DateTime.UtcNow;
