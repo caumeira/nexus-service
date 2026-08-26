@@ -122,4 +122,53 @@ public class LightingProviderFastPathTests : IDisposable
         Assert.Equal(75, settings.Lighting.Animate.States["plasma"].Speed);
         Assert.Equal(0.5f, settings.Lighting.Animate.States["plasma"].Hue);
     }
+
+    [Fact]
+    public void GateOff_StartAnimate_DoesNotPersistSync_OrStartTheEngine()
+    {
+        var gateSettingsPath = Path.Combine(_tempDir, "gate-off-settings.json");
+        var configStore = new JsonConfigStore(gateSettingsPath);
+        // Seeded to something other than both the install default (whatever
+        // effect ships as the fresh-install Sync) and the effect the gated
+        // call below requests, so an unwanted write is distinguishable from
+        // the pre-existing default.
+        configStore.Update(s =>
+        {
+            s.Lighting.Sync = "none";
+            s.Features.Lighting = false;
+        });
+        var gates = new Nexus.Service.Lifecycle.FeatureGates(configStore);
+        var engine = new LightingEngine();
+        var hub = new LightingOutputHub();
+        var gpu = new GpuContext(160, 90);
+        var provider = new LightingProvider(configStore, engine, hub, gpu, new MediaLibrary(),
+            new Nexus.Service.Platform.DefaultMonitorEnumerator(), gates: gates);
+        try
+        {
+            provider.StartAnimate(MakeBody("plasma", 50, persist: true));
+
+            Assert.Equal("none", configStore.Load().Lighting.Sync);
+            Assert.Null(engine.CurrentEffect);
+        }
+        finally
+        {
+            provider.Dispose();
+            gpu.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Suspend_StopsTheEngine_ButDoesNotMutatePersistedSync()
+    {
+        // Unlike StopAll, Suspend must leave the persisted Sync mode alone so
+        // FeatureReconciler can replay it on re-enable.
+        _provider.StartAnimate(MakeBody("plasma", 50, persist: true));
+        _store.FlushNow();
+        Assert.Equal("plasma", _store.Load().Lighting.Sync);
+
+        _provider.Suspend();
+
+        Assert.Equal("plasma", _store.Load().Lighting.Sync);
+        Assert.Equal("none", _engine.CurrentEffectName);
+    }
 }
