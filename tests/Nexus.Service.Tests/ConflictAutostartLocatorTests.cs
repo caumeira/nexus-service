@@ -1,0 +1,66 @@
+using Nexus.Service.Conflicts;
+using Xunit;
+
+namespace Nexus.Service.Tests;
+
+/// <summary>
+/// The path-matching half of autostart discovery. Values are real Run entries
+/// captured off a lab box: the entry name never equals the process name, and
+/// iCUE's is version-stamped, which is why matching is by target executable.
+/// </summary>
+public class ConflictAutostartLocatorTests
+{
+    [Theory]
+    [InlineData("\"C:\\Program Files\\Corsair\\Corsair iCUE5 Software\\iCUE Launcher.exe\" --autorun",
+                "C:\\Program Files\\Corsair\\Corsair iCUE5 Software\\iCUE Launcher.exe")]
+    [InlineData("\"C:\\Program Files\\Razer\\RazerAppEngine\\RazerAppEngine.exe\" --url-params=apps=synapse",
+                "C:\\Program Files\\Razer\\RazerAppEngine\\RazerAppEngine.exe")]
+    [InlineData("C:\\Program Files\\AppControl\\ui\\AppControl.exe --minimize",
+                "C:\\Program Files\\AppControl\\ui\\AppControl.exe")]
+    public void ExecutablePath_DropsQuotesAndArguments(string command, string expected)
+    {
+        Assert.Equal(expected, ConflictAutostartLocator.ExecutablePath(command));
+    }
+
+    [Fact]
+    public void ExecutablePath_KeepsSpacesInAnUnquotedPath()
+    {
+        // Cutting at the first space would truncate to "C:\Program".
+        Assert.Equal(
+            "C:\\Program Files\\Foo\\bar.exe",
+            ConflictAutostartLocator.ExecutablePath("C:\\Program Files\\Foo\\bar.exe -x"));
+    }
+
+    [Fact]
+    public void SameProgram_MatchesTheSameExecutable()
+    {
+        Assert.True(ConflictAutostartLocator.SameProgram(
+            "C:\\Program Files\\Razer\\RazerAppEngine\\RazerAppEngine.exe",
+            "C:\\program files\\razer\\razerappengine\\RazerAppEngine.exe"));
+    }
+
+    [Fact]
+    public void SameProgram_MatchesALauncherBesideTheRunningExe()
+    {
+        // iCUE runs as iCUE.exe; its Run value points at a sibling launcher.
+        Assert.True(ConflictAutostartLocator.SameProgram(
+            "C:\\Program Files\\Corsair\\Corsair iCUE5 Software\\iCUE Launcher.exe",
+            "C:\\Program Files\\Corsair\\Corsair iCUE5 Software\\iCUE.exe"));
+    }
+
+    [Fact]
+    public void SameProgram_RejectsAnUnrelatedProgram()
+    {
+        // The case name matching gets wrong: Windows' own camsvc vs NZXT CAM.
+        Assert.False(ConflictAutostartLocator.SameProgram(
+            "C:\\WINDOWS\\system32\\camsvc.dll",
+            "C:\\Program Files\\NZXT CAM\\NZXT CAM.exe"));
+    }
+
+    [Fact]
+    public void SameProgram_RejectsEmptyInput()
+    {
+        Assert.False(ConflictAutostartLocator.SameProgram("", "C:\\a\\b.exe"));
+        Assert.False(ConflictAutostartLocator.SameProgram("C:\\a\\b.exe", ""));
+    }
+}

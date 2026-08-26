@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -335,14 +336,14 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             return null;
         }
         // Unique task name so concurrent spawns or stale tasks don't collide.
-        var taskName = $"NexusOverlayLaunch_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        var taskName = $"{LaunchTaskPrefix}{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        SweepStaleLaunchTasks();
         try
         {
-            // The task carries no trigger, so it only ever starts from the
-            // explicit /Run below; a leftover task (if the /Delete fails) cannot
-            // auto-run on a wall clock. /F overwrites if it collides. A host
-            // that rejects the XML falls back to the schedule-type form rather
-            // than losing the overlay, at the cost of a spent-trigger task.
+            // /F overwrites if it collides. The XML form is trigger-less, but
+            // the schedule-type fallback below carries a real ONCE trigger, so a
+            // leftover of that form does fire once and launch the overlay
+            // unprompted - SweepStaleLaunchTasks above is what bounds it.
             if (!CreateTask(taskName, username, exePath))
             {
                 return null;
@@ -375,9 +376,115 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         }
         finally
         {
-            // Best-effort cleanup - leaves no schtasks residue.
+            // Cannot run when the service is force-killed or crashes, which is
+            // why the sweep exists.
             Schtasks("/Delete", "/TN", taskName, "/F");
         }
+    }
+
+    private const string LaunchTaskPrefix = "NexusOverlayLaunch_";
+    private static bool _sweptStaleTasks;
+
+    /// <summary>Deletes launch tasks left by a process whose delete never ran.</summary>
+    [SupportedOSPlatform("windows")]
+    private static void SweepStaleLaunchTasks()
+    {
+        if (_sweptStaleTasks)
+        {
+            return;
+        }
+        _sweptStaleTasks = true;
+
+        foreach (var name in QueryLaunchTaskNames())
+        {
+            // A task whose owning process is still alive may be mid-spawn -
+            // this one's own, or another Nexus instance's on a lab box.
+            if (OwnerProcessAlive(name))
+            {
+                continue;
+            }
+            Schtasks("/Delete", "/TN", name, "/F");
+        }
+    }
+
+    /// <summary>Whether the pid embedded in a launch task name is still running.</summary>
+    private static bool OwnerProcessAlive(string taskName)
+    {
+        var rest = taskName.Substring(LaunchTaskPrefix.Length);
+        var cut = rest.IndexOf('_');
+        if (cut <= 0 || !int.TryParse(rest.AsSpan(0, cut), out var pid))
+        {
+            // An unparseable name is not ours to reason about; leave it.
+            return true;
+        }
+        if (pid == Environment.ProcessId)
+        {
+            return true;
+        }
+        try
+        {
+            using var owner = Process.GetProcessById(pid);
+            return !owner.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch
+        {
+            // Cannot tell; deleting could strand a live spawn, so do not.
+            return true;
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static List<string> QueryLaunchTaskNames()
+    {
+        var names = new List<string>();
+        var psi = new ProcessStartInfo("schtasks.exe")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var a in new[] { "/Query", "/FO", "CSV", "/NH" }) psi.ArgumentList.Add(a);
+        try
+        {
+            using var p = Process.Start(psi);
+            if (p is null) return names;
+            // Both streams are drained concurrently: schtasks prints a line per
+            // unreadable task, and a full stderr pipe would block the child
+            // forever while this waits on stdout.
+            var stdoutTask = p.StandardOutput.ReadToEndAsync();
+            var stderrTask = p.StandardError.ReadToEndAsync();
+            if (!p.WaitForExit(10000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                Console.Error.WriteLine("[overlay-host] stale-task query timed out");
+                return names;
+            }
+            var stdout = stdoutTask.GetAwaiter().GetResult();
+            stderrTask.GetAwaiter().GetResult();
+            foreach (var line in stdout.Split('\n'))
+            {
+                // CSV row: "\TaskName","Next Run Time","Status"
+                var start = line.IndexOf('"');
+                if (start < 0) continue;
+                var end = line.IndexOf('"', start + 1);
+                if (end <= start) continue;
+                var name = line.Substring(start + 1, end - start - 1).TrimStart('\\');
+                if (name.StartsWith(LaunchTaskPrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    names.Add(name);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[overlay-host] stale-task query failed: {ex.Message}");
+        }
+        return names;
     }
 
     private static string ResolveActiveConsoleUsername()

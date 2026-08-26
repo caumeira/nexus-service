@@ -87,6 +87,17 @@ public static class TrayCommands
 
     public static Task PairNoticeAsync(HelperRegistry registry, bool show, string deviceLabel, CancellationToken ct = default)
     {
+        // Held while first-run onboarding owns the screen; released after.
+        if (Nexus.Service.Notifications.NotificationGate.HoldOrRun(
+                () => SendAsync_pairNotice(registry, show, deviceLabel, ct), out var gated))
+        {
+            return gated;
+        }
+        return SendAsync_pairNotice(registry, show, deviceLabel, ct);
+    }
+
+    private static Task SendAsync_pairNotice(HelperRegistry registry, bool show, string deviceLabel, CancellationToken ct)
+    {
         var conn = registry.GetAny();
         if (conn is null) return Task.CompletedTask;
         return conn.SendAsync(
@@ -98,6 +109,17 @@ public static class TrayCommands
 
     public static Task NoticeAsync(HelperRegistry registry, string title, string text, string? folderPath, CancellationToken ct = default)
     {
+        // Held while first-run onboarding owns the screen; released after.
+        if (Nexus.Service.Notifications.NotificationGate.HoldOrRun(
+                () => SendAsync_notice(registry, title, text, folderPath, ct), out var gated))
+        {
+            return gated;
+        }
+        return SendAsync_notice(registry, title, text, folderPath, ct);
+    }
+
+    private static Task SendAsync_notice(HelperRegistry registry, string title, string text, string? folderPath, CancellationToken ct)
+    {
         var conn = registry.GetAny();
         if (conn is null) return Task.CompletedTask;
         return conn.SendAsync(
@@ -108,6 +130,17 @@ public static class TrayCommands
     }
 
     public static Task UpdateReadyAsync(HelperRegistry registry, string version, CancellationToken ct = default)
+    {
+        // Held while first-run onboarding owns the screen; released after.
+        if (Nexus.Service.Notifications.NotificationGate.HoldOrRun(
+                () => SendAsync_updateReady(registry, version, ct), out var gated))
+        {
+            return gated;
+        }
+        return SendAsync_updateReady(registry, version, ct);
+    }
+
+    private static Task SendAsync_updateReady(HelperRegistry registry, string version, CancellationToken ct)
     {
         var conn = registry.GetAny();
         if (conn is null) return Task.CompletedTask;

@@ -28,6 +28,60 @@ public static class ConflictRoutes
             return Results.Ok(response);
         });
 
+        // Read-only: which autostart entry (if any) launches each detected
+        // conflict. Separate from GET /conflicts so the watcher's poll stays
+        // cheap, and so nothing is discovered until a user opens the modal.
+        app.MapGet("/conflicts/autostart", (ConflictWatcher watcher) =>
+        {
+            var response = new GetConflictAutostartResponse();
+            foreach (var c in watcher.GetConflicts())
+            {
+                var def = ConflictWatcher.FindById(c.Id);
+                response.Apps.Add(new ConflictAutostartStatus
+                {
+                    Id = c.Id,
+                    Autostart = def is not null && OperatingSystem.IsWindows()
+                        ? ConflictAutostartLocator.Find(c, def)
+                        : null,
+                });
+            }
+            return Results.Ok(response);
+        });
+
+        // Removes one app's autostart entry. Only ever reached from an explicit
+        // per-app user action; nothing here runs on detection or on render.
+        app.MapPost("/conflicts/autostart/disable", (DisableConflictAutostartBody body, ConflictWatcher watcher) =>
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return Results.Ok(new DisableConflictAutostartResponse { Ok = false, Msg = "unsupported platform" });
+            }
+            var id = body?.Id ?? "";
+            var def = ConflictWatcher.FindById(id);
+            if (def is null)
+            {
+                return Results.BadRequest(new DisableConflictAutostartResponse { Ok = false, Msg = "unknown conflict id" });
+            }
+            // Re-resolve rather than trusting a caller-supplied entry name, so a
+            // request can only ever remove an entry we independently matched to
+            // this app's own executable.
+            ConflictAutostartEntry? entry = null;
+            foreach (var c in watcher.GetConflicts())
+            {
+                if (string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase))
+                {
+                    entry = ConflictAutostartLocator.Find(c, def);
+                    break;
+                }
+            }
+            if (entry is null)
+            {
+                return Results.Ok(new DisableConflictAutostartResponse { Ok = false, Msg = "no autostart entry" });
+            }
+            var ok = ConflictAutostartLocator.Disable(entry);
+            return Results.Ok(new DisableConflictAutostartResponse { Ok = ok, Msg = ok ? "ok" : "failed" });
+        });
+
         // Terminate every running process matching the catalog entry for
         // <c>body.Id</c>, then stop any Windows services it lists (for apps
         // whose background service re-grabs the hardware). We never trust a

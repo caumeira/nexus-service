@@ -16,6 +16,39 @@ public sealed class DetectedConflict
     public int Pid { get; set; }
 }
 
+/// <summary>How a conflicting app is launched at login, when one was resolved.</summary>
+public sealed class ConflictAutostartEntry
+{
+    /// <summary>"runKeyUser", "runKeyMachine" or "service".</summary>
+    public string Kind { get; set; } = "";
+    /// <summary>Run value name or service name; shown so the user sees what is removed.</summary>
+    public string EntryName { get; set; } = "";
+}
+
+/// <summary>One detected conflict paired with its autostart entry, or null when none resolved.</summary>
+public sealed class ConflictAutostartStatus
+{
+    public string Id { get; set; } = "";
+    public ConflictAutostartEntry? Autostart { get; set; }
+}
+
+public sealed class GetConflictAutostartResponse
+{
+    public List<ConflictAutostartStatus> Apps { get; set; } = new();
+}
+
+/// <summary>Body for POST /conflicts/autostart/disable.</summary>
+public sealed class DisableConflictAutostartBody
+{
+    public string Id { get; set; } = "";
+}
+
+public sealed class DisableConflictAutostartResponse
+{
+    public bool Ok { get; set; }
+    public string Msg { get; set; } = "";
+}
+
 public sealed class GetConflictsResponse
 {
     public List<DetectedConflict> Conflicts { get; set; } = new();
