@@ -6,9 +6,10 @@ using Xunit;
 namespace Nexus.Service.Tests.Conflicts;
 
 /// <summary>
-/// End task stops these services alongside the app's processes, trusting the
-/// catalog's name outright - a wrong name here stops an unrelated service.
-/// Values captured from a lab box's live service list.
+/// Locks the service names End task stops against silent deletion, and bans
+/// the one name that would stop an unrelated service. Whether a name matches
+/// the vendor's real service cannot be checked here - these were captured from
+/// a lab box's live service list.
 /// </summary>
 public class ConflictAppCatalogServiceTests
 {
@@ -16,7 +17,7 @@ public class ConflictAppCatalogServiceTests
     [InlineData("signalrgb", "SignalRgb.Service")]
     [InlineData("nzxt-cam", "CAMService")]
     [InlineData("hyte-nexus-2", "HYTEIO")]
-    public void TheAppDeclaresTheServiceThatDrivesIt(string id, string serviceName)
+    public void TheServiceNameStaysInTheCatalog(string id, string serviceName)
     {
         var def = ConflictWatcher.FindById(id);
         Assert.NotNull(def);

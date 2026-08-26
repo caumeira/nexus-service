@@ -35,13 +35,14 @@ public sealed class KillConflictResponse
 {
     public bool Error { get; set; }
     public string Msg { get; set; } = "Ok";
-    /// <summary>True if at least one matching process was found and a kill attempted.</summary>
+    /// <summary>True when the app was running before this call and is not running after it.</summary>
     public bool Killed { get; set; }
 }
 
 /// <summary>
 /// WebSocket push frame on topic "conflicts". Sent each time the detected
-/// set changes (add, remove, or pid shift). The list is the full current
+/// set changes - an app appearing, leaving, or restarting under a new pid.
+/// The list is the full current
 /// snapshot - clients overwrite rather than diff.
 /// </summary>
 public sealed class ConflictsFrame

@@ -47,23 +47,25 @@ public static class ConflictRoutes
             }
 
             // Measured, not inferred: ProcessKiller.Kill reports that it FOUND
-            // processes (its own Kill call is swallowed), and StopService counts
-            // an already-stopped service as success - so neither says anything
-            // stopped running. The client keeps a spinner up until Killed goes
-            // false or the row clears, so a wrong true spins forever.
+            // processes, its own Kill being swallowed, and StopService counts an
+            // already-stopped service as success.
             var runningBefore = AnyProcessRunning(def);
 
-            foreach (var name in def.ProcessNames)
-            {
-                ProcessKiller.Kill(name);
-            }
-
+            // Services first: these entries exist because the service restarts
+            // the app's processes, so killing those first lets a live service
+            // relaunch them inside ProcessKiller's exit wait. Stopping first
+            // also means the process pass reaps a host still in STOP_PENDING.
             if (OperatingSystem.IsWindows())
             {
                 foreach (var svc in def.WindowsServiceNames)
                 {
                     WindowsServiceController.StopService(svc);
                 }
+            }
+
+            foreach (var name in def.ProcessNames)
+            {
+                ProcessKiller.Kill(name);
             }
 
             var runningAfter = AnyProcessRunning(def);

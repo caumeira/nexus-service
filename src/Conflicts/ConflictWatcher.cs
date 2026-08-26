@@ -194,13 +194,7 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
     {
         var detected = DetectRunningConflicts();
 
-        // Quick equality check: ids only. Pids shift across reboots but we
-        // don't need to republish every poll just because the OS recycled a
-        // pid - only when the set of detected apps changes.
-        var ids = new string[detected.Count];
-        for (int i = 0; i < detected.Count; i++)
-            ids[i] = detected[i].Id;
-        Array.Sort(ids, StringComparer.Ordinal);
+        var ids = ChangeKey(detected);
 
         bool changed = !ArraysEqual(ids, _lastDetectedIds);
         _lastDetectedIds = ids;
@@ -347,6 +341,21 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
             // OpenRGB.
             return false;
         }
+    }
+
+    /// <summary>
+    /// What counts as a change worth republishing: id AND pid. A pid only moves
+    /// when the app restarted, which clients read as "the kill did not stick",
+    /// and keying on ids alone also left the cached envelope handing new
+    /// subscribers pids that no longer exist.
+    /// </summary>
+    internal static string[] ChangeKey(IReadOnlyList<DetectedConflict> detected)
+    {
+        var ids = new string[detected.Count];
+        for (int i = 0; i < detected.Count; i++)
+            ids[i] = $"{detected[i].Id}:{detected[i].Pid}";
+        Array.Sort(ids, StringComparer.Ordinal);
+        return ids;
     }
 
     private static bool ArraysEqual(string[] a, string[] b)
