@@ -88,7 +88,12 @@ public sealed class QSeriesHandler : IDeviceHandler
         return detectedDevices.Any(MatchesQseries);
     }
 
-    private static bool MatchesQseries(UsbDeviceEntry d)
+    /// <summary>
+    /// Internal so <c>QSeriesPortWatcher</c>'s devnode-reset recovery identifies a
+    /// panel the same way: when the MediaTek driver binds the composite parent there
+    /// is no adb device line to read, and the descriptor name is the only proof left.
+    /// </summary>
+    internal static bool MatchesQseries(UsbDeviceEntry d)
     {
         if (!KnownQseriesVids.Contains(d.VendorId)) return false;
         if (string.IsNullOrEmpty(d.Name)) return false;
