@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Devices.Detection;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
@@ -183,15 +184,19 @@ public sealed class RgbBridge : IDisposable
     // providers drive directly so OpenRGB never pushes conflicting colors to hardware.
     private readonly IReadOnlyList<Nexus.Service.Lighting.IOpenRgbDeviceOwner> _deviceOwners;
 
+    private readonly FeatureGates _gates;
+
     public RgbBridge(OpenRgbProcessManager proc, IRgbController controller, LightingEngine engine, IConfigStore store, IUsbEnumerator usb,
         IEnumerable<ILightingFrameContributor>? frameContributors = null,
-        Nexus.Service.Lighting.Mappings.ContributorFrameLayouts? contributorLayouts = null)
+        Nexus.Service.Lighting.Mappings.ContributorFrameLayouts? contributorLayouts = null,
+        FeatureGates? gates = null)
     {
         _proc = proc;
         _controller = controller;
         _engine = engine;
         _store = store;
         _usb = usb;
+        _gates = gates ?? FeatureGates.AllEnabled;
         _contributorLayouts = contributorLayouts ?? new Nexus.Service.Lighting.Mappings.ContributorFrameLayouts();
         _frameContributors = frameContributors is null
             ? Array.Empty<ILightingFrameContributor>()
@@ -269,6 +274,14 @@ public sealed class RgbBridge : IDisposable
     /// </summary>
     public void Activate()
     {
+        // Hard backstop: OpenRGB may never spawn while Lighting is off,
+        // regardless of caller (routes, MCP, Deck, auto-restore, a power-
+        // resume reconnect). Checked ahead of the idempotent _active guard
+        // below so a caller cannot race the flag between check and lock.
+        if (!_gates.Lighting)
+        {
+            return;
+        }
         Action<ReadOnlyMemory<byte>>? newFrameHandler;
         Action? newDeviceListHandler;
         CancellationTokenSource? newCts;

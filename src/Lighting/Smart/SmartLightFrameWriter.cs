@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
@@ -28,12 +29,14 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private bool _wasStreaming;
+    private readonly FeatureGates _gates;
 
-    public SmartLightFrameWriter(LightingEngine engine, SmartLightProvider provider, IConfigStore store)
+    public SmartLightFrameWriter(LightingEngine engine, SmartLightProvider provider, IConfigStore store, FeatureGates? gates = null)
     {
         _engine = engine;
         _provider = provider;
         _store = store;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -75,6 +78,7 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
 
     private void Tick()
     {
+        if (!_gates.Lighting) return;
         if (_engine.CurrentEffect is null)
         {
             if (_wasStreaming)

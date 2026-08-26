@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Peripherals.Hyte.Np50;
 using Nexus.Service.Persistence;
@@ -45,17 +46,19 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     private readonly Np50IdentifyTracker _identify;
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private readonly FeatureGates _gates;
 
     // Per-port pending buffers, allocated lazily on first write so we don't
     // hold storage for empty ports.
     private readonly RgbColor[]?[] _portBuffers = new RgbColor[Np50Protocol.PortCount][];
 
-    public Np50LightingFrameWriter(LightingEngine engine, Np50Hub hub, IConfigStore store, Np50IdentifyTracker identify)
+    public Np50LightingFrameWriter(LightingEngine engine, Np50Hub hub, IConfigStore store, Np50IdentifyTracker identify, FeatureGates? gates = null)
     {
         _engine = engine;
         _hub = hub;
         _store = store;
         _identify = identify;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -104,8 +107,9 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     };
     private DeviceFrame? _logoFrame;
 
-    private void Tick()
+    internal void Tick()
     {
+        if (!_gates.Lighting) return;
         if (!_hub.IsConnected) return;
         var devices = _engine.Devices;
         if (devices.Length == 0) return;

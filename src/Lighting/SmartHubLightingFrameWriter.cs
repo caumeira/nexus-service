@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Peripherals.Hyte.SmartHub;
 using Nexus.Service.Persistence;
@@ -30,9 +31,12 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
 
     private readonly SmartHubColor[]?[] _portBuffers = new SmartHubColor[SmartHubProtocol.ArgbPortCount][];
 
-    public SmartHubLightingFrameWriter(LightingEngine engine, SmartHubHub hub, IConfigStore store, Np50IdentifyTracker identify)
+    private readonly FeatureGates _gates;
+
+    public SmartHubLightingFrameWriter(LightingEngine engine, SmartHubHub hub, IConfigStore store, Np50IdentifyTracker identify, FeatureGates? gates = null)
     {
         _engine = engine; _hub = hub; _store = store; _identify = identify;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -72,6 +76,7 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
 
     private void Tick()
     {
+        if (!_gates.Lighting) return;
         if (!_hub.IsConnected) return;
         var devices = _engine.Devices;
         if (devices.Length == 0) return;
