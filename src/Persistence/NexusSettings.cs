@@ -410,6 +410,17 @@ public sealed class LightingSettings
     /// crash or power loss while asleep comes back to the same effect.
     /// </summary>
     public bool SleepBlackout { get; set; } = InstallDefaults.Lighting.SleepBlackout;
+
+    /// <summary>
+    /// When true, Nexus fades every lighting device it drives to black when the
+    /// session locks, and fades the running effect back in when it unlocks. The
+    /// host stays powered throughout, so unlike <see cref="SleepBlackout"/> this
+    /// fixes nothing - it is there because a machine nobody is at has no reason
+    /// to be lit. Applied on lock TRANSITIONS only, never
+    /// seeded from the lock state at startup, so a cold boot sitting at the
+    /// login screen comes up lit.
+    /// </summary>
+    public bool LockBlackout { get; set; } = InstallDefaults.Lighting.LockBlackout;
 }
 
 /// <summary>
@@ -829,6 +840,12 @@ public sealed class QSeriesSettings
     /// <summary>When true, the panel screen sleeps when Windows suspends (or
     /// shuts down) and wakes on resume.</summary>
     public bool SleepWithHost { get; set; } = true;
+
+    /// <summary>When true, the panel screen sleeps while the desktop session is
+    /// locked and wakes on unlock. Separate from <see cref="SleepWithHost"/>:
+    /// the host stays up here, so this is about not lighting a room nobody is
+    /// in, not about following the host's power state.</summary>
+    public bool SleepWhenLocked { get; set; } = true;
 }
 
 /// <summary>Persisted shape of one Tryx overlay item; see

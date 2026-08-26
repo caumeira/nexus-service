@@ -42,11 +42,19 @@ internal static class WindowsServiceHost
     // Accepted controls
     private const uint SERVICE_ACCEPT_STOP = 0x00000001;
     private const uint SERVICE_ACCEPT_SHUTDOWN = 0x00000004;
+    private const uint SERVICE_ACCEPT_SESSIONCHANGE = 0x00000080;
 
     // Control codes
     private const uint SERVICE_CONTROL_STOP = 0x00000001;
     private const uint SERVICE_CONTROL_SHUTDOWN = 0x00000005;
     private const uint SERVICE_CONTROL_INTERROGATE = 0x00000004;
+    private const uint SERVICE_CONTROL_SESSIONCHANGE = 0x0000000E;
+
+    // WTS session-change event types. Only the lock pair is handled: logon,
+    // console connect and the rest all describe a session appearing, which is
+    // not a user deciding to step away.
+    private const uint WTS_SESSION_LOCK = 0x7;
+    private const uint WTS_SESSION_UNLOCK = 0x8;
 
     // Common Win32 error
     private const int ERROR_FAILED_SERVICE_CONTROLLER_CONNECT = 1063;
@@ -166,7 +174,7 @@ internal static class WindowsServiceHost
             s_appTask = Task.Run(RunAppGuardedAsync);
 
             ReportStatus(SERVICE_RUNNING, waitHintMs: 0,
-                controlsAccepted: SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN);
+                controlsAccepted: SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_SESSIONCHANGE);
 
             // Block ServiceMain until the app task finishes (either it crashed or the
             // control handler signalled cancellation).
@@ -187,6 +195,14 @@ internal static class WindowsServiceHost
         Environment.Exit(s_appExitCode);
     }
 
+    /// <summary>
+    /// Raised on a session lock (true) or unlock (false), from the SCM control
+    /// handler thread. Static because the handler is a bare function pointer
+    /// registered before any DI container exists; subscribers must return
+    /// promptly, as SCM is waiting on this callback.
+    /// </summary>
+    internal static event Action<bool>? SessionLockChanged;
+
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvStdcall) })]
     private static uint ControlHandler(uint dwControl, uint dwEventType, IntPtr lpEventData, IntPtr lpContext)
     {
@@ -198,6 +214,20 @@ internal static class WindowsServiceHost
             case SERVICE_CONTROL_STOP:
                 ReportStatus(SERVICE_STOP_PENDING, waitHintMs: 15_000, controlsAccepted: 0);
                 try { s_cts?.Cancel(); } catch { }
+                return NO_ERROR;
+
+            case SERVICE_CONTROL_SESSIONCHANGE:
+                // The only route to lock state from session 0: a service sees no
+                // window messages, and Microsoft.Win32.SystemEvents' SessionSwitch
+                // rides those. Delivered per session; the session id sits in
+                // lpEventData (WTSSESSION_NOTIFICATION) and is deliberately not
+                // read - a machine with one interactive user is the shape this
+                // ships into, and the lighting is that machine's, not a session's.
+                if (dwEventType == WTS_SESSION_LOCK || dwEventType == WTS_SESSION_UNLOCK)
+                {
+                    try { SessionLockChanged?.Invoke(dwEventType == WTS_SESSION_LOCK); }
+                    catch { }
+                }
                 return NO_ERROR;
 
             case SERVICE_CONTROL_INTERROGATE:

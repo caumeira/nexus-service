@@ -455,6 +455,11 @@ public static class NexusServiceCollectionExtensions
         if (OperatingSystem.IsWindows())
             services.AddHostedService<Nexus.Service.Lighting.Rgb.PowerEventListener>();
 
+        // Session-lock blanking. One hosted service on every desktop platform;
+        // which source it uses is a compile-time branch inside it.
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
+            services.AddHostedService<Nexus.Service.Lighting.SessionLockListener>();
+
         return services;
     }
 

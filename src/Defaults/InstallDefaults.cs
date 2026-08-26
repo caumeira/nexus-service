@@ -101,6 +101,8 @@ public sealed class LightingDefaults
     /// <summary>Blank lighting devices while the host sleeps. On by default:
     /// RAM keeps its SMBus powered across S3 and stays lit otherwise.</summary>
     public bool SleepBlackout { get; set; } = true;
+    /// <summary>Blank lighting while the session is locked.</summary>
+    public bool LockBlackout { get; set; } = true;
     public LightingStaticColor StaticColor { get; set; } = new();
     public LightingAnimateDefaults Animate { get; set; } = new();
     public LightingPostProcess PostProcess { get; set; } = new();
