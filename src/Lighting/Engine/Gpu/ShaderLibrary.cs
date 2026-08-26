@@ -119,7 +119,8 @@ internal static class ShaderLibrary
         // Audio-reactive set; mirrors AudioEffectKeys below, keep in sync.
         "spectrumbars", "spectrumradial", "scope", "basspulse",
         "beatstrobe", "harmonicstar", "audiotunnel", "bassbloom",
-        "beatbuilder",
+        "beatbuilder", "spectrumaurora", "neonwaveform", "liquidbeat",
+        "beatburst",
     };
 
     /// <summary>
@@ -136,7 +137,8 @@ internal static class ShaderLibrary
     {
         "spectrumbars", "spectrumradial", "scope", "basspulse",
         "beatstrobe", "harmonicstar", "audiotunnel", "bassbloom",
-        "beatbuilder",
+        "beatbuilder", "spectrumaurora", "neonwaveform", "liquidbeat",
+        "beatburst",
     };
 
     public static bool IsAudioEffect(string key) => AudioEffectKeys.Contains(key);

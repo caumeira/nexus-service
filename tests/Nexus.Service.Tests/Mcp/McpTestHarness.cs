@@ -124,5 +124,6 @@ internal static class McpTestHarness
         public void SaveAnimateTemplates(Dictionary<string, AnimateEffectTemplates> templates) { }
         public void SetMusicReactive(bool enabled) { }
         public void ReconcileAudioCapture() { }
+        public void SetAudioCaptureDemand(bool demanded) { }
     }
 }

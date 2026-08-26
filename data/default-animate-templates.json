@@ -5642,5 +5642,249 @@
     }
    }
   ]
+ },
+ "spectrumaurora": {
+  "selected": 0,
+  "slots": [
+   {
+    "speed": 45,
+    "intensity": 1,
+    "hue": 0.28,
+    "colorize": 0.0,
+    "saturation": 1.2,
+    "contrast": 1.05,
+    "params": {
+     "u_curtains": 5,
+     "u_height": 0.75,
+     "u_glow": 1,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 35,
+    "intensity": 1,
+    "hue": 0,
+    "colorize": 0,
+    "saturation": 1.2,
+    "contrast": 1.05,
+    "params": {
+     "u_curtains": 3,
+     "u_height": 1.1,
+     "u_glow": 1.6,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 60,
+    "intensity": 1,
+    "hue": 0.52,
+    "colorize": 0.8,
+    "saturation": 1.0,
+    "contrast": 1.15,
+    "params": {
+     "u_curtains": 8,
+     "u_height": 0.5,
+     "u_glow": 0.6,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 40,
+    "intensity": 1,
+    "hue": 0.08,
+    "colorize": 0.7,
+    "saturation": 1.1,
+    "contrast": 1.0,
+    "params": {
+     "u_curtains": 6,
+     "u_height": 0.9,
+     "u_glow": 1.2,
+     "u_audioBoost": 1
+    }
+   }
+  ]
+ },
+ "neonwaveform": {
+  "selected": 0,
+  "slots": [
+   {
+    "speed": 55,
+    "intensity": 1,
+    "hue": 0.62,
+    "colorize": 0.15,
+    "saturation": 1.25,
+    "contrast": 1.1,
+    "params": {
+     "u_amplitude": 0.35,
+     "u_thickness": 0.03,
+     "u_glow": 1,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 45,
+    "intensity": 1,
+    "hue": 0,
+    "colorize": 0,
+    "saturation": 1.15,
+    "contrast": 1.05,
+    "params": {
+     "u_amplitude": 0.6,
+     "u_thickness": 0.02,
+     "u_glow": 1.4,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 70,
+    "intensity": 1,
+    "hue": 0.5,
+    "colorize": 0.85,
+    "saturation": 1.05,
+    "contrast": 1.15,
+    "params": {
+     "u_amplitude": 0.25,
+     "u_thickness": 0.012,
+     "u_glow": 0.7,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0.85,
+    "colorize": 0.75,
+    "saturation": 1.1,
+    "contrast": 1.05,
+    "params": {
+     "u_amplitude": 0.5,
+     "u_thickness": 0.08,
+     "u_glow": 1.8,
+     "u_audioBoost": 1
+    }
+   }
+  ]
+ },
+ "liquidbeat": {
+  "selected": 0,
+  "slots": [
+   {
+    "speed": 40,
+    "intensity": 1,
+    "hue": 0.78,
+    "colorize": 0.2,
+    "saturation": 1.25,
+    "contrast": 1.1,
+    "params": {
+     "u_blobs": 5,
+     "u_viscosity": 1,
+     "u_glow": 1,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 55,
+    "intensity": 1,
+    "hue": 0,
+    "colorize": 0,
+    "saturation": 1.15,
+    "contrast": 1.05,
+    "params": {
+     "u_blobs": 9,
+     "u_viscosity": 1.8,
+     "u_glow": 0.8,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 30,
+    "intensity": 1,
+    "hue": 0.05,
+    "colorize": 0.8,
+    "saturation": 1.1,
+    "contrast": 1.05,
+    "params": {
+     "u_blobs": 3,
+     "u_viscosity": 0.35,
+     "u_glow": 1.5,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 45,
+    "intensity": 1,
+    "hue": 0.55,
+    "colorize": 0.7,
+    "saturation": 1.15,
+    "contrast": 1.1,
+    "params": {
+     "u_blobs": 6,
+     "u_viscosity": 1.2,
+     "u_glow": 1.2,
+     "u_audioBoost": 1
+    }
+   }
+  ]
+ },
+ "beatburst": {
+  "selected": 0,
+  "slots": [
+   {
+    "speed": 60,
+    "intensity": 1,
+    "hue": 0.0,
+    "colorize": 0.0,
+    "saturation": 1.25,
+    "contrast": 1.1,
+    "params": {
+     "u_streaks": 40,
+     "u_trail": 1.15,
+     "u_spread": 0.45,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 70,
+    "intensity": 1,
+    "hue": 0,
+    "colorize": 0,
+    "saturation": 1.2,
+    "contrast": 1.1,
+    "params": {
+     "u_streaks": 64,
+     "u_trail": 1,
+     "u_spread": 0.2,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 45,
+    "intensity": 1,
+    "hue": 0.55,
+    "colorize": 0.75,
+    "saturation": 1.1,
+    "contrast": 1.05,
+    "params": {
+     "u_streaks": 16,
+     "u_trail": 1.3,
+     "u_spread": 0.7,
+     "u_audioBoost": 1
+    }
+   },
+   {
+    "speed": 80,
+    "intensity": 1,
+    "hue": 0.9,
+    "colorize": 0.6,
+    "saturation": 1.05,
+    "contrast": 1.2,
+    "params": {
+     "u_streaks": 28,
+     "u_trail": 0.6,
+     "u_spread": 0.3,
+     "u_audioBoost": 1
+    }
+   }
+  ]
  }
 }
