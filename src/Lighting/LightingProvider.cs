@@ -30,6 +30,9 @@ namespace Nexus.Service.Lighting;
 /// </summary>
 public sealed class LightingProvider : ILightingProvider, IDisposable
 {
+    /// <summary>Cap on the stop-path blackout. No OS deadline here, unlike the suspend path - this only bounds a wedged daemon.</summary>
+    private static readonly TimeSpan StopBlackoutBudget = TimeSpan.FromSeconds(2);
+
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
     private readonly LightingOutputHub _hub;
@@ -175,8 +178,31 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             s.Lighting.Sync = "none";
             LightingPresetLooks.CaptureIntoActive(s);
         });
+        BlackoutBeforeRelinquish();
         _rgb?.Deactivate();
         _rgb?.AwaitShutdown();
+    }
+
+    /// <summary>
+    /// Drives the final black all the way to hardware before <c>Deactivate</c>
+    /// hard-kills OpenRGB. The engine's last frame goes out through the
+    /// fire-and-forget <c>OnFrame</c> path, so a controller whose write is slow
+    /// - an ENE DRAM module over SMBus - is killed mid-write and latches the
+    /// colour it was already showing. Bounded so a wedged daemon cannot hang
+    /// the caller's request; the kill follows either way.
+    /// </summary>
+    private void BlackoutBeforeRelinquish()
+    {
+        if (_rgb is null)
+        {
+            return;
+        }
+        using var cts = new CancellationTokenSource(StopBlackoutBudget);
+        try
+        { _rgb.BlackoutAndConfirmAsync(cts.Token).GetAwaiter().GetResult(); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        { ServiceLog.Warn($"[lighting] stop blackout failed: {ex.Message}"); }
     }
 
     public void SetBrightness(BrightnessScale scale) => _store.Update(s =>
