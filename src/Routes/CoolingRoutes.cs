@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Auth;
 using Nexus.Service.Cooling;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Persistence;
@@ -32,14 +33,18 @@ public static class CoolingRoutes
             };
         }).AllowPanel();
 
-        app.MapPost("/cooling/curves/set", (SetCurvesBody body, ICurveProvider c, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/curves/set", (SetCurvesBody body, ICurveProvider c, IFanControlProvider f, IConfigStore store, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Cooling)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
+            }
             // A Mixed curve reading its own output (directly or through a Sync
             // hop) has no defined value and would chase itself every tick.
             var cyclic = CurveOrdering.FindCycleMembers(body.Curves.ConvertAll(CurveWireMapper.ToDocument));
             if (cyclic.Count > 0)
             {
-                return ApiResponse.Fail($"Curve dependency cycle: {string.Join(", ", cyclic)}");
+                return Results.Ok(ApiResponse.Fail($"Curve dependency cycle: {string.Join(", ", cyclic)}"));
             }
 
             // Clamp every stored speed to [0,100] (and the global boost) so a
@@ -51,7 +56,7 @@ public static class CoolingRoutes
             var derived = FanProfiles.DerivePresetFromCurves(store, f);
             store.Update(s => s.Cooling.ActivePreset = derived);
             PanelTopics.BroadcastCooling(hub);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         });
 
         // Fan control
@@ -79,8 +84,12 @@ public static class CoolingRoutes
         app.MapGet("/cooling/sources", (IFanControlProvider f) =>
             new GetTemperatureSourcesResponse { Sources = new(f.GetTemperatureSources()) }).AllowPanel();
 
-        app.MapPost("/cooling/fan/{id}/speed", (string id, SetFanSpeedBody body, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub, Nexus.Service.Telemetry.ITelemetry telemetry) =>
+        app.MapPost("/cooling/fan/{id}/speed", (string id, SetFanSpeedBody body, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub, Nexus.Service.Telemetry.ITelemetry telemetry, FeatureGates gates) =>
         {
+            if (!gates.Cooling)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
+            }
             id = Uri.UnescapeDataString(id);
             // A channel the user marked not controlled takes no write, so
             // recording a Manual intent for it would be a lie the UI reads back
@@ -88,7 +97,7 @@ public static class CoolingRoutes
             // control came back. Report what is actually true instead.
             if (!FanControlledState.IsControlled(id, store.Load()))
             {
-                return new SetFanSpeedResponse { ChannelId = id, Speed = 0, Mode = Nexus.Service.Models.Cooling.FanModes.Auto };
+                return Results.Ok(new SetFanSpeedResponse { ChannelId = id, Speed = 0, Mode = Nexus.Service.Models.Cooling.FanModes.Auto });
             }
             // Detach from any curve first. Otherwise CurveEngine would
             // re-drive the fan on the next tick (silent overriding the user's
@@ -101,11 +110,15 @@ public static class CoolingRoutes
             store.Update(s => s.Cooling.ActivePreset = derivedAfterSpeed);
             PanelTopics.BroadcastCooling(hub);
             telemetry.Capture(Nexus.Service.Telemetry.TelemetryEvents.FanSpeedSet, ("speed", actual));
-            return new SetFanSpeedResponse { ChannelId = id, Speed = actual, Mode = Nexus.Service.Models.Cooling.FanModes.Manual };
+            return Results.Ok(new SetFanSpeedResponse { ChannelId = id, Speed = actual, Mode = Nexus.Service.Models.Cooling.FanModes.Manual });
         });
 
-        app.MapPost("/cooling/fan/{id}/auto", (string id, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/fan/{id}/auto", (string id, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Cooling)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
+            }
             id = Uri.UnescapeDataString(id);
             // Same rationale as /speed: drop any curve attachment so the BIOS
             // release actually persists past the next CurveEngine tick, and so
@@ -116,11 +129,15 @@ public static class CoolingRoutes
             var derivedAfterAuto = FanProfiles.DerivePresetFromCurves(store, f);
             store.Update(s => s.Cooling.ActivePreset = derivedAfterAuto);
             PanelTopics.BroadcastCooling(hub);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         });
 
-        app.MapPost("/cooling/fan/{id}/controlled", (string id, SetFanControlledBody body, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/fan/{id}/controlled", (string id, SetFanControlledBody body, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Cooling)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
+            }
             id = Uri.UnescapeDataString(id);
             // Same guard as /lock: nothing prunes this list, so an id that was
             // never a channel would sit in it with no UI affordance to clear it.
@@ -189,8 +206,12 @@ public static class CoolingRoutes
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
 
-        app.MapPost("/cooling/fan/{id}/offset", (string id, SetFanOffsetBody body, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/fan/{id}/offset", (string id, SetFanOffsetBody body, IFanControlProvider f, IConfigStore store, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Cooling)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
+            }
             id = Uri.UnescapeDataString(id);
             if (!f.GetFanChannels().Any(c => c.Id == id))
             {
@@ -243,8 +264,12 @@ public static class CoolingRoutes
                 Active = store.Load().Cooling.ActivePreset,
             }).AllowPanel();
 
-        app.MapPost("/cooling/profile/{name}", (string name, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub, Nexus.Service.Telemetry.ITelemetry telemetry) =>
+        app.MapPost("/cooling/profile/{name}", (string name, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub, Nexus.Service.Telemetry.ITelemetry telemetry, FeatureGates gates) =>
         {
+            if (!gates.Cooling)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
+            }
             var profile = FanProfiles.GetBuiltInProfiles()
                 .Find(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
             // "auto" is accepted as a synonym for "off" via FanProfiles.Apply itself.
@@ -263,8 +288,12 @@ public static class CoolingRoutes
         // Reset a Silent / Balanced / Performance preset curve to its default
         // type + Linear parameters. Fan attachments stay intact so the active
         // preset doesn't flip to "custom" as a side effect of the reset.
-        app.MapPost("/cooling/profile/{name}/reset", (string name, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/profile/{name}/reset", (string name, IFanControlProvider f, IConfigStore store, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Cooling)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
+            }
             var canonical = (name ?? "").ToLowerInvariant();
             if (canonical != "silent" && canonical != "balanced" && canonical != "turbo")
             {
@@ -343,8 +372,12 @@ public static class CoolingRoutes
             return Results.Ok(new DeleteCoolingPresetResponse { ActiveId = activeId });
         }).AllowPanel();
 
-        app.MapPost("/cooling/presets/{id}/activate", (string id, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/presets/{id}/activate", (string id, IFanControlProvider f, IConfigStore store, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Cooling)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
+            }
             if (!CoolingPresets.Activate(id, store, f))
             {
                 return Results.NotFound(new ApiResponse { Error = true, Msg = "Preset not found" });
@@ -354,10 +387,14 @@ public static class CoolingRoutes
         }).AllowPanel();
 
         // Calibration - fire-and-forget, poll status
-        app.MapPost("/cooling/calibrate", (StartCalibrationBody body, IFanControlProvider f, CalibrationRunner runner) =>
+        app.MapPost("/cooling/calibrate", (StartCalibrationBody body, IFanControlProvider f, CalibrationRunner runner, FeatureGates gates) =>
         {
+            if (!gates.Cooling)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
+            }
             var started = runner.Start(f, body.FanIds);
-            return new CalibrationStartResponse { SessionId = started ? "active" : "", Error = !started, Msg = started ? "Ok" : "Calibration already running" };
+            return Results.Ok(new CalibrationStartResponse { SessionId = started ? "active" : "", Error = !started, Msg = started ? "Ok" : "Calibration already running" });
         });
 
         // The last run's results, not every calibration ever stored: a fan whose

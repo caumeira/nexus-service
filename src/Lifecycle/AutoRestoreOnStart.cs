@@ -35,6 +35,7 @@ internal sealed class AutoRestoreOnStart : BackgroundService
     private readonly ILightingProvider _lighting;
     private readonly IFanControlProvider _fans;
     private readonly MultiplexHub _hub;
+    private readonly FeatureGates _gates;
 
     // Snapshot at construction so we can tell, when ExecuteAsync wakes up
     // 4s later, whether the user changed anything in the meantime via the
@@ -47,12 +48,14 @@ internal sealed class AutoRestoreOnStart : BackgroundService
         IConfigStore store,
         ILightingProvider lighting,
         IFanControlProvider fans,
-        MultiplexHub hub)
+        MultiplexHub hub,
+        FeatureGates? gates = null)
     {
         _store = store;
         _lighting = lighting;
         _fans = fans;
         _hub = hub;
+        _gates = gates ?? FeatureGates.AllEnabled;
         var initial = _store.Load();
         _coolingPresetAtBoot = initial.Cooling.ActivePreset ?? "";
         _lightingSyncAtBoot = initial.Lighting.Sync ?? "";
@@ -109,6 +112,10 @@ internal sealed class AutoRestoreOnStart : BackgroundService
         // a user who manually set a fan duty before we reached this point.
         if (current is "silent" or "balanced" or "turbo")
         {
+            if (!_gates.Cooling)
+            {
+                return seeded;
+            }
             FanProfiles.Apply(current, _fans, _store);
             Console.WriteLine($"[auto-restore] cooling preset re-applied: {current}");
             return true;
@@ -118,6 +125,10 @@ internal sealed class AutoRestoreOnStart : BackgroundService
 
     private bool RestoreLighting()
     {
+        if (!_gates.Lighting)
+        {
+            return false;
+        }
         var s = _store.Load().Lighting;
         var sync = s.Sync ?? "";
         // Same guard as cooling: if the user already kicked off a different

@@ -111,7 +111,7 @@ internal static class AppBootstrap
                 // a profile that has "silent" cooling + a plasma effect
                 // resumes after the switch instead of leaving the engines
                 // idle until the user clicks something.
-                LiveEngineSync.Apply(configStore, fans, lightingProvider);
+                LiveEngineSync.Apply(configStore, fans, lightingProvider, sp.GetRequiredService<FeatureGates>());
 
                 // Keeb is profile-scoped via the Device sharing category;
                 // push the incoming profile's game mode/firmware lighting/

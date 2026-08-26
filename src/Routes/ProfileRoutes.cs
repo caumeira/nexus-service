@@ -314,7 +314,7 @@ public static class ProfileRoutes
         // Shared categories are untouched. If the named profile is the active
         // one, in-memory state is updated and a broadcast fires; otherwise the
         // reset only touches that profile's JSON on disk.
-        app.MapPost("/profiles/{id}/reset", (string id, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store) =>
+        app.MapPost("/profiles/{id}/reset", (string id, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store, Nexus.Service.Lifecycle.FeatureGates gates) =>
         {
             try
             {
@@ -339,7 +339,7 @@ public static class ProfileRoutes
                 // instead of leaving the engines idle.
                 if (isActive)
                 {
-                    LiveEngineSync.Apply(store, fans, lp);
+                    LiveEngineSync.Apply(store, fans, lp, gates);
                 }
                 PanelTopics.BroadcastPrefs(hub);
                 PanelTopics.BroadcastLighting(hub);
@@ -356,7 +356,7 @@ public static class ProfileRoutes
         // redirected to the Primary's data and affects every profile. If the
         // category is per-profile, only the named profile's JSON is touched
         // (and in-memory state if the named profile is active).
-        app.MapPost("/profiles/{id}/reset/{category}", (string id, string category, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store) =>
+        app.MapPost("/profiles/{id}/reset/{category}", (string id, string category, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store, Nexus.Service.Lifecycle.FeatureGates gates) =>
         {
             try
             {
@@ -388,7 +388,7 @@ public static class ProfileRoutes
                 // that writes through to active).
                 if (isActive || categoryIsShared)
                 {
-                    LiveEngineSync.Apply(store, fans, lp);
+                    LiveEngineSync.Apply(store, fans, lp, gates);
                 }
                 PanelTopics.BroadcastPrefs(hub);
                 PanelTopics.BroadcastLighting(hub);
