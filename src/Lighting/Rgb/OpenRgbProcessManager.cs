@@ -29,6 +29,10 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// drivers that report their negotiated wire parameters only at debug.</summary>
     internal const string VerbosityEnvVar = "NEXUS_OPENRGB_VERBOSITY";
 
+    private const int VersionProbeTimeoutMs = 2000;
+
+    private static int _daemonBuildLogged;
+
     private readonly object _lock = new();
     private readonly string _exePath;
     private readonly Nexus.Service.Persistence.IConfigStore? _store;
@@ -318,6 +322,79 @@ public sealed class OpenRgbProcessManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Log which bundled daemon build is running, once per service lifetime. The
+    /// daemon writes its commit id only to its own logfile, so a service log
+    /// otherwise cannot say which fork build produced a device list. --version
+    /// prints and exits, so this costs one short-lived process at first start.
+    /// </summary>
+    private static void LogDaemonBuildOnce(string exePath)
+    {
+        if (Interlocked.Exchange(ref _daemonBuildLogged, 1) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = exePath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(exePath)!,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            psi.ArgumentList.Add("--version");
+
+            using var proc = Process.Start(psi);
+            if (proc is null)
+            {
+                return;
+            }
+
+            // Read before waiting: a full pipe buffer would deadlock the exit.
+            var stdout = proc.StandardOutput.ReadToEnd();
+            if (!proc.WaitForExit(VersionProbeTimeoutMs))
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
+                ServiceLog.Info("[openrgb-proc] daemon version probe timed out");
+                return;
+            }
+
+            ServiceLog.Info(
+                $"[openrgb-proc] bundled daemon {ParseVersionField(stdout, "Version:")}"
+                + $" commit {ParseVersionField(stdout, "Git Commit ID")}"
+                + $" branch {ParseVersionField(stdout, "Git Branch")}");
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[openrgb-proc] daemon version probe failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Pull one tab-padded field out of the daemon's --version banner.</summary>
+    internal static string ParseVersionField(string output, string label)
+    {
+        foreach (var raw in output.Split('\n'))
+        {
+            var line = raw.Trim();
+            if (!line.StartsWith(label, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var value = line[label.Length..].Trim();
+            if (value.Length > 0)
+            {
+                return value;
+            }
+        }
+
+        return "unknown";
+    }
+
     // Restore the executable bit on the bundled binary (Content copy / archive
     // round-trips drop it on Unix). No-op on Windows / if the file is missing.
     private static void EnsureExecutable(string path)
@@ -375,6 +452,7 @@ public sealed class OpenRgbProcessManager : IDisposable
             // executable bit on Linux/macOS - restore it or Process.Start fails
             // with EACCES and RGB silently never comes up.
             EnsureExecutable(_exePath);
+            LogDaemonBuildOnce(_exePath);
 
             var psi = new ProcessStartInfo
             {
