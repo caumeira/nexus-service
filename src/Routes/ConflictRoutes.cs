@@ -108,30 +108,53 @@ public static class ConflictRoutes
                 });
             }
 
-            bool killed = false;
+            // Measured, not inferred: ProcessKiller.Kill reports that it FOUND
+            // processes (its own Kill call is swallowed), and StopService counts
+            // an already-stopped service as success - so neither says anything
+            // stopped running. The client keeps a spinner up until Killed goes
+            // false or the row clears, so a wrong true spins forever.
+            var runningBefore = AnyProcessRunning(def);
+
             foreach (var name in def.ProcessNames)
             {
-                if (ProcessKiller.Kill(name))
-                    killed = true;
+                ProcessKiller.Kill(name);
             }
 
             if (OperatingSystem.IsWindows())
             {
                 foreach (var svc in def.WindowsServiceNames)
                 {
-                    if (WindowsServiceController.StopService(svc) == ServiceStopResult.Stopped)
-                    {
-                        killed = true;
-                    }
+                    WindowsServiceController.StopService(svc);
                 }
             }
+
+            var runningAfter = AnyProcessRunning(def);
+            var killed = runningBefore && !runningAfter;
 
             return Results.Ok(new KillConflictResponse
             {
                 Error = false,
-                Msg = killed ? "Killed" : "No matching process",
+                Msg = !runningBefore ? "No matching process"
+                    : runningAfter ? "Still running"
+                    : "Killed",
                 Killed = killed,
             });
         });
+    }
+
+    /// <summary>Whether any process this catalog entry names is running; the oracle for whether a kill did anything.</summary>
+    private static bool AnyProcessRunning(ConflictAppDefinition def)
+    {
+        foreach (var name in def.ProcessNames)
+        {
+            try
+            {
+                var procs = System.Diagnostics.Process.GetProcessesByName(name);
+                foreach (var p in procs) p.Dispose();
+                if (procs.Length > 0) return true;
+            }
+            catch { /* an unreadable process list is not evidence of absence */ }
+        }
+        return false;
     }
 }
