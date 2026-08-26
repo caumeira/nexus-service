@@ -13,8 +13,8 @@ public class NotificationGateTests
     {
         NotificationGate.ResetForTests();
         var sent = new List<string>();
-        NotificationGate.HoldOrRun(() => { sent.Add("a"); return Task.CompletedTask; }, out _);
-        NotificationGate.HoldOrRun(() => { sent.Add("b"); return Task.CompletedTask; }, out _);
+        NotificationGate.TryHold(() => { sent.Add("a"); return Task.CompletedTask; }, out _);
+        NotificationGate.TryHold(() => { sent.Add("b"); return Task.CompletedTask; }, out _);
         Assert.Empty(sent);
 
         await NotificationGate.ReleaseAsync();
@@ -22,23 +22,32 @@ public class NotificationGateTests
     }
 
     [Fact]
-    public void HoldOrRun_ReportsWhetherItHeld()
+    public void TryHold_ReportsWhetherItHeld()
     {
         NotificationGate.ResetForTests();
-        Assert.True(NotificationGate.HoldOrRun(() => Task.CompletedTask, out _));
+        Assert.True(NotificationGate.TryHold(() => Task.CompletedTask, out _));
         NotificationGate.Initialize(onboardingComplete: true);
-        Assert.False(NotificationGate.HoldOrRun(() => Task.CompletedTask, out _));
+        Assert.False(NotificationGate.TryHold(() => Task.CompletedTask, out _));
     }
 
     [Fact]
-    public async Task AnOpenGateSendsStraightThrough()
+    public async Task AnOpenGateNeitherHoldsNorSends()
     {
+        // The caller sends when this returns false, so sending here too would
+        // deliver every notification twice on any completed install.
         NotificationGate.ResetForTests();
         NotificationGate.Initialize(onboardingComplete: true);
-        var sent = false;
-        NotificationGate.HoldOrRun(() => { sent = true; return Task.CompletedTask; }, out var task);
+        var sends = 0;
+        var held = NotificationGate.TryHold(() => { sends++; return Task.CompletedTask; }, out var task);
         await task;
-        Assert.True(sent);
+
+        Assert.False(held);
+        Assert.Equal(0, sends);
+        Assert.Equal(0, NotificationGate.HeldCount);
+
+        // And nothing was queued for a later release either.
+        await NotificationGate.ReleaseAsync();
+        Assert.Equal(0, sends);
     }
 
     [Fact]
@@ -46,8 +55,8 @@ public class NotificationGateTests
     {
         NotificationGate.ResetForTests();
         var sent = new List<string>();
-        NotificationGate.HoldOrRun(() => throw new System.InvalidOperationException("boom"), out _);
-        NotificationGate.HoldOrRun(() => { sent.Add("after"); return Task.CompletedTask; }, out _);
+        NotificationGate.TryHold(() => throw new System.InvalidOperationException("boom"), out _);
+        NotificationGate.TryHold(() => { sent.Add("after"); return Task.CompletedTask; }, out _);
 
         await NotificationGate.ReleaseAsync();
         Assert.Equal(new[] { "after" }, sent);
@@ -58,7 +67,7 @@ public class NotificationGateTests
     {
         NotificationGate.ResetForTests();
         var count = 0;
-        NotificationGate.HoldOrRun(() => { count++; return Task.CompletedTask; }, out _);
+        NotificationGate.TryHold(() => { count++; return Task.CompletedTask; }, out _);
         await NotificationGate.ReleaseAsync();
         await NotificationGate.ReleaseAsync();
         Assert.Equal(1, count);
@@ -74,7 +83,7 @@ public class NotificationGateTests
         // What POST /onboarding/reset does.
         NotificationGate.Initialize(onboardingComplete: false);
         Assert.False(NotificationGate.IsOpen);
-        Assert.True(NotificationGate.HoldOrRun(() => Task.CompletedTask, out _));
+        Assert.True(NotificationGate.TryHold(() => Task.CompletedTask, out _));
     }
 
     [Fact]
@@ -83,7 +92,7 @@ public class NotificationGateTests
         NotificationGate.ResetForTests();
         for (var i = 0; i < 40; i++)
         {
-            NotificationGate.HoldOrRun(() => Task.CompletedTask, out _);
+            NotificationGate.TryHold(() => Task.CompletedTask, out _);
         }
         Assert.Equal(16, NotificationGate.HeldCount);
     }

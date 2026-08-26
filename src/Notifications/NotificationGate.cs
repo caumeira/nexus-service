@@ -38,23 +38,23 @@ public static class NotificationGate
     }
 
     /// <summary>
-    /// Runs <paramref name="send"/> now when open, otherwise holds it. Returns
-    /// true when it was held, so callers can skip their own logging.
+    /// Holds <paramref name="send"/> for release when the gate is closed and
+    /// returns true; returns false when the caller should send it itself. Never
+    /// sends: a caller that both reads false and sends would deliver twice.
     /// </summary>
-    public static bool HoldOrRun(Func<Task> send, out Task task)
+    public static bool TryHold(Func<Task> send, out Task held)
     {
+        held = Task.CompletedTask;
         lock (Lock)
         {
-            if (!_open)
+            if (_open)
             {
-                if (Held.Count >= MaxHeld) Held.Dequeue();
-                Held.Enqueue(send);
-                task = Task.CompletedTask;
-                return true;
+                return false;
             }
+            if (Held.Count >= MaxHeld) Held.Dequeue();
+            Held.Enqueue(send);
+            return true;
         }
-        task = send();
-        return false;
     }
 
     /// <summary>Opens the gate and flushes anything held, oldest first.</summary>

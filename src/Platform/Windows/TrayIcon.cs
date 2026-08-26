@@ -652,7 +652,15 @@ public static class TrayIcon
             var overlayMsg = path == "/settings"
                 ? ShowDashboardSettingsMessageName
                 : ShowDashboardMessageName;
-            if (TrySendShowDashboardToOverlay(messageName: overlayMsg))
+            // A plain ShowDashboard carries no destination, so an already-open
+            // window would be focused on whatever page it was on and the
+            // balloon's click would do nothing visible.
+            var deepLink = path != "/" && path != "/settings";
+            if (deepLink && TrySendDeepLinkToOverlay(path))
+            {
+                return;
+            }
+            if (!deepLink && TrySendShowDashboardToOverlay(messageName: overlayMsg))
             {
                 DiagFile($"{overlayMsg} posted to nexus-overlay marshaler");
                 return;
@@ -662,7 +670,10 @@ public static class TrayIcon
             // back to the heavy Edge --app path. EnsureOverlayRunning is
             // best-effort; on success the marshaler usually appears within
             // a few seconds. We retry the send once after the spawn.
-            if (EnsureOverlayRunning() && TrySendShowDashboardToOverlay(timeoutMs: 8000, messageName: overlayMsg))
+            if (EnsureOverlayRunning()
+                && (deepLink
+                    ? TrySendDeepLinkToOverlay(path, timeoutMs: 8000)
+                    : TrySendShowDashboardToOverlay(timeoutMs: 8000, messageName: overlayMsg)))
             {
                 _lastSpawnUtc = DateTime.UtcNow;
                 DiagFile($"started nexus-overlay and posted {overlayMsg}");
@@ -947,6 +958,71 @@ public static class TrayIcon
 
     private static bool TrySendShowDashboardToOverlay(int timeoutMs = 0, string messageName = ShowDashboardMessageName)
         => TryPostToOverlayMarshaler(messageName, timeoutMs, handoffForeground: true);
+
+    /// <summary>Registered window messages carry no payload, so an arbitrary deep-link path goes as WM_COPYDATA; dwData is the registered ShowDashboard id so the overlay can tell it from any other sender.</summary>
+    private static bool TrySendDeepLinkToOverlay(string path, int timeoutMs = 0)
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            IntPtr marshaler;
+            while (true)
+            {
+                marshaler = FindWindow(OverlayMarshalerClassName, null);
+                if (marshaler != IntPtr.Zero) break;
+                if (DateTime.UtcNow >= deadline) return false;
+                System.Threading.Thread.Sleep(150);
+            }
+            var msg = RegisterWindowMessage(ShowDashboardMessageName);
+            if (msg == 0) return false;
+            try
+            {
+                GetWindowThreadProcessId(marshaler, out var overlayPid);
+                if (overlayPid != 0) AllowSetForegroundWindow(overlayPid);
+            }
+            catch { /* worst case is unfocused window */ }
+
+            var bytes = System.Text.Encoding.Unicode.GetBytes(path + "\0");
+            var buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(bytes.Length);
+            try
+            {
+                System.Runtime.InteropServices.Marshal.Copy(bytes, 0, buffer, bytes.Length);
+                var cds = new COPYDATASTRUCT
+                {
+                    dwData = (IntPtr)msg,
+                    cbData = bytes.Length,
+                    lpData = buffer,
+                };
+                // SendMessage, not Post: the buffer must stay alive for the
+                // receiver's whole handler.
+                var result = SendMessage(marshaler, WM_COPYDATA, IntPtr.Zero, ref cds);
+                DiagFile($"deep link '{path}' -> overlay marshaler result={result.ToInt64()}");
+                return result != IntPtr.Zero;
+            }
+            finally
+            {
+                System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer);
+            }
+        }
+        catch (Exception ex)
+        {
+            DiagFile($"TrySendDeepLinkToOverlay({path}): {ex.Message}");
+            return false;
+        }
+    }
+
+    private const int WM_COPYDATA = 0x004A;
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct COPYDATASTRUCT
+    {
+        public IntPtr dwData;
+        public int cbData;
+        public IntPtr lpData;
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, ref COPYDATASTRUCT lParam);
 
     /// <summary>
     /// Starts nexus-overlay.exe in the current user session. We're already

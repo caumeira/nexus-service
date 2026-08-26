@@ -90,7 +90,7 @@ public static class TrayCommands
     public static Task PairNoticeAsync(HelperRegistry registry, bool show, string deviceLabel, CancellationToken ct = default)
     {
         // Held while first-run onboarding owns the screen; released after.
-        if (Nexus.Service.Notifications.NotificationGate.HoldOrRun(
+        if (Nexus.Service.Notifications.NotificationGate.TryHold(
                 () => SendAsync_pairNotice(registry, show, deviceLabel, ct), out var gated))
         {
             return gated;
@@ -112,7 +112,7 @@ public static class TrayCommands
     public static Task NoticeAsync(HelperRegistry registry, string title, string text, string? folderPath, string? windowPath = null, CancellationToken ct = default)
     {
         // Held while first-run onboarding owns the screen; released after.
-        if (Nexus.Service.Notifications.NotificationGate.HoldOrRun(
+        if (Nexus.Service.Notifications.NotificationGate.TryHold(
                 () => SendAsync_notice(registry, title, text, folderPath, windowPath, ct), out var gated))
         {
             return gated;
@@ -140,7 +140,7 @@ public static class TrayCommands
     public static Task UpdateReadyAsync(HelperRegistry registry, string version, CancellationToken ct = default)
     {
         // Held while first-run onboarding owns the screen; released after.
-        if (Nexus.Service.Notifications.NotificationGate.HoldOrRun(
+        if (Nexus.Service.Notifications.NotificationGate.TryHold(
                 () => SendAsync_updateReady(registry, version, ct), out var gated))
         {
             return gated;
