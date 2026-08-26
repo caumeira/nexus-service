@@ -104,4 +104,38 @@ public class RgbBridgeZoneSummaryTests
         Assert.Single(logged);
         Assert.True(RgbBridge.TryMarkLogged(logged, "k0", cap: 3));
     }
+
+    [Fact]
+    public void SeedsDefaultCountForAnUnconfiguredLinearHeader()
+    {
+        var zone = new RgbZone { ZoneType = 1, LedCount = 0, LedsMin = 0, LedsMax = 100 };
+
+        Assert.True(RgbBridge.CanSeedDefaultZoneCount(zone));
+    }
+
+    [Fact]
+    public void SkipsSeedingAZoneTheControllerPinsToOneSize()
+    {
+        // ASRock Polychrome stamps its 12V headers linear and pins them at 1 LED,
+        // so ZoneType and LedCount both pass and only the bounds reveal it.
+        var zone = new RgbZone { ZoneType = 1, LedCount = 1, LedsMin = 1, LedsMax = 1 };
+
+        Assert.False(RgbBridge.CanSeedDefaultZoneCount(zone));
+    }
+
+    [Fact]
+    public void SeedsWhenTheControllerAdvertisesNoBounds()
+    {
+        var zone = new RgbZone { ZoneType = 0, LedCount = 1, LedsMin = 0, LedsMax = 0 };
+
+        Assert.True(RgbBridge.CanSeedDefaultZoneCount(zone));
+    }
+
+    [Fact]
+    public void SkipsSeedingAConfiguredHeader()
+    {
+        var zone = new RgbZone { ZoneType = 1, LedCount = 24, LedsMin = 0, LedsMax = 100 };
+
+        Assert.False(RgbBridge.CanSeedDefaultZoneCount(zone));
+    }
 }

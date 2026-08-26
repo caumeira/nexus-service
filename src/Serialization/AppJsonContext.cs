@@ -137,6 +137,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SetFanSpeedBody))]
 [JsonSerializable(typeof(SetFanNameBody))]
 [JsonSerializable(typeof(SetFanLockBody))]
+[JsonSerializable(typeof(SetFanControlledBody))]
 [JsonSerializable(typeof(SetFanRoleBody))]
 [JsonSerializable(typeof(SetFanSpeedResponse))]
 [JsonSerializable(typeof(CurveOutputState))]

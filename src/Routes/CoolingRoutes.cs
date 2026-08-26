@@ -67,6 +67,8 @@ public static class CoolingRoutes
                     ch.Name = custom;
                 }
                 ch.Locked = FanProfiles.IsLocked(ch, cooling.FanLockOverrides);
+                ch.Controlled = cooling.UncontrolledFanChannels.Count == 0
+                    || !cooling.UncontrolledFanChannels.Contains(ch.Id);
                 ch.Role = cooling.FanRoles.TryGetValue(ch.Id, out var role) ? role : FanRoleKind.None;
                 ch.Offset = cooling.FanOffsets.TryGetValue(ch.Id, out var offset) ? offset : 0;
                 ch.SeriesId = Nexus.Service.Monitoring.History.MetricsHistory.SanitizeId(ch.Id);
@@ -80,6 +82,14 @@ public static class CoolingRoutes
         app.MapPost("/cooling/fan/{id}/speed", (string id, SetFanSpeedBody body, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub, Nexus.Service.Telemetry.ITelemetry telemetry) =>
         {
             id = Uri.UnescapeDataString(id);
+            // A channel the user marked not controlled takes no write, so
+            // recording a Manual intent for it would be a lie the UI reads back
+            // as a mode - and CurveEngine would replay that duty the moment
+            // control came back. Report what is actually true instead.
+            if (!FanControlledState.IsControlled(id, store.Load()))
+            {
+                return new SetFanSpeedResponse { ChannelId = id, Speed = 0, Mode = Nexus.Service.Models.Cooling.FanModes.Auto };
+            }
             // Detach from any curve first. Otherwise CurveEngine would
             // re-drive the fan on the next tick (silent overriding the user's
             // manual choice) and the active-preset derivation would still
@@ -107,6 +117,33 @@ public static class CoolingRoutes
             store.Update(s => s.Cooling.ActivePreset = derivedAfterAuto);
             PanelTopics.BroadcastCooling(hub);
             return ApiResponse.Ok();
+        });
+
+        app.MapPost("/cooling/fan/{id}/controlled", (string id, SetFanControlledBody body, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        {
+            id = Uri.UnescapeDataString(id);
+            // Same guard as /lock: nothing prunes this list, so an id that was
+            // never a channel would sit in it with no UI affordance to clear it.
+            if (!f.GetFanChannels().Any(c => c.Id == id))
+            {
+                return Results.BadRequest(new ApiResponse { Error = true, Msg = "Unknown fan channel" });
+            }
+            // Turning control off is the BIOS release plus a persisted marker:
+            // without the release the fan would hold its last duty forever, and
+            // without the marker the next preset apply would reclaim it. Order
+            // matters - the flag goes on last so the release itself is not
+            // swallowed by the write gate it installs.
+            if (!body.Controlled)
+            {
+                FanProfiles.DetachFanFromCurves(id, store);
+                f.ReleaseFan(id);
+                store.Update(s => s.Cooling.ManualSpeeds.Remove(id));
+            }
+            FanControlledState.SetControlled(id, body.Controlled, store);
+            var derived = FanProfiles.DerivePresetFromCurves(store, f);
+            store.Update(s => s.Cooling.ActivePreset = derived);
+            PanelTopics.BroadcastCooling(hub);
+            return Results.Ok(ApiResponse.Ok());
         });
 
         app.MapPost("/cooling/fan/{id}/name", (string id, SetFanNameBody body, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>

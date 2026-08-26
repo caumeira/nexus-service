@@ -49,4 +49,28 @@ public class OpenRgbVerbosityTests
     {
         Assert.Null(OpenRgbProcessManager.ResolveVerbosityFlag(configured));
     }
+
+    [Fact]
+    public void ParsesTheDaemonVersionBanner()
+    {
+        // Captured verbatim from a bundled headless build's --version.
+        const string banner =
+            "OpenRGB 0.9+ (git), for controlling RGB lighting.\n"
+            + "  Version:\t\t 0.9+ (git)\n"
+            + "  Build Date\t\t Mon, 22 Jun 2026 20:11:54 -0700\n"
+            + "  Git Commit ID\t\t a13b9393c7d3f46b4efa99ab7afeee96a61b9336\n"
+            + "  Git Commit Date\t 2026-06-12 07:18:00 -0700\n"
+            + "  Git Branch\t\t headless\n";
+
+        Assert.Equal("0.9+ (git)", OpenRgbProcessManager.ParseVersionField(banner, "Version:"));
+        Assert.Equal("a13b9393c7d3f46b4efa99ab7afeee96a61b9336", OpenRgbProcessManager.ParseVersionField(banner, "Git Commit ID"));
+        Assert.Equal("headless", OpenRgbProcessManager.ParseVersionField(banner, "Git Branch"));
+    }
+
+    [Fact]
+    public void ReportsUnknownWhenTheBannerIsMissingAField()
+    {
+        Assert.Equal("unknown", OpenRgbProcessManager.ParseVersionField("", "Git Commit ID"));
+        Assert.Equal("unknown", OpenRgbProcessManager.ParseVersionField("Git Commit ID\t\n", "Git Commit ID"));
+    }
 }

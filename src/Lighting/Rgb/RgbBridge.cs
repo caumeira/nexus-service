@@ -1379,6 +1379,15 @@ public sealed class RgbBridge : IDisposable
     private const int DefaultArgbZoneLedCount = 60;
 
     /// <summary>
+    /// A header we may seed with <see cref="DefaultArgbZoneLedCount"/>: a single or
+    /// linear zone with nothing configured yet. ZoneType alone does not mean
+    /// resizable, so zones the controller pins are excluded: ASRock Polychrome
+    /// stamps every zone linear, including 12V headers fixed at one LED.
+    /// </summary>
+    internal static bool CanSeedDefaultZoneCount(RgbZone zone)
+        => (zone.ZoneType == 0 || zone.ZoneType == 1) && zone.LedCount <= 1 && !zone.IsFixedSize;
+
+    /// <summary>
     /// Drain queued zone resize requests, apply persisted ZoneLedCounts, and apply
     /// the default LED count (60) to any resizable linear motherboard zone that
     /// OpenRGB reports as 0 AND the user has never configured. ARGB is one-way so
@@ -1418,6 +1427,10 @@ public sealed class RgbBridge : IDisposable
                     continue;
                 if (desired == d.Zones[z].LedCount)
                     continue;
+                // Resizing a zone the controller pins never holds, and this pass
+                // reruns every refresh, so an unsatisfiable count would retry forever.
+                if (d.Zones[z].IsFixedSize)
+                    continue;
                 try
                 {
                     await _controller.ResizeZoneAsync(d.Index, z, desired).ConfigureAwait(false);
@@ -1432,12 +1445,11 @@ public sealed class RgbBridge : IDisposable
 
         // Auto-default motherboard zones the user hasn't touched yet. Both
         // single (12V RGB) and linear (5V ARGB) headers get the default when
-        // OpenRGB reports "nothing configured" state (<= 1 LED). The 1-LED
-        // case covers boards that report a placeholder LED on unconfigured
-        // digital headers (AORUS B850I etc.) - a handful of boards do ship
-        // real onboard 1-LED indicators, but those live on non-header
-        // zones that don't pass the d.Zones.Count < 2 filter, and the user
-        // can always override the seeded 60 via the LED-count editor.
+        // OpenRGB reports "nothing configured" state (<= 1 LED), which on most
+        // boards is a placeholder LED on an unconfigured digital header (AORUS
+        // B850I etc.). A header genuinely fixed at one LED reports leds_min ==
+        // leds_max and is excluded; the user can override the seeded 60 via the
+        // LED-count editor.
         var toDefault = new List<(int physIdx, int zoneIdx, string id)>();
         foreach (var d in devices)
         {
@@ -1449,9 +1461,7 @@ public sealed class RgbBridge : IDisposable
                 var zoneId = $"{d.StableId}-{z}";
                 if (persisted.ContainsKey(zoneId))
                     continue;
-                if (zone.ZoneType != 0 && zone.ZoneType != 1)
-                    continue;
-                if (zone.LedCount > 1)
+                if (!CanSeedDefaultZoneCount(zone))
                     continue;
                 toDefault.Add((d.Index, z, zoneId));
             }

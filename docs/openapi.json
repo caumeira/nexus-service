@@ -1083,6 +1083,45 @@
         }
       }
     },
+    "/cooling/fan/{id}/controlled": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetFanControlledBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cooling/fan/{id}/name": {
       "post": {
         "tags": [
@@ -14037,6 +14076,9 @@
           "locked": {
             "type": "boolean"
           },
+          "controlled": {
+            "type": "boolean"
+          },
           "offset": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -18949,6 +18991,14 @@
             "items": {
               "$ref": "#/components/schemas/Curve"
             }
+          }
+        }
+      },
+      "SetFanControlledBody": {
+        "type": "object",
+        "properties": {
+          "controlled": {
+            "type": "boolean"
           }
         }
       },

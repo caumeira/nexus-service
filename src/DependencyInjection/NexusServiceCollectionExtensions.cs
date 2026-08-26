@@ -152,6 +152,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
             sp.GetRequiredService<PluginProviderRegistry>(),
+            sp.GetRequiredService<IConfigStore>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
@@ -174,6 +175,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
             sp.GetRequiredService<PluginProviderRegistry>(),
+            sp.GetRequiredService<IConfigStore>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
@@ -200,6 +202,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
             sp.GetRequiredService<PluginProviderRegistry>(),
+            sp.GetRequiredService<IConfigStore>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
@@ -225,6 +228,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
             sp.GetRequiredService<PluginProviderRegistry>(),
+            sp.GetRequiredService<IConfigStore>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(

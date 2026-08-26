@@ -250,7 +250,14 @@ public sealed class FanControlImportService
             return null;
         }
 
+        // A channel the user marked not controlled is not the import's to claim:
+        // the write gate would silently drop every duty, leaving the editor
+        // showing a fan wired to a curve that drives nothing. Withholding it
+        // from the match candidates is what keeps the marker meaningful across
+        // an import, not just across a preset apply.
+        var uncontrolled = _store.Load().Cooling.UncontrolledFanChannels;
         var channels = _fans.GetFanChannels()
+            .Where(c => !uncontrolled.Contains(c.Id))
             .Select(c => new LhmIdentifierMatcher.Candidate(c.Id, c.Name))
             .ToList();
         var sensors = _fans.GetTemperatureSources()

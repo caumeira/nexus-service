@@ -10,10 +10,11 @@ namespace Nexus.Service.Devices;
 /// Flips a never-manually-set, conflict-mapped third-party hub to Nexus
 /// Control ON the moment it is connected and its competing brand app is not
 /// running. The check only decides the first default: once
-/// <see cref="DeviceControlGate.SetEnabled"/> puts a device on the Enabled
+/// <see cref="DeviceControlGate.TryAdopt"/> puts a device on the Enabled
 /// list, the gate's own stickiness keeps it on even if the app later
 /// launches (the sidebar conflict badge is the only remaining signal).
-/// A user's explicit on/off choice is never overridden.
+/// A user's explicit on/off choice is never overridden: TryAdopt re-checks
+/// both lists inside the same store mutation that writes.
 /// </summary>
 public sealed class DeviceAdoptionService : BackgroundService
 {
@@ -93,8 +94,10 @@ public sealed class DeviceAdoptionService : BackgroundService
             {
                 continue;
             }
-            _gate.SetEnabled(device.Id, true);
-            changed = true;
+            if (_gate.TryAdopt(device.Id))
+            {
+                changed = true;
+            }
         }
 
         if (changed)

@@ -130,4 +130,42 @@ public class DeviceControlGateTests
 
         Assert.True(gate.IsEnabled("artinchip-d213"));
     }
+
+    [Fact]
+    public void TryAdopt_UnsetHandler_EnablesAndReturnsTrue()
+    {
+        var store = new InMemoryConfigStore();
+        var gate = new DeviceControlGate(store);
+
+        Assert.True(gate.TryAdopt("tryx"));
+        Assert.True(gate.IsEnabled("tryx"));
+        Assert.Contains("tryx", store.Load().Devices.NexusControlEnabled);
+    }
+
+    // The Tryx "control re-enables itself" report: an explicit off must survive
+    // every adoption pass, forever.
+    [Fact]
+    public void TryAdopt_ExplicitlyDisabledHandler_LeavesItDisabled()
+    {
+        var store = new InMemoryConfigStore();
+        var gate = new DeviceControlGate(store);
+        gate.SetEnabled("tryx", true);
+        gate.SetEnabled("tryx", false);
+
+        Assert.False(gate.TryAdopt("tryx"));
+        Assert.False(gate.IsEnabled("tryx"));
+        Assert.DoesNotContain("tryx", store.Load().Devices.NexusControlEnabled);
+        Assert.Contains("tryx", store.Load().Devices.NexusControlDisabled);
+    }
+
+    [Fact]
+    public void TryAdopt_AlreadyEnabledHandler_ReturnsFalseAndDoesNotDuplicate()
+    {
+        var store = new InMemoryConfigStore();
+        var gate = new DeviceControlGate(store);
+        gate.SetEnabled("tryx", true);
+
+        Assert.False(gate.TryAdopt("tryx"));
+        Assert.Single(store.Load().Devices.NexusControlEnabled);
+    }
 }
