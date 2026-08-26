@@ -575,7 +575,7 @@ public static class ProfileRoutes
                         if (components.System.HasValue)  s.Diagnostics.Components.System  = components.System.Value;
                     }
                 }
-            });
+            }, lightingPatchValue: body.Features?.Lighting);
             pm.MarkDirty();
             PanelTopics.BroadcastPrefs(hub);
             return ApiResponse.Ok();

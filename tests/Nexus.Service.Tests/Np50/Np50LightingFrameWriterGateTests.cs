@@ -57,6 +57,31 @@ public class Np50LightingFrameWriterGateTests
         Assert.NotEmpty(transport.Writes);
     }
 
+    [Fact]
+    public void Tick_BlackoutEngagedWhileGateStillOn_DeliversTheFarewellFrame_ThenStaysZeroWritesOnceGateFlips()
+    {
+        // Hand-replays the sequence FeatureReconciler.ApplyPatch drives in
+        // production (blackout while the gate still reads on, then the store
+        // commit) to prove the writer's own response to it; the reconciler's
+        // actual ordering is covered separately in FeatureReconcilerTests.
+        var configStore = new InMemoryConfigStore();
+        var (_, transport, engine, writer) = Build(new FeatureGates(configStore));
+
+        engine.SetBlackout(true);
+        Assert.True(engine.WaitForBlackout(TimeSpan.FromSeconds(1)));
+        writer.Tick();
+        Assert.NotEmpty(transport.Writes);
+
+        transport.Writes.Clear();
+        configStore.Update(s => s.Features.Lighting = false);
+        writer.Tick();
+
+        // Steady-state zero-writes holds even with the blackout hold still
+        // engaged: the writer's gate check is unchanged, so it never re-reads
+        // or re-pushes the held black frame on later ticks.
+        Assert.Empty(transport.Writes);
+    }
+
     private sealed class FakeDiscovery : INp50PortDiscovery
     {
         public IReadOnlyList<Np50PortInfo> Discover() =>

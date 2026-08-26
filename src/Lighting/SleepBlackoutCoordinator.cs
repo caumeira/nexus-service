@@ -148,6 +148,32 @@ public sealed class SleepBlackoutCoordinator
     }
 
     /// <summary>
+    /// Call from FeatureReconciler on the Lighting ON->OFF transition, before
+    /// the settings commit and before Suspend. Unlike OnSuspending/
+    /// OnHostShutdown this checks neither the Lighting gate (about to flip)
+    /// nor the SleepBlackout setting (a different, unrelated preference) -
+    /// calling it while the gate still reads on is what lets every writer's
+    /// per-tick gate check pick up and push this frame instead of dropping
+    /// it, so the caller must sequence it ahead of the settings write.
+    /// </summary>
+    public void BlankOutForFeatureOff()
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow + Budget;
+            _engine.SetBlackout(true);
+            var published = _engine.WaitForBlackout(Clamp(EnginePublishBudget, deadline));
+            var pushed = PushBridgeBlackout(deadline);
+            ServiceLog.Info(
+                $"[lighting-sleep] blanked for feature-off (engine={(published ? "published" : "timeout")}, openrgb={pushed})");
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[lighting-sleep] blackout on feature-off failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Call on resume. Safe to call unconditionally - releasing a blackout that
     /// was never engaged is a no-op, which is what keeps a setting toggled off
     /// mid-sleep from stranding the user dark.

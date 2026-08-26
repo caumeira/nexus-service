@@ -22,14 +22,17 @@ public sealed class FeatureReconciler
 {
     private readonly ILightingProvider _lighting;
     private readonly CurveEngine _curveEngine;
+    private readonly SleepBlackoutCoordinator _blackout;
     private readonly IConfigStore _store;
     private readonly KeebSettingsApplier _keeb;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    public FeatureReconciler(ILightingProvider lighting, CurveEngine curveEngine, IConfigStore store, KeebSettingsApplier keeb)
+    public FeatureReconciler(
+        ILightingProvider lighting, CurveEngine curveEngine, SleepBlackoutCoordinator blackout, IConfigStore store, KeebSettingsApplier keeb)
     {
         _lighting = lighting;
         _curveEngine = curveEngine;
+        _blackout = blackout;
         _store = store;
         _keeb = keeb;
     }
@@ -40,6 +43,10 @@ public sealed class FeatureReconciler
         _lock.Wait();
         try
         {
+            if (before.Lighting && !after.Lighting)
+            {
+                _blackout.BlankOutForFeatureOff();
+            }
             ApplyTransitionLocked(before, after);
         }
         finally
@@ -54,13 +61,23 @@ public sealed class FeatureReconciler
     /// transition side effects all run under the same lock, so a concurrent
     /// PATCH /preferences cannot read a before-snapshot this call has
     /// already superseded, or land its own mutation in between.
+    ///
+    /// <paramref name="lightingPatchValue"/> is the patch's intended new
+    /// Lighting value, read from the request body ahead of the store
+    /// mutation - the reconciler needs it before committing, to blackout
+    /// while the gate still reads on (see BlankOutForFeatureOff). Null when
+    /// the caller's patch does not touch the flag.
     /// </summary>
-    public void ApplyPatch(Action<NexusSettings> applyPatch)
+    public void ApplyPatch(Action<NexusSettings> applyPatch, bool? lightingPatchValue = null)
     {
         _lock.Wait();
         try
         {
             var before = SnapshotFeatures();
+            if (before.Lighting && lightingPatchValue == false)
+            {
+                _blackout.BlankOutForFeatureOff();
+            }
             _store.Update(applyPatch);
             var after = SnapshotFeatures();
             ApplyTransitionLocked(before, after);
@@ -83,7 +100,8 @@ public sealed class FeatureReconciler
         };
     }
 
-    // Caller holds _lock.
+    // Caller holds _lock. Any Lighting ON->OFF blackout has already run, by
+    // this point, in Apply/ApplyPatch, before the state committed.
     private void ApplyTransitionLocked(FeaturesSettings before, FeaturesSettings after)
     {
         if (before.Lighting && !after.Lighting)
@@ -92,6 +110,8 @@ public sealed class FeatureReconciler
         }
         else if (!before.Lighting && after.Lighting)
         {
+            // No blackout release needed here: Suspend, called on the prior
+            // disable, already ran LightingEngine.Stop -> ReleaseBlackoutState.
             LiveEngineSync.ApplyLighting(_store, _lighting);
             _keeb.Apply();
         }
