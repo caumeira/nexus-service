@@ -122,7 +122,7 @@ internal static class TrayBootstrap
         var diagAlerts = app.Services.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
         diagAlerts.AlertNeedsAttention += notice =>
         {
-            try { TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, null); }
+            try { TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, null, Nexus.Service.Diagnostics.DiagnosticsAlertService.AlertPath(notice.Kind)); }
             catch { /* best-effort */ }
         };
     }
@@ -181,7 +181,7 @@ internal static class TrayBootstrap
         var diagAlerts = app.Services.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
         diagAlerts.AlertNeedsAttention += notice =>
         {
-            try { _ = TrayCommands.NoticeAsync(helperRegistry, notice.Title, notice.Text, null); }
+            try { _ = TrayCommands.NoticeAsync(helperRegistry, notice.Title, notice.Text, null, Nexus.Service.Diagnostics.DiagnosticsAlertService.AlertPath(notice.Kind)); }
             catch (Exception ex) { Console.Error.WriteLine($"[diagnostics-notify] show failed: {ex.Message}"); }
         };
 

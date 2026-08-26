@@ -506,12 +506,15 @@ public static class TrayIcon
                     // provider replays a pending pair request so the
                     // Allow/Deny modal pops once the WebSocket subscribes.
                     string? folder;
+                    string? windowPath;
                     BalloonKind kind;
                     lock (_sync)
                     {
                         folder = _noticeFolderPath;
+                        windowPath = _noticeWindowPath;
                         kind = _balloonKind;
                         _noticeFolderPath = null;
+                        _noticeWindowPath = null;
                         _balloonKind = BalloonKind.None;
                     }
                     if (folder is not null && System.IO.Directory.Exists(folder))
@@ -525,10 +528,14 @@ public static class TrayIcon
                     else if (kind == BalloonKind.UpdateReady)
                     {
                         // Landing on the dashboard is not enough: with the
-                        // window already open it focuses an focused window and
-                        // nothing visible happens. The query asks the SPA for
-                        // the update view.
+                        // window already open it focuses an already-focused
+                        // window and nothing visible happens. The query asks
+                        // the SPA for the update view.
                         OpenLocalWindow(path: "/?openUpdate=1");
+                    }
+                    else if (windowPath is not null)
+                    {
+                        OpenLocalWindow(path: windowPath);
                     }
                     else
                     {
@@ -797,6 +804,7 @@ public static class TrayIcon
     private enum BalloonKind { None, Pair, Notice, UpdateReady }
     private static BalloonKind _balloonKind;
     private static string? _noticeFolderPath;
+    private static string? _noticeWindowPath;
 
     /// <summary>
     /// Generic one-shot balloon (incoming transfers, future notices). Same
@@ -804,7 +812,7 @@ public static class TrayIcon
     /// tray icon is hidden - and while a pairing balloon is pending, which is
     /// time-sensitive and must not lose its click routing to a notice.
     /// </summary>
-    public static void ShowNoticeBalloon(string title, string text, string? folderPath)
+    public static void ShowNoticeBalloon(string title, string text, string? folderPath, string? windowPath = null)
     {
         var folder = string.IsNullOrEmpty(folderPath) ? null : folderPath;
         // The click hint is appended here, not by the notice producer - other
@@ -813,7 +821,8 @@ public static class TrayIcon
         {
             text = $"{text} Click to open the folder.";
         }
-        ModifyBalloon(title, text, BalloonKind.Notice, folder, notWhileKind: BalloonKind.Pair);
+        ModifyBalloon(title, text, BalloonKind.Notice, folder, notWhileKind: BalloonKind.Pair,
+            windowPath: string.IsNullOrEmpty(windowPath) ? null : windowPath);
     }
 
     /// <summary>
@@ -837,7 +846,8 @@ public static class TrayIcon
         BalloonKind kind,
         string? folderPath,
         BalloonKind? onlyIfKind = null,
-        BalloonKind? notWhileKind = null)
+        BalloonKind? notWhileKind = null,
+        string? windowPath = null)
     {
         lock (_sync)
         {
@@ -857,6 +867,7 @@ public static class TrayIcon
             // so a click can never observe one without the other.
             _balloonKind = kind;
             _noticeFolderPath = folderPath;
+            _noticeWindowPath = windowPath;
             try
             {
                 var nid = _nid;

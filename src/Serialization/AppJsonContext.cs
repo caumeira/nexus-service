@@ -967,6 +967,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.KillConflictBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.KillConflictResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.ConflictsFrame))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LastRouteDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.ConflictAutostartEntry))]
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.ConflictAutostartStatus))]
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.GetConflictAutostartResponse))]

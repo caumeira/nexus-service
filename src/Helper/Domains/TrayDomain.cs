@@ -43,6 +43,8 @@ public sealed class TrayNoticePayload
     public string Title { get; set; } = "";
     public string Text { get; set; } = "";
     public string FolderPath { get; set; } = "";
+    /// <summary>SPA path a click opens, when the balloon has no folder; empty lands on the dashboard.</summary>
+    public string WindowPath { get; set; } = "";
 }
 
 /// <summary>Payload for <c>trayIcon.updateReady</c>. Service-to-helper.</summary>
@@ -107,24 +109,30 @@ public static class TrayCommands
             ct: ct);
     }
 
-    public static Task NoticeAsync(HelperRegistry registry, string title, string text, string? folderPath, CancellationToken ct = default)
+    public static Task NoticeAsync(HelperRegistry registry, string title, string text, string? folderPath, string? windowPath = null, CancellationToken ct = default)
     {
         // Held while first-run onboarding owns the screen; released after.
         if (Nexus.Service.Notifications.NotificationGate.HoldOrRun(
-                () => SendAsync_notice(registry, title, text, folderPath, ct), out var gated))
+                () => SendAsync_notice(registry, title, text, folderPath, windowPath, ct), out var gated))
         {
             return gated;
         }
-        return SendAsync_notice(registry, title, text, folderPath, ct);
+        return SendAsync_notice(registry, title, text, folderPath, windowPath, ct);
     }
 
-    private static Task SendAsync_notice(HelperRegistry registry, string title, string text, string? folderPath, CancellationToken ct)
+    private static Task SendAsync_notice(HelperRegistry registry, string title, string text, string? folderPath, string? windowPath, CancellationToken ct)
     {
         var conn = registry.GetAny();
         if (conn is null) return Task.CompletedTask;
         return conn.SendAsync(
             type: "trayIcon.notice",
-            payload: new TrayNoticePayload { Title = title, Text = text, FolderPath = folderPath ?? "" },
+            payload: new TrayNoticePayload
+            {
+                Title = title,
+                Text = text,
+                FolderPath = folderPath ?? "",
+                WindowPath = windowPath ?? "",
+            },
             payloadType: AppJsonContext.Default.TrayNoticePayload,
             ct: ct);
     }
@@ -191,7 +199,7 @@ public sealed class TrayHandler
     private readonly Action<bool> _setVisible;
     private readonly Action<string> _showPairNotice;
     private readonly Action _dismissPairNotice;
-    private readonly Action<string, string, string?> _showNotice;
+    private readonly Action<string, string, string?, string?> _showNotice;
     private readonly Action<string> _showUpdateReady;
     private readonly Action _openDashboard;
     private readonly Action<string, string> _showUpdaterWindow;
@@ -203,7 +211,7 @@ public sealed class TrayHandler
         Action<bool> setVisible,
         Action<string> showPairNotice,
         Action dismissPairNotice,
-        Action<string, string, string?> showNotice,
+        Action<string, string, string?, string?> showNotice,
         Action<string> showUpdateReady,
         Action openDashboard,
         Action<string, string> showUpdaterWindow,
@@ -247,7 +255,11 @@ public sealed class TrayHandler
             var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayNoticePayload);
             if (p is not null)
             {
-                _showNotice(p.Title ?? "", p.Text ?? "", string.IsNullOrEmpty(p.FolderPath) ? null : p.FolderPath);
+                _showNotice(
+                    p.Title ?? "",
+                    p.Text ?? "",
+                    string.IsNullOrEmpty(p.FolderPath) ? null : p.FolderPath,
+                    string.IsNullOrEmpty(p.WindowPath) ? null : p.WindowPath);
             }
             return Task.FromResult(env.Ok());
         });

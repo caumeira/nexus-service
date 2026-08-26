@@ -595,6 +595,7 @@ app.MapWeatherEndpoints();
 app.MapStockEndpoints();
 app.MapAppEndpoints();
 app.MapConflictEndpoints();
+app.MapSessionEndpoints();
 app.MapTryxEndpoints();
 app.MapSlv3Endpoints();
 app.MapSlv3LcdEndpoints();

@@ -13,7 +13,8 @@ namespace Nexus.Service.Diagnostics;
 /// needs attention. Consumed the same way as
 /// <see cref="Nexus.Service.Transfer.TransferAttentionNotice"/>: platform
 /// bootstraps subscribe and surface a tray balloon / native banner.</summary>
-public sealed record DiagnosticsAlertNotice(string Title, string Text);
+/// <summary>Kind is the component kind ("storage", "gpu", "memory", "system", "cooling"), which is also the diagnostics tab slug the alert deep-links to.</summary>
+public sealed record DiagnosticsAlertNotice(string Title, string Text, string Kind);
 
 /// <summary>
 /// Polls <see cref="DiagnosticsHealthModel"/> every 5 minutes (first check 2
@@ -147,10 +148,21 @@ public sealed class DiagnosticsAlertService : BackgroundService
             var reason = component.Reasons.FirstOrDefault(r => r.Severity == component.Status)
                 ?? component.Reasons.FirstOrDefault();
             lastNotifiedUtc[component.Id] = nowUtc;
-            notices.Add(new DiagnosticsAlertNotice(component.Name, reason?.Summary ?? "Needs attention."));
+            notices.Add(new DiagnosticsAlertNotice(component.Name, reason?.Summary ?? "Needs attention.", component.Kind ?? ""));
         }
         return notices;
     }
+
+    /// <summary>SPA path for a diagnostics alert, or null when the kind has no tab; the route is /{section}/{view}/{subtab} per nexus-web useRoute.ts and the tab slugs are DiagnosticsView's own.</summary>
+    public static string? AlertPath(string kind) => kind switch
+    {
+        "storage" => "/system/diagnostics/storage",
+        "memory" => "/system/diagnostics/memory",
+        "system" => "/system/diagnostics/system",
+        // GPU throttling is reported on the cooling tab.
+        "cooling" or "gpu" => "/system/diagnostics/cooling",
+        _ => null,
+    };
 
     /// <summary>Maps a component to the notification category it belongs to.
     /// The "cooling" kind is split by id: per-device stall components
