@@ -41,12 +41,6 @@ internal static class MacAppWindow
     private const double TopBarIconButton = 32;         // .iconButton width
     private const double TopBarLeftClusterGap = 2.4;    // .leftCluster gap (0.15rem)
     private const double TopBarGearButton = 34;         // .pageSettingsButton width
-    // These three mirror .modeToggleButton's max-width: clamp(0px, calc(100vw
-    // - reserve), max) in TopBar.module.scss, plus its display:none breakpoint.
-    private const double TopBarModeToggleReserve = 1000; // viewport reserved for the rest of the bar
-    private const double TopBarModeToggleMax = 220;      // clamp ceiling
-    private const double TopBarModeToggleMinWindow = 1060; // below this the toggle is display:none
-    private const double TopBarPageSettingsGap = 4.8;   // .pageSettings cluster gap (0.3rem), between the toggle and the gear
     private const double TopBarArrowsGroup = 64;        // two history arrows
     private const double TopBarPillGap = 7;             // arrows -> pill gap (0.4rem)
     private const double TopBarRightCluster = 80;       // "..." menu + profile avatar
@@ -549,17 +543,12 @@ internal static class MacAppWindow
         // carve its full width out of the strip.
         if (x >= pillLeft - m && x <= pillLeft + TopBarSearchPillWidth + m) return true;
 
-        // Page-settings cluster (.pageSettings): mode-toggle text button then
-        // the gear, mirror of the history arrows, a gap right of the pill.
-        // Only Monitoring registers a settings action (the gear); Lighting and
-        // Cooling surface the cluster via the mode toggle instead.
+        // Page-settings cluster (.pageSettings): the gear alone, mirror of the
+        // history arrows, a gap right of the pill. Only Monitoring registers a
+        // settings action, so the cluster is absent on every other page.
         double pillRight = center + TopBarSearchPillWidth / 2.0;
         double gearL = pillRight + TopBarPillGap;
-        double toggleW = w < TopBarModeToggleMinWindow
-            ? 0
-            : Math.Clamp(w - TopBarModeToggleReserve, 0, TopBarModeToggleMax);
-        double pageSettingsClusterW = toggleW + (toggleW > 0 ? TopBarPageSettingsGap : 0) + TopBarGearButton;
-        if (x >= gearL - m && x <= gearL + pageSettingsClusterW + m) return true;
+        if (x >= gearL - m && x <= gearL + TopBarGearButton + m) return true;
 
         // Right cluster: against the right edge.
         if (x >= w - TopBarRightCluster - TopBarRightPad - m && x <= w - TopBarRightPad + m) return true;
