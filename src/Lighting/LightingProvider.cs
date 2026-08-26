@@ -30,8 +30,11 @@ namespace Nexus.Service.Lighting;
 /// </summary>
 public sealed class LightingProvider : ILightingProvider, IDisposable
 {
-    /// <summary>Cap on the stop-path blackout. No OS deadline here, unlike the suspend path - this only bounds a wedged daemon.</summary>
+    /// <summary>Cap on the stop-path OpenRGB push. No OS deadline here, unlike the suspend path - this only bounds a wedged daemon.</summary>
     private static readonly TimeSpan StopBlackoutBudget = TimeSpan.FromSeconds(2);
+
+    /// <summary>Matches SleepBlackoutCoordinator's own budget for the engine to publish the black frame.</summary>
+    private static readonly TimeSpan EnginePublishBudget = TimeSpan.FromMilliseconds(300);
 
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
@@ -175,24 +178,26 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void StopAll()
     {
+        // Before Stop: the render loop is what publishes the black frame, and
+        // every writer needs that frame to blank its own hardware.
+        BlackoutBeforeRelinquish();
         _engine.Stop();
         _store.Update(s =>
         {
             s.Lighting.Sync = "none";
             LightingPresetLooks.CaptureIntoActive(s);
         });
-        BlackoutBeforeRelinquish();
         _rgb?.Deactivate();
         _rgb?.AwaitShutdown();
     }
 
     /// <summary>
-    /// Drives the final black all the way to hardware before <c>Deactivate</c>
-    /// hard-kills OpenRGB. The engine's last frame goes out through the
-    /// fire-and-forget <c>OnFrame</c> path, so a controller whose write is slow
-    /// - an ENE DRAM module over SMBus - is killed mid-write and latches the
-    /// colour it was already showing. Bounded so a wedged daemon cannot hang
-    /// the caller's request; the kill follows either way.
+    /// Drives the final black to hardware before <c>Deactivate</c> hard-kills
+    /// OpenRGB, mirroring the sleep path: hold the engine at level 0 so the
+    /// still-running loop publishes black to every writer, then push the
+    /// OpenRGB devices directly and await each write. Bench-measured on ENE
+    /// DRAM over SMBus: publishing through the loop is what makes the black
+    /// stick - the same push issued after <c>Stop</c> does not.
     /// </summary>
     private void BlackoutBeforeRelinquish()
     {
@@ -200,12 +205,24 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         {
             return;
         }
-        using var cts = new CancellationTokenSource(StopBlackoutBudget);
-        try
-        { _rgb.BlackoutAndConfirmAsync(cts.Token).GetAwaiter().GetResult(); }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
-        { ServiceLog.Warn($"[lighting] stop blackout failed: {ex.Message}"); }
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        _engine.SetBlackout(true);
+        var published = _engine.WaitForBlackout(EnginePublishBudget);
+        var publishedMs = sw.ElapsedMilliseconds;
+
+        var pushed = "ok";
+        using (var cts = new CancellationTokenSource(StopBlackoutBudget))
+        {
+            try
+            { pushed = _rgb.BlackoutAsync(cts.Token).GetAwaiter().GetResult() + " device(s)"; }
+            catch (OperationCanceledException) { pushed = "timeout"; }
+            catch (Exception ex) { pushed = $"failed:{ex.GetType().Name}"; }
+        }
+        var pushedMs = sw.ElapsedMilliseconds - publishedMs;
+
+        ServiceLog.Info(
+            $"[lighting-stop] blackout engine={(published ? "published" : "timeout")}/{publishedMs}ms " +
+            $"openrgb={pushed}/{pushedMs}ms total={sw.ElapsedMilliseconds}ms");
     }
 
     public void Suspend()

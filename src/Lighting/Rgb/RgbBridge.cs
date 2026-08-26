@@ -26,7 +26,7 @@ namespace Nexus.Service.Lighting.Rgb;
 ///   <item><see cref="Deactivate"/> is called when <c>StopAll</c> hits and there's no
 ///         active effect. We unsubscribe and stop the subprocess; blacking the
 ///         hardware out first is the caller's job, via
-///         <see cref="BlackoutAndConfirmAsync"/>.</item>
+///         <see cref="BlackoutAsync"/>.</item>
 /// </list>
 ///
 /// While active, a background loop re-fetches the device list every
@@ -377,7 +377,7 @@ public sealed class RgbBridge : IDisposable
     /// <summary>
     /// Take the bridge offline: disconnect from the SDK server and hard-kill the
     /// subprocess. Nothing is written to hardware here - a caller that needs the
-    /// devices dark awaits <see cref="BlackoutAndConfirmAsync"/> first.
+    /// devices dark awaits <see cref="BlackoutAsync"/> first.
     /// </summary>
     public void Deactivate()
     {
@@ -477,12 +477,13 @@ public sealed class RgbBridge : IDisposable
     /// stops. Devices the user marked not-controlled are skipped: Nexus does not
     /// drive them, so it has no business blanking them either.
     /// </summary>
-    public async Task BlackoutAsync(CancellationToken ct = default)
+    public async Task<int> BlackoutAsync(CancellationToken ct = default)
     {
         if (!IsActive || !_controller.IsConnected)
         {
-            return;
+            return 0;
         }
+        var pushed = 0;
         // Local scratch, not the _physFullyUncontrolled field OnFrame owns:
         // this runs on the power-event thread while the engine may still tick.
         var fullyUncontrolled = new Dictionary<int, bool>();
@@ -497,7 +498,7 @@ public sealed class RgbBridge : IDisposable
             ct.ThrowIfCancellationRequested();
             if (!_controller.IsConnected)
             {
-                return;
+                return pushed;
             }
             if (fullyUncontrolled.TryGetValue(kv.Key, out var skip) && skip)
             {
@@ -506,30 +507,14 @@ public sealed class RgbBridge : IDisposable
             var buffer = kv.Value;
             Array.Clear(buffer, 0, buffer.Length);
             await _controller.PushFrameAsync(kv.Key, buffer, ct).ConfigureAwait(false);
+            pushed++;
         }
 
         // This path wrote black outside OnFrame's bookkeeping; drop the
         // baselines so the first frame after resume always reaches hardware.
         _lastPushed.Clear();
         _lastPushTicks.Clear();
-    }
-
-    /// <summary>
-    /// Blacks out as <see cref="BlackoutAsync"/> does, then round-trips a
-    /// request/reply on the same socket. The SDK server handles one client's
-    /// packets in order, so a reply proves those UPDATE_LEDS packets were
-    /// dispatched to their controllers - the only signal available before
-    /// <see cref="Deactivate"/> hard-kills the subprocess, and what a slow
-    /// SMBus DIMM write needs to land at all.
-    /// </summary>
-    public async Task BlackoutAndConfirmAsync(CancellationToken ct = default)
-    {
-        await BlackoutAsync(ct).ConfigureAwait(false);
-        if (!IsActive || !_controller.IsConnected)
-        {
-            return;
-        }
-        await _controller.GetDevicesAsync(ct).ConfigureAwait(false);
+        return pushed;
     }
 
     /// <summary>

@@ -10,9 +10,9 @@ namespace Nexus.Service.Tests.Lighting.Rgb;
 
 /// <summary>
 /// Turning lighting off hard-kills the OpenRGB subprocess, so the final black
-/// has to be both awaited and acknowledged first - a fire-and-forget push dies
-/// in flight on a slow controller (an ENE DRAM module over SMBus) and the
-/// hardware keeps its last colour.
+/// has to be pushed and awaited first - a fire-and-forget push dies in flight
+/// on a slow controller (an ENE DRAM module over SMBus) and the hardware keeps
+/// its last colour.
 /// </summary>
 public class RgbBridgeStopBlackoutTests : IDisposable
 {
@@ -95,7 +95,7 @@ public class RgbBridgeStopBlackoutTests : IDisposable
     }
 
     [Fact]
-    public async Task Confirmed_blackout_pushes_black_then_round_trips_before_returning()
+    public async Task Blackout_pushes_black_to_every_driven_device()
     {
         _bridge.Activate();
         // The initial-rescan hold delays the first committed device list, and
@@ -108,20 +108,16 @@ public class RgbBridgeStopBlackoutTests : IDisposable
         Assert.NotEmpty(_bridge.Devices);
         _controller.ResetOps();
 
-        await _bridge.BlackoutAndConfirmAsync();
+        var count = await _bridge.BlackoutAsync();
 
-        var ops = _controller.Ops;
-        var pushes = ops.Where(o => o.Kind == "push").ToArray();
+        var pushes = _controller.Ops.Where(o => o.Kind == "push").ToArray();
         Assert.NotEmpty(pushes);
+        Assert.Equal(pushes.Length, count);
         Assert.All(pushes, p => Assert.All(p.Colors!, c => Assert.Equal(default, c)));
-
-        var lastPush = Array.FindLastIndex(ops, o => o.Kind == "push");
-        var confirm = Array.FindIndex(ops, lastPush + 1, o => o.Kind == "getDevices");
-        Assert.True(confirm > lastPush, "the confirming round-trip must follow every black push");
     }
 
     [Fact]
-    public async Task StopAll_confirms_the_blackout_before_the_subprocess_is_stopped()
+    public async Task StopAll_blacks_the_devices_out_before_the_subprocess_is_stopped()
     {
         _bridge.Activate();
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
@@ -147,9 +143,10 @@ public class RgbBridgeStopBlackoutTests : IDisposable
         var ops = _controller.Ops;
         var disconnect = Array.FindIndex(ops, o => o.Kind == "disconnect");
         Assert.True(disconnect >= 0, "StopAll must disconnect");
-        var confirm = Array.FindLastIndex(ops, disconnect, o => o.Kind == "getDevices");
-        Assert.True(confirm >= 0, "the blackout must be acknowledged before the socket closes");
-        var push = Array.FindLastIndex(ops, confirm, o => o.Kind == "push");
-        Assert.True(push >= 0, "black must be pushed before the acknowledging round-trip");
+        var push = Array.FindLastIndex(ops, disconnect, o => o.Kind == "push");
+        Assert.True(push >= 0, "black must reach the devices before the socket closes");
+        Assert.All(
+            ops.Take(disconnect).Where(o => o.Kind == "push"),
+            p => Assert.All(p.Colors!, c => Assert.Equal(default, c)));
     }
 }
