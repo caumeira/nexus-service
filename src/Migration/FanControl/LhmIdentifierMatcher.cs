@@ -128,6 +128,63 @@ internal static class LhmIdentifierMatcher
         || identifier.Contains("/gpu-", StringComparison.OrdinalIgnoreCase)
         || identifier.StartsWith("/gpu", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Vendor token shared by both namespaces, or null when the identifier names no known GPU vendor.</summary>
+    private static string? GpuVendor(string identifier)
+    {
+        if (identifier.StartsWith("NVApiWrapper/", StringComparison.OrdinalIgnoreCase)
+            || identifier.Contains("/gpu-nvidia", StringComparison.OrdinalIgnoreCase))
+        {
+            return "nvidia";
+        }
+        if (identifier.StartsWith("AdlxWrapper/", StringComparison.OrdinalIgnoreCase)
+            || identifier.Contains("/gpu-amd", StringComparison.OrdinalIgnoreCase))
+        {
+            return "amd";
+        }
+        return identifier.Contains("/gpu-intel", StringComparison.OrdinalIgnoreCase) ? "intel" : null;
+    }
+
+    /// <summary>LibreHardwareMonitor's name for the core temperature; a card that labels it otherwise takes the fallback below.</summary>
+    private const string GpuCoreSensorName = "GPU Core";
+
+    private static bool IsGpuTemperature(Candidate candidate) =>
+        IsGpu(candidate.Id) && candidate.Id.Contains("/temperature/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Pairs leftover GPU temperature sources, one vendor at a time, against
+    /// that vendor's core temperatures. FanControl's plugins expose a single
+    /// temperature per card where LHM exposes core, hot spot and memory
+    /// junction, so the counts pairing needs can only be reached by narrowing;
+    /// narrowing across vendors would let an NVIDIA curve bind to an iGPU whose
+    /// dGPU was asleep at import time, so the vendor must correspond first.
+    /// </summary>
+    public static Dictionary<string, string> PairGpuTemperatures(
+        IReadOnlyList<string> unmatchedSources, IReadOnlyList<Candidate> freeCandidates)
+    {
+        var pairs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var byVendor = unmatchedSources.Where(IsGpu)
+            .GroupBy(id => GpuVendor(id), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in byVendor)
+        {
+            if (group.Key is null)
+            {
+                continue;
+            }
+            var candidates = freeCandidates
+                .Where(c => IsGpuTemperature(c) && string.Equals(GpuVendor(c.Id), group.Key, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var cores = candidates
+                .Where(c => string.Equals(c.Name, GpuCoreSensorName, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            foreach (var (source, target) in PairGpuByPosition(group.ToList(), cores.Count > 0 ? cores : candidates))
+            {
+                pairs[source] = target;
+            }
+        }
+        return pairs;
+    }
+
     /// <summary>
     /// Pairs leftover GPU fans by position, which is the only bridge between
     /// the two GPU identifier namespaces. Only when both sides report the same

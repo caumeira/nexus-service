@@ -271,9 +271,9 @@ internal static class FanControlImportMapper
     /// Every temperature source the config's curves point at, resolved to a
     /// local sensor id (null when nothing here matches). Identifier, then the
     /// sensor's hardware-reported name - the same string on both sides, but absent
-    /// from every temperature source in the v275 capture - then position within the GPU class,
-    /// which is the only bridge for a GPU sensor FanControl reads through its own
-    /// NvAPI or ADLX plugin.
+    /// from every temperature source in the v275 capture - then position within the
+    /// vendor's GPU core temperatures, the only bridge for a GPU sensor FanControl
+    /// reads through its own NvAPI or ADLX plugin.
     /// </summary>
     private static Dictionary<string, string?> ResolveSensors(
         FanControlConfig config, IReadOnlyList<LhmIdentifierMatcher.Candidate> sensors)
@@ -303,7 +303,7 @@ internal static class FanControlImportMapper
             }
         }
 
-        var gpuPairs = LhmIdentifierMatcher.PairGpuByPosition(
+        var gpuPairs = LhmIdentifierMatcher.PairGpuTemperatures(
             wanted.Where(w => w.Value is null).Select(w => w.Key).ToList(),
             sensors.Where(c => !taken.Contains(c.Id)).ToList());
         foreach (var (source, target) in gpuPairs)
