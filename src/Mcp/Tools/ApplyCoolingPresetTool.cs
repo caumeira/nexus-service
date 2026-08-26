@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Cooling;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Mcp;
 using Nexus.Service.Persistence;
 using Nexus.Service.Serialization;
@@ -21,12 +22,14 @@ public sealed class ApplyCoolingPresetTool : IMcpTool
     private readonly IFanControlProvider _fans;
     private readonly IConfigStore _store;
     private readonly MultiplexHub _hub;
+    private readonly FeatureGates _gates;
 
-    public ApplyCoolingPresetTool(IFanControlProvider fans, IConfigStore store, MultiplexHub hub)
+    public ApplyCoolingPresetTool(IFanControlProvider fans, IConfigStore store, MultiplexHub hub, FeatureGates? gates = null)
     {
         _fans = fans;
         _store = store;
         _hub = hub;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public string Name => "apply_cooling_preset";
@@ -48,6 +51,10 @@ public sealed class ApplyCoolingPresetTool : IMcpTool
 
     public Task<McpToolExecutionResult> ExecuteAsync(JsonElement? args, CancellationToken ct)
     {
+        if (!_gates.Cooling)
+        {
+            return Task.FromResult(McpToolExecutionResult.Error("Cooling is disabled in Settings."));
+        }
         var preset = McpArgs.StringArg(args, "preset");
         if (string.IsNullOrEmpty(preset) || !ValidPresets.Contains(preset, StringComparer.OrdinalIgnoreCase))
         {

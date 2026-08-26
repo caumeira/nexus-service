@@ -9,6 +9,7 @@ using Nexus.Service.Activity;
 using Nexus.Service.Audio;
 using Nexus.Service.Cooling;
 using Nexus.Service.Devices;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
 using Nexus.Service.Models.Activity;
 using Nexus.Service.Models.Peripherals.StreamDeck;
@@ -56,6 +57,8 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
 
     private enum DispatchOutcome { Ok, Unknown }
 
+    private readonly FeatureGates _gates;
+
     public DeckActionExecutor(
         SystemActions system,
         ILightingDeviceProvider lightingDevices,
@@ -68,7 +71,8 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         IMediaProvider media,
         MultiplexHub hub,
         Lazy<IDeckSurfaceControl> deckSurface,
-        AudioFilePlayer audioPlayer)
+        AudioFilePlayer audioPlayer,
+        FeatureGates? gates = null)
     {
         _system = system;
         _lightingDevices = lightingDevices;
@@ -82,6 +86,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         _hub = hub;
         _deckSurface = deckSurface;
         _audioPlayer = audioPlayer;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     /// <summary>Test seam: the most recent dispatch's outcome ("ok" | "unknown" | "failed") and, for a failure, its error text - mirrors the [streamdeck] dispatch log line without needing a console-capture harness.</summary>
@@ -453,19 +458,19 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 return;
             }
             case "lightingPower":
-                if (!string.IsNullOrEmpty(na.DeviceId))
+                if (_gates.Lighting && !string.IsNullOrEmpty(na.DeviceId))
                 {
                     _lightingDevices.SetPower(na.DeviceId, na.On ?? true);
                 }
                 return;
             case "fanProfile":
-                if (!string.IsNullOrEmpty(na.Profile))
+                if (_gates.Cooling && !string.IsNullOrEmpty(na.Profile))
                 {
                     FanProfiles.Apply(na.Profile, _fans, _store);
                 }
                 return;
             case "fanSpeed":
-                if (!string.IsNullOrEmpty(na.FanId))
+                if (_gates.Cooling && !string.IsNullOrEmpty(na.FanId))
                 {
                     _fans.SetFanSpeed(na.FanId, (int)Math.Clamp(na.Value ?? 0, 0, 100));
                 }

@@ -405,17 +405,13 @@ public static class ProfileRoutes
             }
         });
 
-        app.MapPost("/preferences", (PreferencesPatch body, IConfigStore store, ProfileManager pm, MultiplexHub hub, Nexus.Service.Lifecycle.FeatureReconciler reconciler) =>
+        app.MapPost("/preferences", (PreferencesPatch body, ProfileManager pm, MultiplexHub hub, Nexus.Service.Lifecycle.FeatureReconciler reconciler) =>
         {
-            var beforeFeatures = store.Load().Features;
-            var before = new FeaturesSettings
-            {
-                Lighting = beforeFeatures.Lighting,
-                Cooling = beforeFeatures.Cooling,
-                Monitoring = beforeFeatures.Monitoring,
-                Diagnostics = beforeFeatures.Diagnostics,
-            };
-            store.Update(s =>
+            // ApplyPatch runs the mutation and the Features before/after
+            // transition under the reconciler's own lock, so a concurrent
+            // PATCH /preferences cannot interleave its own before-snapshot
+            // or mutation with this one.
+            reconciler.ApplyPatch(s =>
             {
                 if (body.Theme is { } theme)
                 {
@@ -580,7 +576,6 @@ public static class ProfileRoutes
                     }
                 }
             });
-            reconciler.Apply(before, store.Load().Features);
             pm.MarkDirty();
             PanelTopics.BroadcastPrefs(hub);
             return ApiResponse.Ok();

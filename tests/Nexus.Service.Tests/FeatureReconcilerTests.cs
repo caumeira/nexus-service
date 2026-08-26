@@ -14,10 +14,11 @@ using Xunit;
 namespace Nexus.Service.Tests;
 
 /// <summary>
-/// FeatureReconciler.Apply is the one-time transition side effect fired from
-/// PATCH /preferences; per-tick gating lives in the workers themselves. These
-/// tests drive Apply directly against recording fakes, the same shape
-/// McpTestHarness/DeckActionExecutorTests use for ILightingProvider.
+/// FeatureReconciler.Apply/ApplyPatch are the one-time transition side
+/// effects fired from PATCH /preferences; per-tick gating lives in the
+/// workers themselves. These tests drive them directly against recording
+/// fakes and a real CurveEngine, the same shape McpTestHarness/
+/// DeckActionExecutorTests use for ILightingProvider.
 /// </summary>
 public class FeatureReconcilerTests
 {
@@ -82,20 +83,22 @@ public class FeatureReconcilerTests
         public IHidDevice? Open(string path, bool forInput = false) => null;
     }
 
-    private static (FeatureReconciler Reconciler, RecordingLightingProvider Lighting, RecordingFanControlProvider Fans, InMemoryConfigStore Store) Build()
+    private static (FeatureReconciler Reconciler, RecordingLightingProvider Lighting, RecordingFanControlProvider Fans, CurveEngine CurveEngine, InMemoryConfigStore Store) Build()
     {
         var store = new InMemoryConfigStore();
+        var gates = new FeatureGates(store);
         var lighting = new RecordingLightingProvider();
         var fans = new RecordingFanControlProvider();
+        var curveEngine = new CurveEngine(fans, store, new Nexus.Service.Sockets.MultiplexHub(), gates);
         var keeb = new KeebSettingsApplier(new KeebHub(new NoDevices()), store, new Nexus.Service.Sockets.MultiplexHub());
-        var reconciler = new FeatureReconciler(lighting, fans, store, keeb);
-        return (reconciler, lighting, fans, store);
+        var reconciler = new FeatureReconciler(lighting, curveEngine, store, keeb);
+        return (reconciler, lighting, fans, curveEngine, store);
     }
 
     [Fact]
     public void Apply_LightingOffToOn_ReplaysPersistedSync()
     {
-        var (reconciler, lighting, _, store) = Build();
+        var (reconciler, lighting, _, _, store) = Build();
         store.Update(s => s.Lighting.Sync = "plasma");
         var before = new FeaturesSettings { Lighting = false, Cooling = true, Monitoring = true, Diagnostics = true };
         var after = new FeaturesSettings { Lighting = true, Cooling = true, Monitoring = true, Diagnostics = true };
@@ -110,7 +113,7 @@ public class FeatureReconcilerTests
     [Fact]
     public void Apply_LightingOnToOff_SuspendsOnce()
     {
-        var (reconciler, lighting, _, _) = Build();
+        var (reconciler, lighting, _, _, _) = Build();
         var before = new FeaturesSettings { Lighting = true, Cooling = true, Monitoring = true, Diagnostics = true };
         var after = new FeaturesSettings { Lighting = false, Cooling = true, Monitoring = true, Diagnostics = true };
 
@@ -122,21 +125,41 @@ public class FeatureReconcilerTests
     }
 
     [Fact]
-    public void Apply_CoolingOnToOff_ReleasesOnce()
+    public void Apply_CoolingOnToOff_DoesNotReleaseImmediately_OnlyQueuesTheRequest()
     {
-        var (reconciler, _, fans, _) = Build();
+        // The release must go through CurveEngine's own serialized tick loop
+        // (RequestRelease), never a direct fans.ReleaseAll() from the PATCH
+        // thread, or an in-flight tick that already read the gate as
+        // enabled could still write a duty after this call returns.
+        var (reconciler, _, fans, _, _) = Build();
         var before = new FeaturesSettings { Lighting = true, Cooling = true, Monitoring = true, Diagnostics = true };
         var after = new FeaturesSettings { Lighting = true, Cooling = false, Monitoring = true, Diagnostics = true };
 
         reconciler.Apply(before, after);
 
+        Assert.Equal(0, fans.ReleaseAllCallCount);
+    }
+
+    [Fact]
+    public void Apply_CoolingOnToOff_ReleasesOnce_OnTheNextDisabledTick()
+    {
+        var (reconciler, _, fans, curveEngine, store) = Build();
+        var before = new FeaturesSettings { Lighting = true, Cooling = true, Monitoring = true, Diagnostics = true };
+        var after = new FeaturesSettings { Lighting = true, Cooling = false, Monitoring = true, Diagnostics = true };
+        reconciler.Apply(before, after);
+        store.Update(s => s.Features.Cooling = false);
+
+        curveEngine.Tick();
+        Assert.Equal(1, fans.ReleaseAllCallCount);
+
+        curveEngine.Tick();
         Assert.Equal(1, fans.ReleaseAllCallCount);
     }
 
     [Fact]
     public void Apply_CoolingOffToOn_DoesNotReleaseOrDriveFans()
     {
-        var (reconciler, _, fans, _) = Build();
+        var (reconciler, _, fans, _, _) = Build();
         var before = new FeaturesSettings { Lighting = true, Cooling = false, Monitoring = true, Diagnostics = true };
         var after = new FeaturesSettings { Lighting = true, Cooling = true, Monitoring = true, Diagnostics = true };
 
@@ -148,7 +171,7 @@ public class FeatureReconcilerTests
     [Fact]
     public void Apply_NoTransition_TouchesNothing()
     {
-        var (reconciler, lighting, fans, _) = Build();
+        var (reconciler, lighting, fans, _, _) = Build();
         var same = new FeaturesSettings { Lighting = true, Cooling = true, Monitoring = true, Diagnostics = true };
 
         reconciler.Apply(same, same);
@@ -156,6 +179,31 @@ public class FeatureReconcilerTests
         Assert.Equal(0, lighting.SuspendCallCount);
         Assert.Equal(0, lighting.StopAllCallCount);
         Assert.Empty(lighting.StartAnimateCalls);
+        Assert.Equal(0, fans.ReleaseAllCallCount);
+    }
+
+    [Fact]
+    public void ApplyPatch_CoolingOnToOff_MutatesStoreAndQueuesTheRelease()
+    {
+        var (reconciler, _, fans, curveEngine, store) = Build();
+
+        reconciler.ApplyPatch(s => s.Features.Cooling = false);
+
+        Assert.False(store.Load().Features.Cooling);
+        Assert.Equal(0, fans.ReleaseAllCallCount);
+        curveEngine.Tick();
+        Assert.Equal(1, fans.ReleaseAllCallCount);
+    }
+
+    [Fact]
+    public void ApplyPatch_UnrelatedField_DoesNotTriggerATransition()
+    {
+        var (reconciler, lighting, fans, _, store) = Build();
+
+        reconciler.ApplyPatch(s => s.StartupDelaySeconds = 5);
+
+        Assert.Equal(5, store.Load().StartupDelaySeconds);
+        Assert.Equal(0, lighting.SuspendCallCount);
         Assert.Equal(0, fans.ReleaseAllCallCount);
     }
 }

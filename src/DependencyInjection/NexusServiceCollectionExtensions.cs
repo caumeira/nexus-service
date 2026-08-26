@@ -452,7 +452,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton(sp => new Nexus.Service.Lighting.SleepBlackoutCoordinator(
             sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>(),
             sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
-            sp.GetService<Nexus.Service.Lighting.Rgb.RgbBridge>()));
+            sp.GetService<Nexus.Service.Lighting.Rgb.RgbBridge>(),
+            sp.GetRequiredService<Nexus.Service.Lifecycle.FeatureGates>()));
 
         if (OperatingSystem.IsWindows())
             services.AddHostedService<Nexus.Service.Lighting.Rgb.PowerEventListener>();

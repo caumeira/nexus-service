@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using Nexus.Service.Cooling;
 using Nexus.Service.Lighting;
@@ -8,56 +9,96 @@ namespace Nexus.Service.Lifecycle;
 
 /// <summary>
 /// Drives the one-time transition side effects when a feature pillar flips
-/// on or off, called only from the PATCH /preferences handler after the new
-/// flags are persisted. Per-tick gating (skip writes while a pillar stays
-/// off) lives in the gated workers themselves via <see cref="FeatureGates"/>;
-/// this class only handles the edge.
+/// on or off. Per-tick gating (skip writes while a pillar stays off) lives
+/// in the gated workers themselves via <see cref="FeatureGates"/>; this
+/// class only handles the edge.
 ///
 /// Serialized under a semaphore, the same shape as
 /// <see cref="Nexus.Service.Mcp.McpServerHost"/>'s lifecycle lock, so two
 /// near-simultaneous PATCH requests cannot interleave a suspend with a
-/// resume.
+/// resume, or race each other's before/after Features snapshot.
 /// </summary>
 public sealed class FeatureReconciler
 {
     private readonly ILightingProvider _lighting;
-    private readonly IFanControlProvider _fans;
+    private readonly CurveEngine _curveEngine;
     private readonly IConfigStore _store;
     private readonly KeebSettingsApplier _keeb;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
-    public FeatureReconciler(ILightingProvider lighting, IFanControlProvider fans, IConfigStore store, KeebSettingsApplier keeb)
+    public FeatureReconciler(ILightingProvider lighting, CurveEngine curveEngine, IConfigStore store, KeebSettingsApplier keeb)
     {
         _lighting = lighting;
-        _fans = fans;
+        _curveEngine = curveEngine;
         _store = store;
         _keeb = keeb;
     }
 
-    /// <summary>Applies the transition between two Features snapshots. Values other than the four flags are ignored.</summary>
+    /// <summary>Applies the transition between two Features snapshots directly (ApplyPatch is the production entry point). Values other than the four flags are ignored.</summary>
     public void Apply(FeaturesSettings before, FeaturesSettings after)
     {
         _lock.Wait();
         try
         {
-            if (before.Lighting && !after.Lighting)
-            {
-                _lighting.Suspend();
-            }
-            else if (!before.Lighting && after.Lighting)
-            {
-                LiveEngineSync.ApplyLighting(_store, _lighting);
-                _keeb.Apply();
-            }
-
-            if (before.Cooling && !after.Cooling)
-            {
-                _fans.ReleaseAll();
-            }
+            ApplyTransitionLocked(before, after);
         }
         finally
         {
             _lock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Applies a settings mutation and its Features transition as one atomic
+    /// unit: the before-snapshot, the mutation, the after-snapshot, and the
+    /// transition side effects all run under the same lock, so a concurrent
+    /// PATCH /preferences cannot read a before-snapshot this call has
+    /// already superseded, or land its own mutation in between.
+    /// </summary>
+    public void ApplyPatch(Action<NexusSettings> applyPatch)
+    {
+        _lock.Wait();
+        try
+        {
+            var before = SnapshotFeatures();
+            _store.Update(applyPatch);
+            var after = SnapshotFeatures();
+            ApplyTransitionLocked(before, after);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    private FeaturesSettings SnapshotFeatures()
+    {
+        var f = _store.Load().Features;
+        return new FeaturesSettings
+        {
+            Lighting = f.Lighting,
+            Cooling = f.Cooling,
+            Monitoring = f.Monitoring,
+            Diagnostics = f.Diagnostics,
+        };
+    }
+
+    // Caller holds _lock.
+    private void ApplyTransitionLocked(FeaturesSettings before, FeaturesSettings after)
+    {
+        if (before.Lighting && !after.Lighting)
+        {
+            _lighting.Suspend();
+        }
+        else if (!before.Lighting && after.Lighting)
+        {
+            LiveEngineSync.ApplyLighting(_store, _lighting);
+            _keeb.Apply();
+        }
+
+        if (before.Cooling && !after.Cooling)
+        {
+            _curveEngine.RequestRelease();
         }
     }
 }

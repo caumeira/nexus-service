@@ -68,6 +68,13 @@ public sealed class CurveEngine : BackgroundService
     private int _intervalMs = 1000;
     private readonly FeatureGates _gates;
 
+    // Set by FeatureReconciler on the Cooling ON->OFF edge, consumed by the
+    // next disabled Tick (or StopAsync, if shutdown lands first) so the
+    // release is serialized through the same single-threaded tick loop as
+    // every curve write - it can never race ahead of or behind an in-flight
+    // tick that already read the gate as enabled this cycle.
+    private int _pendingRelease;
+
     public CurveEngine(
         IFanControlProvider fans,
         IConfigStore store,
@@ -78,6 +85,22 @@ public sealed class CurveEngine : BackgroundService
         _store = store;
         _hub = hub;
         _gates = gates ?? FeatureGates.AllEnabled;
+    }
+
+    public void RequestRelease() => Interlocked.Exchange(ref _pendingRelease, 1);
+
+    private void ReleaseIfPending()
+    {
+        if (Interlocked.Exchange(ref _pendingRelease, 0) != 1)
+        {
+            return;
+        }
+        try
+        {
+            _fans.ReleaseAll();
+            Console.Error.WriteLine("[curve-engine] released all fans (Cooling disabled)");
+        }
+        catch { /* swallow */ }
     }
 
     public int GetInterval() => _intervalMs;
@@ -120,11 +143,12 @@ public sealed class CurveEngine : BackgroundService
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         await base.StopAsync(cancellationToken);
-        // While disabled the ON->OFF reconciler already released every fan,
-        // and no tick has driven one since; releasing again is a write the
-        // Cooling-off contract forbids.
         if (!_gates.Cooling)
         {
+            // Fulfills a still-pending release if shutdown lands before the
+            // next disabled tick would have; otherwise a prior tick already
+            // released and this is a no-op write the Cooling-off contract forbids.
+            ReleaseIfPending();
             return;
         }
         try
@@ -149,6 +173,7 @@ public sealed class CurveEngine : BackgroundService
     {
         if (!_gates.Cooling)
         {
+            ReleaseIfPending();
             ForgetWritesNotOwned(null);
             ClearManualReplayed();
             return;

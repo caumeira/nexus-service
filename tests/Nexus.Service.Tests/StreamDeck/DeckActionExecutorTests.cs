@@ -487,6 +487,63 @@ public sealed class DeckActionExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task Nexus_LightingPower_GateOff_DoesNotSetPower()
+    {
+        _store.Update(s => s.Features.Lighting = false);
+        var executor = BuildExecutorWithRealGates();
+
+        await executor.ExecuteAsync(
+            new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "lightingPower", DeviceId = "dev-1", On = false } },
+            "dev", 0, "dev:0", CancellationToken.None);
+
+        Assert.Null(_lightingDevices.LastPower);
+    }
+
+    [Fact]
+    public async Task Nexus_FanSpeed_GateOff_DoesNotSetDuty()
+    {
+        _store.Update(s => s.Features.Cooling = false);
+        var executor = BuildExecutorWithRealGates();
+
+        await executor.ExecuteAsync(
+            new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "fanSpeed", FanId = "fan-1", Value = 100 } },
+            "dev", 0, "dev:0", CancellationToken.None);
+
+        Assert.Null(_fans.LastSetSpeed);
+    }
+
+    [Fact]
+    public async Task Nexus_FanProfile_GateOff_DoesNotApplyThePreset()
+    {
+        var before = _store.Load().Cooling.ActivePreset;
+        _store.Update(s => s.Features.Cooling = false);
+        var executor = BuildExecutorWithRealGates();
+
+        await executor.ExecuteAsync(
+            new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "fanProfile", Profile = "silent" } },
+            "dev", 0, "dev:0", CancellationToken.None);
+
+        Assert.Equal(before, _store.Load().Cooling.ActivePreset);
+    }
+
+    // The default _executor is built once at fixture construction with
+    // FeatureGates.AllEnabled (decoupled from _store), so it cannot observe
+    // a gate flip - these tests build their own executor wired to a real
+    // FeatureGates(_store) instead.
+    private DeckActionExecutor BuildExecutorWithRealGates()
+    {
+        var system = new Nexus.Service.Actions.SystemActions(
+            _inputter, _clipboard, _power, _audio, _volume, _shortcuts,
+            new ServiceCollection().BuildServiceProvider());
+        var displayBrightness = new DisplayBrightnessController(_displayProvider);
+        return new DeckActionExecutor(
+            system, _lightingDevices, _lighting, _fans, _store, _profiles, _y70, displayBrightness, _media, new MultiplexHub(),
+            new Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(() => _deckSurface),
+            new Nexus.Service.Audio.AudioFilePlayer(),
+            new Nexus.Service.Lifecycle.FeatureGates(_store));
+    }
+
+    [Fact]
     public async Task Nexus_Y70Power_InvertsOnIntoTheToggleCall()
     {
         await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "y70Power", On = true } });

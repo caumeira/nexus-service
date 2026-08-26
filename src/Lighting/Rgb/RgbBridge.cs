@@ -274,14 +274,6 @@ public sealed class RgbBridge : IDisposable
     /// </summary>
     public void Activate()
     {
-        // Hard backstop: OpenRGB may never spawn while Lighting is off,
-        // regardless of caller (routes, MCP, Deck, auto-restore, a power-
-        // resume reconnect). Checked ahead of the idempotent _active guard
-        // below so a caller cannot race the flag between check and lock.
-        if (!_gates.Lighting)
-        {
-            return;
-        }
         Action<ReadOnlyMemory<byte>>? newFrameHandler;
         Action? newDeviceListHandler;
         CancellationTokenSource? newCts;
@@ -289,7 +281,12 @@ public sealed class RgbBridge : IDisposable
 
         lock (_lock)
         {
-            if (_disposed || _active)
+            // Hard backstop: OpenRGB may never spawn while Lighting is off,
+            // regardless of caller (routes, MCP, Deck, auto-restore, a power-
+            // resume reconnect). Re-checked here, not before the lock, so a
+            // caller that read the gate as true cannot win a race against a
+            // Suspend() that flips it and deactivates under the same lock.
+            if (!_gates.Lighting || _disposed || _active)
             {
                 return;
             }

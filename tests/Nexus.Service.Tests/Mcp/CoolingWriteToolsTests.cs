@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Cooling;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Mcp;
 using Nexus.Service.Mcp.Tools;
 using Nexus.Service.Models.Cooling;
@@ -87,6 +88,21 @@ public sealed class CoolingWriteToolsTests : IDisposable
         Assert.True(result.IsError);
     }
 
+    [Fact]
+    public async Task ApplyCoolingPreset_gate_off_is_error_and_does_not_apply()
+    {
+        var store = NewStore();
+        store.Update(s => s.Features.Cooling = false);
+        var before = store.Load().Cooling.ActivePreset;
+        var tool = new ApplyCoolingPresetTool(NewFans(), store, new MultiplexHub(), new FeatureGates(store));
+
+        var args = JsonSerializer.SerializeToElement(new { preset = "balanced" });
+        var result = await tool.ExecuteAsync(args, CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal(before, store.Load().Cooling.ActivePreset);
+    }
+
     // ── set_global_fan_speed ────────────────────────────────────────────────
 
     [Fact]
@@ -127,6 +143,21 @@ public sealed class CoolingWriteToolsTests : IDisposable
         var result = await tool.ExecuteAsync(args, CancellationToken.None);
 
         Assert.True(result.IsError);
+    }
+
+    [Fact]
+    public async Task SetGlobalFanSpeed_gate_off_is_error_and_does_not_persist()
+    {
+        var store = NewStore();
+        store.Update(s => s.Features.Cooling = false);
+        var before = store.Load().Cooling.GlobalSpeedModifier;
+        var tool = new SetGlobalFanSpeedTool(new StubCoolingProvider(store), NewFans(), store, new MultiplexHub(), new FeatureGates(store));
+
+        var args = JsonSerializer.SerializeToElement(new { percent = 50 });
+        var result = await tool.ExecuteAsync(args, CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Equal(before, store.Load().Cooling.GlobalSpeedModifier, precision: 6);
     }
 
     // ── set_fan_curve ───────────────────────────────────────────────────────
@@ -257,6 +288,20 @@ public sealed class CoolingWriteToolsTests : IDisposable
             CurveArgs(new object[] { new { temp = 30, speed = 20 } }, new[] { "fan-1" }, input: "ambient"), CancellationToken.None);
 
         Assert.True(result.IsError);
+    }
+
+    [Fact]
+    public async Task SetFanCurve_gate_off_is_error_and_does_not_create_a_curve()
+    {
+        var store = NewStore();
+        store.Update(s => s.Features.Cooling = false);
+        var tool = new SetFanCurveTool(new StubCoolingProvider(store), NewFans(), store, new MultiplexHub(), new FeatureGates(store));
+
+        var result = await tool.ExecuteAsync(
+            CurveArgs(new object[] { new { temp = 30, speed = 20 } }, new[] { "fan-1" }), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Empty(store.Load().Cooling.Curves);
     }
 
     [Fact]

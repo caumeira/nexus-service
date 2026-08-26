@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Cooling;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Models.Mcp;
 using Nexus.Service.Persistence;
@@ -39,13 +40,15 @@ public sealed class SetFanCurveTool : IMcpTool
     private readonly IFanControlProvider _fans;
     private readonly IConfigStore _store;
     private readonly MultiplexHub _hub;
+    private readonly FeatureGates _gates;
 
-    public SetFanCurveTool(ICurveProvider curves, IFanControlProvider fans, IConfigStore store, MultiplexHub hub)
+    public SetFanCurveTool(ICurveProvider curves, IFanControlProvider fans, IConfigStore store, MultiplexHub hub, FeatureGates? gates = null)
     {
         _curves = curves;
         _fans = fans;
         _store = store;
         _hub = hub;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     public string Name => "set_fan_curve";
@@ -74,6 +77,10 @@ public sealed class SetFanCurveTool : IMcpTool
 
     public Task<McpToolExecutionResult> ExecuteAsync(JsonElement? args, CancellationToken ct)
     {
+        if (!_gates.Cooling)
+        {
+            return Task.FromResult(McpToolExecutionResult.Error("Cooling is disabled in Settings."));
+        }
         var pointsResult = ParsePoints(args);
         if (pointsResult.Error is not null)
         {

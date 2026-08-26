@@ -165,13 +165,13 @@ public sealed class MetricsSampler : IHostedService, IDisposable
             }
         }
 
-        // Graceful stop: flush whatever the buffer holds so a clean shutdown
-        // never drops up to FlushSeconds worth of unflushed samples. Skipped
-        // while disabled - the disabled edge in Tick already flushed the tail
-        // and no samples have buffered since.
+        // Graceful stop: flush whatever the buffer holds, regardless of the
+        // gate - any buffered sample was appended only while Monitoring was
+        // on, and skipping this because the gate later flipped off would
+        // drop it if shutdown lands before the next tick's own edge-flush.
         try
         {
-            if (_gates.Monitoring)
+            if (_buffer.PendingSnapshot().Count > 0 || _appBuffer.PendingSnapshot().Count > 0)
             {
                 Flush(DateTime.UtcNow);
             }
