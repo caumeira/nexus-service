@@ -179,6 +179,13 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         _rgb?.AwaitShutdown();
     }
 
+    public void Suspend()
+    {
+        _engine.Stop();
+        _rgb?.Deactivate();
+        _rgb?.AwaitShutdown();
+    }
+
     public void SetBrightness(BrightnessScale scale) => _store.Update(s =>
     {
         s.Lighting.BrightnessScale = scale.Scale;

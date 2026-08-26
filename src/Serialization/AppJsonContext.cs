@@ -29,6 +29,7 @@ namespace Nexus.Service.Serialization;
 
 // Ping + Auth
 [JsonSerializable(typeof(ApiResponse))]
+[JsonSerializable(typeof(FeatureDisabledResponse))]
 [JsonSerializable(typeof(PingResponse))]
 [JsonSerializable(typeof(PairResponse))]
 
@@ -230,6 +231,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsThresholdsPatch))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsNotificationsPatch))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsComponentsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.FeaturesSettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.FeaturesSettingsPatch))]
 
 // Panel widget engine - per-device records, layouts, control-state push frames.
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelLayoutDto))]

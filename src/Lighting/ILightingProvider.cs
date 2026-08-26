@@ -13,6 +13,14 @@ public interface ILightingProvider
     void SetSync(string sync);
     void StopAll();
 
+    /// <summary>
+    /// Suspend the live engine and OpenRGB bridge without touching the
+    /// persisted Sync mode, so a later re-enable can replay it. Used by the
+    /// Lighting feature toggle; StopAll's Sync="none" persist would erase
+    /// what to restore.
+    /// </summary>
+    void Suspend();
+
     /// <summary>True when the active effect's rendered frame is frozen.</summary>
     bool IsPaused { get; }
 

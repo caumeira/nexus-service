@@ -206,6 +206,7 @@ public static class ProfileRoutes
                 Diagnostics = s.Diagnostics,
                 StartupDelaySeconds = s.StartupDelaySeconds,
                 DisableGpuMonitoring = s.DisableGpuMonitoring,
+                Features = s.Features,
             };
         }).AllowPanel();
 
@@ -404,8 +405,16 @@ public static class ProfileRoutes
             }
         });
 
-        app.MapPost("/preferences", (PreferencesPatch body, IConfigStore store, ProfileManager pm, MultiplexHub hub) =>
+        app.MapPost("/preferences", (PreferencesPatch body, IConfigStore store, ProfileManager pm, MultiplexHub hub, Nexus.Service.Lifecycle.FeatureReconciler reconciler) =>
         {
+            var beforeFeatures = store.Load().Features;
+            var before = new FeaturesSettings
+            {
+                Lighting = beforeFeatures.Lighting,
+                Cooling = beforeFeatures.Cooling,
+                Monitoring = beforeFeatures.Monitoring,
+                Diagnostics = beforeFeatures.Diagnostics,
+            };
             store.Update(s =>
             {
                 if (body.Theme is { } theme)
@@ -530,6 +539,13 @@ public static class ProfileRoutes
                 {
                     s.DisableGpuMonitoring = disableGpu;
                 }
+                if (body.Features is { } features)
+                {
+                    if (features.Lighting.HasValue) s.Features.Lighting = features.Lighting.Value;
+                    if (features.Cooling.HasValue) s.Features.Cooling = features.Cooling.Value;
+                    if (features.Monitoring.HasValue) s.Features.Monitoring = features.Monitoring.Value;
+                    if (features.Diagnostics.HasValue) s.Features.Diagnostics = features.Diagnostics.Value;
+                }
                 if (body.Diagnostics is { } diagnostics)
                 {
                     if (diagnostics.Thresholds is { } thresholds)
@@ -564,6 +580,7 @@ public static class ProfileRoutes
                     }
                 }
             });
+            reconciler.Apply(before, store.Load().Features);
             pm.MarkDirty();
             PanelTopics.BroadcastPrefs(hub);
             return ApiResponse.Ok();

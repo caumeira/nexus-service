@@ -42,6 +42,8 @@ public static class NexusServiceCollectionExtensions
 #endif
         services.AddSingleton<IConfigStore, JsonConfigStore>();
         services.AddSingleton<TokenService>();
+        services.AddSingleton<Nexus.Service.Lifecycle.FeatureGates>();
+        services.AddSingleton<Nexus.Service.Lifecycle.FeatureReconciler>();
 
 #if WINDOWS
         services.AddSingleton<IFpsProvider, WindowsFpsProvider>();

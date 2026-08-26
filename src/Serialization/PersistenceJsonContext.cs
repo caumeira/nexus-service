@@ -61,6 +61,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(DiagnosticsThresholds))]
 [JsonSerializable(typeof(DiagnosticsNotifications))]
 [JsonSerializable(typeof(DiagnosticsComponents))]
+[JsonSerializable(typeof(FeaturesSettings))]
 [JsonSerializable(typeof(PanelLayoutsDefaults))]
 [JsonSerializable(typeof(PanelLayoutDefault))]
 [JsonSerializable(typeof(PanelLayoutWidget))]
