@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Platform;
@@ -83,12 +84,14 @@ public sealed class SleepBlackoutCoordinator
     private readonly LightingEngine _engine;
     private readonly IConfigStore _store;
     private readonly RgbBridge? _bridge;
+    private readonly FeatureGates _gates;
 
-    public SleepBlackoutCoordinator(LightingEngine engine, IConfigStore store, RgbBridge? bridge = null)
+    public SleepBlackoutCoordinator(LightingEngine engine, IConfigStore store, RgbBridge? bridge = null, FeatureGates? gates = null)
     {
         _engine = engine;
         _store = store;
         _bridge = bridge;
+        _gates = gates ?? FeatureGates.AllEnabled;
     }
 
     /// <summary>
@@ -109,6 +112,10 @@ public sealed class SleepBlackoutCoordinator
     {
         try
         {
+            if (!_gates.Lighting)
+            {
+                return;
+            }
             if (!_store.Load().Lighting.SleepBlackout)
             {
                 return;
@@ -149,6 +156,10 @@ public sealed class SleepBlackoutCoordinator
     {
         try
         {
+            if (!_gates.Lighting)
+            {
+                return;
+            }
             if (!_engine.Blackout)
             {
                 return;
