@@ -1,5 +1,6 @@
 using Nexus.Service.Auth;
 using Nexus.Service.Devices;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Engine.Gpu;
 using Nexus.Service.Models;
@@ -189,31 +190,47 @@ public static class LightingRoutes
             return ApiResponse.Ok();
         }).LocalhostOnly();
         // Headless start endpoints
-        app.MapPost("/lighting/animate/headless-start", (AnimateHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
+        app.MapPost("/lighting/animate/headless-start", (AnimateHeadlessStart body, ILightingProvider l, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             l.StartAnimate(body);
             PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
-        app.MapPost("/lighting/static/headless-start", (StaticHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
+        app.MapPost("/lighting/static/headless-start", (StaticHeadlessStart body, ILightingProvider l, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             try { l.StartStatic(body); }
-            catch (System.ArgumentException ex) { return ApiResponse.Fail(ex.Message); }
+            catch (System.ArgumentException ex) { return Results.Ok(ApiResponse.Fail(ex.Message)); }
             PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
-        app.MapPost("/lighting/screen/headless-start", (ScreenHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
+        app.MapPost("/lighting/screen/headless-start", (ScreenHeadlessStart body, ILightingProvider l, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             l.StartScreen(body);
             PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
         // Re-open the OS screen picker to change the mirrored screen (Wayland).
-        app.MapPost("/lighting/screen/reselect", (ILightingProvider l, MultiplexHub hub) =>
+        app.MapPost("/lighting/screen/reselect", (ILightingProvider l, MultiplexHub hub, FeatureGates gates) =>
         {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
             l.ReselectScreen();
             PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
+            return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
         // Screen Mirror + Media post-process (hue / colorize / saturation / contrast).
         // Same shape for both modes so the right-pane Effect tab can drive either
