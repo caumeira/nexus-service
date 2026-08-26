@@ -102,6 +102,22 @@ public class Aw5HubTests
     }
 
     [Fact]
+    public async Task Render_writes_no_levelplay_frame_once_the_token_is_cancelled()
+    {
+        // The suspend hook cancels mid-cycle; a frame that still reaches the control
+        // pipe during the host's USB teardown wedges the panel for the session.
+        var hid = new FakeHid(Iface(Levelplay, 0xFF01, 64, "lp"));
+        var hub = new Aw5Hub(hid);
+        var target = hub.Discover().Single();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        Assert.False(await hub.RenderAsync(target, new Aw5PanelReading(45, 30, 3600), cts.Token));
+
+        Assert.Empty(hid.Device("lp")!.Features);
+    }
+
+    [Fact]
     public void Blank_leaves_levelplay_alone()
     {
         // No blanking frame is known for 0406; it reverts to standalone on its own.

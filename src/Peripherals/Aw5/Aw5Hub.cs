@@ -75,6 +75,10 @@ public sealed class Aw5Hub : IDisposable
                     reading.TempC, reading.LoadPct, reading.Mhz);
                 for (var i = 0; i < frames.Length; i++)
                 {
+                    // Per frame, not only at the delay below: a cancel landing between
+                    // the two still puts a control-pipe write on the wire while the
+                    // host is tearing the USB stack down, which wedges this panel.
+                    if (ct.IsCancellationRequested) return false;
                     if (!dev.SetFeature(frames[i])) return Drop(target.Path);
                     // Vendor spacing between the frames of one cycle; the panel has not
                     // been tested accepting them back to back.
