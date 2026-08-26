@@ -582,6 +582,7 @@ app.MapLifecycleEndpoints();
 app.MapDiagnosticsEndpoints();
 app.MapDiagnosticsHealthEndpoints();
 app.MapMonitoringHistoryEndpoints();
+app.MapSmartPollRoutes();
 app.MapProcessDetailEndpoints();
 app.MapMediaLibraryEndpoints();
 app.MapPanelBgEndpoints();

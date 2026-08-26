@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using LibreHardwareMonitor.Hardware;
+using LibreHardwareMonitor.Hardware.Storage;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Persistence;
 
@@ -35,7 +36,9 @@ public sealed class LhmComputer : IDisposable
     private readonly Task _openTask;
     private readonly object _updateLock = new();
     private long _lastUpdateTicks;
-    private long _lastStorageTicks;
+    private readonly IConfigStore _config;
+    private readonly HashSet<string> _smartSeeded = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, bool?> _rotational = new(StringComparer.Ordinal);
 
     // Hard cap of one hardware walk per second. Measured from the walk's START,
     // not its end, so the cap is a real 1Hz rather than 1Hz-plus-walk-duration
@@ -49,25 +52,9 @@ public sealed class LhmComputer : IDisposable
     // floor would feed it the same cached value four times.
     private const long FastFloorMs = 100;
 
-    // SMART/NVMe attributes are read through an ATA pass-through to the drive
-    // itself, and on a rotational drive each read parks and unparks the heads.
-    // No reader actually needs this cadence: history and diagnostics take drive
-    // temperature from SmartHealthMonitor's own 10 minute snapshot, and every
-    // live reader marks demand below. It exists as a backstop, bounding how
-    // stale a reader that forgets to mark can get. Throughput/activity/free
-    // space sensors live in the same node and age with it.
-    private const long StorageIntervalMs = 60_000;
-
-    // ...but a client actually looking at drive data gets it every walk, which
-    // the 1Hz cap makes per-second. WantStorage is called by the reads that
-    // surface it (storage components with SMART, sensor extras), so "someone is
-    // watching" needs no plumbing: it is simply whether one of those was asked
-    // for recently. Two seconds outlives the 1s poll the details page makes.
-    private const long StorageDemandWindowMs = 2_000;
-    private long _storageWantedTicks = long.MinValue / 2;
-
     public LhmComputer(IConfigStore config)
     {
+        _config = config;
         // With GPU disabled LHM never constructs its AMD/NVIDIA GPU nodes, so
         // no ADL FrameMetrics/PMLog session is opened and no per-node D3DKMT
         // statistics are queried for the process lifetime (the
@@ -142,13 +129,6 @@ public sealed class LhmComputer : IDisposable
     /// finished yet - callers see an empty <see cref="Computer.Hardware"/>
     /// collection and degrade to "no sensors" until warmup completes.
     /// </summary>
-    /// <summary>
-    /// Signals that a caller is about to read drive data, so the next walks
-    /// refresh the storage group instead of leaving it on its idle cadence.
-    /// Call it immediately before <see cref="Update"/>.
-    /// </summary>
-    public void WantStorage() => Volatile.Write(ref _storageWantedTicks, Environment.TickCount64);
-
     public void Update(SensorRefresh refresh = SensorRefresh.Normal)
     {
         if (!_openTask.IsCompletedSuccessfully) return;
@@ -165,11 +145,8 @@ public sealed class LhmComputer : IDisposable
                 }
             }
 
-            var storageDue = refresh == SensorRefresh.Force
-                || now - Volatile.Read(ref _storageWantedTicks) <= StorageDemandWindowMs
-                || now - _lastStorageTicks >= StorageIntervalMs;
-
             _lastUpdateTicks = now;
+            var monitoring = _config.Load().Monitoring;
             // LibreHardwareMonitor's IntelCpu.Update sleeps 1ms per physical core
             // in its core-clock loop. At Windows' default 15.6ms timer tick that
             // is ~188ms on a 12-core part - 57% of the whole walk, all of it
@@ -179,15 +156,55 @@ public sealed class LhmComputer : IDisposable
             {
                 foreach (var hw in _computer.Hardware)
                 {
-                    if (hw.HardwareType == HardwareType.Storage && !storageDue) continue;
+                    // StorageDevice keeps its skip counter per instance and reads the static
+                    // at the top of its own Update, so setting it here is per-drive. Throughput
+                    // and free space are on separate paths and still refresh every walk.
+                    if (hw.HardwareType == HardwareType.Storage)
+                        StorageDevice.SmartUpdateCycleCount = SmartCyclesFor(hw, monitoring, refresh);
 
                     hw.Update();
                     foreach (var sub in hw.SubHardware)
                         sub.Update();
                 }
             }
+        }
+    }
 
-            if (storageDue) _lastStorageTicks = now;
+    private uint SmartCyclesFor(IHardware hw, MonitoringSettings monitoring, SensorRefresh refresh)
+    {
+        var identifier = hw.Identifier.ToString();
+        var seconds = monitoring.SmartPollPerDrive
+            ? monitoring.SmartPollSeconds.TryGetValue(identifier, out var configured)
+                ? configured
+                : SmartPollPolicy.DefaultSecondsFor(IsRotational(hw))
+            : monitoring.SmartPollDefaultSeconds;
+
+        // Never is absolute: not even a Force walk (the diagnostics health snapshot)
+        // touches a drive the user has opted out of.
+        if (seconds <= SmartPollPolicy.NeverSeconds) return SmartPollPolicy.ToCycleCount(seconds);
+
+        // Read once on the walk that first sees a drive so temperature and health have
+        // a value before the configured period elapses, and on any Force walk, which
+        // only ever comes from an explicit read of drive health.
+        if (_smartSeeded.Add(identifier) || refresh == SensorRefresh.Force) return 1;
+
+        return SmartPollPolicy.ToCycleCount(seconds);
+    }
+
+    /// <summary>Cached: the seek-penalty query opens the physical drive, so it runs once per drive.</summary>
+    public bool? IsRotational(IHardware hw)
+    {
+        var identifier = hw.Identifier.ToString();
+        lock (_updateLock)
+        {
+            if (_rotational.TryGetValue(identifier, out var cached)) return cached;
+            bool? value = null;
+            if (hw is StorageDevice drive && drive.Storage?.StorageDeviceNumber is { } number)
+            {
+                value = DriveRotationProbe.IsRotational(number);
+            }
+            _rotational[identifier] = value;
+            return value;
         }
     }
 

@@ -208,11 +208,18 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         return "";
     }
 
+    public IReadOnlyDictionary<string, bool> GetRotationalDrives()
+    {
+        var result = new Dictionary<string, bool>(StringComparer.Ordinal);
+        foreach (var hw in FindHardware(HardwareType.Storage))
+        {
+            if (_lhm.IsRotational(hw) is { } rotational) result[hw.Identifier.ToString()] = rotational;
+        }
+        return result;
+    }
+
     public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true)
     {
-        // Only the SMART half reads the LHM storage nodes; a volume-only caller
-        // must not pull drives out of their idle cadence.
-        if (includeSmart) _lhm.WantStorage();
         _lhm.Update();
         var result = new Dictionary<string, StorageComponent>();
         foreach (var di in System.IO.DriveInfo.GetDrives())
@@ -430,7 +437,6 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     public SensorExtras GetSensorExtras()
     {
-        _lhm.WantStorage();
         _lhm.Update();
 
         var extras = new SensorExtras();

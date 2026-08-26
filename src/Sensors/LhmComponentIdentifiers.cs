@@ -29,4 +29,10 @@ internal static class LhmComponentIdentifiers
 
     internal static bool IsSmartStorageComponent(string componentId) =>
         componentId.StartsWith(SmartStorageIdPrefix, StringComparison.Ordinal);
+
+    /// <summary>Inverse of BuildSmartStorageId: recovers the LHM identifier the SMART poll settings key on.</summary>
+    internal static string ToHardwareIdentifier(string componentId) =>
+        IsSmartStorageComponent(componentId)
+            ? "/" + componentId.Substring(SmartStorageIdPrefix.Length)
+            : componentId;
 }

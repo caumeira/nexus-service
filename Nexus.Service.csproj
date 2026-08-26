@@ -102,7 +102,7 @@
   </PropertyGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
-    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.7-pre705" />
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.7-pre726" />
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.13" />
     <PackageReference Include="Microsoft.Win32.SystemEvents" Version="9.0.0" />
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
@@ -137,7 +137,7 @@
        Windows package brings native serial helpers; on Linux we read /dev/ttyACM
        directly. AOT-compatible since .NET 7. -->
   <ItemGroup>
-    <PackageReference Include="System.IO.Ports" Version="10.0.9" />
+    <PackageReference Include="System.IO.Ports" Version="10.0.11" />
   </ItemGroup>
 
   <!-- QRCoder: pure-managed QR code SVG generation for the panel phone pairing flow. -->
@@ -673,6 +673,7 @@
 
   <!-- Non-Windows: exclude Windows-only providers so AOT doesn't try to link them -->
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) AND !$(RuntimeIdentifier.StartsWith('win'))">
+    <Compile Remove="src/Sensors/DriveRotationProbe.cs" />
     <Compile Remove="src/Sensors/LhmComputer.cs" />
     <Compile Remove="src/Sensors/LibreHardwareSensorProvider.cs" />
     <Compile Remove="src/Sensors/Astral/AstralNvApiClient.cs" />
