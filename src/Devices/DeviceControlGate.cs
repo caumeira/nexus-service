@@ -22,12 +22,12 @@ public sealed class DeviceControlGate
         _store = store;
     }
 
-    // Read lock-free from ~13 worker threads. Safe because SetEnabled always
-    // replaces each list reference (never mutates in place). Reading the two
-    // lists is not one atomic snapshot; a cross-swap transient reads one stale
-    // list and resolves to the default for a cycle - fail-closed for a just-
-    // enabled third-party device, one extra on-cycle for a just-disabled
-    // default-on device. The worker poll loop tolerates either.
+    // Read lock-free from ~13 worker threads. Safe because every write replaces
+    // each list reference (never mutates in place) and adds to the destination
+    // list before removing from the other, so a reader mid-swap sees the id in
+    // BOTH lists, never in neither. Disabled wins that transient, so a
+    // just-enabled third-party device reads off for a cycle (fail-closed) and an
+    // explicit choice is never readable as unset.
     public bool IsEnabled(string handlerId)
     {
         var devices = _store.Load().Devices;
@@ -55,33 +55,45 @@ public sealed class DeviceControlGate
         var devices = s.Devices;
         if (enabled)
         {
-            if (devices.NexusControlEnabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase)
-                && !devices.NexusControlDisabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase))
-            {
-                return;
-            }
-            devices.NexusControlDisabled = devices.NexusControlDisabled
-                .Where(id => !string.Equals(id, handlerId, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (!devices.NexusControlEnabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase))
-            {
-                devices.NexusControlEnabled = new List<string>(devices.NexusControlEnabled) { handlerId };
-            }
+            devices.NexusControlEnabled = WithId(devices.NexusControlEnabled, handlerId);
+            devices.NexusControlDisabled = WithoutId(devices.NexusControlDisabled, handlerId);
         }
         else
         {
+            devices.NexusControlDisabled = WithId(devices.NexusControlDisabled, handlerId);
+            devices.NexusControlEnabled = WithoutId(devices.NexusControlEnabled, handlerId);
+        }
+    });
+
+    /// <summary>
+    /// Puts a never-set handler on the enabled list, for
+    /// <see cref="DeviceAdoptionService"/>. The set-check and the write are one
+    /// store mutation, so a concurrent <see cref="SetEnabled"/> cannot be read as
+    /// unset and then overwritten - an explicit off stays off. Returns false when
+    /// the user has already chosen on or off.
+    /// </summary>
+    public bool TryAdopt(string handlerId)
+    {
+        var adopted = false;
+        _store.Update(s =>
+        {
+            var devices = s.Devices;
             if (devices.NexusControlDisabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase)
-                && !devices.NexusControlEnabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase))
+                || devices.NexusControlEnabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase))
             {
                 return;
             }
-            devices.NexusControlEnabled = devices.NexusControlEnabled
-                .Where(id => !string.Equals(id, handlerId, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (!devices.NexusControlDisabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase))
-            {
-                devices.NexusControlDisabled = new List<string>(devices.NexusControlDisabled) { handlerId };
-            }
-        }
-    });
+            devices.NexusControlEnabled = WithId(devices.NexusControlEnabled, handlerId);
+            adopted = true;
+        });
+        return adopted;
+    }
+
+    private static List<string> WithId(List<string> ids, string handlerId) =>
+        ids.Contains(handlerId, StringComparer.OrdinalIgnoreCase) ? ids : new List<string>(ids) { handlerId };
+
+    private static List<string> WithoutId(List<string> ids, string handlerId) =>
+        ids.Contains(handlerId, StringComparer.OrdinalIgnoreCase)
+            ? ids.Where(id => !string.Equals(id, handlerId, StringComparison.OrdinalIgnoreCase)).ToList()
+            : ids;
 }
