@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
+using Nexus.Service.Persistence;
 using Nexus.Service.Plugins;
 
 namespace Nexus.Service.Cooling;
@@ -34,6 +35,7 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
     private readonly MiniHubCoolingProvider _miniHub;
     private readonly FanSource[] _extras;
     private readonly PluginProviderRegistry _registry;
+    private readonly IConfigStore? _store;
 
     public CompositeFanControlProvider(
         IFanControlProvider motherboard,
@@ -41,14 +43,36 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         MiniHubCoolingProvider miniHub,
         PluginProviderRegistry registry,
         params FanSource[] extras)
+        : this(motherboard, np50, miniHub, registry, (IConfigStore?)null, extras)
+    {
+    }
+
+    public CompositeFanControlProvider(
+        IFanControlProvider motherboard,
+        Np50CoolingProvider np50,
+        MiniHubCoolingProvider miniHub,
+        PluginProviderRegistry registry,
+        IConfigStore? store,
+        params FanSource[] extras)
     {
         _motherboard = motherboard;
         _motherboardCooling = motherboard as ICoolingProvider;
         _np50 = np50;
         _miniHub = miniHub;
         _registry = registry;
+        _store = store;
         _extras = extras ?? Array.Empty<FanSource>();
     }
+
+    /// <summary>
+    /// A channel the user marked not controlled takes no duty write from any
+    /// caller. Enforced here rather than per-provider so a curve apply, a REST
+    /// speed call, a deck action and a plugin all hit the same gate - the same
+    /// reason the [0,100] clamp lives here. Release still passes: handing the
+    /// channel back to the motherboard is the state this flag asks for.
+    /// </summary>
+    private bool IsUncontrolled(string channelId)
+        => _store is not null && !FanControlledState.IsControlled(channelId, _store.Load());
 
     /// <summary>
     /// All extra prefixed sources layered on the motherboard: the platform's
@@ -127,10 +151,20 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
     // curve apply, a direct speed call, or a plugin-guided write - is clamped to
     // [0,100] here, so no caller can drive a fan out of range.
     public int SetFanSpeed(string channelId, int dutyPercent)
-        => Route(channelId).SetFanSpeed(channelId, CoolingSafety.ClampDuty(dutyPercent));
+    {
+        var clamped = CoolingSafety.ClampDuty(dutyPercent);
+        // Report the clamped value back rather than the live duty: the caller
+        // asked for it, nothing rejected it, and the channel simply is not ours
+        // to drive. A read of the channel still shows what the hardware does.
+        if (IsUncontrolled(channelId)) return clamped;
+        return Route(channelId).SetFanSpeed(channelId, clamped);
+    }
 
     public void DriveFanSpeed(string channelId, int dutyPercent)
-        => Route(channelId).DriveFanSpeed(channelId, CoolingSafety.ClampDuty(dutyPercent));
+    {
+        if (IsUncontrolled(channelId)) return;
+        Route(channelId).DriveFanSpeed(channelId, CoolingSafety.ClampDuty(dutyPercent));
+    }
 
     public void ReleaseFan(string channelId)
         => Route(channelId).ReleaseFan(channelId);
@@ -152,9 +186,20 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         // Motherboard-only. Hub/USB/GPU providers no-op calibration, so filter
         // their ids out before delegating so the motherboard side doesn't fail
         // on unrecognized channels.
+        // Calibration ramps duty 100%->0%, which is a write like any other: a
+        // channel the user handed to the motherboard must not be spun by it.
+        // An empty request means "everything", so that case has to be expanded
+        // before it can be filtered.
+        var uncontrolled = _store?.Load().Cooling.UncontrolledFanChannels;
         if (fanIds.Count == 0)
-            return _motherboard.CalibrateAsync(fanIds, progress, ct);
-        var motherboardOnly = fanIds.Where(id => !IsExternalId(id)).ToList();
+        {
+            if (uncontrolled is null || uncontrolled.Count == 0)
+                return _motherboard.CalibrateAsync(fanIds, progress, ct);
+            fanIds = _motherboard.GetFanChannels().Select(c => c.Id).ToList();
+        }
+        var motherboardOnly = fanIds
+            .Where(id => !IsExternalId(id) && (uncontrolled is null || !uncontrolled.Contains(id)))
+            .ToList();
         // Empty means "all" to the motherboard provider, so a request naming only
         // hub fans must stop here: falling through would calibrate every
         // motherboard fan instead of none.

@@ -103,7 +103,15 @@ public static class FanProfiles
     public static string Apply(string profileName, IFanControlProvider fans, IConfigStore store, bool forceCustomRestore = false)
     {
         var canonical = Canonicalize(profileName);
-        var channels = fans.GetFanChannels();
+        // A channel the user marked not controlled is not this preset's to
+        // retarget - that marker outliving a preset apply is the whole point of
+        // it, and is what BIOS Control (a bare absence of assignment) cannot do.
+        // Dropping it here keeps it out of fanIds too, so Off neither detaches
+        // nor re-releases a channel already handed back.
+        var uncontrolledIds = store.Load().Cooling.UncontrolledFanChannels;
+        var channels = uncontrolledIds.Count == 0
+            ? fans.GetFanChannels()
+            : fans.GetFanChannels().Where(c => !uncontrolledIds.Contains(c.Id)).ToList();
         var temps = fans.GetTemperatureSources();
         var inputSensor = PreferredInput(temps);
         var fanIds = channels.Select(c => c.Id).ToHashSet();
@@ -211,6 +219,11 @@ public static class FanProfiles
                             foreach (var (fanId, duty) in manualSnapshot)
                             {
                                 if (lockedIds.Contains(fanId)) continue;
+                                // Uncontrolled channels are absent from lockedIds
+                                // AND from fanIds, so the write is suppressed but
+                                // the entry would persist - and replay onto
+                                // hardware the moment control came back.
+                                if (uncontrolledIds.Contains(fanId)) continue;
                                 if (s.Cooling.FanLockOverrides.TryGetValue(fanId, out var lockedOverride) && lockedOverride) continue;
                                 if (s.Cooling.Curves.Any(c => c.Outputs.Any(o => o.Id == fanId))) continue;
                                 s.Cooling.ManualSpeeds[fanId] = duty;
@@ -286,8 +299,14 @@ public static class FanProfiles
         // they must be excluded here too - otherwise their absence from the
         // preset curve would fail the "all fans on the preset" check and force
         // "custom".
+        // Uncontrolled channels are excluded for the same reason as locked
+        // ones: Apply never attaches them, so counting them would fail the
+        // "all fans on the preset" check and pin the bar to "custom" forever.
+        var uncontrolled = settings.Cooling.UncontrolledFanChannels;
         var fanIds = channels
-            .Where(c => c.Classification != "Unresponsive" && !IsLocked(c, settings.Cooling.FanLockOverrides))
+            .Where(c => c.Classification != "Unresponsive"
+                && !IsLocked(c, settings.Cooling.FanLockOverrides)
+                && !uncontrolled.Contains(c.Id))
             .Select(c => c.Id)
             .ToHashSet();
         if (fanIds.Count == 0) return "custom";

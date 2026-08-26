@@ -56,6 +56,14 @@ public sealed class CurveEngine : BackgroundService
     // channel returns.
     private readonly HashSet<string> _manualReplayed = new();
 
+    // Ids released since they were marked not controlled. Dropped while a
+    // channel is absent, so a device that reconnects gets its release
+    // re-issued: the release at mark time is a no-op against a provider whose
+    // hardware is offline, and without this the fan would hold whatever duty
+    // Nexus last drove into its firmware indefinitely - the write gate blocks
+    // every later correction.
+    private readonly HashSet<string> _releasedUncontrolled = new(StringComparer.Ordinal);
+
     private int _intervalMs = 1000;
 
     public CurveEngine(
@@ -120,7 +128,9 @@ public sealed class CurveEngine : BackgroundService
     {
         var settings = _store.Load();
         var curves = settings.Cooling.Curves;
-        if (curves.Count == 0 && settings.Cooling.ManualSpeeds.Count == 0)
+        if (curves.Count == 0
+            && settings.Cooling.ManualSpeeds.Count == 0
+            && settings.Cooling.UncontrolledFanChannels.Count == 0)
         {
             // Idle cooling config: skip the per-tick channel enumeration
             // (on Windows it costs an LHM update + re-discovery).
@@ -151,6 +161,7 @@ public sealed class CurveEngine : BackgroundService
             channelDuty[ch.Id] = ch.DutyPercent;
         }
 
+        ReleaseUncontrolledOnAppearance(settings, present);
         ReplayManualDuties(settings, present, owned);
 
         if (curves.Count == 0)
@@ -552,6 +563,38 @@ public sealed class CurveEngine : BackgroundService
             "Trigger" or "Auto" or "Sync" => 0.0,
             _ => 1.0,
         };
+    }
+
+    /// <summary>
+    /// Hands every present, not-controlled channel back to its provider once
+    /// per appearance. Marking a channel uncontrolled releases it there and
+    /// then, but that call reaches nothing when the owning device is offline,
+    /// and the write gate blocks every later attempt - so the release has to
+    /// be re-issued when the channel comes back.
+    /// </summary>
+    private void ReleaseUncontrolledOnAppearance(NexusSettings settings, HashSet<string> present)
+    {
+        var uncontrolled = settings.Cooling.UncontrolledFanChannels;
+        if (uncontrolled.Count == 0)
+        {
+            _releasedUncontrolled.Clear();
+            return;
+        }
+        // Forget an id that went absent (so it releases again on return) or
+        // that the user handed back to Nexus.
+        foreach (var id in _releasedUncontrolled.ToList())
+        {
+            if (!present.Contains(id) || !uncontrolled.Contains(id))
+            {
+                _releasedUncontrolled.Remove(id);
+            }
+        }
+        foreach (var id in uncontrolled)
+        {
+            if (!present.Contains(id)) continue;
+            if (!_releasedUncontrolled.Add(id)) continue;
+            _fans.ReleaseFan(id);
+        }
     }
 
     /// <summary>

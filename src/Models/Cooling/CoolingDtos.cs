@@ -158,6 +158,8 @@ public sealed class FanChannel
     public bool Calibrated => MinRpm is not null;
     /// <summary>True when the channel is exempt from Silent/Balanced/Turbo/Off/Custom preset applies. Computed from settings; not read from hardware.</summary>
     public bool Locked { get; set; }
+    /// <summary>False when the user marked this channel not controlled: Nexus drives no duty onto it and no preset reclaims it, so the motherboard or a vendor app owns it. Computed from settings; not read from hardware.</summary>
+    public bool Controlled { get; set; } = true;
     /// <summary>Duty points added to whatever drives this channel, in [-100,100]. Computed from settings; 0 when the channel has none. Surfaced so an imported offset is never invisible on the card.</summary>
     public int Offset { get; set; }
     /// <summary>Display/monitoring-grouping role: one of <see cref="FanRoleKind.None"/> / <see cref="FanRoleKind.Cpu"/> / <see cref="FanRoleKind.Gpu"/>. Computed from settings; not read from hardware. Never affects fan control, locking, or preset logic.</summary>
@@ -272,6 +274,12 @@ public sealed class SetFanNameBody
 public sealed class SetFanLockBody
 {
     public bool Locked { get; set; }
+}
+
+/// <summary>Body for POST /cooling/fan/{id}/controlled. False hands the channel back to the motherboard and keeps every preset off it.</summary>
+public sealed class SetFanControlledBody
+{
+    public bool Controlled { get; set; }
 }
 
 /// <summary>Body for POST /cooling/fan/{id}/offset. 0 clears the offset.</summary>
