@@ -5,6 +5,7 @@ using Nexus.Service.Lighting;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Profiles;
 using Nexus.Service.Persistence;
+using Nexus.Service.Sensors;
 using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Routes;
@@ -482,6 +483,10 @@ public static class ProfileRoutes
                     if (monitoring.DetailedCollapsed is not null) s.Monitoring.DetailedCollapsed   = monitoring.DetailedCollapsed;
                     if (monitoring.EventsEnabled.HasValue)        s.Monitoring.EventsEnabled        = monitoring.EventsEnabled.Value;
                     if (monitoring.EventKindsHidden is not null)  s.Monitoring.EventKindsHidden     = monitoring.EventKindsHidden;
+                    if (monitoring.SmartPollSeconds is not null)  s.Monitoring.SmartPollSeconds     = SmartPollPolicy.Sanitize(monitoring.SmartPollSeconds);
+                    if (monitoring.SmartPollDefaultSeconds.HasValue)
+                        s.Monitoring.SmartPollDefaultSeconds = SmartPollPolicy.ClampSeconds(monitoring.SmartPollDefaultSeconds.Value);
+                    if (monitoring.SmartPollPerDrive.HasValue) s.Monitoring.SmartPollPerDrive = monitoring.SmartPollPerDrive.Value;
                 }
                 if (body.Cooling is { } cooling)
                 {

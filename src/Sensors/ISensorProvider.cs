@@ -49,6 +49,9 @@ public interface ISensorProvider
     /// overlay, which only ever resolves the logical-volume subset).
     /// </summary>
     IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true);
+
+    /// <summary>Which SMART drives spin platters, keyed by LHM identifier. A drive whose media cannot be determined is absent.</summary>
+    IReadOnlyDictionary<string, bool> GetRotationalDrives() => new Dictionary<string, bool>();
     IReadOnlyList<string> GetStoragePartitions();
     IReadOnlyList<StorageDriveInfo> GetStorageInfo();
     /// <summary>

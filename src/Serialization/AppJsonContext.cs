@@ -1211,6 +1211,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<AssistantToolRunDto>))]
 [JsonSerializable(typeof(AssistantProgressFrame))]
 [JsonSerializable(typeof(AssistantPullProgressDto))]
+[JsonSerializable(typeof(SmartPollResponse))]
+[JsonSerializable(typeof(SmartPollDriveDto))]
 
 // Metadata-only: skips the per-type generated fast-path writer, a large AOT
 // code cost across this context's roots; serialization runs through the

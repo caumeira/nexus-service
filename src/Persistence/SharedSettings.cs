@@ -41,6 +41,14 @@ public sealed class MonitoringSettings
     public bool EventsEnabled { get; set; } = true;
     /// <summary>Event kinds the user has hidden. Unknown/new kinds default to visible.</summary>
     public List<string> EventKindsHidden { get; set; } = new();
+    /// <summary>Seconds between SMART reads per drive, keyed by LHM hardware identifier ("/hdd/0"). 0 = never read. A drive with no entry uses SmartPollDefaultSeconds.</summary>
+    public Dictionary<string, int> SmartPollSeconds { get; set; } = new();
+    /// <summary>Seconds between SMART reads applied to every drive while SmartPollPerDrive is false.</summary>
+    public int SmartPollDefaultSeconds { get; set; } = MonitoringSettings.DefaultSmartPollSeconds;
+    /// <summary>False: SmartPollDefaultSeconds governs every drive. True: each drive uses its own SmartPollSeconds entry, falling back to its media type's default.</summary>
+    public bool SmartPollPerDrive { get; set; }
+
+    public const int DefaultSmartPollSeconds = 30;
 }
 
 public sealed class PanelSettings
@@ -302,6 +310,9 @@ public sealed class MonitoringSettingsPatch
     public List<string>? DetailedCollapsed { get; set; }
     public bool? EventsEnabled { get; set; }
     public List<string>? EventKindsHidden { get; set; }
+    public Dictionary<string, int>? SmartPollSeconds { get; set; }
+    public int? SmartPollDefaultSeconds { get; set; }
+    public bool? SmartPollPerDrive { get; set; }
 }
 
 public sealed class UpdatePrefs
