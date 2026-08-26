@@ -506,9 +506,11 @@ public static class TrayIcon
                     // provider replays a pending pair request so the
                     // Allow/Deny modal pops once the WebSocket subscribes.
                     string? folder;
+                    BalloonKind kind;
                     lock (_sync)
                     {
                         folder = _noticeFolderPath;
+                        kind = _balloonKind;
                         _noticeFolderPath = null;
                         _balloonKind = BalloonKind.None;
                     }
@@ -519,6 +521,14 @@ public static class TrayIcon
                             FileName = folder,
                             UseShellExecute = true,
                         });
+                    }
+                    else if (kind == BalloonKind.UpdateReady)
+                    {
+                        // Landing on the dashboard is not enough: with the
+                        // window already open it focuses an focused window and
+                        // nothing visible happens. The query asks the SPA for
+                        // the update view.
+                        OpenLocalWindow(path: "/?openUpdate=1");
                     }
                     else
                     {
