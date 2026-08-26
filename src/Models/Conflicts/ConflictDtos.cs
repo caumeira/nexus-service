@@ -19,17 +19,17 @@ public sealed class DetectedConflict
 /// <summary>How a conflicting app is launched at login, when one was resolved.</summary>
 public sealed class ConflictAutostartEntry
 {
-    /// <summary>"runKeyUser", "runKeyMachine" or "service".</summary>
+    /// <summary>"runKeyUser", "runKeyMachine", "runKeyMachine32" or "service"; the two machine kinds are distinct so removal reopens the key that matched.</summary>
     public string Kind { get; set; } = "";
     /// <summary>Run value name or service name; shown so the user sees what is removed.</summary>
     public string EntryName { get; set; } = "";
 }
 
-/// <summary>One detected conflict paired with its autostart entry, or null when none resolved.</summary>
+/// <summary>One detected conflict paired with every autostart entry that launches it; an app can hold several at once (iCUE ships an Automatic service and a Run value).</summary>
 public sealed class ConflictAutostartStatus
 {
     public string Id { get; set; } = "";
-    public ConflictAutostartEntry? Autostart { get; set; }
+    public List<ConflictAutostartEntry> Entries { get; set; } = new();
 }
 
 public sealed class GetConflictAutostartResponse
@@ -45,8 +45,10 @@ public sealed class DisableConflictAutostartBody
 
 public sealed class DisableConflictAutostartResponse
 {
-    public bool Ok { get; set; }
-    public string Msg { get; set; } = "";
+    public bool Error { get; set; }
+    public string Msg { get; set; } = "Ok";
+    /// <summary>How many entries were removed and verified gone.</summary>
+    public int Removed { get; set; }
 }
 
 public sealed class GetConflictsResponse

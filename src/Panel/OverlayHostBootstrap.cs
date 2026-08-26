@@ -20,6 +20,11 @@ internal static class OverlayHostBootstrap
 {
     public static void Wire(WebApplication app)
     {
+#if WINDOWS
+        // Off the startup thread: one schtasks.exe per stale task, and 77 were
+        // observed on a lab box.
+        System.Threading.Tasks.Task.Run(PanelOverlayHostLauncher.SweepStaleLaunchTasks);
+#endif
         var overlayHost = app.Services.GetRequiredService<IOverlayHost>();
         var store = app.Services.GetRequiredService<IConfigStore>();
         var panelKioskLauncher = app.Services.GetRequiredService<PanelKioskLauncher>();

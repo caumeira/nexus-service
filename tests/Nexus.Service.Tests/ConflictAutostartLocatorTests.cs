@@ -32,35 +32,98 @@ public class ConflictAutostartLocatorTests
     }
 
     [Fact]
-    public void SameProgram_MatchesTheSameExecutable()
+    public void SamePath_MatchesTheSameExecutable()
     {
-        Assert.True(ConflictAutostartLocator.SameProgram(
+        Assert.True(ConflictAutostartLocator.SamePath(
             "C:\\Program Files\\Razer\\RazerAppEngine\\RazerAppEngine.exe",
             "C:\\program files\\razer\\razerappengine\\RazerAppEngine.exe"));
     }
 
     [Fact]
-    public void SameProgram_MatchesALauncherBesideTheRunningExe()
+    public void SamePath_RejectsASiblingInTheSameDirectory()
     {
-        // iCUE runs as iCUE.exe; its Run value points at a sibling launcher.
-        Assert.True(ConflictAutostartLocator.SameProgram(
+        // Only SameDirectory may match a sibling; the exact pass must not, or
+        // the two-pass precedence collapses.
+        Assert.False(ConflictAutostartLocator.SamePath(
             "C:\\Program Files\\Corsair\\Corsair iCUE5 Software\\iCUE Launcher.exe",
             "C:\\Program Files\\Corsair\\Corsair iCUE5 Software\\iCUE.exe"));
     }
 
     [Fact]
-    public void SameProgram_RejectsAnUnrelatedProgram()
+    public void SameDirectory_MatchesALauncherBesideTheRunningExe()
+    {
+        // iCUE runs as iCUE.exe; its Run value points at a sibling launcher.
+        Assert.True(ConflictAutostartLocator.SameDirectory(
+            "C:\\Program Files\\Corsair\\Corsair iCUE5 Software\\iCUE Launcher.exe",
+            "C:\\Program Files\\Corsair\\Corsair iCUE5 Software\\iCUE.exe"));
+    }
+
+    [Fact]
+    public void SameDirectory_RejectsAnUnrelatedProgram()
     {
         // The case name matching gets wrong: Windows' own camsvc vs NZXT CAM.
-        Assert.False(ConflictAutostartLocator.SameProgram(
+        Assert.False(ConflictAutostartLocator.SameDirectory(
             "C:\\WINDOWS\\system32\\camsvc.dll",
             "C:\\Program Files\\NZXT CAM\\NZXT CAM.exe"));
     }
 
     [Fact]
-    public void SameProgram_RejectsEmptyInput()
+    public void SameDirectory_RejectsASharedInstallRoot()
     {
-        Assert.False(ConflictAutostartLocator.SameProgram("", "C:\\a\\b.exe"));
-        Assert.False(ConflictAutostartLocator.SameProgram("C:\\a\\b.exe", ""));
+        // Two unrelated vendors both dropping an exe into Common Files would
+        // otherwise match each other.
+        Assert.False(ConflictAutostartLocator.SameDirectory(
+            "C:\\Program Files\\Common Files\\Foo\\updater.exe",
+            "C:\\Program Files\\Common Files\\Foo\\other.exe"));
+        Assert.False(ConflictAutostartLocator.SameDirectory(
+            "C:\\Program Files (x86)\\updater.exe",
+            "C:\\Program Files (x86)\\other.exe"));
+        Assert.False(ConflictAutostartLocator.SameDirectory(
+            "C:\\Users\\Nicola\\AppData\\Roaming\\updater.exe",
+            "C:\\Users\\Nicola\\AppData\\Roaming\\other.exe"));
+        Assert.False(ConflictAutostartLocator.SameDirectory(
+            "C:\\Users\\Nicola\\updater.exe",
+            "C:\\Users\\Nicola\\other.exe"));
+    }
+
+    [Fact]
+    public void SameDirectory_AcceptsAVendorDirectoryUnderASharedRoot()
+    {
+        Assert.True(ConflictAutostartLocator.SameDirectory(
+            "C:\\Users\\Nicola\\AppData\\Local\\NZXT CAM\\launcher.exe",
+            "C:\\Users\\Nicola\\AppData\\Local\\NZXT CAM\\NZXT CAM.exe"));
+    }
+
+    [Fact]
+    public void SamePath_RejectsEmptyInput()
+    {
+        Assert.False(ConflictAutostartLocator.SamePath("", "C:\\a\\b.exe"));
+        Assert.False(ConflictAutostartLocator.SamePath("C:\\a\\b.exe", ""));
+        Assert.False(ConflictAutostartLocator.SameDirectory("", "C:\\a\\b.exe"));
+        Assert.False(ConflictAutostartLocator.SameDirectory("C:\\a\\b.exe", ""));
+    }
+
+    [Theory]
+    // The service is LocalSystem, so RegistryKey's own expansion would resolve
+    // these under config\systemprofile and no per-user install would match.
+    [InlineData("%LOCALAPPDATA%\\NZXT CAM\\NZXT CAM.exe",
+                "C:\\Users\\Nicola\\AppData\\Local\\NZXT CAM\\NZXT CAM.exe")]
+    [InlineData("%APPDATA%\\Foo\\foo.exe",
+                "C:\\Users\\Nicola\\AppData\\Roaming\\Foo\\foo.exe")]
+    [InlineData("\"%UserProfile%\\Foo\\foo.exe\" --autorun",
+                "\"C:\\Users\\Nicola\\Foo\\foo.exe\" --autorun")]
+    public void ExpandForConsoleUser_ResolvesPerUserVariablesAgainstTheConsoleProfile(string value, string expected)
+    {
+        Assert.Equal(expected, ConflictAutostartLocator.ExpandForConsoleUser(value, "C:\\Users\\Nicola"));
+    }
+
+    [Fact]
+    public void ExpandForConsoleUser_LeavesAnUnknownVariableAlone()
+    {
+        // An unresolvable variable stays literal rather than collapsing to a
+        // path that would match the wrong directory.
+        Assert.Equal(
+            "%NEXUS_NO_SUCH_VAR%\\Foo\\foo.exe",
+            ConflictAutostartLocator.ExpandForConsoleUser("%NEXUS_NO_SUCH_VAR%\\Foo\\foo.exe", "C:\\Users\\Nicola"));
     }
 }

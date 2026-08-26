@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using Nexus.Service.Models.Conflicts;
@@ -8,20 +9,24 @@ using Nexus.Service.Models.Conflicts;
 namespace Nexus.Service.Conflicts;
 
 /// <summary>
-/// Finds the autostart entry that launches a detected conflicting app, and
-/// removes it on request.
+/// Finds the autostart entries that launch a detected conflicting app, and
+/// removes them on request.
 ///
 /// Entries are matched by target executable, never by name: the entry name is
 /// unrelated to the process name and is often version-stamped (iCUE runs as
-/// "iCUE" from a Run value called "Corsair iCUE5 Software"; Razer Synapse runs
-/// as "RazerAppEngine"). Name matching also collides with unrelated system
-/// entries - "NZXT CAM" substring-matches Windows' own "camsvc". No match means
-/// no entry is offered, so a wrong one can never be removed.
+/// "iCUE" from a Run value called "Corsair iCUE5 Software"). Name matching also
+/// collides with unrelated system entries - "NZXT CAM" substring-matches
+/// Windows' own "camsvc". No match means no entry is offered.
+///
+/// One app can hold several mechanisms at once (iCUE ships an Automatic service
+/// and a Run value), so every match is returned and removal clears all of
+/// them.
 /// </summary>
 public static class ConflictAutostartLocator
 {
     public const string KindRunKeyUser = "runKeyUser";
     public const string KindRunKeyMachine = "runKeyMachine";
+    public const string KindRunKeyMachine32 = "runKeyMachine32";
     public const string KindService = "service";
 
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -34,38 +39,73 @@ public static class ConflictAutostartLocator
     private const int ServiceStartManual = 3;
 
 #if WINDOWS
-    /// <summary>The entry that autostarts this conflict, or null when none resolves to its executable.</summary>
+    /// <summary>Every entry that autostarts this conflict; empty when none resolves to its executable.</summary>
     [SupportedOSPlatform("windows")]
-    public static ConflictAutostartEntry? Find(DetectedConflict conflict, ConflictAppDefinition definition)
+    public static List<ConflictAutostartEntry> Find(DetectedConflict conflict, ConflictAppDefinition definition)
     {
-        // A curated Automatic service is the autostart for apps whose background
-        // service holds the hardware; it needs no path match because the catalog
-        // already names the exact service.
+        var found = new List<ConflictAutostartEntry>();
+
+        // The catalog names the exact service, so no path match is needed.
         foreach (var service in definition.WindowsServiceNames)
         {
             if (ServiceStartValue(service) == ServiceStartAutomatic)
             {
-                return new ConflictAutostartEntry { Kind = KindService, EntryName = service };
+                found.Add(new ConflictAutostartEntry { Kind = KindService, EntryName = service });
             }
         }
 
         var exePath = ResolveExePath(conflict.Pid);
         if (string.IsNullOrEmpty(exePath))
         {
-            return null;
+            return found;
         }
 
-        foreach (var (kind, entry, target) in RunEntries())
+        // Exact first: RunEntries yields HKCU before HKLM, so a same-directory
+        // sibling in the user hive would otherwise outrank an exact match in the
+        // machine hive and the wrong value would be removed.
+        var rows = RunEntries();
+        var exact = new List<ConflictAutostartEntry>();
+        foreach (var (kind, entry, target) in rows)
         {
-            if (SameProgram(target, exePath!))
+            if (SamePath(target, exePath!))
             {
-                return new ConflictAutostartEntry { Kind = kind, EntryName = entry };
+                exact.Add(new ConflictAutostartEntry { Kind = kind, EntryName = entry });
             }
         }
-        return null;
+        if (exact.Count > 0)
+        {
+            found.AddRange(exact);
+            return found;
+        }
+
+        foreach (var (kind, entry, target) in rows)
+        {
+            // Without the existence check any Run value naming a missing file
+            // in the same directory matches.
+            if (SameDirectory(target, exePath!) && File.Exists(target))
+            {
+                found.Add(new ConflictAutostartEntry { Kind = kind, EntryName = entry });
+            }
+        }
+        return found;
     }
 
-    /// <summary>Removes the entry. Only ever called from an explicit user action.</summary>
+    /// <summary>Removes every entry, returning how many were verified gone; only ever called from an explicit user action.</summary>
+    [SupportedOSPlatform("windows")]
+    public static int Disable(IEnumerable<ConflictAutostartEntry> entries)
+    {
+        var removed = 0;
+        foreach (var entry in entries)
+        {
+            if (Disable(entry))
+            {
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    /// <summary>Removes one entry, verifying the write by re-reading it.</summary>
     [SupportedOSPlatform("windows")]
     public static bool Disable(ConflictAutostartEntry entry)
     {
@@ -78,28 +118,16 @@ public static class ConflictAutostartLocator
                     {
                         if (key is null) return false;
                         key.SetValue("Start", ServiceStartManual, RegistryValueKind.DWord);
-                        return true;
                     }
+                    return ServiceStartValue(entry.EntryName) == ServiceStartManual;
                 case KindRunKeyUser:
                     var sid = Nexus.Service.Lifecycle.ConsoleUserSid.Resolve(RunKeyPath);
                     if (sid is null) return false;
-                    using (var key = Registry.Users.OpenSubKey($@"{sid}\{RunKeyPath}", writable: true))
-                    {
-                        if (key is null) return false;
-                        key.DeleteValue(entry.EntryName, throwOnMissingValue: false);
-                        return true;
-                    }
+                    return DeleteRunValue(Registry.Users, $@"{sid}\{RunKeyPath}", entry.EntryName);
                 case KindRunKeyMachine:
-                    foreach (var path in new[] { MachineRunKey, MachineRunKey32 })
-                    {
-                        using var key = Registry.LocalMachine.OpenSubKey(path, writable: true);
-                        if (key?.GetValue(entry.EntryName) is not null)
-                        {
-                            key.DeleteValue(entry.EntryName, throwOnMissingValue: false);
-                            return true;
-                        }
-                    }
-                    return false;
+                    return DeleteRunValue(Registry.LocalMachine, MachineRunKey, entry.EntryName);
+                case KindRunKeyMachine32:
+                    return DeleteRunValue(Registry.LocalMachine, MachineRunKey32, entry.EntryName);
                 default:
                     return false;
             }
@@ -109,6 +137,20 @@ public static class ConflictAutostartLocator
             Console.Error.WriteLine($"[conflicts] autostart disable failed for {entry.EntryName}: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>Deletes one Run value and confirms it is gone; DeleteValue with throwOnMissingValue false also succeeds on a key that never held it.</summary>
+    [SupportedOSPlatform("windows")]
+    private static bool DeleteRunValue(RegistryKey root, string path, string name)
+    {
+        using (var key = root.OpenSubKey(path, writable: true))
+        {
+            if (key is null) return false;
+            if (key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames) is null) return false;
+            key.DeleteValue(name, throwOnMissingValue: false);
+        }
+        using var verify = root.OpenSubKey(path);
+        return verify?.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames) is null;
     }
 
     [SupportedOSPlatform("windows")]
@@ -139,23 +181,17 @@ public static class ConflictAutostartLocator
     }
 
     [SupportedOSPlatform("windows")]
-    private static IEnumerable<(string Kind, string Entry, string Target)> RunEntries()
+    private static List<(string Kind, string Entry, string Target)> RunEntries()
     {
+        var rows = new List<(string, string, string)>();
         var sid = Nexus.Service.Lifecycle.ConsoleUserSid.Resolve(RunKeyPath);
         if (sid is not null)
         {
-            foreach (var row in ReadRunKey(Registry.Users, $@"{sid}\{RunKeyPath}", KindRunKeyUser))
-            {
-                yield return row;
-            }
+            rows.AddRange(ReadRunKey(Registry.Users, $@"{sid}\{RunKeyPath}", KindRunKeyUser));
         }
-        foreach (var path in new[] { MachineRunKey, MachineRunKey32 })
-        {
-            foreach (var row in ReadRunKey(Registry.LocalMachine, path, KindRunKeyMachine))
-            {
-                yield return row;
-            }
-        }
+        rows.AddRange(ReadRunKey(Registry.LocalMachine, MachineRunKey, KindRunKeyMachine));
+        rows.AddRange(ReadRunKey(Registry.LocalMachine, MachineRunKey32, KindRunKeyMachine32));
+        return rows;
     }
 
     [SupportedOSPlatform("windows")]
@@ -166,23 +202,54 @@ public static class ConflictAutostartLocator
         {
             using var key = root.OpenSubKey(path);
             if (key is null) return rows;
+            var profile = ConsoleUserProfilePath();
             foreach (var name in key.GetValueNames())
             {
-                if (key.GetValue(name) is string value && !string.IsNullOrWhiteSpace(value))
+                // RegistryKey expands a REG_EXPAND_SZ against the calling
+                // process's environment; under LocalSystem %LOCALAPPDATA%
+                // resolves to config\systemprofile and no per-user install matches.
+                if (key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames) is string value
+                    && !string.IsNullOrWhiteSpace(value))
                 {
-                    rows.Add((kind, name, ExecutablePath(value)));
+                    rows.Add((kind, name, ExecutablePath(ExpandForConsoleUser(value, profile))));
                 }
             }
         }
         catch { /* an unreadable hive yields no candidates */ }
         return rows;
     }
+
+    [SupportedOSPlatform("windows")]
+    private static string? ConsoleUserProfilePath()
+    {
+        try { return Nexus.Service.Lifecycle.ConsoleUserSid.ResolveProfilePath(); }
+        catch { return null; }
+    }
 #else
     /// <summary>Autostart discovery is Windows-only; other platforms resolve nothing.</summary>
-    public static ConflictAutostartEntry? Find(DetectedConflict conflict, ConflictAppDefinition definition) => null;
+    public static List<ConflictAutostartEntry> Find(DetectedConflict conflict, ConflictAppDefinition definition) => new();
+
+    public static int Disable(IEnumerable<ConflictAutostartEntry> entries) => 0;
 
     public static bool Disable(ConflictAutostartEntry entry) => false;
 #endif
+
+    /// <summary>Expands a Run value's per-user variables against the console user's profile; machine-scoped ones resolve alike for every account and are left to the platform expander.</summary>
+    internal static string ExpandForConsoleUser(string value, string? profilePath)
+    {
+        var expanded = value;
+        if (!string.IsNullOrEmpty(profilePath))
+        {
+            var profile = profilePath!.TrimEnd('\\');
+            expanded = ReplaceVariable(expanded, "%LOCALAPPDATA%", $@"{profile}\AppData\Local");
+            expanded = ReplaceVariable(expanded, "%APPDATA%", $@"{profile}\AppData\Roaming");
+            expanded = ReplaceVariable(expanded, "%USERPROFILE%", profile);
+        }
+        return OperatingSystem.IsWindows() ? Environment.ExpandEnvironmentVariables(expanded) : expanded;
+    }
+
+    private static string ReplaceVariable(string value, string name, string replacement)
+        => value.Replace(name, replacement, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The executable out of a Run command line, dropping quotes and arguments.</summary>
     internal static string ExecutablePath(string command)
@@ -199,29 +266,80 @@ public static class ConflictAutostartLocator
         return exe >= 0 ? value.Substring(0, exe + 4) : value;
     }
 
-    /// <summary>
-    /// Whether an entry's target is the same program as the running executable.
-    /// Both are Windows paths whatever the host, so separators are handled here
-    /// rather than through Path, which splits on '\' only on Windows.
-    /// </summary>
-    internal static bool SameProgram(string target, string exePath)
+    /// <summary>Whether an entry's target is the running executable; separators are handled here because Path splits on '\' only on Windows.</summary>
+    internal static bool SamePath(string target, string exePath)
     {
         if (string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(exePath))
         {
             return false;
         }
-        var a = target.Trim().Replace('/', '\\').TrimEnd('\\');
-        var b = exePath.Trim().Replace('/', '\\').TrimEnd('\\');
-        if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
+        return string.Equals(Normalize(target), Normalize(exePath), StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Whether an entry's target sits beside the running executable in the app's own install directory; a shared or system directory never qualifies, since every unrelated app under it would match too.</summary>
+    internal static bool SameDirectory(string target, string exePath)
+    {
+        if (string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(exePath))
+        {
+            return false;
+        }
+        var targetDir = DirectoryOf(Normalize(target));
+        var exeDir = DirectoryOf(Normalize(exePath));
+        if (targetDir.Length == 0 || !string.Equals(targetDir, exeDir, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        return !IsSharedDirectory(targetDir);
+    }
+
+    /// <summary>A directory that holds programs from more than one vendor.</summary>
+    internal static bool IsSharedDirectory(string directory)
+    {
+        var dir = Normalize(directory);
+        // "C:\" and anything shorter is a drive root.
+        if (dir.Length <= 3)
         {
             return true;
         }
-        // A launcher in the same install directory (iCUE runs as iCUE.exe from a
-        // Run value pointing at its sibling "iCUE Launcher.exe").
-        var aDir = DirectoryOf(a);
-        var bDir = DirectoryOf(b);
-        return aDir.Length > 0 && string.Equals(aDir, bDir, StringComparison.OrdinalIgnoreCase);
+        // Common Files and the Windows tree, at any depth.
+        if (dir.EndsWith(@"\Common Files", StringComparison.OrdinalIgnoreCase)
+            || dir.Contains(@"\Common Files\", StringComparison.OrdinalIgnoreCase)
+            || dir.EndsWith(@"\Windows", StringComparison.OrdinalIgnoreCase)
+            || dir.Contains(@"\Windows\", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        foreach (var tail in SharedRootTails)
+        {
+            if (dir.EndsWith(tail, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        // A bare profile root has nothing after the account segment.
+        var users = dir.IndexOf(@"\Users\", StringComparison.OrdinalIgnoreCase);
+        if (users >= 0 && dir.IndexOf('\\', users + 7) < 0)
+        {
+            return true;
+        }
+        return false;
     }
+
+    private static readonly string[] SharedRootTails =
+    {
+        @"\Program Files",
+        @"\Program Files (x86)",
+        @"\ProgramData",
+        @"\AppData\Local",
+        @"\AppData\Roaming",
+        @"\AppData\Local\Programs",
+        @"\AppData\LocalLow",
+        @"\Desktop",
+        @"\Downloads",
+    };
+
+    private static string Normalize(string windowsPath)
+        => windowsPath.Trim().Trim('"').Replace('/', '\\').TrimEnd('\\');
 
     private static string DirectoryOf(string windowsPath)
     {

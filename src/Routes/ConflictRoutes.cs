@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Nexus.Service.Activity;
 using Nexus.Service.Conflicts;
 using Nexus.Service.Models;
@@ -40,9 +41,9 @@ public static class ConflictRoutes
                 response.Apps.Add(new ConflictAutostartStatus
                 {
                     Id = c.Id,
-                    Autostart = def is not null && OperatingSystem.IsWindows()
+                    Entries = def is not null && OperatingSystem.IsWindows()
                         ? ConflictAutostartLocator.Find(c, def)
-                        : null,
+                        : new(),
                 });
             }
             return Results.Ok(response);
@@ -54,32 +55,39 @@ public static class ConflictRoutes
         {
             if (!OperatingSystem.IsWindows())
             {
-                return Results.Ok(new DisableConflictAutostartResponse { Ok = false, Msg = "unsupported platform" });
+                return Results.Ok(new DisableConflictAutostartResponse { Error = true, Msg = "unsupported platform" });
             }
             var id = body?.Id ?? "";
             var def = ConflictWatcher.FindById(id);
             if (def is null)
             {
-                return Results.BadRequest(new DisableConflictAutostartResponse { Ok = false, Msg = "unknown conflict id" });
+                return Results.BadRequest(new DisableConflictAutostartResponse { Error = true, Msg = "unknown conflict id" });
             }
             // Re-resolve rather than trusting a caller-supplied entry name, so a
             // request can only ever remove an entry we independently matched to
             // this app's own executable.
-            ConflictAutostartEntry? entry = null;
+            var entries = new List<ConflictAutostartEntry>();
             foreach (var c in watcher.GetConflicts())
             {
                 if (string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase))
                 {
-                    entry = ConflictAutostartLocator.Find(c, def);
+                    entries = ConflictAutostartLocator.Find(c, def);
                     break;
                 }
             }
-            if (entry is null)
+            if (entries.Count == 0)
             {
-                return Results.Ok(new DisableConflictAutostartResponse { Ok = false, Msg = "no autostart entry" });
+                return Results.Ok(new DisableConflictAutostartResponse { Error = true, Msg = "no autostart entry" });
             }
-            var ok = ConflictAutostartLocator.Disable(entry);
-            return Results.Ok(new DisableConflictAutostartResponse { Ok = ok, Msg = ok ? "ok" : "failed" });
+            // Anything short of every entry leaves the app still starting with
+            // Windows, so a partial removal is reported as a failure.
+            var removed = ConflictAutostartLocator.Disable(entries);
+            return Results.Ok(new DisableConflictAutostartResponse
+            {
+                Error = removed < entries.Count,
+                Msg = removed == entries.Count ? "Ok" : $"removed {removed} of {entries.Count}",
+                Removed = removed,
+            });
         });
 
         // Terminate every running process matching the catalog entry for

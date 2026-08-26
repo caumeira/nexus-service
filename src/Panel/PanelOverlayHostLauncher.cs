@@ -337,13 +337,12 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         }
         // Unique task name so concurrent spawns or stale tasks don't collide.
         var taskName = $"{LaunchTaskPrefix}{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
-        SweepStaleLaunchTasks();
         try
         {
             // /F overwrites if it collides. The XML form is trigger-less, but
             // the schedule-type fallback below carries a real ONCE trigger, so a
             // leftover of that form does fire once and launch the overlay
-            // unprompted - SweepStaleLaunchTasks above is what bounds it.
+            // unprompted - SweepStaleLaunchTasks is what bounds it.
             if (!CreateTask(taskName, username, exePath))
             {
                 return null;
@@ -385,9 +384,9 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     private const string LaunchTaskPrefix = "NexusOverlayLaunch_";
     private static bool _sweptStaleTasks;
 
-    /// <summary>Deletes launch tasks left by a process whose delete never ran.</summary>
+    /// <summary>Deletes launch tasks left by a process whose delete never ran; runs at service start, since a user with no widgets and no panel never spawns an overlay and it is their leftover ONCE-trigger tasks that keep launching one.</summary>
     [SupportedOSPlatform("windows")]
-    private static void SweepStaleLaunchTasks()
+    internal static void SweepStaleLaunchTasks()
     {
         if (_sweptStaleTasks)
         {
