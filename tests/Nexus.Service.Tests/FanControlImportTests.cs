@@ -381,6 +381,83 @@ public class FanControlImportTests
     }
 
     [Fact]
+    public void Map_PairsAGpuSensorWhenLhmReportsSeveralTemperaturesForTheCard()
+    {
+        // LHM reports core, hot spot and memory junction where FanControl's
+        // plugin reports one, so nothing pairs until the local side narrows.
+        var plan = FanControlImportMapper.Build(
+            V275(),
+            Channels(
+                ("/lpc/nct6701d/0/control/0", "Fan #1"),
+                ("/lpc/nct6701d/0/control/1", "CPU Fan"),
+                ("/lpc/nct6701d/0/control/4", "Fan #5"),
+                ("/gpu-nvidia/0/control/0", "GPU Fan 1"),
+                ("/gpu-nvidia/0/control/1", "GPU Fan 2")),
+            Channels(
+                ("/amdcpu/0/temperature/2", "Core (Tctl/Tdie)"),
+                ("/amdcpu/0/temperature/3", "CCD1 (Tdie)"),
+                ("/gpu-nvidia/0/temperature/0", "GPU Core"),
+                ("/gpu-nvidia/0/temperature/1", "GPU Hot Spot"),
+                ("/gpu-nvidia/0/temperature/2", "GPU Memory Junction")));
+
+        Assert.Equal(
+            "/gpu-nvidia/0/temperature/0",
+            plan.Curves.First(c => c.Name == "GPU Fan Curve").Input.Id);
+        Assert.Equal(
+            "/gpu-nvidia/0/temperature/0",
+            plan.Curves.First(c => c.Name == "Auto GPU").Input.Id);
+        Assert.DoesNotContain(plan.Preview.Curves, c => !c.Supported);
+    }
+
+    [Fact]
+    public void PairGpuTemperatures_WillNotBindAcrossVendors()
+    {
+        // A dGPU asleep at import time contributes no temperature, so counts
+        // alone would let an NVIDIA curve drive off the AMD iGPU.
+        var pairs = LhmIdentifierMatcher.PairGpuTemperatures(
+            new[] { "NVApiWrapper/0-GB202-A/sensor/0" },
+            Channels(("/gpu-amd/0/temperature/0", "GPU Core")));
+        Assert.Empty(pairs);
+    }
+
+    [Fact]
+    public void PairGpuTemperatures_PairsEachVendorAgainstItsOwnCard()
+    {
+        var pairs = LhmIdentifierMatcher.PairGpuTemperatures(
+            new[] { "NVApiWrapper/0-GB202-A/sensor/0", "AdlxWrapper/0-Raphael/sensor/0" },
+            Channels(
+                ("/gpu-amd/0/temperature/0", "GPU Core"),
+                ("/gpu-amd/0/temperature/1", "GPU Hot Spot"),
+                ("/gpu-nvidia/0/temperature/0", "GPU Core"),
+                ("/gpu-nvidia/0/temperature/1", "GPU Hot Spot")));
+        Assert.Equal("/gpu-nvidia/0/temperature/0", pairs["NVApiWrapper/0-GB202-A/sensor/0"]);
+        Assert.Equal("/gpu-amd/0/temperature/0", pairs["AdlxWrapper/0-Raphael/sensor/0"]);
+    }
+
+    [Fact]
+    public void PairGpuTemperatures_FallsBackWhenNoCoreTemperatureIsNamed()
+    {
+        var pairs = LhmIdentifierMatcher.PairGpuTemperatures(
+            new[] { "NVApiWrapper/0-GA102-A/sensor/0" },
+            Channels(("/gpu-nvidia/0/temperature/0", "GPU Temperature")));
+        Assert.Equal("/gpu-nvidia/0/temperature/0", pairs["NVApiWrapper/0-GA102-A/sensor/0"]);
+    }
+
+    [Fact]
+    public void PairGpuTemperatures_UnnamedCoreAmongSeveral_PairsNothing()
+    {
+        // The fallback widens the candidates, it does not lift the count gate:
+        // picking one of several arbitrarily would bind the curve to whichever
+        // temperature sorted first.
+        var pairs = LhmIdentifierMatcher.PairGpuTemperatures(
+            new[] { "NVApiWrapper/0-GA102-A/sensor/0" },
+            Channels(
+                ("/gpu-nvidia/0/temperature/0", "GPU Temperature"),
+                ("/gpu-nvidia/0/temperature/1", "GPU Hot Spot")));
+        Assert.Empty(pairs);
+    }
+
+    [Fact]
     public void Map_CurvesOnOneSourceShareIt_AndTheRestAreReported()
     {
         // Two FanControl curves watching one sensor must both watch ours; two

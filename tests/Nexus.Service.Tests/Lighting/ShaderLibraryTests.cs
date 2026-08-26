@@ -42,6 +42,10 @@ public class ShaderLibraryTests
     [InlineData("terrace")]
     [InlineData("harlequin")]
     [InlineData("mosaic")]
+    [InlineData("spectrumaurora")]
+    [InlineData("neonwaveform")]
+    [InlineData("liquidbeat")]
+    [InlineData("beatburst")]
     public void NewShaders_Are_Registered(string key)
     {
         Assert.Contains(key, ShaderLibrary.AllEffectKeys);
@@ -49,5 +53,18 @@ public class ShaderLibraryTests
         // Spot-check: every shader uses the shared finalize() post-process so
         // the user's hue / saturation / contrast sliders actually do anything.
         Assert.Contains("finalize(", src);
+    }
+
+    [Theory]
+    [InlineData("spectrumaurora")]
+    [InlineData("neonwaveform")]
+    [InlineData("liquidbeat")]
+    [InlineData("beatburst")]
+    public void FullscreenAudioShaders_Are_AudioEffects(string key)
+    {
+        // A key missing here renders fine but never gets capture started, so it
+        // animates its idle form while music plays.
+        Assert.True(ShaderLibrary.IsAudioEffect(key));
+        Assert.Contains("u_audio", ShaderLibrary.Get(key));
     }
 }

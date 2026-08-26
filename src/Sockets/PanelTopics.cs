@@ -22,6 +22,8 @@ public static class PanelTopics
     /// frame would turn every peak sample into an HTTP GET.
     /// </summary>
     public const string AudioMixer = "audio/mixer";
+    /// <summary>Spectrum / beat snapshots for client-rendered audio shaders; subscribing also demands capture (LightingProvider.SetAudioCaptureDemand).</summary>
+    public const string Audio = "audio";
     /// <summary>
     /// Gallery sources changed (reference added/removed, upload). Subscribers
     /// refetch GET /gallery/items.

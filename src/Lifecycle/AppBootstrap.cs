@@ -143,7 +143,7 @@ internal static class AppBootstrap
         BootTimer.Mark("WireBeatsAndPresence: MultiplexHub resolved");
         beatsProvider.OnBeat += () =>
         {
-            if (muxHub.TopicHasSubscribers("audio"))
+            if (muxHub.TopicHasSubscribers(PanelTopics.Audio))
             {
                 var snap = new Nexus.Service.Models.Lighting.AudioStateSnapshot
                 {
@@ -155,8 +155,8 @@ internal static class AppBootstrap
                     Spectrum = new List<float>(AudioState.Spectrum),
                     Spectrum64 = new List<float>(AudioState.Spectrum64),
                 };
-                var audioEnv = WsEnvelope.Build("audio", snap, AppJsonContext.Default.AudioStateSnapshot);
-                _ = muxHub.BroadcastTopicAsync("audio", audioEnv);
+                var audioEnv = WsEnvelope.Build(PanelTopics.Audio, snap, AppJsonContext.Default.AudioStateSnapshot);
+                _ = muxHub.BroadcastTopicAsync(PanelTopics.Audio, audioEnv);
             }
         };
 
@@ -206,6 +206,13 @@ internal static class AppBootstrap
         // effect is active.
         var lighting = app.Services.GetRequiredService<ILightingProvider>();
         BootTimer.Mark("WireBeatsAndPresence: ILightingProvider resolved");
+        // Subscribing to the audio topic IS a demand for capture: the topic carries
+        // nothing else, and capture is otherwise gated on the LED engine's effect.
+        muxHub.OnTopicFirstSubscriber += topic =>
+        { if (topic == PanelTopics.Audio) lighting.SetAudioCaptureDemand(true); };
+        muxHub.OnTopicLastUnsubscriber += topic =>
+        { if (topic == PanelTopics.Audio) lighting.SetAudioCaptureDemand(false); };
+        if (muxHub.TopicHasSubscribers(PanelTopics.Audio)) lighting.SetAudioCaptureDemand(true);
         lighting.ReconcileAudioCapture();
         BootTimer.Mark("WireBeatsAndPresence: ReconcileAudioCapture called");
     }

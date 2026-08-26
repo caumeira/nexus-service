@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Activity;
 using Nexus.Service.Lifecycle;
@@ -45,6 +46,8 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // start/stop; the last reconcile to acquire reads the committed effect
     // and wins.
     private readonly object _audioCaptureLock = new();
+    // Refcount of clients rendering an audio shader themselves; see SetAudioCaptureDemand.
+    private int _audioCaptureDemand;
 
     // Live-reactive post-process holders shared between the effect and the
     // /lighting/{mode}/effect endpoint. The endpoint mutates the fields; the
@@ -117,11 +120,12 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void SetPaused(bool paused) => _engine.SetPaused(paused);
 
-    // Audio capture runs only while Music Reactive is on and the live engine
-    // effect is audio-reactive. The effect is read inside the lock (not from a
-    // captured argument) so concurrent transitions resolve to the last committed
-    // effect; the engine is already "none" during StopAll, so capture stops
-    // without consulting the not-yet-persisted Sync.
+    // Audio capture runs while Music Reactive is on and the live engine effect
+    // is audio-reactive, OR while a client is watching the "audio" topic. The
+    // effect is read inside the lock (not from a captured argument) so
+    // concurrent transitions resolve to the last committed effect; the engine
+    // is already "none" during StopAll, so capture stops without consulting the
+    // not-yet-persisted Sync.
     public void ReconcileAudioCapture()
     {
         if (_beats is null)
@@ -130,7 +134,8 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         }
         lock (_audioCaptureLock)
         {
-            if (_store.Load().Lighting.MusicReactive && ShaderLibrary.IsAudioEffect(_engine.CurrentEffectName))
+            var forLeds = _store.Load().Lighting.MusicReactive && ShaderLibrary.IsAudioEffect(_engine.CurrentEffectName);
+            if (forLeds || Volatile.Read(ref _audioCaptureDemand) > 0)
             {
                 _beats.Start();
             }
@@ -139,6 +144,21 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
                 _beats.Stop();
             }
         }
+    }
+
+    /// <summary>Hold capture for a client rendering an audio shader itself; without it capture is gated on the LED engine running an audio effect.</summary>
+    public void SetAudioCaptureDemand(bool demanded)
+    {
+        if (demanded)
+        {
+            Interlocked.Increment(ref _audioCaptureDemand);
+        }
+        else if (Interlocked.Decrement(ref _audioCaptureDemand) < 0)
+        {
+            // An unmatched release must not drive the count negative; that would suppress every later demand.
+            Interlocked.Exchange(ref _audioCaptureDemand, 0);
+        }
+        ReconcileAudioCapture();
     }
 
     public void SetMusicReactive(bool enabled)
@@ -722,6 +742,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "audiotunnel" => new(0.45f, 0.35f, 60f, 1.15f, 1.10f, 1f),
         "bassbloom" => new(0.85f, 0.35f, 45f, 1.15f, 1.10f, 1f),
         "beatbuilder" => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        // Fullscreen-first audio set.
+        "spectrumaurora" => new(0.28f, 0.00f, 45f, 1.20f, 1.05f, 1f),
+        "neonwaveform" => new(0.62f, 0.15f, 55f, 1.25f, 1.10f, 1f),
+        "liquidbeat" => new(0.78f, 0.20f, 40f, 1.25f, 1.10f, 1f),
+        "beatburst" => new(0.00f, 0.00f, 60f, 1.25f, 1.10f, 1f),
         // Tunnels + flowy + abstract backgrounds. Mirror SIGNATURES in lightingTemplates.ts.
         "ringtunnel" => new(0.50f, 0.40f, 65f, 1.20f, 1.10f, 1f),
         "vortextunnel" => new(0.72f, 0.30f, 55f, 1.15f, 1.10f, 1f),
@@ -842,6 +867,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             ["u_beatColor"] = 0f, ["u_bgLevel"] = 0f, ["u_flash"] = 0f,
             ["u_beatPulse"] = 0.3f,
         },
+        // Fullscreen-first audio set.
+        "spectrumaurora" => new() { ["u_curtains"] = 5f, ["u_height"] = 0.75f, ["u_glow"] = 1.0f },
+        "neonwaveform" => new() { ["u_amplitude"] = 0.35f, ["u_thickness"] = 0.03f, ["u_glow"] = 1.0f },
+        "liquidbeat" => new() { ["u_blobs"] = 5f, ["u_viscosity"] = 1.0f, ["u_glow"] = 1.0f },
+        "beatburst" => new() { ["u_streaks"] = 40f, ["u_trail"] = 1.15f, ["u_spread"] = 0.45f },
         // Tunnels + flowy + abstract backgrounds. Slot 0 must match the frontend
         // EFFECTS defaults and PARAM_VARIATIONS slot 0.
         "ringtunnel" => new() { ["u_rings"] = 2f, ["u_zoom"] = 1.0f, ["u_neon"] = 1.0f },
@@ -936,6 +966,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             "audiotunnel" => ShaderLibrary.Get("audiotunnel"),
             "bassbloom" => ShaderLibrary.Get("bassbloom"),
             "beatbuilder" => ShaderLibrary.BeatBuilder,
+            "spectrumaurora" => ShaderLibrary.Get("spectrumaurora"),
+            "neonwaveform" => ShaderLibrary.Get("neonwaveform"),
+            "liquidbeat" => ShaderLibrary.Get("liquidbeat"),
+            "beatburst" => ShaderLibrary.Get("beatburst"),
             "bubbles" => ShaderLibrary.Bubbles,
             "silkwave" => ShaderLibrary.SilkWave,
             "prismwave" => ShaderLibrary.PrismWave,

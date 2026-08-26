@@ -74,4 +74,11 @@ public interface ILightingProvider
 
     /// <summary>Start or stop audio capture based on the current MusicReactive setting and active effect.</summary>
     void ReconcileAudioCapture();
+
+    /// <summary>
+    /// Hold (or release) a demand for audio capture on behalf of a client that
+    /// renders an audio-reactive shader itself, so capture does not depend on
+    /// the LED engine also running an audio effect.
+    /// </summary>
+    void SetAudioCaptureDemand(bool demanded);
 }
