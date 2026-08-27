@@ -236,12 +236,16 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
                     Thread.Sleep(InterWriteSettleMs);
                 }
             }
-        }
 
-        // Same latch the firmware-mode path needs: without it the streamed frame
-        // sits in the buffer and the panel keeps showing the previous one.
-        _hub.SendFrameSync();
-        Thread.Sleep(InterWriteSettleMs);
+            // Latch PER DEVICE, not once per tick. The sync applies the frame for
+            // the port it follows; with a single port a trailing sync looked
+            // equivalent, but as soon as a second port is populated only the
+            // last-addressed one latched and the other fell back to the
+            // firmware's ~0.6 Hz internal repaint - the whole rig then reads as
+            // roughly 1 Hz once a fan is moved to a second port.
+            _hub.SendFrameSync();
+            Thread.Sleep(InterWriteSettleMs);
+        }
     }
 
     private void CommitFirmwareMode(
