@@ -55,9 +55,9 @@ public class SegmentFrameComposerTests
     [Fact]
     public void Default_partition_is_byte_identical_to_legacy_writer()
     {
-        var structure = KeebZoneSupport.BuildStructure(HubId);
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
         var zones = ZoneResolution.Resolve(structure, new NexusSettings());
-        var keys = Frame(HubId + ":keys", KeebLayout.KeyLedCount, seed: 10);
+        var keys = Frame(HubId + ":keys", KeebKeyMap.Ansi.LedCount, seed: 10);
         var underglow = Frame(HubId + ":underglow", KeebLayout.SurroundLedCount, seed: 90);
         var buffers = Buffers(structure);
 
@@ -70,16 +70,16 @@ public class SegmentFrameComposerTests
 
         Assert.True(touched[0]);
         Assert.True(touched[1]);
-        Assert.Equal(LegacyFillZone(keys, KeebLayout.KeyLedCount, 1.0), buffers[0]);
+        Assert.Equal(LegacyFillZone(keys, KeebKeyMap.Ansi.LedCount, 1.0), buffers[0]);
         Assert.Equal(LegacyFillZone(underglow, KeebLayout.SurroundLedCount, 1.0), buffers[1]);
     }
 
     [Fact]
     public void Master_brightness_caps_per_zone_software_brightness()
     {
-        var structure = KeebZoneSupport.BuildStructure(HubId);
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
         var zones = ZoneResolution.Resolve(structure, new NexusSettings());
-        var keys = Frame(HubId + ":keys", KeebLayout.KeyLedCount, seed: 33);
+        var keys = Frame(HubId + ":keys", KeebKeyMap.Ansi.LedCount, seed: 33);
         var underglow = Frame(HubId + ":underglow", KeebLayout.SurroundLedCount, seed: 7);
         var prefs = new Dictionary<string, LightingDevicePreference>
         {
@@ -95,16 +95,16 @@ public class SegmentFrameComposerTests
         // underglow (100%) is capped to it.
         var mulKeys = Math.Min(37 / 100.0, 0.8f);
         var mulGlow = Math.Min(100 / 100.0, 0.8f);
-        Assert.Equal(LegacyFillZone(keys, KeebLayout.KeyLedCount, mulKeys), buffers[0]);
+        Assert.Equal(LegacyFillZone(keys, KeebKeyMap.Ansi.LedCount, mulKeys), buffers[0]);
         Assert.Equal(LegacyFillZone(underglow, KeebLayout.SurroundLedCount, mulGlow), buffers[1]);
     }
 
     [Fact]
     public void Master_multiplies_the_per_zone_software_brightness()
     {
-        var structure = KeebZoneSupport.BuildStructure(HubId);
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
         var zones = ZoneResolution.Resolve(structure, new NexusSettings());
-        var keys = Frame(HubId + ":keys", KeebLayout.KeyLedCount, seed: 60);
+        var keys = Frame(HubId + ":keys", KeebKeyMap.Ansi.LedCount, seed: 60);
         var underglow = Frame(HubId + ":underglow", KeebLayout.SurroundLedCount, seed: 20);
         var prefs = new Dictionary<string, LightingDevicePreference>
         {
@@ -118,16 +118,16 @@ public class SegmentFrameComposerTests
             new List<string>(), new List<string>(), prefs, globalBrightness: 1f, masterMul: 0.5,
             nowTicks: DateTime.UtcNow.Ticks, identify: null, buffers);
 
-        Assert.Equal(LegacyFillZone(keys, KeebLayout.KeyLedCount, (1f * 50 / 100.0) * 0.5), buffers[0]);
+        Assert.Equal(LegacyFillZone(keys, KeebKeyMap.Ansi.LedCount, (1f * 50 / 100.0) * 0.5), buffers[0]);
         Assert.Equal(LegacyFillZone(underglow, KeebLayout.SurroundLedCount, (1f * 100 / 100.0) * 0.5), buffers[1]);
     }
 
     [Fact]
     public void Disabled_zone_goes_black()
     {
-        var structure = KeebZoneSupport.BuildStructure(HubId);
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
         var zones = ZoneResolution.Resolve(structure, new NexusSettings());
-        var keys = Frame(HubId + ":keys", KeebLayout.KeyLedCount, seed: 50);
+        var keys = Frame(HubId + ":keys", KeebKeyMap.Ansi.LedCount, seed: 50);
         var buffers = Buffers(structure);
 
         var touched = SegmentFrameComposer.Compose(structure, zones, new[] { keys },
@@ -145,9 +145,9 @@ public class SegmentFrameComposerTests
     [Fact]
     public void Uncontrolled_zone_goes_black()
     {
-        var structure = KeebZoneSupport.BuildStructure(HubId);
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
         var zones = ZoneResolution.Resolve(structure, new NexusSettings());
-        var keys = Frame(HubId + ":keys", KeebLayout.KeyLedCount, seed: 50);
+        var keys = Frame(HubId + ":keys", KeebKeyMap.Ansi.LedCount, seed: 50);
         var buffers = Buffers(structure);
 
         var touched = SegmentFrameComposer.Compose(structure, zones, new[] { keys },
@@ -163,9 +163,9 @@ public class SegmentFrameComposerTests
     [Fact]
     public void Identify_flashes_the_zone_white_on_the_on_phase()
     {
-        var structure = KeebZoneSupport.BuildStructure(HubId);
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
         var zones = ZoneResolution.Resolve(structure, new NexusSettings());
-        var keys = Frame(HubId + ":keys", KeebLayout.KeyLedCount, seed: 50);
+        var keys = Frame(HubId + ":keys", KeebKeyMap.Ansi.LedCount, seed: 50);
         var identify = new Np50IdentifyTracker();
         identify.Schedule(HubId + ":keys", durationMs: 5000);
         var buffers = Buffers(structure);
@@ -181,7 +181,7 @@ public class SegmentFrameComposerTests
     [Fact]
     public void Custom_spanning_zone_lands_slices_at_segment_offsets()
     {
-        var structure = KeebZoneSupport.BuildStructure(HubId);
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
         var settings = new NexusSettings();
         settings.Devices.ZonePartitions[HubId] = new List<ZoneDef>
         {
@@ -191,7 +191,7 @@ public class SegmentFrameComposerTests
                 Name = "Span",
                 Slices =
                 {
-                    new ZoneSlice { Segment = 0, Start = 90, Count = KeebLayout.KeyLedCount - 90 },
+                    new ZoneSlice { Segment = 0, Start = 90, Count = KeebKeyMap.Ansi.LedCount - 90 },
                     new ZoneSlice { Segment = 1, Start = 0, Count = 5 },
                 },
             },
@@ -204,7 +204,7 @@ public class SegmentFrameComposerTests
         var zones = ZoneResolution.Resolve(structure, settings);
         Assert.False(zones[0].IsDefault);
 
-        var spanLen = (KeebLayout.KeyLedCount - 90) + 5;
+        var spanLen = (KeebKeyMap.Ansi.LedCount - 90) + 5;
         var span = Frame($"{HubId}:z1", spanLen, seed: 100);
         var buffers = Buffers(structure);
 
@@ -218,7 +218,7 @@ public class SegmentFrameComposerTests
 
         var src = span.LedBytes;
         // Keys segment: zone-local run starts at segment-local offset 90.
-        for (int i = 0; i < KeebLayout.KeyLedCount - 90; i++)
+        for (int i = 0; i < KeebKeyMap.Ansi.LedCount - 90; i++)
         {
             var off = i * 3;
             Assert.Equal(new RgbColor(src[off], src[off + 1], src[off + 2]), buffers[0][90 + i]);
@@ -228,7 +228,7 @@ public class SegmentFrameComposerTests
         // Underglow segment: remaining zone-local LEDs land at its start.
         for (int i = 0; i < 5; i++)
         {
-            var off = (KeebLayout.KeyLedCount - 90 + i) * 3;
+            var off = (KeebKeyMap.Ansi.LedCount - 90 + i) * 3;
             Assert.Equal(new RgbColor(src[off], src[off + 1], src[off + 2]), buffers[1][i]);
         }
         Assert.Equal(default, buffers[1][5]);

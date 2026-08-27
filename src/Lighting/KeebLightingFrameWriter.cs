@@ -51,7 +51,8 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     // refuses to put an animated mode back while a stream owns the device.
 
     // Reused per-tick scratch buffer for reactive-only frames (base = black).
-    private readonly RgbColor[] _reactiveKeyBuf = new RgbColor[KeebLayout.KeyLedCount];
+    // Sized to the largest layout; only the active map's prefix is ever streamed.
+    private readonly RgbColor[] _reactiveKeyBuf = new RgbColor[KeebKeyMap.MaxLedCount];
 
     private RgbColor[][] _segmentBuffers = Array.Empty<RgbColor[]>();
 
@@ -144,23 +145,30 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         if (readByte) _knobPollTicks = 0;
         _applier.PollKnobToGlobal(readByte);
 
+        // One key-map read per tick: KeyMap derives from State.Layout, which the
+        // device thread rewrites on reconnect. Re-reading it per use would let a
+        // mid-tick layout change leave the renderer, the structure and the
+        // streamed span disagreeing about the key count for that frame.
+        var keys = _hub.KeyMap;
+
         // Configure renderer from settings snapshot before calling Render().
         var reactiveColor = new RgbColor(keeb.KeyReactiveColor.R, keeb.KeyReactiveColor.G, keeb.KeyReactiveColor.B);
+        _renderer.SetKeyMap(keys);
         _renderer.Configure(keyReactive, keeb.KeyReactiveMode, reactiveColor);
         var reactive = keyReactive ? _renderer.Render() : null;
 
         if (softwareEffect)
         {
-            TickSoftwareEffect(settings, reactive, keeb.KeyReactiveMask);
+            TickSoftwareEffect(settings, keys, reactive, keeb.KeyReactiveMask);
         }
         else
         {
             // Key-reactive only (no software effect): stream base=black + reactive overlay, keys segment only.
-            TickReactiveOnly(reactive);
+            TickReactiveOnly(keys, reactive);
         }
     }
 
-    private void TickSoftwareEffect(NexusSettings settings, RgbColor?[]? reactive, bool mask)
+    private void TickSoftwareEffect(NexusSettings settings, KeebKeyMap keys, RgbColor?[]? reactive, bool mask)
     {
         var disabled = settings.Devices.DisabledLightingDevices;
         var uncontrolled = settings.Devices.UncontrolledLightingDevices;
@@ -178,7 +186,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         var hubId = _hub.DeviceId;
         if (string.IsNullOrEmpty(hubId)) return;
 
-        var structure = KeebZoneSupport.BuildStructure(hubId);
+        var structure = KeebZoneSupport.BuildStructure(hubId, keys);
         var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
         Nexus.Service.Lighting.Zones.SegmentFrameComposer.EnsureBuffers(structure, ref _segmentBuffers);
         var touched = Nexus.Service.Lighting.Zones.SegmentFrameComposer.Compose(
@@ -205,19 +213,20 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         }
     }
 
-    private void TickReactiveOnly(RgbColor?[]? reactive)
+    private void TickReactiveOnly(KeebKeyMap keys, RgbColor?[]? reactive)
     {
         if (reactive == null) return;
 
         // No software effect = no base to reveal, so mask is a no-op here: always paint the
         // reactive color on black (matches HYTE's reactive-only path, which ignores mask).
         // Mask only means something with a software effect as the base (TickSoftwareEffect).
+        var count = keys.LedCount;
         Array.Clear(_reactiveKeyBuf, 0, _reactiveKeyBuf.Length);
-        ApplyReactive(_reactiveKeyBuf, reactive, mask: false);
-        _hub.WriteKeyboard(_reactiveKeyBuf);
+        ApplyReactive(_reactiveKeyBuf.AsSpan(0, count), reactive, mask: false);
+        _hub.WriteKeyboard(_reactiveKeyBuf.AsSpan(0, count));
     }
 
-    private static void ApplyReactive(RgbColor[] keyBuf, RgbColor?[] reactive, bool mask)
+    private static void ApplyReactive(Span<RgbColor> keyBuf, RgbColor?[] reactive, bool mask)
     {
         for (var i = 0; i < keyBuf.Length && i < reactive.Length; i++)
         {

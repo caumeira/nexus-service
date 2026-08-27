@@ -24,7 +24,7 @@ public class ZoneSeedResolutionTests : IDisposable
 
     private sealed class FakeStructureSource : IDeviceStructureSource
     {
-        public IReadOnlyList<DeviceStructure> GetStructures() => new[] { KeebZoneSupport.BuildStructure(HubId) };
+        public IReadOnlyList<DeviceStructure> GetStructures() => new[] { KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi) };
     }
 
     private ZoneTopology Topology(ContributorFrameLayouts? tracker = null) => new(
@@ -45,7 +45,7 @@ public class ZoneSeedResolutionTests : IDisposable
         var resolution = Topology().ResolveCard(HubId + ":keys", new NexusSettings());
 
         Assert.NotNull(resolution);
-        var (seedU, seedV) = KeebLayout.ComputeKeyUv();
+        var (seedU, seedV) = KeebKeyMap.Ansi.ComputeUv();
         Assert.Equal(seedU, resolution!.Layout.U);
         Assert.Equal(seedV, resolution.Layout.V);
         Assert.Null(resolution.Device);
@@ -62,7 +62,7 @@ public class ZoneSeedResolutionTests : IDisposable
 
         var layout = Topology().ResolveCard(HubId + ":keys", settings)!.Layout;
 
-        var (seedU, _) = KeebLayout.ComputeKeyUv();
+        var (seedU, _) = KeebKeyMap.Ansi.ComputeUv();
         Assert.Equal(0.9f, layout.U[1]);
         Assert.Contains(1, layout.CustomLeds);
         Assert.True(layout.HasUserOverrides);
@@ -83,7 +83,7 @@ public class ZoneSeedResolutionTests : IDisposable
         var facade = DevicesRoutes.DeviceMapDefaultsFacade(settings);
         var layout = Topology().ResolveCard(HubId + ":keys", facade)!.Layout;
 
-        var (seedU, seedV) = KeebLayout.ComputeKeyUv();
+        var (seedU, seedV) = KeebKeyMap.Ansi.ComputeUv();
         Assert.Equal(seedU, layout.U);
         Assert.Equal(seedV, layout.V);
         Assert.False(layout.HasUserOverrides);
@@ -102,7 +102,7 @@ public class ZoneSeedResolutionTests : IDisposable
                 Name = "Rest",
                 Slices =
                 {
-                    new ZoneSlice { Segment = 0, Start = 40, Count = KeebLayout.KeyLedCount - 40 },
+                    new ZoneSlice { Segment = 0, Start = 40, Count = KeebKeyMap.Ansi.LedCount - 40 },
                     new ZoneSlice { Segment = 1, Start = 0, Count = KeebLayout.SurroundLedCount },
                 },
             },
@@ -110,8 +110,8 @@ public class ZoneSeedResolutionTests : IDisposable
 
         var layout = Topology().ResolveCard($"{HubId}:z1", settings)!.Layout;
 
-        var structure = KeebZoneSupport.BuildStructure(HubId);
-        var keyTail = KeebLayout.KeyLedCount - 40;
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
+        var keyTail = KeebKeyMap.Ansi.LedCount - 40;
         Assert.Equal(keyTail + KeebLayout.SurroundLedCount, layout.LedCount);
         Assert.Equal(structure.Segments[0].DefaultU![40], layout.U[0]);
         Assert.Equal(structure.Segments[1].DefaultU![0], layout.U[keyTail]);
@@ -123,19 +123,19 @@ public class ZoneSeedResolutionTests : IDisposable
     {
         var tracker = new ContributorFrameLayouts();
         var topology = Topology(tracker);
-        var frame = new DeviceFrame(0, HubId + ":keys", KeebLayout.KeyLedCount);
+        var frame = new DeviceFrame(0, HubId + ":keys", KeebKeyMap.Ansi.LedCount);
         _engine.UpdateDevices(new[] { frame });
 
         topology.RefreshCardFrame(HubId + ":keys");
 
-        var (seedU, seedV) = KeebLayout.ComputeKeyUv();
+        var (seedU, seedV) = KeebKeyMap.Ansi.ComputeUv();
         Assert.Equal(seedU, frame.LedU);
         Assert.Equal(seedV, frame.LedV);
 
         // A bridge rebuild reusing the same frame instance (structure seeds
         // passed, as RgbBridge does for zone-backed contributor frames) must
         // keep the stock shape rather than collapse to a line.
-        var structure = KeebZoneSupport.BuildStructure(HubId);
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
         var zones = ZoneResolution.Resolve(structure, new NexusSettings());
         var (rebuildU, rebuildV) = ZoneResolution.DefaultUv(structure, zones[0]);
         tracker.Refresh(frame, new NexusSettings(), ZoneResolution.ContextOf(structure, zones[0]), rebuildU, rebuildV);
