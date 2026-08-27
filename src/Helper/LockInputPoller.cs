@@ -38,13 +38,15 @@ public sealed class LockInputPoller : IDisposable
     private const int EmitThrottleMs = 1000;
 
     /// <summary>
-    /// Input in the first moments after arming is the tail of the gesture that
+    /// Input in the first moment after arming is the tail of the gesture that
     /// locked the machine - the key release of Win+L, the hand leaving the
     /// mouse - and reporting it woke the lighting 165ms into its own fade-out
-    /// (measured on T1). Covers the 1500ms lock ramp plus settle, so nothing is
-    /// reported until the machine has actually finished going dark.
+    /// (measured on T1). Deliberately shorter than the 1500ms lock ramp: a real
+    /// touch during the tail of that ramp should still be honoured, and it is,
+    /// because BeginBlackoutFade marks the hold engaged as the ramp starts, so
+    /// the release picks up from the dimmed level rather than jumping.
     /// </summary>
-    private const int ArmGraceMs = 2000;
+    private const int ArmGraceMs = 1000;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct LASTINPUTINFO
