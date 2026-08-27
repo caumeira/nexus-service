@@ -69,13 +69,15 @@ public class AuthRequestPolicyTests
         AssertPanelAllowedRoute(app, "POST", "/system/open-task-manager");
         AssertPanelAllowedRoute(app, "POST", "/system/power/lock");
         AssertPanelAllowedRoute(app, "POST", "/system/power/sleep");
+        AssertPanelAllowedRoute(app, "POST", "/system/power/shutdown");
+        AssertPanelAllowedRoute(app, "POST", "/system/power/restart");
+        AssertPanelAllowedRoute(app, "POST", "/system/power/logout");
         AssertPanelAllowedRoute(app, "GET", "/system/audio/devices");
         AssertPanelAllowedRoute(app, "POST", "/system/audio/default-output");
         AssertPanelAllowedRoute(app, "POST", "/system/audio/default-input");
 
-        AssertPanelDeniedRoute(app, "POST", "/system/power/shutdown");
-        AssertPanelDeniedRoute(app, "POST", "/system/power/restart");
-        AssertPanelDeniedRoute(app, "POST", "/system/power/logout");
+        // pick-path opens a native dialog on the host's screen - still desktop-only.
+        AssertPanelDeniedRoute(app, "POST", "/system/pick-path");
     }
 
     [Fact]

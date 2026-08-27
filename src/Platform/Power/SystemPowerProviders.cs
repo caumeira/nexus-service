@@ -6,8 +6,7 @@ namespace Nexus.Service.Platform.Power;
 /// <summary>
 /// Cross-platform session/power control for deck buttons. One logical action
 /// per method with a per-OS backend; returns false when the action could not be
-/// performed. Destructive actions (Shutdown/Restart/Logout) are gated off the
-/// relay and the panel session at the route layer.
+/// performed.
 /// </summary>
 public interface ISystemPowerProvider
 {
