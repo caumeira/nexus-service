@@ -224,18 +224,24 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         var publishedMs = sw.ElapsedMilliseconds;
 
         var pushed = "n/a";
+        var pushedCount = 0;
         if (_rgb is not null)
         {
             using var cts = new CancellationTokenSource(StopBlackoutBudget);
             try
-            { pushed = _rgb.BlackoutAsync(cts.Token).GetAwaiter().GetResult() + " device(s)"; }
+            {
+                pushedCount = _rgb.BlackoutAsync(cts.Token).GetAwaiter().GetResult();
+                pushed = pushedCount + " device(s)";
+            }
             catch (OperationCanceledException) { pushed = "timeout"; }
             catch (Exception ex) { pushed = $"failed:{ex.GetType().Name}"; }
         }
         var pushedMs = sw.ElapsedMilliseconds - publishedMs;
 
-        var settle = SettleWindow;
-        if (_rgb is not null && settle > TimeSpan.Zero)
+        // Nothing reached the wire means Deactivate has nothing to kill either, so
+        // the wait would only block the caller's request thread.
+        var settle = pushedCount > 0 ? SettleWindow : TimeSpan.Zero;
+        if (settle > TimeSpan.Zero)
         {
             Thread.Sleep(settle);
         }

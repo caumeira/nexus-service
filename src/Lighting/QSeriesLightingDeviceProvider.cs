@@ -15,10 +15,10 @@ namespace Nexus.Service.Lighting;
 ///
 /// OpenRGB doesn't drive 1st-party HYTE devices, so <see cref="QSeriesCoolerHub"/>
 /// owns the cooler's serial port and this provider exposes its LEDs to the
-/// engine → <see cref="QSeriesLightingFrameWriter"/> pipeline. Renders one
-/// linear zone of <see cref="QSeriesCoolerHub.LedCount"/> LEDs (the pump-head
-/// channel); see the hub's WriteLighting for the multi-port streaming + the
-/// on-device LED-topology caveat.
+/// engine → <see cref="QSeriesLightingFrameWriter"/> pipeline. One card of
+/// <see cref="QSeriesCoolerHub.LedCount"/> LEDs: the backlight panel's grid
+/// followed by the logo diamond, each streamed to its own port by the hub's
+/// WriteLighting.
 /// </summary>
 public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor, IOpenRgbDeviceOwner
 {
@@ -115,8 +115,8 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
             CanvasW = layout?.W ?? defW, CanvasH = layout?.H ?? defH,
             CanvasRotation = ((((layout?.Rotation ?? 0) % 360) + 360) % 360),
             // Standalone top-level card (no ParentDeviceId / ZoneIndex). LED count is
-            // fixed at the hub's per-port stream size; ZoneResizable=false hides the
-            // led-count editor until on-device topology is confirmed.
+            // fixed by the panel + logo geometry, so ZoneResizable=false hides the
+            // led-count editor.
             ZoneType = "matrix", ZoneResizable = false,
         };
     }
@@ -166,7 +166,7 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
 
     public void SetZoneLedCount(string id, int count)
     {
-        // No-op: Q-series LED count is fixed at the hub's per-port stream size;
+        // No-op: Q-series LED count is fixed by the panel + logo geometry;
         // ZoneResizable=false hides the editor in the UI.
         _ = id; _ = count;
     }

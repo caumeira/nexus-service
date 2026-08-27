@@ -66,6 +66,13 @@ Notes:
   since the Windows service runs as LocalSystem and cannot see a user-scope
   variable). Unrecognized values are ignored. Unset it again afterwards; it is
   a diagnostic, not a default.
+- `NEXUS_STOP_SETTLE_MS` overrides how long turning lighting off waits after
+  pushing the final black before the OpenRGB subprocess is killed (default 300,
+  clamped to 5000). OpenRGB applies a frame on a per-controller thread and the
+  SDK has no completion ack, so a shorter wait can kill the daemon before a slow
+  controller - RGB RAM over SMBus - has written, leaving it lit. Lower it only to
+  measure that boundary. Set it machine-scope on Windows: the service runs as
+  LocalSystem and cannot see a user-scope variable.
 - `NEXUS_DISCORD_PRESENCE_CLIENT_ID` overrides the Discord application whose
   name and art Rich Presence publishes. Builds ship with the Nexus application
   compiled in, so this is only needed to test presence against a scratch

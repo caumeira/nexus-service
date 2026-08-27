@@ -121,9 +121,12 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                 var backlight = leds.Length >= QSeriesCoolerProtocol.BacklightLedCount
                     ? leds[..QSeriesCoolerProtocol.BacklightLedCount]
                     : leds;
-                var logo = leds.Length > QSeriesCoolerProtocol.BacklightLedCount
+                var logoAll = leds.Length > QSeriesCoolerProtocol.BacklightLedCount
                     ? leds[QSeriesCoolerProtocol.BacklightLedCount..]
                     : default;
+                var logo = logoAll.Length > QSeriesCoolerProtocol.LogoLedCount
+                    ? logoAll[..QSeriesCoolerProtocol.LogoLedCount]
+                    : logoAll;
                 for (var port = 1; port <= QSeriesCoolerProtocol.LedPortCount; port++)
                 {
                     var slice = port switch
