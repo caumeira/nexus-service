@@ -853,6 +853,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenTimeFocusPayload))]
 // Window set (isApp classification)
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.WindowSetSnapshotPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.WindowSetWantedPayload))]
 // Media
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.MediaSnapshotPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.MediaControlPayload))]

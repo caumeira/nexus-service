@@ -1228,6 +1228,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IAudioSessionProvider, WindowsAudioSessionProvider>();
         services.AddSingleton<IBeatsProvider, WasapiLoopbackBeatsProvider>();
         services.AddSingleton<IWindowSetProvider, WindowsWindowSetProvider>();
+        // Tells the helper to stop enumerating when the Monitoring gate is off.
+        services.AddHostedService<Nexus.Service.Activity.WindowSetDemandService>();
 #elif MACOS
         services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, MacAppDetectionProvider>();
