@@ -154,11 +154,30 @@ internal static class UserHelperBootstrapper
     // NEXUS_WINDOW_DIAG=1 set on the service side never carried into the
     // helper. An argv value survives the schtasks hop; the helper turns it
     // back into the env var WindowSetPoller already reads (WindowsUserHelper.Run).
-    private static string HelperSpawnArg() =>
-        Nexus.Service.Activity.WindowDiagnostics.IsEnabled(
-            Environment.GetEnvironmentVariable(Nexus.Service.Activity.WindowDiagnostics.EnvVarName))
-            ? $"--helper {Nexus.Service.Activity.WindowDiagnostics.HelperArgName}"
-            : "--helper";
+    private static string HelperSpawnArg()
+    {
+        var arg = "--helper";
+        if (Nexus.Service.Activity.WindowDiagnostics.IsEnabled(
+                Environment.GetEnvironmentVariable(Nexus.Service.Activity.WindowDiagnostics.EnvVarName)))
+        {
+            arg += $" {Nexus.Service.Activity.WindowDiagnostics.HelperArgName}";
+        }
+
+        // Poller disable list takes the same hop, for the same reason. Spaces
+        // would split the argv the task XML carries, so only the comma form
+        // survives - Parse accepts both and the env var is documented with commas.
+        var disable = Environment.GetEnvironmentVariable(Nexus.Service.Helper.HelperPollerDiagnostics.EnvVarName);
+        if (!string.IsNullOrWhiteSpace(disable))
+        {
+            var normalized = string.Join(",", Nexus.Service.Helper.HelperPollerDiagnostics.Parse(disable));
+            if (normalized.Length > 0)
+            {
+                arg += $" {Nexus.Service.Helper.HelperPollerDiagnostics.HelperArgPrefix}{normalized}";
+            }
+        }
+
+        return arg;
+    }
 
     private static void SpawnInUserSession(string nexusArg, string logTag, string taskPrefix)
     {

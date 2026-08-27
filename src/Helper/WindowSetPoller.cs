@@ -43,6 +43,10 @@ public sealed class WindowSetPoller : IDisposable
     // enumerations for this poller are ever in flight together.
     private EnumWindowsProc? _pinnedEnumProc;
 
+    /// <summary>Windows walked by the last EnumWindows pass - the size of the
+    /// per-window Win32 work the slow-pass line is reporting on.</summary>
+    private int _enumerated;
+
     public WindowSetPoller(HelperOutbound outbound)
     {
         _outbound = outbound;
@@ -52,13 +56,21 @@ public sealed class WindowSetPoller : IDisposable
 
     private void Poll()
     {
+        if (HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.WindowSet)) return;
         try
         {
             var connected = _outbound.IsConnected;
             var justReconnected = connected && !_wasConnected;
             _wasConnected = connected;
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var current = SnapshotWindowedPids();
+            sw.Stop();
+            if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs)
+            {
+                ServiceLog.Warn(HelperPollerDiagnostics.FormatSlowPass(
+                    HelperPollerDiagnostics.WindowSet, sw.Elapsed.TotalMilliseconds, _enumerated));
+            }
             if (!justReconnected && current.SetEquals(_lastSent)) return;
 
             _lastSent = current;
@@ -73,6 +85,7 @@ public sealed class WindowSetPoller : IDisposable
     private HashSet<int> SnapshotWindowedPids()
     {
         var pids = new HashSet<int>();
+        var enumerated = 0;
 
         // Computed once per poll, not per window: the bounding box of every
         // monitor, for the off-screen-window exclusion.
@@ -95,6 +108,7 @@ public sealed class WindowSetPoller : IDisposable
 
         _pinnedEnumProc = (hwnd, _) =>
         {
+            enumerated++;
             var isForegroundWindow = hwnd == foregroundHwnd;
             var owner = GetWindow(hwnd, GwOwner);
             var isToolWindow = (GetWindowLong(hwnd, GwlExstyle) & WsExToolwindow) != 0;
@@ -147,6 +161,7 @@ public sealed class WindowSetPoller : IDisposable
             return true;
         };
         EnumWindows(_pinnedEnumProc, IntPtr.Zero);
+        _enumerated = enumerated;
         return pids;
     }
 

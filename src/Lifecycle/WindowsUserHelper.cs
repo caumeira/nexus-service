@@ -156,6 +156,17 @@ internal static class WindowsUserHelper
             Environment.SetEnvironmentVariable(Nexus.Service.Activity.WindowDiagnostics.EnvVarName, "1");
         }
 
+        // Same schtasks hop as the window-diag flag above: the disable list is
+        // forwarded as argv, with the service-side env var as the fallback for
+        // a helper started by hand. Configure before any poller is constructed.
+        var disableArg = Array.Find(args, a => a.StartsWith(Helper.HelperPollerDiagnostics.HelperArgPrefix, StringComparison.Ordinal));
+        Helper.HelperPollerDiagnostics.Configure(
+            disableArg is not null
+                ? disableArg.Substring(Helper.HelperPollerDiagnostics.HelperArgPrefix.Length)
+                : Environment.GetEnvironmentVariable(Helper.HelperPollerDiagnostics.EnvVarName));
+        Nexus.Service.Platform.ServiceLog.Info(
+            Helper.HelperPollerDiagnostics.FormatStartupLine(Helper.HelperPollerDiagnostics.Current));
+
         // User-session providers. Each one owns its own polling/listening
         // and pushes envelopes through the shared outbound. Adding a new
         // domain = a new helper-side class + a service-side subscriber;
@@ -304,6 +315,7 @@ internal static class WindowsUserHelper
         {
             try { Thread.Sleep(5000); } catch { return; }
             if (s_exit.IsCancellationRequested) return;
+            if (Helper.HelperPollerDiagnostics.IsDisabled(Helper.HelperPollerDiagnostics.Watchdog)) continue;
             if (QueryServiceState() == ServiceState.NotInstalled)
             {
                 Console.WriteLine("[helper] NexusService uninstalled; helper exits");

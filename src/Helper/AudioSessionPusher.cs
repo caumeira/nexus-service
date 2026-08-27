@@ -71,10 +71,24 @@ public sealed class AudioSessionPusher : IDisposable
     {
         while (!ct.IsCancellationRequested)
         {
+            if (HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.Audio))
+            {
+                try { await _wake.WaitAsync(IdleIntervalMs, ct).ConfigureAwait(false); }
+                catch (OperationCanceledException) { break; }
+                continue;
+            }
+
             var streaming = Volatile.Read(ref _streaming) == 1;
             try
             {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var sessions = _enumerator.Snapshot();
+                sw.Stop();
+                if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs)
+                {
+                    Nexus.Service.Platform.ServiceLog.Warn(HelperPollerDiagnostics.FormatSlowPass(
+                        HelperPollerDiagnostics.Audio, sw.Elapsed.TotalMilliseconds, sessions.Count));
+                }
                 // Peaks move every sample; carrying them while nobody is
                 // watching would turn the idle pass into a push every second.
                 if (!streaming)
