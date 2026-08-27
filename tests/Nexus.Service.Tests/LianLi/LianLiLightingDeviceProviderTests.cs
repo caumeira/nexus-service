@@ -153,12 +153,30 @@ public class LianLiLightingDeviceProviderTests
     // ── Concentric rings ──
 
     [Fact]
-    public void Inner_ring_spans_less_than_outer_ring()
+    public void Outer_ring_is_a_left_to_right_strip()
+    {
+        Connect();
+        OnlyPort0(3);
+        var st = Assert.Single(_provider.GetStructures());
+        var u = st.Segments[1].DefaultU!;
+        var v = st.Segments[1].DefaultV!;
+        // Panning only reads correctly when index order runs straight across:
+        // u strictly increasing, v flat (each LED lights a mirrored top+bottom
+        // pair, so a vertical spread would invent bands the hardware cannot show).
+        for (var i = 1; i < u.Length; i++)
+        {
+            Assert.True(u[i] > u[i - 1], $"u must increase with index (at {i})");
+        }
+        Assert.Equal(0f, Spread(v));
+    }
+
+    [Fact]
+    public void Inner_ring_is_a_round_ring()
     {
         Connect();
         OnlyPort0(1);
         var st = Assert.Single(_provider.GetStructures());
-        Assert.True(Spread(st.Segments[0].DefaultV!) < Spread(st.Segments[1].DefaultV!));
+        Assert.True(Spread(st.Segments[0].DefaultV!) > 0f);
     }
 
     [Theory]

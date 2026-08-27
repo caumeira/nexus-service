@@ -31,7 +31,6 @@ public static class LianLiZoneSupport
     // inside the outer ring per fan. u is divided by the fan count so each
     // fan keeps a round ring inside its 1/fans-wide column.
     private const float InnerRadius = 0.24f;
-    private const float OuterRadius = 0.42f;
 
     /// <summary>
     /// The hub's composition. Lian Li never mirrors, so Mirror is forced false
@@ -115,7 +114,7 @@ public static class LianLiZoneSupport
         var innerLeds = fans * LianLiProtocol.InnerLedsPerFan;
         var outerLeds = fans * LianLiProtocol.OuterLedsPerFan;
         var (innerU, innerV) = BuildFanRingUV(fans, LianLiProtocol.InnerLedsPerFan, InnerRadius);
-        var (outerU, outerV) = BuildFanEdgeBarsUV(fans, LianLiProtocol.OuterLedsPerFan, OuterRadius);
+        var (outerU, outerV) = BuildFanEdgeStripUV(fans, LianLiProtocol.OuterLedsPerFan);
 
         var structure = new DeviceStructure
         {
@@ -188,35 +187,26 @@ public static class LianLiZoneSupport
         return new ComposedDevice(structure, channels);
     }
 
-    // The outer "ring" is NOT a ring. Camera-verified on fw 1.4 (2026-08-27):
-    // it is two vertical edge bars per fan - the first half of the fan's LEDs
-    // drive the LEFT bar, the second half the RIGHT bar (outer index 12 lights
-    // fan 2's left edge, 18 and 21 its right). Each bar wraps the fan's top AND
-    // bottom corners, so a single LED always lights a mirrored pair and top/
-    // bottom is not separately addressable - that is physical, not a mapping
-    // bug. Modelling these as a circle scattered the LEDs around an ellipse, so
-    // a horizontal sweep filled from both edges toward the centre.
-    private static (float[] u, float[] v) BuildFanEdgeBarsUV(int fans, int ledsPerFan, float radius)
+    // The outer "ring" is NOT a ring and not two stacked bars either: laid out
+    // as a plain left-to-right strip it pans perfectly (confirmed on hardware
+    // 2026-08-27 by selecting the rim's LEDs in the LED map editor and using
+    // "lay as strip"). Index order runs straight across the fan, so u spreads
+    // evenly and v stays centred. Physically it is two edge bars - locals 0..5
+    // the left, 6..11 the right - which is why an even left-to-right spread
+    // lands each LED on the correct side. Each LED lights a mirrored top+bottom
+    // pair, so v carries no information and a constant keeps vertical sweeps
+    // from inventing bands that the hardware cannot show.
+    private static (float[] u, float[] v) BuildFanEdgeStripUV(int fans, int ledsPerFan)
     {
-        var perBar = ledsPerFan / 2;
         var ledCount = fans * ledsPerFan;
         var u = new float[ledCount];
         var v = new float[ledCount];
         for (var f = 0; f < fans; f++)
         {
-            var centerU = (f + 0.5f) / fans;
             for (var i = 0; i < ledsPerFan; i++)
             {
-                var onRightBar = i >= perBar;
-                // u is CONSTANT per bar. The bar is physically an arc (centre ->
-                // edge -> centre), but modelling that curve makes the two bars
-                // overlap in u, and a horizontal sweep then fills each bar from
-                // its edge inward - four bands instead of a clean left-to-right.
-                // Hardware-verified 2026-08-27: flat bars read correctly
-                // left-to-right, the arc model did not. Keep them flat.
-                var alongBar = perBar <= 1 ? 0.5f : (i % perBar) / (float)(perBar - 1);
-                u[f * ledsPerFan + i] = centerU + (onRightBar ? 1f : -1f) * (radius / fans);
-                v[f * ledsPerFan + i] = 0.5f - radius + 2f * radius * alongBar;
+                u[f * ledsPerFan + i] = (f + (i + 0.5f) / ledsPerFan) / fans;
+                v[f * ledsPerFan + i] = 0.5f;
             }
         }
         return (u, v);
