@@ -59,6 +59,8 @@ public static class TrayIcon
     private const uint WM_CLOSE = 0x0010;
     private const uint WM_DISPLAYCHANGE = 0x007E;
     private const uint WM_TIMER = 0x0113;
+    private const int WM_MOUSEMOVE = 0x0200;
+    private const int WM_NCMOUSEMOVE = 0x00A0;
     // Wake posted to the window thread to arm the NIM_ADD retry when an add
     // fails off-thread (the service's cross-thread SetVisible push).
     private const int WM_ARM_ICON_RETRY = WM_USER + 90;
@@ -432,7 +434,7 @@ public static class TrayIcon
                 System.IO.FileMode.Append,
                 System.IO.FileAccess.Write,
                 System.IO.FileShare.ReadWrite);
-            var line = $"{DateTime.Now:HH:mm:ss.fff} [TrayIcon p{System.Diagnostics.Process.GetCurrentProcess().Id}] {msg}\n";
+            var line = $"{DateTime.Now:HH:mm:ss.fff} [TrayIcon p{Environment.ProcessId}] {msg}\n";
             var bytes = System.Text.Encoding.UTF8.GetBytes(line);
             fs.Write(bytes, 0, bytes.Length);
         }
@@ -446,7 +448,16 @@ public static class TrayIcon
             if (msg == WM_TRAYICON)
             {
                 var ev = lParam.ToInt32() & 0xFFFF;
-                DiagFile($"tray ev=0x{ev:X4}");
+                // Hover generates WM_MOUSEMOVE at pointer rate - a field log
+                // carried 1437 of these at a 2 ms median gap, and DiagFile
+                // opens and closes the file per line on this, the window's
+                // message thread. They carry no diagnostic value beyond "the
+                // cursor was over the icon"; the click and shell events below
+                // are what the log exists for.
+                if (ev != WM_MOUSEMOVE && ev != WM_NCMOUSEMOVE)
+                {
+                    DiagFile($"tray ev=0x{ev:X4}");
+                }
 
                 if (ev == WM_RBUTTONUP)
                 {
