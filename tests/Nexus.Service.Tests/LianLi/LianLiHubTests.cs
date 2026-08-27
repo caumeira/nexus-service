@@ -10,7 +10,12 @@ namespace Nexus.Service.Tests.LianLi;
 /// </summary>
 internal sealed class HubTransportSpy : IHidDevice
 {
-    public readonly record struct Call(bool IsSetFeature, byte[] Bytes);
+    public enum CallKind { Feature, Write, OutputReport }
+
+    public readonly record struct Call(CallKind Kind, byte[] Bytes)
+    {
+        public bool IsSetFeature => Kind == CallKind.Feature;
+    }
     public List<Call> Calls { get; } = new();
 
     public int VendorId => LianLiProtocol.VendorId;
@@ -20,11 +25,11 @@ internal sealed class HubTransportSpy : IHidDevice
     public int UsagePage => LianLiProtocol.VendorUsagePage;
     public int Usage => LianLiProtocol.VendorUsage;
 
-    public bool SetFeature(ReadOnlySpan<byte> report) { Calls.Add(new Call(true, report.ToArray())); return true; }
-    public bool Write(ReadOnlySpan<byte> report) { Calls.Add(new Call(false, report.ToArray())); return true; }
+    public bool SetFeature(ReadOnlySpan<byte> report) { Calls.Add(new Call(CallKind.Feature, report.ToArray())); return true; }
+    public bool Write(ReadOnlySpan<byte> report) { Calls.Add(new Call(CallKind.Write, report.ToArray())); return true; }
     public bool GetFeature(Span<byte> buffer) => false;
     public bool GetInputReport(Span<byte> buffer) => false;
-    public bool SetOutputReport(ReadOnlySpan<byte> report) => false;
+    public bool SetOutputReport(ReadOnlySpan<byte> report) { Calls.Add(new Call(CallKind.OutputReport, report.ToArray())); return true; }
     public int Read(Span<byte> buffer, int timeoutMs) => 0;
     public void Dispose() { }
 }
@@ -117,7 +122,7 @@ public class LianLiHubTests
     }
 
     [Fact]
-    public void SendColorData_sends_via_Write()
+    public void SendColorData_sends_via_control_pipe_output_report()
     {
         var spy = new HubTransportSpy();
         var hub = new LianLiHub();
@@ -126,11 +131,13 @@ public class LianLiHubTests
         hub.SendColorData(0, ReadOnlySpan<byte>.Empty);
 
         Assert.Single(spy.Calls);
-        Assert.False(spy.Calls[0].IsSetFeature, "color data must be Write (interrupt-OUT)");
+        // Interrupt-OUT is accepted by the stack but never reaches the LEDs on
+        // fw 1.4 (camera-verified 2026-08-27); L-Connect uses the control pipe.
+        Assert.Equal(HubTransportSpy.CallKind.OutputReport, spy.Calls[0].Kind);
     }
 
     [Fact]
-    public void SendStartAction_sends_via_Write()
+    public void SendStartAction_sends_via_feature_report()
     {
         var spy = new HubTransportSpy();
         var hub = new LianLiHub();
@@ -139,7 +146,8 @@ public class LianLiHubTests
         hub.SendStartAction(0, 4);
 
         Assert.Single(spy.Calls);
-        Assert.False(spy.Calls[0].IsSetFeature, "start action must be Write (interrupt-OUT)");
+        // L-Connect's SetQuantity is a feature report.
+        Assert.Equal(HubTransportSpy.CallKind.Feature, spy.Calls[0].Kind);
     }
 
     // ── ModelName ──

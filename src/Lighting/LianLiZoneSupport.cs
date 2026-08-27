@@ -111,9 +111,11 @@ public static class LianLiZoneSupport
         IReadOnlyList<int> innerChannels, IReadOnlyList<int> outerChannels)
     {
         var deviceId = $"{hubId}:{slug}";
-        var leds = fans * LianLiProtocol.LedsPerFanPerChannel;
-        var (innerU, innerV) = BuildFanRingUV(fans, InnerRadius);
-        var (outerU, outerV) = BuildFanRingUV(fans, OuterRadius);
+        // The two rings carry different per-fan LED counts (8 inner, 12 outer).
+        var innerLeds = fans * LianLiProtocol.InnerLedsPerFan;
+        var outerLeds = fans * LianLiProtocol.OuterLedsPerFan;
+        var (innerU, innerV) = BuildFanRingUV(fans, LianLiProtocol.InnerLedsPerFan, InnerRadius);
+        var (outerU, outerV) = BuildFanEdgeBarsUV(fans, LianLiProtocol.OuterLedsPerFan, OuterRadius);
 
         var structure = new DeviceStructure
         {
@@ -125,8 +127,8 @@ public static class LianLiZoneSupport
         {
             Index = InnerSegment,
             Name = "Inner Ring",
-            LedCount = leds,
-            FrameLedCount = leds,
+            LedCount = innerLeds,
+            FrameLedCount = innerLeds,
             Resizable = false,
             ZoneType = "linear",
             DefaultU = innerU,
@@ -136,8 +138,8 @@ public static class LianLiZoneSupport
         {
             Index = OuterSegment,
             Name = "Outer Ring",
-            LedCount = leds,
-            FrameLedCount = leds,
+            LedCount = outerLeds,
+            FrameLedCount = outerLeds,
             Resizable = false,
             ZoneType = "linear",
             DefaultU = outerU,
@@ -155,8 +157,8 @@ public static class LianLiZoneSupport
                 LegacyZoneIndex = -1,
                 Slices =
                 {
-                    new ZoneSlice { Segment = InnerSegment, Start = 0, Count = leds },
-                    new ZoneSlice { Segment = OuterSegment, Start = 0, Count = leds },
+                    new ZoneSlice { Segment = InnerSegment, Start = 0, Count = innerLeds },
+                    new ZoneSlice { Segment = OuterSegment, Start = 0, Count = outerLeds },
                 },
             });
         }
@@ -169,7 +171,7 @@ public static class LianLiZoneSupport
                 RawName = "Inner Ring",
                 DeviceKey = DeviceKeyComputer.ForFirstParty(LianLiProtocol.VendorId, LianLiProtocol.ProductId, $"{slug}inner"),
                 LegacyZoneIndex = -1,
-                Slices = { new ZoneSlice { Segment = InnerSegment, Start = 0, Count = leds } },
+                Slices = { new ZoneSlice { Segment = InnerSegment, Start = 0, Count = innerLeds } },
             });
             structure.DefaultZones.Add(new DefaultZoneDef
             {
@@ -178,7 +180,7 @@ public static class LianLiZoneSupport
                 RawName = "Outer Ring",
                 DeviceKey = DeviceKeyComputer.ForFirstParty(LianLiProtocol.VendorId, LianLiProtocol.ProductId, $"{slug}outer"),
                 LegacyZoneIndex = -1,
-                Slices = { new ZoneSlice { Segment = OuterSegment, Start = 0, Count = leds } },
+                Slices = { new ZoneSlice { Segment = OuterSegment, Start = 0, Count = outerLeds } },
             });
         }
 
@@ -186,21 +188,61 @@ public static class LianLiZoneSupport
         return new ComposedDevice(structure, channels);
     }
 
-    // One ring of LedsPerFanPerChannel LEDs per fan, fans laid side by side
-    // along u; radius/fans in u keeps each ring round inside its column.
-    private static (float[] u, float[] v) BuildFanRingUV(int fans, float radius)
+    // The outer "ring" is NOT a ring. Camera-verified on fw 1.4 (2026-08-27):
+    // it is two vertical edge bars per fan - the first half of the fan's LEDs
+    // drive the LEFT bar, the second half the RIGHT bar (outer index 12 lights
+    // fan 2's left edge, 18 and 21 its right). Each bar wraps the fan's top AND
+    // bottom corners, so a single LED always lights a mirrored pair and top/
+    // bottom is not separately addressable - that is physical, not a mapping
+    // bug. Modelling these as a circle scattered the LEDs around an ellipse, so
+    // a horizontal sweep filled from both edges toward the centre.
+    private static (float[] u, float[] v) BuildFanEdgeBarsUV(int fans, int ledsPerFan, float radius)
     {
-        var ledCount = fans * LianLiProtocol.LedsPerFanPerChannel;
+        var perBar = ledsPerFan / 2;
+        var ledCount = fans * ledsPerFan;
         var u = new float[ledCount];
         var v = new float[ledCount];
         for (var f = 0; f < fans; f++)
         {
             var centerU = (f + 0.5f) / fans;
-            for (var i = 0; i < LianLiProtocol.LedsPerFanPerChannel; i++)
+            for (var i = 0; i < ledsPerFan; i++)
             {
-                var angle = (i / (double)LianLiProtocol.LedsPerFanPerChannel) * 2.0 * Math.PI;
-                u[f * LianLiProtocol.LedsPerFanPerChannel + i] = centerU + (radius / fans) * (float)Math.Cos(angle);
-                v[f * LianLiProtocol.LedsPerFanPerChannel + i] = 0.5f + radius * (float)Math.Sin(angle);
+                var onRightBar = i >= perBar;
+                // u is CONSTANT per bar. The bar is physically an arc (centre ->
+                // edge -> centre), but modelling that curve makes the two bars
+                // overlap in u, and a horizontal sweep then fills each bar from
+                // its edge inward - four bands instead of a clean left-to-right.
+                // Hardware-verified 2026-08-27: flat bars read correctly
+                // left-to-right, the arc model did not. Keep them flat.
+                var alongBar = perBar <= 1 ? 0.5f : (i % perBar) / (float)(perBar - 1);
+                u[f * ledsPerFan + i] = centerU + (onRightBar ? 1f : -1f) * (radius / fans);
+                v[f * ledsPerFan + i] = 0.5f - radius + 2f * radius * alongBar;
+            }
+        }
+        return (u, v);
+    }
+
+    // One ring of ledsPerFan LEDs per fan, fans laid side by side along u;
+    // radius/fans in u keeps each ring round inside its column.
+    private static (float[] u, float[] v) BuildFanRingUV(int fans, int ledsPerFan, float radius)
+    {
+        var ledCount = fans * ledsPerFan;
+        var u = new float[ledCount];
+        var v = new float[ledCount];
+        for (var f = 0; f < fans; f++)
+        {
+            var centerU = (f + 0.5f) / fans;
+            for (var i = 0; i < ledsPerFan; i++)
+            {
+                // Inner ring only - the outer is two bars, see above. Start at
+                // pi, not 0: each fan's LED 0 sits at 9 o'clock, so angle 0 would
+                // put index 0 at the rightmost u and mirror every horizontal
+                // sweep. Confirmed on hardware 2026-08-27 - with angle 0 a
+                // left-to-right fade filled each fan right-to-left; with pi it
+                // fills correctly.
+                var angle = Math.PI + (i / (double)ledsPerFan) * 2.0 * Math.PI;
+                u[f * ledsPerFan + i] = centerU + (radius / fans) * (float)Math.Cos(angle);
+                v[f * ledsPerFan + i] = 0.5f + radius * (float)Math.Sin(angle);
             }
         }
         return (u, v);

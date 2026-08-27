@@ -22,10 +22,14 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33;
 
-    // The SL-Infinity firmware needs 5 ms settle after each HID write before the
-    // next; back-to-back writes flood it and it falls back to its slow internal
-    // refresh. Matches OpenRGB's std::this_thread::sleep_for(5ms).
-    private const int InterWriteSettleMs = 5;
+    // Settle between HID writes. At 5 ms the six writes of a custom-mode frame
+    // cost 30 ms of pure sleep against a 33 ms tick, capping the stream well
+    // under 30 Hz. Measured on fw 1.4 (2026-08-27): 60 back-to-back frames of
+    // the full cycle over the control pipe took 312 ms total (5.2 ms/frame) with
+    // zero failed writes and no pacing at all, so the old 5 ms was sized for the
+    // interrupt-OUT path this no longer uses. 1 ms keeps a yield between writes
+    // while leaving headroom for a real 30 Hz.
+    private const int InterWriteSettleMs = 1;
 
     [DllImport("winmm.dll")] private static extern uint timeBeginPeriod(uint period);
     [DllImport("winmm.dll")] private static extern uint timeEndPeriod(uint period);
@@ -46,9 +50,9 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
     // each tick so they resolve once instead of once per call site.
     private readonly List<IReadOnlyList<ResolvedZone>> _firmwareZonesByDevice = new();
 
-    // Raw RGB scratch for one channel: MaxFansPerPort fans * LedsPerFanPerChannel * 3 bytes.
+    // Raw RGB scratch for one channel, sized for the wider ring (outer, 12/fan).
     private readonly byte[] _channelBuf =
-        new byte[LianLiProtocol.MaxFansPerPort * LianLiProtocol.LedsPerFanPerChannel * 3];
+        new byte[LianLiProtocol.MaxFansPerPort * LianLiProtocol.MaxLedsPerFanPerChannel * 3];
 
     // True while timeBeginPeriod(1) is active; matches the custom-streaming lifetime.
     private bool _highResTimer;
@@ -233,6 +237,11 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
                 }
             }
         }
+
+        // Same latch the firmware-mode path needs: without it the streamed frame
+        // sits in the buffer and the panel keeps showing the previous one.
+        _hub.SendFrameSync();
+        Thread.Sleep(InterWriteSettleMs);
     }
 
     private void CommitFirmwareMode(
@@ -260,13 +269,15 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
             var numFans = NumFansForDevice(device);
             var brightnessByte = DeviceBrightnessByte(device, ls, globalBrightness, disabled);
 
-            FillPaletteBuffer(_channelBuf, mode, ls.Colors, numFans);
-            var byteCount = numFans * LianLiProtocol.LedsPerFanPerChannel * 3;
-
             for (var seg = 0; seg < device.SegmentChannels.Count; seg++)
             {
                 foreach (var ch in device.SegmentChannels[seg])
                 {
+                    // Inner and outer rings hold different per-fan counts, so the
+                    // palette is refilled per channel rather than once per device.
+                    var ledsPerFan = LianLiProtocol.LedsPerFanForChannel(ch);
+                    FillPaletteBuffer(_channelBuf, mode, ls.Colors, numFans, ledsPerFan);
+                    var byteCount = numFans * ledsPerFan * 3;
                     var port = ch / 2;
                     _hub.SendStartAction(port, numFans);
                     Thread.Sleep(InterWriteSettleMs);
@@ -277,6 +288,12 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
                 }
             }
         }
+
+        // The per-channel commits alone leave the firmware rendering the
+        // previous speed/brightness; this latches them. Once for the whole
+        // apply, after every port, exactly as L-Connect does.
+        _hub.SendFrameSync();
+        Thread.Sleep(InterWriteSettleMs);
     }
 
     private static int NumFansForDevice(ComposedDevice device)
@@ -285,7 +302,8 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         {
             return LianLiProtocol.MaxFansPerPort;
         }
-        var fans = device.Structure.Segments[0].LedCount / LianLiProtocol.LedsPerFanPerChannel;
+        // Segment 0 is the inner ring, so its count divides by the inner per-fan value.
+        var fans = device.Structure.Segments[0].LedCount / LianLiProtocol.InnerLedsPerFan;
         return Math.Clamp(fans, 1, LianLiProtocol.MaxFansPerPort);
     }
 
@@ -325,7 +343,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
     // Replicates OpenRGB SetChannelMode's fan_led_data fill.
     // 6 colors: each fills one fan slot. Fewer: resize to 4, interleaved across fans.
     // Input colors are RGB; SendColorData applies the R,B,G wire swap.
-    private static void FillPaletteBuffer(byte[] buf, LianLiModeInfo mode, IReadOnlyList<string> colors, int numFans)
+    private static void FillPaletteBuffer(byte[] buf, LianLiModeInfo mode, IReadOnlyList<string> colors, int numFans, int ledsPerFan)
     {
         Array.Clear(buf);
         if (mode.ColorsMax == 0 || colors.Count == 0)
@@ -346,9 +364,9 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
             for (var fanIdx = 0; fanIdx < numFans && fanIdx < count; fanIdx++)
             {
                 var (r, g, b) = parsed[fanIdx];
-                for (var led = 0; led < LianLiProtocol.LedsPerFanPerChannel; led++)
+                for (var led = 0; led < ledsPerFan; led++)
                 {
-                    var off = (fanIdx * LianLiProtocol.LedsPerFanPerChannel + led) * 3;
+                    var off = (fanIdx * ledsPerFan + led) * 3;
                     if (off + 2 < buf.Length)
                     {
                         buf[off]     = r;

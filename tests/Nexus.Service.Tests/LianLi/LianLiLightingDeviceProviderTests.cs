@@ -66,10 +66,10 @@ public class LianLiLightingDeviceProviderTests
         Connect();
         OnlyPort0(2);
         var st = Assert.Single(_provider.GetStructures());
-        Assert.Equal(2 * 16, st.Segments[0].LedCount);
-        Assert.Equal(2 * 16, st.Segments[1].LedCount);
+        Assert.Equal(2 * LianLiProtocol.InnerLedsPerFan, st.Segments[0].LedCount);
+        Assert.Equal(2 * LianLiProtocol.OuterLedsPerFan, st.Segments[1].LedCount);
         var zone = Assert.Single(st.DefaultZones);
-        Assert.Equal(2 * (2 * 16), ZoneLedCount(zone));
+        Assert.Equal(2 * (LianLiProtocol.InnerLedsPerFan + LianLiProtocol.OuterLedsPerFan), ZoneLedCount(zone));
     }
 
     [Fact]
@@ -169,10 +169,12 @@ public class LianLiLightingDeviceProviderTests
         Connect();
         OnlyPort0(fans);
         var st = Assert.Single(_provider.GetStructures());
+        // Segment 0 is the inner ring (8 LEDs/fan), segment 1 the outer (12).
         foreach (var seg in st.Segments)
         {
-            Assert.Equal(fans * 16, seg.DefaultU!.Length);
-            Assert.Equal(fans * 16, seg.DefaultV!.Length);
+            var perFan = seg.Index == 0 ? LianLiProtocol.InnerLedsPerFan : LianLiProtocol.OuterLedsPerFan;
+            Assert.Equal(fans * perFan, seg.DefaultU!.Length);
+            Assert.Equal(fans * perFan, seg.DefaultV!.Length);
         }
     }
 

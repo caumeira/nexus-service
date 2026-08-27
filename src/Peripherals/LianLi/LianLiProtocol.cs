@@ -28,11 +28,21 @@ public static class LianLiProtocol
     /// <summary>Fans a single port group can daisy-chain.</summary>
     public const int MaxFansPerPort = 4;
 
-    // Each SL-Infinity fan exposes 16 LEDs on its inner (spinner) channel and 16
-    // on its outer (edge) channel - one fan = two channels, 16 LEDs each. The
-    // firmware addresses LEDs in 16-per-fan blocks (OpenRGB
-    // UNIHUB_SLINF_CHAN_LED_COUNT = 0x10*6; fan_idx = leds_count/16 - 1).
-    public const int LedsPerFanPerChannel = 16;
+    // Per-fan LED counts, hardware-confirmed on fw 1.4 (2026-08-27) by lighting
+    // single indices with the service stopped and reading them off a camera:
+    // inner index 0/8/16 landed on fan 1/2/3, outer index 12 on fan 2. Matches
+    // L-Connect's converters exactly (convertToInnerLEDColor Color[32] = 4 fans
+    // x 8, convertToOuterLEDColor Color[48] = 4 x 12).
+    // NOT 16 each: that was OpenRGB's UNIHUB_SLINF_CHAN_LED_COUNT (0x10*6 = 96),
+    // a max-per-channel buffer size, misread as a per-fan count.
+    public const int InnerLedsPerFan = 8;
+    public const int OuterLedsPerFan = 12;
+
+    /// <summary>Per-fan LED count for a channel index (even = inner, odd = outer).</summary>
+    public static int LedsPerFanForChannel(int ch) => (ch & 1) == 0 ? InnerLedsPerFan : OuterLedsPerFan;
+
+    /// <summary>Largest per-fan count, for scratch buffers that serve both rings.</summary>
+    public const int MaxLedsPerFanPerChannel = OuterLedsPerFan;
 
     /// <summary>Scale down R+G+B if their sum exceeds this value.</summary>
     public const int EnergyCapSum = 460;
@@ -127,6 +137,18 @@ public static class LianLiProtocol
             DutyByte(duty, flooredDuty),
             0x00, 0x00, 0x00
         };
+    }
+
+    /// <summary>
+    /// Frame sync, sent once after every lighting apply. Without it the firmware
+    /// keeps rendering the previous effect settings - a mode change lands on the
+    /// per-channel commit, but speed and brightness do not take until this
+    /// arrives. Feature report. E0 60 00 01 00 00 00.
+    /// Source: L-Connect 3 SLInfinityController.syncLightingFrame -> SetFrame(1).
+    /// </summary>
+    public static byte[] BuildFrameSync()
+    {
+        return new byte[] { ReportId, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00 };
     }
 
     /// <summary>

@@ -15,7 +15,14 @@ public class LianLiProtocolTests
         Assert.Equal(0xFF72, LianLiProtocol.VendorUsagePage);
         Assert.Equal(0xA1, LianLiProtocol.VendorUsage);
         Assert.Equal(4, LianLiProtocol.PortCount);
-        Assert.Equal(16, LianLiProtocol.LedsPerFanPerChannel);
+        // Hardware-confirmed per-fan counts (camera, fw 1.4): inner index 0/8/16
+        // land on fans 1/2/3, outer index 12 on fan 2.
+        Assert.Equal(8, LianLiProtocol.InnerLedsPerFan);
+        Assert.Equal(12, LianLiProtocol.OuterLedsPerFan);
+        Assert.Equal(8, LianLiProtocol.LedsPerFanForChannel(0));
+        Assert.Equal(12, LianLiProtocol.LedsPerFanForChannel(1));
+        Assert.Equal(8, LianLiProtocol.LedsPerFanForChannel(2));
+        Assert.Equal(12, LianLiProtocol.LedsPerFanForChannel(3));
         Assert.Equal(4, LianLiProtocol.MaxFansPerPort);
         Assert.Equal(353, LianLiProtocol.OutputReportSize);
         Assert.Equal(65, LianLiProtocol.InputReportSize);

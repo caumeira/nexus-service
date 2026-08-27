@@ -100,9 +100,9 @@ public sealed class LianLiHub : IDisposable
     // it interrupt-OUT. Caller holds _lock.
     private bool WriteCommand(ReadOnlySpan<byte> command)
     {
-        Array.Clear(_cmdReport);
-        command.CopyTo(_cmdReport);
-        return _device!.Write(_cmdReport);
+        // Feature report, matching L-Connect's SetEffectSetting. Same reason as
+        // SendColorData: the interrupt-OUT path does not reach the LEDs.
+        return _device!.SetFeature(command);
     }
 
     // Output-report scratch for the per-frame start/commit commands. Kept
@@ -121,13 +121,8 @@ public sealed class LianLiHub : IDisposable
         lock (_lock)
         {
             if (_device == null) return false;
-            Array.Clear(_cmdReport);
-            _cmdReport[0] = LianLiProtocol.ReportId;
-            _cmdReport[1] = 0x10;
-            _cmdReport[2] = 0x60;
-            _cmdReport[3] = (byte)(port + 1);
-            _cmdReport[4] = (byte)Math.Clamp(fans, 0, LianLiProtocol.MaxFansPerPort);
-            return _device.Write(_cmdReport);
+            return _device.SetFeature(
+                LianLiProtocol.BuildSetQuantity(port, Math.Clamp(fans, 0, LianLiProtocol.MaxFansPerPort)));
         }
     }
 
@@ -137,11 +132,12 @@ public sealed class LianLiHub : IDisposable
         {
             if (_device == null) return false;
             LianLiProtocol.WriteColorData(_colorReport, ch, leds);
-            // Interrupt-OUT Write (matches OpenRGB hid_write). The firmware applies
-            // each interrupt frame promptly; the control-pipe SetOutputReport path
-            // is accepted but only repainted on the slow internal cadence. Requires
-            // the per-write settle in the writer - without it the stream corrupts.
-            return _device.Write(_colorReport);
+            // Control-pipe SetOutputReport, matching L-Connect's SetColorSetting.
+            // The interrupt-OUT Write this used to do is accepted by the stack but
+            // never reaches the LEDs on fw 1.4 (camera-verified 2026-08-27); the
+            // slow-repaint that originally motivated Write is cured by the frame
+            // sync, not by the transport.
+            return _device.SetOutputReport(_colorReport);
         }
     }
 
@@ -165,6 +161,20 @@ public sealed class LianLiHub : IDisposable
         {
             if (_device == null) return false;
             return WriteCommand(LianLiProtocol.BuildEffectCommit(ch, effect, speed, dir, brightness));
+        }
+    }
+
+    /// <summary>
+    /// Latches the just-committed effect settings. L-Connect sends this once
+    /// after applying every port, and speed/brightness changes do not take on
+    /// the hardware without it.
+    /// </summary>
+    public bool SendFrameSync()
+    {
+        lock (_lock)
+        {
+            if (_device == null) return false;
+            return _device.SetFeature(LianLiProtocol.BuildFrameSync());
         }
     }
 

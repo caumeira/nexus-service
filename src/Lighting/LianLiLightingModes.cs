@@ -41,7 +41,7 @@ public static class LianLiLightingModes
         new() { Key = "colorCycle",    Label = "Color Cycle",              EffectByte = 0x23, HasSpeed = true,  HasDirection = true,  HasBrightness = true,  ColorsMin = 0, ColorsMax = 3 },
         new() { Key = "meteor",        Label = "Meteor",                   EffectByte = 0x24, HasSpeed = true,  HasDirection = false, HasBrightness = true,  ColorsMin = 0, ColorsMax = 2 },
         new() { Key = "voice",         Label = "Voice",                    EffectByte = 0x26, HasSpeed = true,  HasDirection = false, HasBrightness = true,  ColorsMin = 0, ColorsMax = 0 },
-        new() { Key = "groove",          Label = "Groove",            EffectByte = 0x27, HasSpeed = true,  HasDirection = false, HasBrightness = true,  ColorsMin = 0, ColorsMax = 2 },
+        new() { Key = "groove",          Label = "Groove",            EffectByte = 0x27, HasSpeed = true,  HasDirection = true,  HasBrightness = true,  ColorsMin = 0, ColorsMax = 2 },
         new() { Key = "stackMultiColor", Label = "Stack Multi Color", EffectByte = 0x21, HasSpeed = true,  HasDirection = true,  HasBrightness = true,  ColorsMin = 0, ColorsMax = 0 },
         new() { Key = "render",          Label = "Render",            EffectByte = 0x28, HasSpeed = true,  HasDirection = true,  HasBrightness = true,  ColorsMin = 0, ColorsMax = 4 },
         new() { Key = "tunnel",          Label = "Tunnel",            EffectByte = 0x29, HasSpeed = true,  HasDirection = true,  HasBrightness = true,  ColorsMin = 0, ColorsMax = 4 },
