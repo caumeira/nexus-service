@@ -30,11 +30,11 @@ namespace Nexus.Service.Lighting;
 /// </summary>
 public sealed class LightingProvider : ILightingProvider, IDisposable
 {
-    /// <summary>Cap on the stop-path OpenRGB push. No OS deadline here, unlike the suspend path - this only bounds a wedged daemon.</summary>
+    /// <summary>Cap on the stop-path OpenRGB push. Bounds the per-device queueing only: a socket send already in flight does not observe cancellation, so a daemon that stops draining can still overrun this.</summary>
     private static readonly TimeSpan StopBlackoutBudget = TimeSpan.FromSeconds(2);
 
-    /// <summary>Matches SleepBlackoutCoordinator's own budget for the engine to publish the black frame.</summary>
-    private static readonly TimeSpan EnginePublishBudget = TimeSpan.FromMilliseconds(300);
+    /// <summary>Budget for the engine to publish the black frame, shared with the suspend path.</summary>
+    private static readonly TimeSpan EnginePublishBudget = SleepBlackoutCoordinator.EnginePublishBudget;
 
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
@@ -201,18 +201,17 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// </summary>
     private void BlackoutBeforeRelinquish()
     {
-        if (_rgb is null)
-        {
-            return;
-        }
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        // Not gated on the bridge: the loop-published frame is what blanks the
+        // NP50 / Lian Li / Keeb / AW5 writers, which exist without OpenRGB.
         _engine.SetBlackout(true);
         var published = _engine.WaitForBlackout(EnginePublishBudget);
         var publishedMs = sw.ElapsedMilliseconds;
 
-        var pushed = "ok";
-        using (var cts = new CancellationTokenSource(StopBlackoutBudget))
+        var pushed = "n/a";
+        if (_rgb is not null)
         {
+            using var cts = new CancellationTokenSource(StopBlackoutBudget);
             try
             { pushed = _rgb.BlackoutAsync(cts.Token).GetAwaiter().GetResult() + " device(s)"; }
             catch (OperationCanceledException) { pushed = "timeout"; }
@@ -225,10 +224,16 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             $"openrgb={pushed}/{pushedMs}ms total={sw.ElapsedMilliseconds}ms");
     }
 
+    /// <summary>
+    /// Tear down without blacking out here: the only caller
+    /// (FeatureReconciler's Lighting ON-&gt;OFF transition) runs
+    /// SleepBlackoutCoordinator.BlankOutForFeatureOff first, while the loop is
+    /// still publishing. Repeating it after <c>Stop</c> would push into a
+    /// torn-down loop and leave the hold latched with no release path.
+    /// </summary>
     public void Suspend()
     {
         _engine.Stop();
-        BlackoutBeforeRelinquish();
         _rgb?.Deactivate();
         _rgb?.AwaitShutdown();
     }

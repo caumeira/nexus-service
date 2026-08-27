@@ -68,6 +68,7 @@ public class RgbBridgeStopBlackoutTests : IDisposable
 
     private readonly string _tempDir;
     private readonly RecordingController _controller = new();
+    private readonly LightingEngine _engine = new();
     private readonly RgbBridge _bridge;
 
     public RgbBridgeStopBlackoutTests()
@@ -82,7 +83,7 @@ public class RgbBridgeStopBlackoutTests : IDisposable
         _bridge = new RgbBridge(
             new OpenRgbProcessManager(Path.Combine(_tempDir, "missing-openrgb")),
             _controller,
-            new LightingEngine(),
+            _engine,
             new TestableConfigStore(Path.Combine(_tempDir, "settings.json")),
             new StubUsbEnumerator());
     }
@@ -112,7 +113,7 @@ public class RgbBridgeStopBlackoutTests : IDisposable
 
         var pushes = _controller.Ops.Where(o => o.Kind == "push").ToArray();
         Assert.NotEmpty(pushes);
-        Assert.Equal(pushes.Length, count);
+        Assert.Equal(count, pushes.Length);
         Assert.All(pushes, p => Assert.All(p.Colors!, c => Assert.Equal(default, c)));
     }
 
@@ -130,23 +131,51 @@ public class RgbBridgeStopBlackoutTests : IDisposable
         using var gpu = new GpuContext(160, 90);
         using var provider = new LightingProvider(
             new TestableConfigStore(Path.Combine(_tempDir, "provider.json")),
-            new LightingEngine(),
+            _engine,
             new LightingOutputHub(),
             gpu,
             new MediaLibrary(),
             new Nexus.Service.Platform.DefaultMonitorEnumerator(),
             rgb: _bridge);
 
+        // A live render loop is the thing the ordering exists to preserve: the
+        // blackout has to publish through it, so the effect must be running.
+        provider.StartAnimate(new Nexus.Service.Models.Lighting.AnimateHeadlessStart
+        { Effect = "plasma", Speed = 50, Intensity = 1f, Saturation = 1f, Contrast = 1f });
+        var spin = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < spin && !_engine.LoopPublishing) await Task.Delay(20);
+        Assert.True(_engine.LoopPublishing, "the effect must be painting before StopAll");
+
+        // The published frame carries a header, so it is never all-zero; the
+        // engine's own hold flag is the signal. OnFrame fires inline on the
+        // publishing thread, so seeing the hold engaged on a live loop can only
+        // mean the blackout ran before Stop tore that loop down.
+        var blackWhilePublishing = false;
+        void OnFrame(ReadOnlyMemory<byte> frame)
+        {
+            if (_engine.Blackout && _engine.LoopPublishing) blackWhilePublishing = true;
+        }
+        _engine.OnFrame += OnFrame;
+
         _controller.ResetOps();
         provider.StopAll();
+        _engine.OnFrame -= OnFrame;
 
         var ops = _controller.Ops;
         var disconnect = Array.FindIndex(ops, o => o.Kind == "disconnect");
         Assert.True(disconnect >= 0, "StopAll must disconnect");
-        var push = Array.FindLastIndex(ops, disconnect, o => o.Kind == "push");
-        Assert.True(push >= 0, "black must reach the devices before the socket closes");
-        Assert.All(
-            ops.Take(disconnect).Where(o => o.Kind == "push"),
-            p => Assert.All(p.Colors!, c => Assert.Equal(default, c)));
+
+        var pushes = ops.Take(disconnect).Where(o => o.Kind == "push").ToArray();
+        Assert.NotEmpty(pushes);
+        // Earlier pushes are the live effect's own frames - the loop is still
+        // painting while StopAll runs. What has to be black is the last thing
+        // on the wire before the socket closes.
+        Assert.All(pushes[^1].Colors!, c => Assert.Equal(default, c));
+        // Ordering: OnFrame fires inline on the publishing thread, so a black
+        // frame seen while the loop was alive can only come from a blackout
+        // that ran BEFORE Stop. Run it after and the loop is already gone -
+        // the shape that left ENE DRAM lit on hardware.
+        Assert.True(blackWhilePublishing,
+            "the blackout must publish through the engine while the loop is still running");
     }
 }
