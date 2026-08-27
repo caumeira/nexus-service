@@ -626,7 +626,26 @@ public static class NexusServiceCollectionExtensions
             () => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>()));
         services.AddSingleton<Nexus.Service.Audio.AudioFilePlayer>();
         services.AddSingleton<Nexus.Service.Audio.AudioMixerService>();
-        services.AddSingleton<Nexus.Service.Deck.DeckActionExecutor>();
+        // Explicit factory, not convention: RgbBridge is registered on the
+        // desktop platforms only, so the executor's layout-preset branch has to
+        // resolve it optionally the way AppPresetSwitcher and the route do.
+        services.AddSingleton(sp => new Nexus.Service.Deck.DeckActionExecutor(
+            sp.GetRequiredService<Nexus.Service.Actions.SystemActions>(),
+            sp.GetRequiredService<ILightingDeviceProvider>(),
+            sp.GetRequiredService<ILightingProvider>(),
+            sp.GetRequiredService<Nexus.Service.Cooling.IFanControlProvider>(),
+            sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
+            sp.GetRequiredService<Nexus.Service.Peripherals.Y70.IY70Provider>(),
+            sp.GetRequiredService<Nexus.Service.Platform.Displays.DisplayBrightnessController>(),
+            sp.GetRequiredService<Nexus.Service.Activity.IMediaProvider>(),
+            sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>(),
+            sp.GetRequiredService<System.Lazy<Nexus.Service.Deck.IDeckSurfaceControl>>(),
+            sp.GetRequiredService<Nexus.Service.Audio.AudioFilePlayer>(),
+            sp.GetRequiredService<Nexus.Service.Media.MediaLibrary>(),
+            sp.GetService<Nexus.Service.Lighting.Rgb.RgbBridge>(),
+            sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
+            sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>(),
+            sp.GetRequiredService<Nexus.Service.Lifecycle.FeatureGates>()));
         services.AddSingleton<Nexus.Service.Deck.IDeckActionExecutor>(sp =>
             sp.GetRequiredService<Nexus.Service.Deck.DeckActionExecutor>());
         services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>(sp =>
