@@ -117,7 +117,7 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
             // Standalone top-level card (no ParentDeviceId / ZoneIndex). LED count is
             // fixed at the hub's per-port stream size; ZoneResizable=false hides the
             // led-count editor until on-device topology is confirmed.
-            ZoneType = "linear", ZoneResizable = false,
+            ZoneType = "matrix", ZoneResizable = false,
         };
     }
 
@@ -206,8 +206,42 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
                 index: startingIndex, id: id, ledCount: ledCount,
                 x: layout?.X ?? defX, y: layout?.Y ?? defY,
                 w: layout?.W ?? defW, h: layout?.H ?? defH, rotation: rot);
+            var (u, v) = BuildLedUv();
+            _frame.LedU = u;
+            _frame.LedV = v;
         }
         return new[] { _frame };
+    }
+
+    /// <summary>
+    /// Per-LED canvas position for the card's wire order. The panel's 42 LEDs
+    /// occupy the upper 3/4 of the card on their 5x9 grid and the logo's 4 sit
+    /// in a diamond below it, so a canvas-sampled effect lands on the physical
+    /// cell rather than on a linear index the hardware does not have.
+    /// </summary>
+    private static (float[] u, float[] v) BuildLedUv()
+    {
+        var total = QSeriesCoolerHub.LedCount;
+        var u = new float[total];
+        var v = new float[total];
+        const float panelBottom = 0.74f;
+
+        var panel = QSeriesCoolerProtocol.BacklightWireOrder;
+        for (var i = 0; i < panel.Length; i++)
+        {
+            var (col, row) = panel[i];
+            u[i] = (col + 0.5f) / QSeriesCoolerProtocol.BacklightColumns;
+            v[i] = (row + 0.5f) / QSeriesCoolerProtocol.BacklightRows * panelBottom;
+        }
+
+        var logo = QSeriesCoolerProtocol.LogoWireOrder;
+        for (var i = 0; i < logo.Length; i++)
+        {
+            var (col, row) = logo[i];
+            u[panel.Length + i] = (col + 0.5f) / 3f;
+            v[panel.Length + i] = panelBottom + (row + 0.5f) / 3f * (1f - panelBottom);
+        }
+        return (u, v);
     }
 
     /// <summary>Default canvas placement for the Q-series cooler card. User can drag and persist;

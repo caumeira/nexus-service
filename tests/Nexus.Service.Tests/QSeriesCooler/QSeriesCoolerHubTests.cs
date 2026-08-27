@@ -64,17 +64,51 @@ public class QSeriesCoolerHubTests
     }
 
     [Fact]
-    public void WriteLighting_streams_GRB_colors_to_every_port()
+    /// <summary>
+    /// Legacy HubRGBChannels puts the backlight panel on channel 3 and the logo
+    /// on channel 4, leaving 1 and 2 empty. Streaming the same buffer to all
+    /// four lights the logo with panel colours and truncates the panel to what
+    /// fits a 90-byte frame.
+    /// </summary>
+    public void WriteLighting_routes_the_backlight_and_logo_to_their_own_ports()
     {
         var hub = NewHub(out var t);
-        hub.WriteLighting(new[] { new RgbColor(R: 0xAA, G: 0xBB, B: 0xCC) });
+        var leds = new RgbColor[QSeriesCoolerHub.LedCount];
+        for (var i = 0; i < QSeriesCoolerProtocol.BacklightLedCount; i++) leds[i] = new RgbColor(R: 0xAA, G: 0xBB, B: 0xCC);
+        for (var i = QSeriesCoolerProtocol.BacklightLedCount; i < leds.Length; i++) leds[i] = new RgbColor(R: 0x11, G: 0x22, B: 0x33);
 
-        for (var port = 1; port <= QSeriesCoolerProtocol.LedPortCount; port++)
+        hub.WriteLighting(leds);
+
+        var byPort = new byte[QSeriesCoolerProtocol.LedPortCount + 1][];
+        foreach (var w in t.Writes)
         {
-            var frame = t.Writes[port];
-            Assert.Equal(0xBB, frame[7]); // G
-            Assert.Equal(0xAA, frame[8]); // R
-            Assert.Equal(0xCC, frame[9]); // B
+            if (w.Length > 3 && w[1] == 0xEE) byPort[w[3]] = w;
+        }
+
+        var backlight = byPort[QSeriesCoolerProtocol.BacklightPort];
+        Assert.Equal(7 + QSeriesCoolerProtocol.BacklightLedCount * 3, backlight.Length);
+        for (var i = 0; i < QSeriesCoolerProtocol.BacklightLedCount; i++)
+        {
+            Assert.Equal(0xBB, backlight[7 + i * 3 + 0]); // G
+            Assert.Equal(0xAA, backlight[7 + i * 3 + 1]); // R
+            Assert.Equal(0xCC, backlight[7 + i * 3 + 2]); // B
+        }
+
+        var logo = byPort[QSeriesCoolerProtocol.LogoPort];
+        for (var i = 0; i < QSeriesCoolerProtocol.LogoLedCount; i++)
+        {
+            Assert.Equal(0x22, logo[7 + i * 3 + 0]);
+            Assert.Equal(0x11, logo[7 + i * 3 + 1]);
+            Assert.Equal(0x33, logo[7 + i * 3 + 2]);
+        }
+        // Past the logo's own LEDs the frame is pad, not more panel colours.
+        for (var i = 7 + QSeriesCoolerProtocol.LogoLedCount * 3; i < logo.Length; i++) Assert.Equal(0x00, logo[i]);
+
+        foreach (var port in new[] { 1, 2 })
+        {
+            var frame = byPort[port];
+            Assert.Equal(QSeriesCoolerProtocol.MinStreamFrameLength, frame.Length);
+            for (var i = 7; i < frame.Length; i++) Assert.Equal(0x00, frame[i]);
         }
     }
 

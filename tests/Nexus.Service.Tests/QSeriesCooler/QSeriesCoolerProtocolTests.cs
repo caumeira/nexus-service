@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Nexus.Service.Peripherals.Hyte.MiniHub;        // RgbColor
 using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 
@@ -36,10 +37,10 @@ public class QSeriesCoolerProtocolTests
     [InlineData(2)]
     [InlineData(3)]
     [InlineData(4)]
-    public void BuildLightingStream_emits_fixed_90_byte_frame_with_header(int port)
+    public void BuildLightingStream_pads_a_short_frame_to_90_bytes_with_header(int port)
     {
         var buf = QSeriesCoolerProtocol.BuildLightingStream(port, new[] { new RgbColor(1, 2, 3) });
-        Assert.Equal(QSeriesCoolerProtocol.StreamFrameLength, buf.Length);
+        Assert.Equal(QSeriesCoolerProtocol.MinStreamFrameLength, buf.Length);
         Assert.Equal(90, buf.Length);
         Assert.Equal(0xFF, buf[0]);
         Assert.Equal(0xEE, buf[1]);
@@ -88,7 +89,7 @@ public class QSeriesCoolerProtocolTests
                 var buf = QSeriesCoolerProtocol.BuildLightingStream(port, new RgbColor[ledCount]);
                 Assert.Equal(0x01, buf[4]);
                 Assert.Equal(0x68, buf[5]);
-                Assert.Equal(90, buf.Length);
+                Assert.Equal(Math.Max(90, 7 + ledCount * 3), buf.Length);
             }
         }
     }
@@ -105,24 +106,64 @@ public class QSeriesCoolerProtocolTests
             Assert.Equal(0x00, buf[i]);
     }
 
+    /// <summary>
+    /// Legacy PadListWithZeros(90) pads and never truncates, so the 42-LED
+    /// backlight rides a 133-byte frame. Capping it at 90 silently drops 15 LEDs.
+    /// </summary>
     [Fact]
-    public void BuildLightingStream_clamps_to_MaxLedsPerPort_keeping_frame_at_90()
+    public void BuildLightingStream_grows_past_90_bytes_for_the_42_led_backlight()
     {
-        var tooMany = new RgbColor[200];
-        for (var i = 0; i < tooMany.Length; i++) tooMany[i] = new RgbColor(0xFF, 0xFF, 0xFF);
-        var buf = QSeriesCoolerProtocol.BuildLightingStream(3, tooMany);
-        Assert.Equal(90, buf.Length);
-        // All MaxLedsPerPort LEDs written...
-        for (var i = 0; i < QSeriesCoolerProtocol.MaxLedsPerPort; i++)
+        var leds = new RgbColor[QSeriesCoolerProtocol.BacklightLedCount];
+        for (var i = 0; i < leds.Length; i++) leds[i] = new RgbColor(0xFF, 0xFF, 0xFF);
+
+        var buf = QSeriesCoolerProtocol.BuildLightingStream(QSeriesCoolerProtocol.BacklightPort, leds);
+
+        Assert.Equal(7 + QSeriesCoolerProtocol.BacklightLedCount * 3, buf.Length);
+        Assert.Equal(133, buf.Length);
+        for (var i = 0; i < leds.Length; i++)
         {
             var off = 7 + i * 3;
             Assert.Equal(0xFF, buf[off + 0]);
             Assert.Equal(0xFF, buf[off + 1]);
             Assert.Equal(0xFF, buf[off + 2]);
         }
-        // ...and the trailing pad bytes (90 - 7 - 27*3 = 2) stay zero.
-        Assert.Equal(0x00, buf[88]);
-        Assert.Equal(0x00, buf[89]);
+    }
+
+    [Fact]
+    public void Backlight_wire_order_walks_the_notched_serpentine()
+    {
+        var order = QSeriesCoolerProtocol.BacklightWireOrder;
+
+        Assert.Equal(42, order.Length);
+        Assert.Equal(QSeriesCoolerProtocol.BacklightLedCount, order.Length);
+        // Every cell distinct, and the notched column contributes only its lower rows.
+        Assert.Equal(order.Length, new HashSet<(int, int)>(order).Count);
+        Assert.Equal(9, System.Array.FindAll(order, c => c.Column == 4).Length);
+        Assert.Equal(9, System.Array.FindAll(order, c => c.Column == 3).Length);
+        Assert.Equal(6, System.Array.FindAll(order, c => c.Column == 2).Length);
+        Assert.Equal(9, System.Array.FindAll(order, c => c.Column == 1).Length);
+        Assert.Equal(9, System.Array.FindAll(order, c => c.Column == 0).Length);
+        Assert.DoesNotContain(order, c => c.Column == 2 && c.Row < 3);
+
+        // Columns right-to-left, direction alternating, per legacy Q60LCDBacklight.ProcessColor.
+        Assert.Equal((4, 0), order[0]);
+        Assert.Equal((4, 8), order[8]);
+        Assert.Equal((3, 8), order[9]);
+        Assert.Equal((3, 0), order[17]);
+        Assert.Equal((2, 3), order[18]);
+        Assert.Equal((2, 8), order[23]);
+        Assert.Equal((1, 8), order[24]);
+        Assert.Equal((0, 8), order[41]);
+    }
+
+    /// <summary>Legacy Q60Logo KEYS_LAYOUTS: bottom, left, top, right.</summary>
+    [Fact]
+    public void Logo_wire_order_is_the_four_point_diamond()
+    {
+        Assert.Equal(
+            new[] { (1, 2), (0, 1), (1, 0), (2, 1) },
+            QSeriesCoolerProtocol.LogoWireOrder);
+        Assert.Equal(QSeriesCoolerProtocol.LogoLedCount, QSeriesCoolerProtocol.LogoWireOrder.Length);
     }
 
     // ── Pump telemetry reads ──

@@ -130,11 +130,67 @@ public static class QSeriesCoolerProtocol
     /// <summary>The Q-series cooler hub streams over 4 LED ports (pump head + fan/strip channels).</summary>
     public const int LedPortCount = 4;
 
-    /// <summary>Every streamed port frame is exactly this many bytes: 7-byte header + zero-padded GRB data.</summary>
-    public const int StreamFrameLength = 90;
+    /// <summary>Floor for a streamed port frame: 7-byte header + GRB data, zero-padded up to this length. A port carrying more LEDs than fit emits a longer frame - legacy PadListWithZeros(90) pads only, never truncates, and the 42-LED backlight frame is 133 bytes.</summary>
+    public const int MinStreamFrameLength = 90;
 
-    /// <summary>Max LEDs carried in one port frame = floor((90 - 7) / 3).</summary>
-    public const int MaxLedsPerPort = (StreamFrameLength - 7) / 3; // 27
+    /// <summary>LED port the LCD backlight panel hangs off (legacy HubRGBChannels Channel3).</summary>
+    public const int BacklightPort = 3;
+
+    /// <summary>LED port the logo diamond hangs off (legacy HubRGBChannels Channel4).</summary>
+    public const int LogoPort = 4;
+
+    /// <summary>Backlight panel grid, legacy Q60LCDBacklight KEYBOARD_XAXIS_COUNTS/KEYBOARD_YAXIS_COUNTS. Shared by Q60 and Q80 - HubRGBChannels.InitChannels handles both in one case.</summary>
+    public const int BacklightColumns = 5;
+    public const int BacklightRows = 9;
+
+    /// <summary>Column 2 is notched: it carries only rows 3..8, so the panel is 42 LEDs rather than 5x9=45.</summary>
+    private const int BacklightNotchColumn = 2;
+    private const int BacklightNotchFirstRow = 3;
+
+    /// <summary>LEDs on the backlight panel: 9+9+6+9+9.</summary>
+    public const int BacklightLedCount = 42;
+
+    /// <summary>LEDs in the logo diamond (legacy Q60Logo COMMAND_LAYOUT).</summary>
+    public const int LogoLedCount = 4;
+
+    /// <summary>
+    /// Wire order of the backlight panel as (column, row) pairs, from legacy
+    /// Q60LCDBacklight.ProcessColor: columns walked right to left, rows
+    /// alternating direction per column, and the notched column emitting only
+    /// its lower rows. Index i of a streamed frame is this array's i-th cell.
+    /// </summary>
+    public static readonly (int Column, int Row)[] BacklightWireOrder = BuildBacklightWireOrder();
+
+    private static (int Column, int Row)[] BuildBacklightWireOrder()
+    {
+        var order = new (int, int)[BacklightLedCount];
+        var n = 0;
+        for (var x = BacklightColumns - 1; x >= 0; x--)
+        {
+            if (x == BacklightNotchColumn)
+            {
+                for (var y = BacklightNotchFirstRow; y < BacklightRows; y++) order[n++] = (x, y);
+            }
+            else if (x % 2 == 0)
+            {
+                for (var y = 0; y < BacklightRows; y++) order[n++] = (x, y);
+            }
+            else
+            {
+                for (var y = BacklightRows - 1; y >= 0; y--) order[n++] = (x, y);
+            }
+        }
+        return order;
+    }
+
+    /// <summary>
+    /// Wire order of the logo diamond as (column, row) on its 3x3 grid, from
+    /// legacy Q60Logo KEYS_LAYOUTS + COMMAND_LAYOUT: bottom, left, top, right.
+    /// </summary>
+    public static readonly (int Column, int Row)[] LogoWireOrder =
+    {
+        (1, 2), (0, 1), (1, 0), (2, 1),
+    };
 
     // ── Builders ──
 
@@ -167,17 +223,18 @@ public static class QSeriesCoolerProtocol
     }
 
     /// <summary>
-    /// Build a fixed 90-byte LED streaming frame for one port (1..<see cref="LedPortCount"/>).
+    /// Build a LED streaming frame for one port (1..<see cref="LedPortCount"/>).
     /// Header is <c>FF EE 01 &lt;port&gt; 01 68 00</c>; the remaining bytes are G,R,B triples,
-    /// zero-padded past the supplied LED count so trailing/disconnected LEDs go dark. LEDs past
-    /// <see cref="MaxLedsPerPort"/> are dropped to keep the frame exactly <see cref="StreamFrameLength"/>.
-    /// Matches legacy PQSeriesDeviceBase.SendToHardware (4 ports, PadListWithZeros(90), GRB order).
+    /// zero-padded to <see cref="MinStreamFrameLength"/> so trailing/disconnected LEDs go dark.
+    /// A port carrying more LEDs than fit in that floor emits a longer frame, matching legacy
+    /// PQSeriesDeviceBase.SendToHardware (4 ports, PadListWithZeros(90), GRB order) - the
+    /// 42-LED backlight is 133 bytes there and truncating it to 90 drops 15 LEDs.
     /// </summary>
     public static byte[] BuildLightingStream(int port, ReadOnlySpan<RgbColor> leds)
     {
         if (port < 1 || port > LedPortCount)
             throw new ArgumentOutOfRangeException(nameof(port), port, $"Port must be in 1..{LedPortCount}.");
-        var buf = new byte[StreamFrameLength];
+        var buf = new byte[Math.Max(MinStreamFrameLength, 7 + leds.Length * 3)];
         buf[0] = Frame0;
         buf[1] = OpLighting;
         buf[2] = SubStreaming;
@@ -185,8 +242,7 @@ public static class QSeriesCoolerProtocol
         buf[4] = LedCountMagicHigh;
         buf[5] = LedCountMagicLow;
         // buf[6] reserved (0)
-        var count = Math.Min(leds.Length, MaxLedsPerPort);
-        for (var i = 0; i < count; i++)
+        for (var i = 0; i < leds.Length; i++)
         {
             var off = 7 + i * 3;
             buf[off + 0] = leds[i].G;

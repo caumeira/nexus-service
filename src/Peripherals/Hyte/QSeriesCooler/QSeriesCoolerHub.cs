@@ -75,11 +75,12 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
         IsConnected && QSeriesCoolerProtocol.SupportsFirmwareAnimationBrightness(Variant, State.FirmwareVersion);
 
     /// <summary>
-    /// LEDs addressed per Q-series lighting card. One 90-byte port frame carries
-    /// <see cref="QSeriesCoolerProtocol.MaxLedsPerPort"/> (27) LEDs; surfaces a single
-    /// linear zone of that size streamed to every port (see <see cref="WriteLighting"/>).
+    /// LEDs the card addresses: the backlight panel followed by the logo diamond,
+    /// so index 0..<see cref="QSeriesCoolerProtocol.BacklightLedCount"/>-1 is the
+    /// panel and the remainder is the logo. Each half streams to its own port in
+    /// <see cref="WriteLighting"/>.
     /// </summary>
-    public const int LedCount = QSeriesCoolerProtocol.MaxLedsPerPort;
+    public const int LedCount = QSeriesCoolerProtocol.BacklightLedCount + QSeriesCoolerProtocol.LogoLedCount;
 
     /// <summary>
     /// Q-series needs no settings-first handshake (unlike CNVS), so streaming is gated only on
@@ -91,10 +92,12 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     /// <summary>
     /// Stream one frame of LED colors to the cooler. Mirrors the legacy
     /// PQSeriesDeviceBase.SendToHardware loop: assert software RGB control once per connection,
-    /// then write all <see cref="QSeriesCoolerProtocol.LedPortCount"/> port frames. The same colors
-    /// go to every port so the pump-head channel lights regardless of which physical port it
-    /// occupies; ports with no LEDs ignore the data. Colors are RGB here;
-    /// <see cref="QSeriesCoolerProtocol.BuildLightingStream"/> emits GRB on the wire.
+    /// then write all <see cref="QSeriesCoolerProtocol.LedPortCount"/> port frames. Ports carry
+    /// what legacy HubRGBChannels puts on them - the backlight panel on
+    /// <see cref="QSeriesCoolerProtocol.BacklightPort"/>, the logo on
+    /// <see cref="QSeriesCoolerProtocol.LogoPort"/>, nothing on 1 and 2 - so a port that owns no
+    /// LEDs gets a header-only padded frame rather than a copy of the panel. Colors are RGB here
+    /// in wire order; <see cref="QSeriesCoolerProtocol.BuildLightingStream"/> emits GRB.
     /// </summary>
     public void WriteLighting(ReadOnlySpan<RgbColor> leds)
     {
@@ -115,8 +118,22 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                     t.Write(QSeriesCoolerProtocol.BuildSetRgbControlMode(QSeriesCoolerProtocol.RgbModeSoftware));
                     _rgbInSwControl = true;
                 }
+                var backlight = leds.Length >= QSeriesCoolerProtocol.BacklightLedCount
+                    ? leds[..QSeriesCoolerProtocol.BacklightLedCount]
+                    : leds;
+                var logo = leds.Length > QSeriesCoolerProtocol.BacklightLedCount
+                    ? leds[QSeriesCoolerProtocol.BacklightLedCount..]
+                    : default;
                 for (var port = 1; port <= QSeriesCoolerProtocol.LedPortCount; port++)
-                    t.Write(QSeriesCoolerProtocol.BuildLightingStream(port, leds));
+                {
+                    var slice = port switch
+                    {
+                        QSeriesCoolerProtocol.BacklightPort => backlight,
+                        QSeriesCoolerProtocol.LogoPort => logo,
+                        _ => default,
+                    };
+                    t.Write(QSeriesCoolerProtocol.BuildLightingStream(port, slice));
+                }
             }
             catch (Exception ex)
             {
