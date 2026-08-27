@@ -20,6 +20,9 @@ public sealed class Aw5Handler : IDeviceHandler
     public string Name => "iBUYPOWER AW5";
     public string Category => "cooler";
 
+    /// <summary>The vendor driver owns the cooler; Nexus only reports that it is present.</summary>
+    public bool HasPage => false;
+
     /// <summary>
     /// One PID per ODM variant. Apaltek (0x0405) is deliberately absent: no
     /// driver binary is published for it, so recognizing it would list a cooler
