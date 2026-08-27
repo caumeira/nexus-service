@@ -55,6 +55,7 @@ public sealed class DeviceManager
                 NexusControlEnabled = _gate.IsEnabled(h.Id),
                 Warning = h.GetWarning(usbDevices),
                 ConflictAppId = DeviceControlPolicy.ConflictAppFor(h.Id),
+                HasPage = h.HasPage,
             };
         }).ToList();
     }

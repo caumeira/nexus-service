@@ -12845,6 +12845,9 @@
               "null",
               "string"
             ]
+          },
+          "hasPage": {
+            "type": "boolean"
           }
         }
       },
