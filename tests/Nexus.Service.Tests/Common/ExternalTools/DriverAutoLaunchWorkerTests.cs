@@ -167,10 +167,14 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         Assert.Equal(expected, CountRuns(marker));
     }
 
-    /// <summary>Hold long enough that a respawn would have recorded itself, then assert none did.</summary>
+    /// <summary>Hold long enough that a respawn would have recorded itself, then
+    /// assert none did. Callers have already awaited RunOnceAsync, so a respawn
+    /// would be launched by now and only the child's own marker write is still in
+    /// flight; the positive path (WaitForRunsAsync) settles in well under 100ms,
+    /// so this is a wide margin. A negative assertion pays it in full every call.</summary>
     private static async Task AssertStillAsync(string marker, int expected)
     {
-        for (var i = 0; i < 40 && CountRuns(marker) <= expected; i++)
+        for (var i = 0; i < 12 && CountRuns(marker) <= expected; i++)
             await Task.Delay(50);
         Assert.Equal(expected, CountRuns(marker));
     }
