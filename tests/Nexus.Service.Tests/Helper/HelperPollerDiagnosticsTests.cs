@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Nexus.Service.Helper;
@@ -157,6 +158,37 @@ public class HelperPollerDiagnosticsTests
         }
         finally
         {
+            HelperPollerDiagnostics.Configure(null, filePath: null);
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    // The switch-set change has to actually reach a log sink. Asserting only on
+    // the formatted string is what let a dead sink ship: the helper short-circuits
+    // before ServiceLog.Initialize, so ServiceLog silently dropped every line and
+    // no format assertion could tell.
+    [Fact]
+    public async Task SwitchFileChange_ReachesTheLogSink()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var seen = new List<string>();
+        try
+        {
+            HelperPollerDiagnostics.Log = line => { lock (seen) { seen.Add(line); } };
+            HelperPollerDiagnostics.Configure(null, path);
+
+            File.WriteAllText(path, "audio");
+            await Task.Delay(2200);
+            Assert.True(HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.Audio));
+
+            lock (seen)
+            {
+                Assert.Contains(seen, l => l.Contains("disabled: audio"));
+            }
+        }
+        finally
+        {
+            HelperPollerDiagnostics.Log = null;
             HelperPollerDiagnostics.Configure(null, filePath: null);
             try { File.Delete(path); } catch { }
         }

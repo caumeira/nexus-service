@@ -55,6 +55,16 @@ public static class HelperPollerDiagnostics
     private static bool s_fromEnv;
 
     /// <summary>
+    /// Where a switch-set change is reported. Injected because this class is
+    /// platform-neutral while the helper's only working log sink (HelperLog ->
+    /// nexus-helper.log) is Windows-only. ServiceLog is NOT usable here: the
+    /// helper short-circuits in CommandLineEntry.TryEarlyExit long before
+    /// Program.cs calls ServiceLog.Initialize, so its writer is null and every
+    /// line is dropped.
+    /// </summary>
+    public static Action<string>? Log { get; set; }
+
+    /// <summary>
     /// Comma- or space-separated poller names, case-insensitive. An unrecognized
     /// name is kept rather than dropped so a typo shows up verbatim in the
     /// startup log line instead of reading as "nothing was disabled". Tokens
@@ -125,7 +135,7 @@ public static class HelperPollerDiagnostics
             var next = ReadFile(s_filePath);
             if (next.SetEquals(s_disabled)) return;
             s_disabled = next;
-            Nexus.Service.Platform.ServiceLog.Info(FormatStartupLine(next));
+            Log?.Invoke(FormatStartupLine(next));
         }
     }
 

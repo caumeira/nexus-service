@@ -168,10 +168,9 @@ internal static class WindowsUserHelper
                 ? disableArg.Substring(Helper.HelperPollerDiagnostics.HelperArgPrefix.Length)
                 : Environment.GetEnvironmentVariable(Helper.HelperPollerDiagnostics.EnvVarName),
             disableFile);
-        Nexus.Service.Platform.ServiceLog.Info(
-            $"[helper-perf] switch file: {disableFile}");
-        Nexus.Service.Platform.ServiceLog.Info(
-            Helper.HelperPollerDiagnostics.FormatStartupLine(Helper.HelperPollerDiagnostics.Current));
+        Helper.HelperPollerDiagnostics.Log = Nexus.Service.Platform.HelperLog.Write;
+        Diag($"[helper-perf] switch file: {disableFile}");
+        Diag(Helper.HelperPollerDiagnostics.FormatStartupLine(Helper.HelperPollerDiagnostics.Current));
 
         // User-session providers. Each one owns its own polling/listening
         // and pushes envelopes through the shared outbound. Adding a new

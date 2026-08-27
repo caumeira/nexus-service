@@ -68,7 +68,7 @@ public sealed class WindowSetPoller : IDisposable
             sw.Stop();
             if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs)
             {
-                ServiceLog.Warn(HelperPollerDiagnostics.FormatSlowPass(
+                Nexus.Service.Platform.HelperLog.Write(HelperPollerDiagnostics.FormatSlowPass(
                     HelperPollerDiagnostics.WindowSet, sw.Elapsed.TotalMilliseconds, _enumerated));
             }
             if (!justReconnected && current.SetEquals(_lastSent)) return;

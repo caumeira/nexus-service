@@ -86,7 +86,7 @@ public sealed class AudioSessionPusher : IDisposable
                 sw.Stop();
                 if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs)
                 {
-                    Nexus.Service.Platform.ServiceLog.Warn(HelperPollerDiagnostics.FormatSlowPass(
+                    Nexus.Service.Platform.HelperLog.Write(HelperPollerDiagnostics.FormatSlowPass(
                         HelperPollerDiagnostics.Audio, sw.Elapsed.TotalMilliseconds, sessions.Count));
                 }
                 // Peaks move every sample; carrying them while nobody is
