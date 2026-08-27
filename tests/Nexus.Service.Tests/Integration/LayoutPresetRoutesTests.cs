@@ -11,30 +11,23 @@ using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Tests.Integration;
 
-[Collection("NexusHost")]
-public sealed class LayoutPresetRoutesTests : IDisposable
+public sealed class LayoutPresetRoutesTests : IClassFixture<StubDeviceHostFactory>
 {
-    private readonly NexusAppFactory _factory;
+    private readonly StubDeviceHostFactory _factory;
     private readonly HttpClient _client;
 
-    public LayoutPresetRoutesTests()
+    public LayoutPresetRoutesTests(StubDeviceHostFactory factory)
     {
-        _factory = new NexusAppFactory().WithWebHostBuilder(b =>
-            b.ConfigureTestServices(s =>
-            {
-                s.RemoveAll<ILightingDeviceProvider>();
-                s.AddSingleton<ILightingDeviceProvider>(sp =>
-                    new StubDeviceProvider(sp.GetRequiredService<IConfigStore>()));
-            })) as NexusAppFactory ?? new NexusAppFactory();
-
+        _factory = factory;
+        // xUnit builds this class once per test; the host is shared, so the
+        // store is what has to go back to defaults between them.
+        _factory.ResetSettings();
         _client = _factory.CreateClient();
         _client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue(
                 "Bearer",
                 _factory.Services.GetRequiredService<TokenService>().Token);
     }
-
-    public void Dispose() => _factory.Dispose();
 
     private static StringContent Json(string body) =>
         new(body, Encoding.UTF8, "application/json");

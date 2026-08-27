@@ -67,32 +67,35 @@ internal sealed class LoopbackConnectionFilter : IStartupFilter
     };
 }
 
-[Collection("NexusHost")]
-public sealed class StreamDeckRoutesTests : IDisposable
+public sealed class StreamDeckRoutesTests : IClassFixture<StreamDeckRouteHostFactory>
 {
-    private readonly string _imageCacheDir = Path.Combine(Path.GetTempPath(), "nexus-streamdeck-route-cache-" + Guid.NewGuid().ToString("N")[..8]);
-    private readonly SpyDeckActionExecutor _executor = new();
+    private readonly StreamDeckRouteHostFactory _host;
 
-    public void Dispose()
+    public StreamDeckRoutesTests(StreamDeckRouteHostFactory host)
     {
-        try { Directory.Delete(_imageCacheDir, recursive: true); } catch { /* best effort */ }
+        _host = host;
+        // One host for the class. Three pieces of state outlive a test and have
+        // to go back to first-run: the settings store, the spy's last call, and
+        // the worker's single simulated-deck slot (SimulatedKey), which several
+        // tests attach to and others assert is absent.
+        _host.ResetSettings();
+        Executor.LastCall = null;
+        var worker = _host.Services.GetRequiredService<StreamDeckConnectionWorker>();
+        worker.ClearSimulatedModel();
+        worker.ResetPerDeckStateForTests();
+        _host.ClearImageCache();
     }
 
-    private (WebApplicationFactory<Program> factory, HttpClient client) Boot()
+    private SpyDeckActionExecutor Executor => _host.Executor;
+
+    private string ImageCacheDir => _host.ImageCacheDir;
+
+    private (SharedHost factory, HttpClient client) Boot()
     {
-        var factory = new NexusAppFactory().WithWebHostBuilder(b =>
-            b.ConfigureTestServices(s =>
-            {
-                s.AddTransient<IStartupFilter, LoopbackConnectionFilter>();
-                s.RemoveAll<StreamDeckImageCache>();
-                s.AddSingleton(new StreamDeckImageCache(_imageCacheDir));
-                s.RemoveAll<IDeckActionExecutor>();
-                s.AddSingleton<IDeckActionExecutor>(_executor);
-            }));
-        var client = factory.CreateClient();
+        var client = _host.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", factory.Services.GetRequiredService<TokenService>().Token);
-        return (factory, client);
+            new AuthenticationHeaderValue("Bearer", _host.Services.GetRequiredService<TokenService>().Token);
+        return (new SharedHost(_host.Services), client);
     }
 
     private static StringContent Json(string body) => new(body, Encoding.UTF8, "application/json");
@@ -540,7 +543,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             Assert.False(string.IsNullOrEmpty(hash));
             Assert.Equal(StreamDeckImageCache.Hash(bytes), hash);
 
-            var onDisk = Path.Combine(_imageCacheDir, "SERIAL-1", hash + ".bin");
+            var onDisk = Path.Combine(ImageCacheDir, "SERIAL-1", hash + ".bin");
             Assert.True(File.Exists(onDisk));
             Assert.Equal(bytes, await File.ReadAllBytesAsync(onDisk));
 
@@ -584,7 +587,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var res = await client.PutAsync(path, content);
 
             Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
-            var onDisk = Path.Combine(_imageCacheDir, "bad serial");
+            var onDisk = Path.Combine(ImageCacheDir, "bad serial");
             Assert.False(Directory.Exists(onDisk));
         }
     }
@@ -620,7 +623,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var firstRes = await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", firstContent);
             using var firstDoc = JsonDocument.Parse(await firstRes.Content.ReadAsStringAsync());
             var firstHash = firstDoc.RootElement.GetProperty("hash").GetString()!;
-            var firstPath = Path.Combine(_imageCacheDir, "SERIAL-1", firstHash + ".bin");
+            var firstPath = Path.Combine(ImageCacheDir, "SERIAL-1", firstHash + ".bin");
             Assert.True(File.Exists(firstPath));
 
             var second = new byte[] { 0x42, 0x4d, 2, 2, 2 };
@@ -632,7 +635,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
 
             Assert.NotEqual(firstHash, secondHash);
             Assert.False(File.Exists(firstPath));
-            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", secondHash + ".bin")));
+            Assert.True(File.Exists(Path.Combine(ImageCacheDir, "SERIAL-1", secondHash + ".bin")));
         }
     }
 
@@ -658,7 +661,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0.0/0", replacementContent);
 
             // slot 0.1/0 still references sharedHash, so it must survive.
-            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", sharedHash + ".bin")));
+            Assert.True(File.Exists(Path.Combine(ImageCacheDir, "SERIAL-1", sharedHash + ".bin")));
         }
     }
 
@@ -819,7 +822,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             {
                 ImageRefs = { ["0/0"] = sharedHash, ["0.0/0"] = sharedHash },
             });
-            var blobPath = Path.Combine(_imageCacheDir, "SERIAL-1", sharedHash + ".bin");
+            var blobPath = Path.Combine(ImageCacheDir, "SERIAL-1", sharedHash + ".bin");
 
             var replacement = new byte[] { 1, 2, 3 };
             var content = new ByteArrayContent(replacement);
@@ -856,9 +859,9 @@ public sealed class StreamDeckRoutesTests : IDisposable
                 await worker.LastDispatchTask;
             }
 
-            Assert.NotNull(_executor.LastCall);
-            Assert.Equal("SERIAL-1", _executor.LastCall!.Value.Serial);
-            Assert.Equal("lock", _executor.LastCall.Value.Action!.PowerAction);
+            Assert.NotNull(Executor.LastCall);
+            Assert.Equal("SERIAL-1", Executor.LastCall!.Value.Serial);
+            Assert.Equal("lock", Executor.LastCall.Value.Action!.PowerAction);
         }
     }
 
@@ -871,7 +874,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var res = await client.PostAsync("/streamdeck/decks/NEVER-SEEN/test-press/0", Json("{}"));
             var text = await res.Content.ReadAsStringAsync();
             Assert.Contains("\"error\":true", text);
-            Assert.Null(_executor.LastCall);
+            Assert.Null(Executor.LastCall);
         }
     }
 
@@ -902,7 +905,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             // A "page" slot is intercepted before the executor, exactly like
             // a real key press - the executor must never see it.
             Assert.Equal(1, worker.GetCurrentPage("SERIAL-1"));
-            Assert.Null(_executor.LastCall);
+            Assert.Null(Executor.LastCall);
         }
     }
 
@@ -926,7 +929,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             Assert.True(res.IsSuccessStatusCode);
 
             Assert.Equal(new[] { 0 }, worker.GetFolderPath("SERIAL-1"));
-            Assert.Null(_executor.LastCall);
+            Assert.Null(Executor.LastCall);
         }
     }
 
@@ -955,7 +958,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
         var (factory, _) = Boot();
         using (factory)
         {
-            var anon = factory.CreateClient();
+            var anon = _host.CreateClient();
             var res = await anon.GetAsync("/streamdeck/decks");
             Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
         }

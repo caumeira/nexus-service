@@ -22,7 +22,6 @@ namespace Nexus.Service.Tests.Integration;
 /// for fakes at the DI seam, asserting each route deserializes its body and
 /// drives the provider with the expected arguments.
 /// </summary>
-[Collection("NexusHost")]
 public class DeckActionRoutesTests
 {
     private sealed class FakeInputter : IInputterProvider

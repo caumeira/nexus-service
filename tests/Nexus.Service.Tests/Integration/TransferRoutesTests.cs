@@ -23,7 +23,6 @@ namespace Nexus.Service.Tests.Integration;
 /// endpoints are panel-reachable for a paired phone session and locked for
 /// anonymous callers.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class TransferRoutesTests : IDisposable
 {
     private readonly NexusAppFactory _baseFactory;

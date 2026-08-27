@@ -20,7 +20,6 @@ namespace Nexus.Service.Tests.Integration;
 /// writes must fail with a 4xx + error body - never 404/405 (unmapped) and
 /// never a fake success.
 /// </summary>
-[Collection("NexusHost")]
 public class KeebRoutesContractTests
 {
     private static (WebApplicationFactory<Program> factory, HttpClient client) Boot()

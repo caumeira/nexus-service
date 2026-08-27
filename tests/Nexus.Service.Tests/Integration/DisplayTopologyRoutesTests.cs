@@ -23,7 +23,6 @@ namespace Nexus.Service.Tests.Integration;
 /// fake at the DI seam. Hosting support is force-enabled so the suite runs
 /// identically on every dev/CI OS.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class DisplayTopologyRoutesTests
 {
     private const string MonitorId = "DEL41B7-5-abc-UID12345";

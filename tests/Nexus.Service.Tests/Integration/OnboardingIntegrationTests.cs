@@ -15,7 +15,6 @@ namespace Nexus.Service.Tests.Integration;
 /// one mutating test) because IClassFixture shares a single NexusAppFactory
 /// across every test method in a class, and xUnit does not order them.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class OnboardingIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;
@@ -66,7 +65,6 @@ public sealed class OnboardingIntegrationTests : IClassFixture<NexusAppFactory>
         => Assert.Equal(StatusCodes.Status401Unauthorized, await Send("POST", "/onboarding/lighting-complete", withToken: false));
 }
 
-[Collection("NexusHost")]
 public sealed class OnboardingCompleteIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;
@@ -92,7 +90,6 @@ public sealed class OnboardingCompleteIntegrationTests : IClassFixture<NexusAppF
     }
 }
 
-[Collection("NexusHost")]
 public sealed class OnboardingLightingCompleteIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;
@@ -120,7 +117,6 @@ public sealed class OnboardingLightingCompleteIntegrationTests : IClassFixture<N
     }
 }
 
-[Collection("NexusHost")]
 public sealed class OnboardingFeaturesCompleteIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;
@@ -148,7 +144,6 @@ public sealed class OnboardingFeaturesCompleteIntegrationTests : IClassFixture<N
     }
 }
 
-[Collection("NexusHost")]
 public sealed class OnboardingResetIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

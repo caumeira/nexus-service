@@ -23,6 +23,8 @@ public sealed class GoveeDriver : ILightDriver
     private const int RazerIntervalMs = 33;
     private const int ControlIntervalMs = 100;
     private const int ProbeTimeoutMs = 2000;
+    private const int ScanTimeoutMs = 2500;
+    private const int PingTimeoutMs = 1500;
     // Devices drop out of razer mode after ~1 min without frames AND on any
     // power cycle, with no feedback either way, and the enable is fire-and-forget
     // UDP - a single re-arm lost while the strip wakes from a power-off strands it
@@ -53,7 +55,23 @@ public sealed class GoveeDriver : ILightDriver
     // Devices in razer (realtime) mode → TickCount64 of the last enable send.
     private readonly ConcurrentDictionary<string, long> _razerArmedAt = new();
 
-    public GoveeDriver(GoveeLanClient client) => _client = client;
+    private readonly int _scanTimeoutMs;
+    private readonly int _probeTimeoutMs;
+    private readonly int _pingTimeoutMs;
+
+    public GoveeDriver(GoveeLanClient client)
+        : this(client, ScanTimeoutMs, ProbeTimeoutMs, PingTimeoutMs) { }
+
+    /// <summary>Timeout-overriding ctor for tests. The LAN API has no negative
+    /// reply - "not reachable" is only ever a timeout - so the discovery and
+    /// pair-failure paths cost the full window on every run.</summary>
+    internal GoveeDriver(GoveeLanClient client, int scanTimeoutMs, int probeTimeoutMs, int pingTimeoutMs)
+    {
+        _client = client;
+        _scanTimeoutMs = scanTimeoutMs;
+        _probeTimeoutMs = probeTimeoutMs;
+        _pingTimeoutMs = pingTimeoutMs;
+    }
 
     public string Brand => "govee";
 
@@ -64,7 +82,7 @@ public sealed class GoveeDriver : ILightDriver
 
     public async Task<IReadOnlyList<DiscoveredLight>> DiscoverAsync(CancellationToken ct)
     {
-        var found = await _client.ScanAsync(2500, ct).ConfigureAwait(false);
+        var found = await _client.ScanAsync(_scanTimeoutMs, ct).ConfigureAwait(false);
         var result = new List<DiscoveredLight>(found.Count);
         foreach (var d in found)
             result.Add(new DiscoveredLight(Brand, d.Ip, DisplayName(d.Sku), d.Device));
@@ -82,7 +100,7 @@ public sealed class GoveeDriver : ILightDriver
         // No token exchange - "pairing" verifies the device actually answers on
         // the LAN (i.e. LAN Control is on) and captures its SKU capabilities.
         GoveeDeviceInfo? info = null;
-        try { info = await _client.ProbeAsync(host, ProbeTimeoutMs, ct).ConfigureAwait(false); }
+        try { info = await _client.ProbeAsync(host, _probeTimeoutMs, ct).ConfigureAwait(false); }
         catch { /* fall through to the status probe */ }
 
         string sku;
@@ -96,7 +114,7 @@ public sealed class GoveeDriver : ILightDriver
         {
             // Unicast scan filtered? A devStatus answer still proves LAN
             // Control is enabled; capabilities fall back to the SKU-less default.
-            var status = await _client.StatusAsync(host, ProbeTimeoutMs, ct).ConfigureAwait(false);
+            var status = await _client.StatusAsync(host, _probeTimeoutMs, ct).ConfigureAwait(false);
             if (status is null)
                 return new PairResult { Ok = false, Error = "lan-control" };
             sku = "";
@@ -220,7 +238,7 @@ public sealed class GoveeDriver : ILightDriver
 
     public async Task<bool> PingAsync(SmartLight dev, CancellationToken ct)
     {
-        try { return await _client.StatusAsync(dev.Host, 1500, ct).ConfigureAwait(false) is not null; }
+        try { return await _client.StatusAsync(dev.Host, _pingTimeoutMs, ct).ConfigureAwait(false) is not null; }
         catch { return false; }
     }
 

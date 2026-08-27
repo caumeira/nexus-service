@@ -11,7 +11,6 @@ namespace Nexus.Service.Tests.Integration;
 /// WebSocket - the fan-out / subscribe-lifecycle / disconnect-cleanup path
 /// that the unit suite (snapshot-provider registration only) never exercised.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class MultiplexHubIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

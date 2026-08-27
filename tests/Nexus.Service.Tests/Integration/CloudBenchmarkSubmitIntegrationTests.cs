@@ -33,7 +33,6 @@ public sealed class CloudBenchmarkSubmitAppFactory : NexusAppFactory
     }
 }
 
-[Collection("NexusHost")]
 public sealed class CloudBenchmarkSubmitIntegrationTests : IClassFixture<CloudBenchmarkSubmitAppFactory>
 {
     private readonly CloudBenchmarkSubmitAppFactory _factory;

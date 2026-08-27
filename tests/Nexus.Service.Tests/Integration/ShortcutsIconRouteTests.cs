@@ -15,7 +15,6 @@ namespace Nexus.Service.Tests.Integration;
 /// the real Windows extraction/disk-cache pipeline is Windows-only and covered
 /// separately by IconDiskCacheTests.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class ShortcutsIconRouteTests : IDisposable
 {
     private readonly NexusAppFactory _baseFactory;

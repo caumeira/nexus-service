@@ -469,6 +469,9 @@ public sealed class RgbBridge : IDisposable
         }
     }
 
+    /// <summary>Physicals holding a frame buffer, which a blackout is limited to; populated after <see cref="Devices"/> is committed, not with it.</summary>
+    internal int PhysicalBufferCount => _physBuffers.Count;
+
     /// <summary>
     /// Pushes an all-black frame to every device this bridge drives and AWAITS
     /// each write. The <see cref="OnFrame"/> path fires its pushes and forgets

@@ -23,7 +23,6 @@ namespace Nexus.Service.Tests.Integration;
 /// own, a regression guard for this exact class of bug; the [FromBody]
 /// annotation is.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class CloudRoutesIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

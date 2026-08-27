@@ -16,7 +16,6 @@ namespace Nexus.Service.Tests.Integration;
 /// and has no portable unit test, same posture as the sibling
 /// ShortcutsIconRouteTests.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class ProcessIconRouteTests : IDisposable
 {
     private readonly NexusAppFactory _baseFactory;

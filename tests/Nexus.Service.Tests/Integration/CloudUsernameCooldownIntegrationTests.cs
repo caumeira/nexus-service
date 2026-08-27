@@ -35,7 +35,6 @@ public sealed class CloudUsernameCooldownAppFactory : NexusAppFactory
     }
 }
 
-[Collection("NexusHost")]
 public sealed class CloudUsernameCooldownIntegrationTests : IClassFixture<CloudUsernameCooldownAppFactory>
 {
     private readonly CloudUsernameCooldownAppFactory _factory;

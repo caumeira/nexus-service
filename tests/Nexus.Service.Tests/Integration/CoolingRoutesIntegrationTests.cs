@@ -17,7 +17,6 @@ namespace Nexus.Service.Tests.Integration;
 /// over the real request pipeline, with the fan control provider swapped for
 /// a fake at the DI seam (mirrors DisplayTopologyRoutesTests).
 /// </summary>
-[Collection("NexusHost")]
 public sealed class CoolingRoutesIntegrationTests
 {
     private sealed class FakeFanProvider : IFanControlProvider

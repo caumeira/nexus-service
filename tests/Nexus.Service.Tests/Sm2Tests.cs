@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using System.Security.Cryptography;
 using Nexus.Service.Peripherals.Tryx.Panorama.Crypto;
 using Xunit;
@@ -46,24 +47,26 @@ public class Sm2Tests
         Assert.Equal("prefixed C1 round trip", decrypted);
     }
 
+    // An ephemeral scalar whose C1 = k*G has x starting with the byte 0x04,
+    // found offline by walking k*G on sm2p256v1. Pinned so this case is
+    // deterministic: drawing k at random hits it at roughly 1-in-256 odds per
+    // encrypt, and each miss costs two scalar multiplications.
+    private const string RawC104LeadingEphemeralHex =
+        "7f3a1c95d2b8e0461fa7c33d5e9b28417c60de85a1f492b3706c8ad159e2fc78";
+
     [Fact]
     public void Decrypt_round_trips_a_raw_C1_whose_x_coordinate_starts_with_0x04()
     {
         // A raw (unprefixed) C1 whose x coordinate's leading byte is 0x04 must
-        // not be mistaken for a SEC1 04 tag byte and stripped. Encrypt draws a
-        // random ephemeral key, so search for such a ciphertext, then assert it
-        // still round-trips. Expected hits ~ iterations / 256.
-        for (var i = 0; i < 5000; i++)
-        {
-            var cipherHex = Sm2.Encrypt("raw-c1-04-leading", TestPublicKeyHex);
-            if (cipherHex.StartsWith("04", StringComparison.Ordinal))
-            {
-                Assert.Equal("raw-c1-04-leading", Sm2.Decrypt(cipherHex, TestPrivateKeyHex));
-                return;
-            }
-        }
+        // not be mistaken for a SEC1 04 tag byte and stripped.
+        var k = new BigInteger(Convert.FromHexString(RawC104LeadingEphemeralHex), isUnsigned: true, isBigEndian: true);
 
-        Assert.Fail("no 0x04-leading C1 produced in 5000 encrypts");
+        var cipherHex = Sm2.Encrypt("raw-c1-04-leading", TestPublicKeyHex, k);
+
+        // Guards the pinned scalar: a k that stopped producing a 0x04-leading
+        // C1 would otherwise make this test silently stop covering the case.
+        Assert.StartsWith("04", cipherHex, StringComparison.Ordinal);
+        Assert.Equal("raw-c1-04-leading", Sm2.Decrypt(cipherHex, TestPrivateKeyHex));
     }
 
     [Fact]

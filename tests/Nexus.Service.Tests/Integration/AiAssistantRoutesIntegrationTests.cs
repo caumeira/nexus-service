@@ -17,7 +17,6 @@ namespace Nexus.Service.Tests.Integration;
 /// The manager's download/extract/launch pipeline is covered against fakes
 /// in OllamaRuntimeManagerTests; this class is scoped to the REST contract.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class AiAssistantRoutesIntegrationTests : IDisposable
 {
     private readonly NexusAppFactory _factory = new();

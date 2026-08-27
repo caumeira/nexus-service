@@ -16,7 +16,6 @@ using Xunit;
 namespace Nexus.Service.Tests.StreamDeck;
 
 /// <summary>POST/GET /deck/images against a temp-rooted DeckImageStore.</summary>
-[Collection("NexusHost")]
 public sealed class DeckImageRoutesTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "nexus-deck-image-route-" + Guid.NewGuid().ToString("N")[..8]);

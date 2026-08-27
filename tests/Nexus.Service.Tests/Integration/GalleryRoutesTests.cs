@@ -21,7 +21,6 @@ namespace Nexus.Service.Tests.Integration;
 /// - the auth tiers: item reads are panel-reachable, while pick and source mutations
 /// (host-filesystem surface) must reject a paired panel session.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class GalleryRoutesTests : IDisposable
 {
     // Canonical 67-byte 1x1 transparent PNG (real bytes, not just a valid

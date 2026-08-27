@@ -6,7 +6,6 @@ namespace Nexus.Service.Tests.Integration;
 /// Smoke test proving the WebApplicationFactory harness boots the real host
 /// in-process and routes a request end-to-end through the production pipeline.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class IntegrationHarnessTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

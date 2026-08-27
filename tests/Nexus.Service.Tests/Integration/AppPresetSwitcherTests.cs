@@ -13,7 +13,6 @@ namespace Nexus.Service.Tests.Integration;
 /// <summary>Drives AppPresetSwitcher.Tick against the real host so the
 /// bindings gate and the activate hand-off are exercised, not just the
 /// tracker's decision table.</summary>
-[Collection("NexusHost")]
 public sealed class AppPresetSwitcherTests : IDisposable
 {
     private sealed class FakeScreenTime : IScreenTimeProvider
@@ -26,18 +25,16 @@ public sealed class AppPresetSwitcherTests : IDisposable
         public IReadOnlyList<AppUsage> GetTodayUsage() => Array.Empty<AppUsage>();
     }
 
-    private readonly NexusAppFactory _factory;
+    private readonly StubDeviceHostFactory _factory;
     private readonly FakeScreenTime _screenTime = new();
 
     public AppPresetSwitcherTests()
     {
-        _factory = new NexusAppFactory().WithWebHostBuilder(b =>
-            b.ConfigureTestServices(s =>
-            {
-                s.RemoveAll<ILightingDeviceProvider>();
-                s.AddSingleton<ILightingDeviceProvider>(sp =>
-                    new StubDeviceProvider(sp.GetRequiredService<IConfigStore>()));
-            })) as NexusAppFactory ?? new NexusAppFactory();
+        // Own host per test, unlike the route classes: the switcher runs a live
+        // dwell timer against the shared LightingProvider and store, so a
+        // previous test's subscriptions and post-process state would decide
+        // this one's outcome under load.
+        _factory = new StubDeviceHostFactory();
         // Force the host to build before resolving out of it.
         _ = _factory.CreateClient();
     }

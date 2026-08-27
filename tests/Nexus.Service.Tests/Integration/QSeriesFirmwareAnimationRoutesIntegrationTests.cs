@@ -17,7 +17,6 @@ namespace Nexus.Service.Tests.Integration;
 /// with the <see cref="QSeriesCoolerHub"/> singleton swapped for one wired to a
 /// fake discovery + transport at the DI seam (mirrors CoolingRoutesIntegrationTests).
 /// </summary>
-[Collection("NexusHost")]
 public sealed class QSeriesFirmwareAnimationRoutesIntegrationTests
 {
     private (WebApplicationFactory<Program> factory, HttpClient client) Boot(QSeriesCoolerHub hub)

@@ -22,7 +22,6 @@ namespace Nexus.Service.Tests.Integration;
 ///     128-bit HKDF rid and AEAD ciphertext, and possession is what the decrypt
 ///     proves (a wrong-key request is silently dropped, no response).
 /// </summary>
-[Collection("NexusHost")]
 public sealed class SealedTunnelIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

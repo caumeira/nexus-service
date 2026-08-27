@@ -18,7 +18,6 @@ namespace Nexus.Service.Tests.Integration;
 /// profile names are state within one factory's ProfileManager and would leak
 /// across test methods sharing that factory otherwise.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class ProfileRoutesIntegrationTests : IDisposable
 {
     private readonly NexusAppFactory _factory;

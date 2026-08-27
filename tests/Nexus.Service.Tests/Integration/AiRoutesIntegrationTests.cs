@@ -22,7 +22,6 @@ namespace Nexus.Service.Tests.Integration;
 /// The listener itself is covered end to end by McpServerHostIntegrationTests;
 /// this class is scoped to the REST surface and the settings round trip.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class AiRoutesIntegrationTests : IDisposable
 {
     private readonly NexusAppFactory _factory = new();

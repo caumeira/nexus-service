@@ -16,7 +16,6 @@ namespace Nexus.Service.Tests.Integration;
 /// behind them is covered by ApkFlasherTests, and their panel-denial by
 /// AuthRequestPolicyTests.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class QSeriesPanelLifecycleRoutesTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

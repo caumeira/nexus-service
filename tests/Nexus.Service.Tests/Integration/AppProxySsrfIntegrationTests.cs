@@ -78,7 +78,6 @@ public sealed class SsrfAppFactory : NexusAppFactory
     }
 }
 
-[Collection("NexusHost")]
 public sealed class AppProxySsrfIntegrationTests : IClassFixture<SsrfAppFactory>
 {
     private readonly SsrfAppFactory _factory;

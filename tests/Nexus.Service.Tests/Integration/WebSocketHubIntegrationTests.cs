@@ -11,7 +11,6 @@ namespace Nexus.Service.Tests.Integration;
 /// old WebSocketHubTests which only asserted ClientCount==0 and a
 /// Task.CompletedTask identity on an empty hub.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class WebSocketHubIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

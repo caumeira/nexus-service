@@ -16,7 +16,6 @@ using Xunit;
 namespace Nexus.Service.Tests.Integration;
 
 /// <summary>POST /telemetry/consent: crash-safe marker-before-flip ordering and the not-a-transition welcome confirm, with a fake IFleetEventTransport that always fails so the pending marker stays observable; delivery-success clearing is covered in FleetEventServiceTests.</summary>
-[Collection("NexusHost")]
 public sealed class TelemetryConsentTransitionTests : IDisposable
 {
     private sealed class FakeFleetEventTransport : IFleetEventTransport

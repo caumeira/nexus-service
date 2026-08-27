@@ -22,7 +22,6 @@ namespace Nexus.Service.Tests.Integration;
 /// deviceEligible are cross-platform logic in the route, so they run here on
 /// every OS.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class Nexus2MigrationRoutesTests
 {
     private sealed class FakeNexus2Detector : INexus2Detector
@@ -292,7 +291,6 @@ public sealed class Nexus2MigrationRoutesTests
 /// <summary>Dismiss sets a durable flag, so it is verified against a shared,
 /// on-disk-backed factory (mirrors OnboardingCompleteIntegrationTests) rather
 /// than the per-test WithWebHostBuilder factory above.</summary>
-[Collection("NexusHost")]
 public sealed class Nexus2MigrationDismissIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

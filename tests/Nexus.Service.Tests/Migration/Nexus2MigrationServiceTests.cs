@@ -30,7 +30,6 @@ namespace Nexus.Service.Tests.Integration;
 /// types (see plan doc); it must be superseded by a capture from a real
 /// install before the importer ships beyond dev.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class Nexus2MigrationServiceTests : IDisposable
 {
     private static string FixtureDir => Path.Combine(AppContext.BaseDirectory, "Fixtures", "Nexus2");
