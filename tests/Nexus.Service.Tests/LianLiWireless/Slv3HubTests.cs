@@ -605,6 +605,56 @@ public class Slv3HubTests
         return found!;
     }
 
+    [Fact]
+    public void DriveTick_stops_re_binding_a_converged_chain()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.Bind(Convert.ToHexString(FanMac)));
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.State.Fans[0].BoundToUs);
+
+        // Nothing about the chain's duty has changed, so the keepalive has
+        // nothing to say. Re-binding it every tick reboots the real chain
+        // controller and drops the LCD screens wired behind it.
+        var settled = CountBindFrames(tx);
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+        Assert.Equal(settled, CountBindFrames(tx));
+    }
+
+    [Fact]
+    public void DriveTick_re_binds_once_a_port_duty_changes()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.Bind(Convert.ToHexString(FanMac)));
+        Assert.True(hub.DriveTick());
+        var settled = CountBindFrames(tx);
+
+        Assert.True(hub.SetPortDuty(Convert.ToHexString(FanMac), 0, 50));
+        Assert.True(hub.DriveTick());
+        Assert.True(CountBindFrames(tx) > settled);
+    }
+
+    // Bind/PWM frames on the wire: a chunkSeq-0 USB frame carrying RF_Bind.
+    private static int CountBindFrames(FakeTxTransport tx)
+    {
+        var count = 0;
+        foreach (var frame in tx.SentFrames)
+        {
+            if (frame.Length >= 6 && frame[0] == Slv3Protocol.UsbSendRf && frame[1] == 0
+                && frame[4] == Slv3Protocol.RfFrameType && frame[5] == Slv3Protocol.RfBind)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
     private static (Slv3Hub Hub, FakeSlv3Network Net, FakeTxTransport Tx, FakeRxTransport Rx) CreateConnectedHub(Func<long>? nowMs = null)
     {
         var net = new FakeSlv3Network();

@@ -39,6 +39,15 @@ public sealed class Slv3Hub : IDisposable
     // by SendBindFrameLocked, written by SetPortDuty; both hold _lock.
     private readonly Dictionary<string, int?[]> _dutyTargets = new(StringComparer.Ordinal);
 
+    // Last bind/PWM tuple actually put on the air per chain MAC hex, so the
+    // tick can skip a keepalive that would say nothing new. L-Connect gates
+    // this frame on NeedSyncPwm; sending it unconditionally re-binds an
+    // already-bound chain once a second, and the chain controller reboots on
+    // that, taking the wired LCD screens hanging off it down with it (Y70,
+    // 2026-08-27: ~20 USB removal/arrival pairs a minute while bound, zero
+    // while unbound, hardware-bisected).
+    private readonly Dictionary<string, byte[]> _lastPwmSent = new(StringComparer.Ordinal);
+
     private ISlv3Transport? _tx;
     private ISlv3Transport? _rx;
     private byte[] _masterMac = new byte[Slv3Protocol.MacLength];
@@ -77,6 +86,10 @@ public sealed class Slv3Hub : IDisposable
     // Ticks a pending bind/unbind may re-send before it is dropped as
     // non-converging (fan unreachable); ~1 s per tick.
     private const int PendingOpTickBudget = 15;
+
+    // L-Connect's NeedSyncPwm threshold: a driven port is only re-commanded
+    // once its reported duty is more than this off target.
+    private const int NeedSyncPwmDelta = 5;
 
     // Header-repeat tiers for RGB pushes (no CRC on this link - see
     // SendRgbFrame). Reliable = one-shot effect application: 4 repeats spaced
@@ -190,6 +203,7 @@ public sealed class Slv3Hub : IDisposable
         State.MotherboardPwmPercent = null;
         _lastFanRecords = new List<Slv3DeviceRecord>();
         _knownChains.Clear();
+        _lastPwmSent.Clear();
         _rxFailStreak = 0;
         _rxResetCount = 0;
         _saveCfgSendsRemaining = 0;
@@ -281,7 +295,7 @@ public sealed class Slv3Hub : IDisposable
             var sends = new Dictionary<string, (Slv3DeviceRecord Record, byte TargetSlot)>(StringComparer.Ordinal);
             foreach (var record in _lastFanRecords)
             {
-                if (IsBoundToUsLocked(record))
+                if (IsBoundToUsLocked(record) && NeedsBindFrameLocked(record))
                 {
                     sends[Convert.ToHexString(record.Mac)] = (record, record.RxType);
                 }
@@ -445,6 +459,7 @@ public sealed class Slv3Hub : IDisposable
             {
                 ServiceLog.Info($"[lianli-wireless] chain {key} dropped ({ChainExpiryMs / 1000}s unseen)");
                 _knownChains.Remove(key);
+                _lastPwmSent.Remove(key);
             }
         }
 
@@ -558,7 +573,40 @@ public sealed class Slv3Hub : IDisposable
                 return false;
             }
         }
+        _lastPwmSent[Convert.ToHexString(record.Mac)] = pwm;
         return true;
+    }
+
+    /// <summary>
+    /// Whether this tick's bind/PWM keepalive carries anything the chain does
+    /// not already have: nothing sent to it yet on this link, a changed target
+    /// tuple, or a driven port whose reported duty has drifted more than
+    /// <see cref="NeedSyncPwmDelta"/> off target. A port left on the
+    /// motherboard header reports the header's duty rather than the
+    /// <see cref="Slv3Protocol.PwmFollowMotherboard"/> sentinel, so it is
+    /// compared by intent only and never re-sent on drift. Caller holds _lock.
+    /// </summary>
+    private bool NeedsBindFrameLocked(Slv3DeviceRecord record)
+    {
+        var pwm = Slv3Protocol.BuildPwmTuple(DutyTargetsLocked(record.Mac), record.FanCount, record.Family);
+        if (!_lastPwmSent.TryGetValue(Convert.ToHexString(record.Mac), out var last)
+            || !last.AsSpan().SequenceEqual(pwm))
+        {
+            return true;
+        }
+        for (var port = 0; port < pwm.Length; port++)
+        {
+            if (pwm[port] == 0 || pwm[port] == Slv3Protocol.PwmFollowMotherboard)
+            {
+                continue;
+            }
+            var reported = port < record.Pwm.Length ? record.Pwm[port] : 0;
+            if (Math.Abs(reported - pwm[port]) > NeedSyncPwmDelta)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Caller holds _lock.
