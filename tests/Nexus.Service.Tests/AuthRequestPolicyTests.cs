@@ -116,9 +116,15 @@ public class AuthRequestPolicyTests
         AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/brightness");
         AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/color");
         AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/identify");
+        // Read + activate only, for a Deck widget key bound to a lighting
+        // preset. Creating, renaming and deleting presets stay desktop-only.
+        AssertPanelAllowedRoute(app, "GET", "/devices/lighting-devices/layout-presets");
+        AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/layout-presets/{id}/activate");
 
         AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/layout");
         AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/layout-presets");
+        AssertPanelDeniedRoute(app, "PUT", "/devices/lighting-devices/layout-presets/{id}");
+        AssertPanelDeniedRoute(app, "DELETE", "/devices/lighting-devices/layout-presets/{id}");
         AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/zone-size");
         AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/rescan");
         AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/{id}/led-map");

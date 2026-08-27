@@ -20,6 +20,9 @@ public sealed class FanHubHandler : IDeviceHandler
     public string Name => "iBUYPOWER MiniHub";
     public string Category => "hub";
 
+    /// <summary>Fans are configured on Cooling, ARGB on Lighting.</summary>
+    public bool HasPage => false;
+
     public IReadOnlyList<UsbId> Identifiers { get; } = new[]
     {
         new UsbId(HyteVid, 0x0A00), // IBP Mini Hub

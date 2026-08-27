@@ -11,6 +11,7 @@ using Nexus.Service.Cooling;
 using Nexus.Service.Devices;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
+using Nexus.Service.Media;
 using Nexus.Service.Models.Activity;
 using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Persistence;
@@ -40,13 +41,19 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
     private readonly ILightingProvider _lighting;
     private readonly IFanControlProvider _fans;
     private readonly IConfigStore _store;
-    private readonly ProfileManager _profiles;
     private readonly IY70Provider _y70;
     private readonly DisplayBrightnessController _displayBrightness;
     private readonly IMediaProvider _media;
     private readonly MultiplexHub _hub;
     private readonly Lazy<IDeckSurfaceControl> _deckSurface;
     private readonly AudioFilePlayer _audioPlayer;
+    private readonly MediaLibrary _mediaLibrary;
+    // The three ActivateLayoutPreset needs beyond what this class already
+    // holds. RgbBridge is registered on the desktop platforms only, so it is
+    // nullable here exactly as it is at the route and in AppPresetSwitcher.
+    private readonly Nexus.Service.Lighting.Rgb.RgbBridge? _bridge;
+    private readonly Nexus.Service.Lighting.Smart.SmartLightProvider _smart;
+    private readonly Nexus.Service.Lighting.Engine.LightingEngine _engine;
 
     /// <summary>
     /// In-memory only, matching the web widget's per-tab <c>useState</c>
@@ -65,13 +72,16 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         ILightingProvider lighting,
         IFanControlProvider fans,
         IConfigStore store,
-        ProfileManager profiles,
         IY70Provider y70,
         DisplayBrightnessController displayBrightness,
         IMediaProvider media,
         MultiplexHub hub,
         Lazy<IDeckSurfaceControl> deckSurface,
         AudioFilePlayer audioPlayer,
+        MediaLibrary mediaLibrary,
+        Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+        Nexus.Service.Lighting.Smart.SmartLightProvider smart,
+        Nexus.Service.Lighting.Engine.LightingEngine engine,
         FeatureGates? gates = null)
     {
         _system = system;
@@ -79,13 +89,16 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         _lighting = lighting;
         _fans = fans;
         _store = store;
-        _profiles = profiles;
         _y70 = y70;
         _displayBrightness = displayBrightness;
         _media = media;
         _hub = hub;
         _deckSurface = deckSurface;
         _audioPlayer = audioPlayer;
+        _mediaLibrary = mediaLibrary;
+        _bridge = bridge;
+        _smart = smart;
+        _engine = engine;
         _gates = gates ?? FeatureGates.AllEnabled;
     }
 
@@ -423,32 +436,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         switch (na.Op)
         {
             case "rgbEffect":
-                if (!string.IsNullOrEmpty(na.Effect))
-                {
-                    _lighting.StartAnimate(new Nexus.Service.Models.Lighting.AnimateHeadlessStart
-                    {
-                        Effect = na.Effect,
-                        Speed = 50,
-                        Intensity = 1f,
-                        Filter = "none",
-                    });
-                }
-                return;
-            case "rgbScene":
-                if (!string.IsNullOrEmpty(na.ProfileId))
-                {
-                    try
-                    {
-                        _profiles.SwitchProfile(na.ProfileId);
-                        PanelTopics.BroadcastPrefs(_hub);
-                        PanelTopics.BroadcastLighting(_hub);
-                        PanelTopics.BroadcastCooling(_hub);
-                    }
-                    catch (KeyNotFoundException)
-                    {
-                        ServiceLog.Warn($"[streamdeck] rgbScene profile not found: {na.ProfileId}");
-                    }
-                }
+                StartLightingMode(na);
                 return;
             case "lightingBrightness":
             {
@@ -457,22 +445,32 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 PanelTopics.BroadcastLighting(_hub);
                 return;
             }
-            case "lightingPower":
-                if (_gates.Lighting && !string.IsNullOrEmpty(na.DeviceId))
+            case "lightingPreset":
+                if (_gates.Lighting && !string.IsNullOrEmpty(na.PresetId) &&
+                    !Nexus.Service.Routes.DevicesRoutes.ActivateLayoutPreset(
+                        na.PresetId, _store, _hub, _lightingDevices, _lighting, _bridge, _smart, _engine))
                 {
-                    _lightingDevices.SetPower(na.DeviceId, na.On ?? true);
+                    ServiceLog.Warn($"[streamdeck] lighting preset not found: {na.PresetId}");
                 }
                 return;
             case "fanProfile":
                 if (_gates.Cooling && !string.IsNullOrEmpty(na.Profile))
                 {
                     FanProfiles.Apply(na.Profile, _fans, _store);
+                    PanelTopics.BroadcastCooling(_hub);
                 }
                 return;
-            case "fanSpeed":
-                if (_gates.Cooling && !string.IsNullOrEmpty(na.FanId))
+            case "coolingPreset":
+                if (_gates.Cooling && !string.IsNullOrEmpty(na.PresetId))
                 {
-                    _fans.SetFanSpeed(na.FanId, (int)Math.Clamp(na.Value ?? 0, 0, 100));
+                    if (CoolingPresets.Activate(na.PresetId, _store, _fans))
+                    {
+                        PanelTopics.BroadcastCooling(_hub);
+                    }
+                    else
+                    {
+                        ServiceLog.Warn($"[streamdeck] cooling preset not found: {na.PresetId}");
+                    }
                 }
                 return;
             case "y70Power":
@@ -489,6 +487,61 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 }
                 return;
         }
+    }
+
+    /// <summary>
+    /// Starts one of the lighting page's three live modes, the same way that
+    /// page's own mode switch does, so a key press and the UI land on the same
+    /// state. Mirror passes no post-process: StartScreen deliberately keeps
+    /// the saved one, so a key can never flatten the user's look.
+    /// </summary>
+    private void StartLightingMode(DeckNexusAction na)
+    {
+        switch (na.Mode ?? "animate")
+        {
+            case "gif":
+                // No playable media: idle black keeps Media the active mode
+                // rather than dropping the LEDs to Off.
+                if (!PlayCurrentOrFirstMedia())
+                {
+                    _lighting.StartMediaIdle();
+                }
+                break;
+            case "screen":
+                _lighting.StartScreen(new Nexus.Service.Models.Lighting.ScreenHeadlessStart
+                {
+                    Monitor = "",
+                    Effect = "average",
+                });
+                break;
+            default:
+                if (string.IsNullOrEmpty(na.Effect))
+                {
+                    return;
+                }
+                _lighting.StartAnimate(new Nexus.Service.Models.Lighting.AnimateHeadlessStart
+                {
+                    Effect = na.Effect,
+                    Speed = 50,
+                    Intensity = 1f,
+                    Filter = "none",
+                });
+                break;
+        }
+        PanelTopics.BroadcastLighting(_hub);
+    }
+
+    /// <summary>Port of nexus-web's playCurrentOrFirstMedia: the last-played
+    /// item, else the first in the library. False when neither plays.</summary>
+    private bool PlayCurrentOrFirstMedia()
+    {
+        var lastId = _store.Load().Lighting.LastMediaId;
+        if (!string.IsNullOrEmpty(lastId) && _lighting.StartMedia(lastId))
+        {
+            return true;
+        }
+        var first = _mediaLibrary.ListItems().FirstOrDefault();
+        return first is not null && _lighting.StartMedia(first.Id);
     }
 
     private (string? Source, bool Playing) ResolveMediaSession(string? explicitSource)

@@ -20,6 +20,7 @@ internal static class MacStatusBar
 
     private static Action? _onOpenDashboard;
     private static Action? _onOpenSettings;
+    private static Action? _onOpenDevices;
     private static Action? _onQuit;
     // Fired when LaunchServices re-activates this already-running .app (the
     // user double-clicked Nexus.app while it was already running). For
@@ -74,6 +75,7 @@ internal static class MacStatusBar
         string iconPath,
         Action onOpenDashboard,
         Action onOpenSettings,
+        Action onOpenDevices,
         Action onQuit,
         Action? onReopen = null)
     {
@@ -84,6 +86,7 @@ internal static class MacStatusBar
 
         _onOpenDashboard = onOpenDashboard;
         _onOpenSettings = onOpenSettings;
+        _onOpenDevices = onOpenDevices;
         _onQuit = onQuit;
         _onReopen = onReopen ?? onOpenDashboard;
 
@@ -278,10 +281,10 @@ internal static class MacStatusBar
 
     // ── Dynamic Objective-C target class for menu callbacks ──────────────────
     //
-    // We create an NSObject subclass at runtime named "NexusStatusTarget"
-    // with three selectors (openDashboard:, openSettings:, quitApp:). Each
-    // method is a static C function (UnmanagedCallersOnly) that invokes the
-    // corresponding Action. Menu items target this instance.
+    // An NSObject subclass built at runtime as "NexusStatusTarget", one
+    // selector per action. Each method is a static C function
+    // (UnmanagedCallersOnly) under the "v@:@" encoding, so the class pair must
+    // be registered only after every AddMethod below.
 
     private static unsafe void RegisterTargetClass()
     {
@@ -300,6 +303,7 @@ internal static class MacStatusBar
             // Method signature: void (id self, SEL _cmd, id sender) → "v@:@"
             AddMethod(targetClass, "openDashboard:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&OpenDashboardImpl, "v@:@");
             AddMethod(targetClass, "openSettings:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&OpenSettingsImpl, "v@:@");
+            AddMethod(targetClass, "openDevices:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&OpenDevicesImpl, "v@:@");
             AddMethod(targetClass, "quitApp:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&QuitImpl, "v@:@");
             AddMethod(targetClass, "showStatusItem:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&ShowStatusItemImpl, "v@:@");
             AddMethod(targetClass, "hideStatusItem:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&HideStatusItemImpl, "v@:@");
@@ -327,6 +331,14 @@ internal static class MacStatusBar
         try
         { _onOpenSettings?.Invoke(); }
         catch (Exception ex) { Console.Error.WriteLine($"[mac-status-bar] OpenSettings callback failed: {ex.Message}"); }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static void OpenDevicesImpl(IntPtr self, IntPtr cmd, IntPtr sender)
+    {
+        try
+        { _onOpenDevices?.Invoke(); }
+        catch (Exception ex) { Console.Error.WriteLine($"[mac-status-bar] OpenDevices callback failed: {ex.Message}"); }
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -409,6 +421,7 @@ internal static class MacStatusBar
         _menu = MsgSend(MsgSend(_classNSMenu, _selAlloc), _selInit);
         AddMenuItem(_menu, "Open Dashboard", "openDashboard:");
         AddMenuItem(_menu, "Settings", "openSettings:");
+        AddMenuItem(_menu, "Devices", "openDevices:");
         // Separator
         IntPtr sep = MsgSend(_classNSMenuItem, _selSeparatorItem);
         MsgSend(_menu, _selAddItem, sep);

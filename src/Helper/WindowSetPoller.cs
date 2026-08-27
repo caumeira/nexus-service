@@ -31,11 +31,27 @@ namespace Nexus.Service.Helper;
 [SupportedOSPlatform("windows")]
 public sealed class WindowSetPoller : IDisposable
 {
+    /// <summary>
+    /// 5 s, matching MonitoringEventCollector's own poll - it is the only
+    /// always-on consumer, so anything faster was oversampling. The other
+    /// consumer (the processes frame's App/Background split) is demand-gated
+    /// UI, where a newly launched app settling into its group a few seconds
+    /// later is not perceptible.
+    /// </summary>
+    private const int PeriodMs = 5000;
+
     private readonly HelperOutbound _outbound;
     private readonly JitteredPeriodicTimer _timer;
     private readonly bool _diagEnabled;
     private HashSet<int> _lastSent = new();
     private bool _wasConnected;
+
+    /// <summary>
+    /// Set from the service over windowSet.wanted. Defaults true so a helper
+    /// talking to a service that never sends it keeps the old behaviour rather
+    /// than silently losing the App/Background split.
+    /// </summary>
+    private volatile bool _wanted = true;
 
     // Pinned callback - EnumWindows requires a delegate that isn't GC'd
     // mid-enumeration (same guard as TrayIcon._pinnedEnumProc). The timer
@@ -43,22 +59,47 @@ public sealed class WindowSetPoller : IDisposable
     // enumerations for this poller are ever in flight together.
     private EnumWindowsProc? _pinnedEnumProc;
 
+    /// <summary>Windows walked by the last EnumWindows pass - the size of the
+    /// per-window Win32 work the slow-pass line is reporting on.</summary>
+    private int _enumerated;
+
     public WindowSetPoller(HelperOutbound outbound)
     {
         _outbound = outbound;
         _diagEnabled = WindowDiagnostics.IsEnabled(Environment.GetEnvironmentVariable(WindowDiagnostics.EnvVarName));
-        _timer = new JitteredPeriodicTimer(periodMs: 2000, jitterMs: 200, Poll);
+        _timer = new JitteredPeriodicTimer(periodMs: PeriodMs, jitterMs: 500, Poll);
+    }
+
+    /// <summary>
+    /// Service-driven demand. Clearing _lastSent on the way back up matters:
+    /// the service's snapshot went stale while we were off, and the change-only
+    /// send would otherwise never resend an unchanged window set.
+    /// </summary>
+    public void SetWanted(bool wanted)
+    {
+        if (wanted && !_wanted) _lastSent = new HashSet<int>();
+        _wanted = wanted;
     }
 
     private void Poll()
     {
+        if (!_wanted) return;
+        if (HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.WindowSet)) return;
         try
         {
             var connected = _outbound.IsConnected;
             var justReconnected = connected && !_wasConnected;
             _wasConnected = connected;
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var current = SnapshotWindowedPids();
+            sw.Stop();
+            if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs
+                && HelperPollerDiagnostics.TryFormatSlowPass(
+                    HelperPollerDiagnostics.WindowSet, sw.Elapsed.TotalMilliseconds, _enumerated, out var slow))
+            {
+                Nexus.Service.Platform.HelperLog.Write(slow);
+            }
             if (!justReconnected && current.SetEquals(_lastSent)) return;
 
             _lastSent = current;
@@ -73,6 +114,7 @@ public sealed class WindowSetPoller : IDisposable
     private HashSet<int> SnapshotWindowedPids()
     {
         var pids = new HashSet<int>();
+        var enumerated = 0;
 
         // Computed once per poll, not per window: the bounding box of every
         // monitor, for the off-screen-window exclusion.
@@ -95,35 +137,53 @@ public sealed class WindowSetPoller : IDisposable
 
         _pinnedEnumProc = (hwnd, _) =>
         {
+            enumerated++;
+            // Cheap, local win32k reads first. These alone decide the outcome
+            // for the large majority of windows, and IsCountableWindow's own
+            // short-circuit order is what makes that safe to rely on.
             var isForegroundWindow = hwnd == foregroundHwnd;
             var owner = GetWindow(hwnd, GwOwner);
             var isToolWindow = (GetWindowLong(hwnd, GwlExstyle) & WsExToolwindow) != 0;
-            var isCloaked = IsCloaked(hwnd);
-            var titleLength = GetWindowTextLength(hwnd);
-            var hasTitle = titleLength > 0;
-            // Must read immediately after GetWindowTextLength, before any other
-            // P/Invoke call, or the Win32 last-error value is clobbered. Read
-            // unconditionally (not diag-only): IsCountableWindow below needs
-            // titleBlockedByUipi for every window, not just logged ones.
-            var titleReadError = !hasTitle ? Marshal.GetLastWin32Error() : 0;
-            var titleBlockedByUipi = titleReadError == ErrorAccessDenied;
+            var isVisible = IsWindowVisible(hwnd);
             var hasOnScreenBounds = GetWindowRect(hwnd, out var rect) &&
                 WindowClassification.HasOnScreenBounds(
                     rect.Left, rect.Top, rect.Right, rect.Bottom,
                     virtualLeft, virtualTop, virtualRight, virtualBottom);
-            // Only load-bearing through IsCountableWindow's (!isCloaked ||
-            // coversMonitor) check - skip the extra monitor lookup for the
-            // vast majority of windows where isCloaked is already false and
-            // the value can never change the outcome.
-            var coversMonitor = isCloaked &&
-                TryGetMonitorBounds(hwnd, out var monitorRect) &&
-                WindowClassification.CoversMonitor(
-                    rect.Left, rect.Top, rect.Right, rect.Bottom,
-                    monitorRect.Left, monitorRect.Top, monitorRect.Right, monitorRect.Bottom);
-            // Evaluated last, same as the pre-diagnostic code (it was the
-            // inline first argument to IsCountableWindow below) - preserved
-            // so the Win32 reads happen in the original order.
-            var isVisible = IsWindowVisible(hwnd);
+
+            // The two calls below leave this process: DwmGetWindowAttribute is an
+            // RPC into dwm.exe and GetWindowTextLength sends WM_GETTEXTLENGTH to
+            // the owning UI thread. Running them for every window cost ~240 ms per
+            // pass on a 467-window desktop and stalled composition system-wide
+            // (Discord report, 2026-08-27). IsCountableWindow only reaches the
+            // terms they feed when owner/bounds/foreground/visible/tool-window
+            // already allow it, so gating on exactly that condition is pure
+            // short-circuit evaluation - the classification is unchanged.
+            var isCloaked = false;
+            var coversMonitor = false;
+            var titleLength = 0;
+            var hasTitle = false;
+            var titleReadError = 0;
+            var titleBlockedByUipi = false;
+            if (_diagEnabled
+                || (owner == IntPtr.Zero && hasOnScreenBounds && !isForegroundWindow
+                    && isVisible && !isToolWindow))
+            {
+                isCloaked = IsCloaked(hwnd);
+                // Only load-bearing through IsCountableWindow's (!isCloaked ||
+                // coversMonitor) check - skip the extra monitor lookup when
+                // isCloaked is false and the value cannot change the outcome.
+                coversMonitor = isCloaked &&
+                    TryGetMonitorBounds(hwnd, out var monitorRect) &&
+                    WindowClassification.CoversMonitor(
+                        rect.Left, rect.Top, rect.Right, rect.Bottom,
+                        monitorRect.Left, monitorRect.Top, monitorRect.Right, monitorRect.Bottom);
+                titleLength = GetWindowTextLength(hwnd);
+                hasTitle = titleLength > 0;
+                // Must read immediately after GetWindowTextLength, before any other
+                // P/Invoke call, or the Win32 last-error value is clobbered.
+                titleReadError = !hasTitle ? Marshal.GetLastWin32Error() : 0;
+                titleBlockedByUipi = titleReadError == ErrorAccessDenied;
+            }
 
             var isCountable = WindowClassification.IsCountableWindow(
                 isVisible, owner, isToolWindow, isCloaked, hasTitle, hasOnScreenBounds,
@@ -147,6 +207,7 @@ public sealed class WindowSetPoller : IDisposable
             return true;
         };
         EnumWindows(_pinnedEnumProc, IntPtr.Zero);
+        _enumerated = enumerated;
         return pids;
     }
 
@@ -221,7 +282,9 @@ public sealed class WindowSetPoller : IDisposable
             // Process exited, or its name is inaccessible, between
             // GetWindowThreadProcessId and this lookup - keep the placeholder.
         }
-        ServiceLog.Info(WindowDiagnostics.FormatLine(
+        // ServiceLog is a no-op in this process: the helper short-circuits in
+        // CommandLineEntry.TryEarlyExit, long before Program.cs initializes it.
+        Nexus.Service.Platform.HelperLog.Write(WindowDiagnostics.FormatLine(
             pid, processName, isVisible, owner != IntPtr.Zero, isToolWindow, isCloaked,
             hasTitle, titleLength, titleReadError, hasOnScreenBounds, coversMonitor, isForegroundWindow, isCountable));
     }

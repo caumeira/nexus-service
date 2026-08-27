@@ -32,6 +32,10 @@ public interface IDeviceHandler
     /// </summary>
     bool SupportsNexusControl => true;
 
+    /// <summary>False for a device whose controls live on shared pages, so the
+    /// sidebar omits its row instead of linking to an empty placeholder.</summary>
+    bool HasPage => true;
+
     /// <summary>Current firmware version, or empty string if unavailable.</summary>
     string GetFirmwareVersion();
 

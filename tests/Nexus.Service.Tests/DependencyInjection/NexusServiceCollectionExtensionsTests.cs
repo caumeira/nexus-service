@@ -85,6 +85,19 @@ public class NexusServiceCollectionExtensionsTests
         Assert.NotNull(sp.GetRequiredService<Nexus.Service.Devices.ILightingDeviceProvider>());
     }
 
+    /// <summary>
+    /// The Stream Deck action executor is registered by an explicit factory
+    /// (RgbBridge resolves optionally), so nothing else in the graph would
+    /// catch a stale argument list - resolving it here does.
+    /// </summary>
+    [Fact]
+    public void Peripherals_resolves_the_deck_action_executor()
+    {
+        var sp = Build();
+        Assert.NotNull(sp!.GetRequiredService<Nexus.Service.Deck.DeckActionExecutor>());
+        Assert.NotNull(sp.GetRequiredService<Nexus.Service.Deck.IDeckActionExecutor>());
+    }
+
     [Fact]
     public void Devices_resolves_manager_and_handlers()
     {

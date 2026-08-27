@@ -75,6 +75,54 @@ public static class UpdateInstaller
     // unit-tested off-Windows.
     internal const string TaskPrefix = "NexusOtaInstall";
 
+    // Filename prefix + glob for the per-attempt Inno logs in the staging dir.
+    internal const string InstallLogPrefix = "ota-install-";
+    internal const string InstallLogGlob = InstallLogPrefix + "*.log";
+
+    // How many per-attempt install logs to keep. Enough to cover the
+    // failed-then-retried pattern several times over without letting the
+    // staging dir grow without bound.
+    internal const int KeepInstallLogs = 10;
+
+    // Platform-agnostic so it is unit-tested off-Windows.
+    internal static string InstallLogName(string version, long stamp) =>
+        $"{InstallLogPrefix}{version}-{stamp}.log";
+
+    /// <summary>
+    /// Trims the completed per-attempt install logs in <paramref name="dir"/> to
+    /// the newest <see cref="KeepInstallLogs"/>; the in-flight attempt's log is
+    /// created afterwards, so the directory settles one above that. Best-effort:
+    /// a log that will not delete is left alone rather than failing the install
+    /// that is about to run.
+    /// </summary>
+    internal static void PruneOldInstallLogs(string dir)
+    {
+        try
+        {
+            var logs = Directory.GetFiles(dir, InstallLogGlob);
+            if (logs.Length <= KeepInstallLogs)
+            {
+                return;
+            }
+
+            // Stamp each path once: re-reading the timestamp inside the
+            // comparison makes it inconsistent if a write lands mid-sort, and
+            // Array.Sort raises InvalidOperationException on that.
+            var byAge = new (string Path, DateTime Written)[logs.Length];
+            for (var i = 0; i < logs.Length; i++)
+            {
+                byAge[i] = (logs[i], File.GetLastWriteTimeUtc(logs[i]));
+            }
+
+            Array.Sort(byAge, (a, b) => b.Written.CompareTo(a.Written));
+            for (var i = KeepInstallLogs; i < byAge.Length; i++)
+            {
+                try { File.Delete(byAge[i].Path); } catch { }
+            }
+        }
+        catch { }
+    }
+
     // True when a `schtasks /Query /FO CSV` task-name field is one of ours. That
     // field is the full task path with a leading '\' (e.g. "\NexusOtaInstall_1"),
     // so match the leaf - a raw StartsWith is defeated by the backslash and
@@ -120,12 +168,19 @@ public static class UpdateInstaller
             return false;
         }
 
+        // One log per ATTEMPT: two attempts at the same version are routine (a
+        // startup auto-apply that fails, then the user's retry), and both
+        // diagnoses have to survive. The stamp is shared with the task name so a
+        // log pairs with its "[ota-install] scheduled task ..." line.
+        var stamp = DateTime.UtcNow.Ticks;
+        var taskName = $"{TaskPrefix}_{Environment.ProcessId}_{stamp}";
+
         // Delete any pre-existing log so the SYSTEM installer creates it fresh in
         // the locked dir: File truncate keeps a planted file's owner/DACL (and a
         // planted symlink would redirect the SYSTEM write).
-        var logPath = Path.Combine(UpdateDownloader.StagingDir, $"ota-install-{version}.log");
+        var logPath = Path.Combine(UpdateDownloader.StagingDir, InstallLogName(version, stamp));
         TryDeleteForReplace(logPath);
-        var taskName = $"{TaskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        PruneOldInstallLogs(UpdateDownloader.StagingDir);
 
         // Build the launcher .cmd file to avoid /TR quoting hell with long paths.
         // Delete-then-create (never truncate-in-place): File truncate preserves a

@@ -121,24 +121,24 @@ public sealed class DeckSystemAction
 public sealed class DeckNexusAction
 {
     /// <summary>
-    /// rgbEffect | rgbScene | lightingBrightness | lightingPower | fanProfile |
-    /// fanSpeed | y70Power | y70Brightness | y70Rotation.
+    /// rgbEffect | lightingBrightness | lightingPreset | fanProfile |
+    /// coolingPreset | y70Power | y70Brightness | y70Rotation.
+    /// Op ids are the stored wire contract; nexus-web labels rgbEffect
+    /// "Lighting effect" and fanProfile "Cooling mode".
     /// </summary>
     public string Op { get; set; } = "";
 
-    /// <summary>rgbEffect.</summary>
+    /// <summary>rgbEffect: animate | gif | screen. Absent means animate.</summary>
+    public string? Mode { get; set; }
+    /// <summary>rgbEffect, mode animate.</summary>
     public string? Effect { get; set; }
-    /// <summary>rgbScene.</summary>
-    public string? ProfileId { get; set; }
-    /// <summary>fanProfile preset name.</summary>
+    /// <summary>lightingPreset (layout preset id), coolingPreset (saved preset id).</summary>
+    public string? PresetId { get; set; }
+    /// <summary>fanProfile: off | silent | balanced | turbo | custom.</summary>
     public string? Profile { get; set; }
-    /// <summary>lightingPower.</summary>
-    public string? DeviceId { get; set; }
-    /// <summary>fanSpeed.</summary>
-    public string? FanId { get; set; }
-    /// <summary>lightingBrightness (0..1), fanSpeed (0..100), y70Brightness (0..100).</summary>
+    /// <summary>lightingBrightness (0..1), y70Brightness (0..100).</summary>
     public double? Value { get; set; }
-    /// <summary>lightingPower, y70Power.</summary>
+    /// <summary>y70Power.</summary>
     public bool? On { get; set; }
     /// <summary>y70Rotation.</summary>
     public string? Orientation { get; set; }

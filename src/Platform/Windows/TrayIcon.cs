@@ -8,7 +8,7 @@ namespace Nexus.Service.Platform.Windows;
 /// <summary>
 /// System tray icon for nexus-service on Windows.
 /// Pure Win32 - no WinForms. Creates a NotifyIcon in the system tray
-/// with right-click menu (Open / Settings / Shut down).
+/// with right-click menu (Open / Settings / Devices / Profiles / Shut down).
 /// </summary>
 [SupportedOSPlatform("windows")]
 public static class TrayIcon
@@ -36,8 +36,9 @@ public static class TrayIcon
     private const int IDM_OPEN_APP = 1;
     private const int IDM_OPEN_SETTINGS = 2;
     private const int IDM_SHUTDOWN = 3;
+    private const int IDM_OPEN_DEVICES = 4;
     // Profile command ids occupy [IDM_PROFILE_BASE, IDM_PROFILE_BASE + count).
-    // 0x100 stays well clear of the three fixed IDM_* ids above.
+    // 0x100 stays well clear of the fixed IDM_* ids above.
     private const int IDM_PROFILE_BASE = 0x100;
     private const int MF_STRING = 0x0000;
     private const int MF_SEPARATOR = 0x0800;
@@ -58,6 +59,8 @@ public static class TrayIcon
     private const uint WM_CLOSE = 0x0010;
     private const uint WM_DISPLAYCHANGE = 0x007E;
     private const uint WM_TIMER = 0x0113;
+    private const int WM_MOUSEMOVE = 0x0200;
+    private const int WM_NCMOUSEMOVE = 0x00A0;
     // Wake posted to the window thread to arm the NIM_ADD retry when an add
     // fails off-thread (the service's cross-thread SetVisible push).
     private const int WM_ARM_ICON_RETRY = WM_USER + 90;
@@ -431,7 +434,7 @@ public static class TrayIcon
                 System.IO.FileMode.Append,
                 System.IO.FileAccess.Write,
                 System.IO.FileShare.ReadWrite);
-            var line = $"{DateTime.Now:HH:mm:ss.fff} [TrayIcon p{System.Diagnostics.Process.GetCurrentProcess().Id}] {msg}\n";
+            var line = $"{DateTime.Now:HH:mm:ss.fff} [TrayIcon p{Environment.ProcessId}] {msg}\n";
             var bytes = System.Text.Encoding.UTF8.GetBytes(line);
             fs.Write(bytes, 0, bytes.Length);
         }
@@ -445,7 +448,16 @@ public static class TrayIcon
             if (msg == WM_TRAYICON)
             {
                 var ev = lParam.ToInt32() & 0xFFFF;
-                DiagFile($"tray ev=0x{ev:X4}");
+                // Hover generates WM_MOUSEMOVE at pointer rate - a field log
+                // carried 1437 of these at a 2 ms median gap, and DiagFile
+                // opens and closes the file per line on this, the window's
+                // message thread. They carry no diagnostic value beyond "the
+                // cursor was over the icon"; the click and shell events below
+                // are what the log exists for.
+                if (ev != WM_MOUSEMOVE && ev != WM_NCMOUSEMOVE)
+                {
+                    DiagFile($"tray ev=0x{ev:X4}");
+                }
 
                 if (ev == WM_RBUTTONUP)
                 {
@@ -457,6 +469,7 @@ public static class TrayIcon
                     var menu = CreatePopupMenu();
                     AppendMenu(menu, MF_STRING, IDM_OPEN_APP, "Open");
                     AppendMenu(menu, MF_STRING, IDM_OPEN_SETTINGS, "Settings");
+                    AppendMenu(menu, MF_STRING, IDM_OPEN_DEVICES, "Devices");
                     var profilesPos = -1;
                     _profileMenuIds.Clear();
                     if (_getProfiles is not null)
@@ -474,6 +487,8 @@ public static class TrayIcon
                                     AppendMenu(sub, flags, IDM_PROFILE_BASE + i, name);
                                     _profileMenuIds.Add(id);
                                 }
+                                // Leading, not trailing: an absent Profiles submenu must not leave a doubled rule above "Shut down".
+                                AppendMenu(menu, MF_SEPARATOR, 0, string.Empty);
                                 AppendMenu(menu, MF_POPUP, sub, "Profiles");
                                 profilesPos = GetMenuItemCount(menu) - 1;
                             }
@@ -557,6 +572,10 @@ public static class TrayIcon
                 else if (id == IDM_OPEN_SETTINGS)
                 {
                     OpenLocalWindow(servicePort: 0, path: "/settings");
+                }
+                else if (id == IDM_OPEN_DEVICES)
+                {
+                    OpenLocalWindow(servicePort: 0, path: "/system/devices");
                 }
                 else if (id == IDM_SHUTDOWN)
                 {
@@ -1224,6 +1243,7 @@ public static class TrayIcon
     private const char GlyphOpen = '\uE8A7';     // OpenInNewWindow
     private const char GlyphSettings = '\uE713'; // Setting
     private const char GlyphProfiles = '\uE716'; // People
+    private const char GlyphDevices = '\uE772';  // Devices
     private const char GlyphShutdown = '\uE7E8'; // PowerButton
     // A glyph filling the cell at full alpha reads heavier than the item
     // text; a smaller em and attenuated alpha keep icons secondary to labels.
@@ -1251,6 +1271,7 @@ public static class TrayIcon
             var white = MenusRenderDark();
             SetMenuItemGlyph(menu, (uint)IDM_OPEN_APP, byPosition: false, GlyphOpen, white, size, bitmaps);
             SetMenuItemGlyph(menu, (uint)IDM_OPEN_SETTINGS, byPosition: false, GlyphSettings, white, size, bitmaps);
+            SetMenuItemGlyph(menu, (uint)IDM_OPEN_DEVICES, byPosition: false, GlyphDevices, white, size, bitmaps);
             if (profilesPos >= 0)
             {
                 // The Profiles item carries a submenu, not a command id.

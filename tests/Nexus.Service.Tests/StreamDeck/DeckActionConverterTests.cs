@@ -169,16 +169,15 @@ public class DeckActionConverterTests
     [Fact]
     public void Nexus_ActionObject_SurvivesRoundTrip()
     {
-        var json = "{\"type\":\"nexus\",\"action\":{\"op\":\"fanSpeed\",\"effect\":\"rainbow\",\"profileId\":\"p1\",\"profile\":\"silent\",\"deviceId\":\"dev-1\",\"fanId\":\"fan-1\",\"value\":42,\"on\":true,\"orientation\":\"portrait\"}}";
+        var json = "{\"type\":\"nexus\",\"action\":{\"op\":\"rgbEffect\",\"mode\":\"animate\",\"effect\":\"rainbow\",\"presetId\":\"p1\",\"profile\":\"silent\",\"value\":42,\"on\":true,\"orientation\":\"portrait\"}}";
         var a = Deserialize(json);
         Assert.Equal("nexus", a.Type);
         Assert.NotNull(a.NexusAction);
-        Assert.Equal("fanSpeed", a.NexusAction!.Op);
+        Assert.Equal("rgbEffect", a.NexusAction!.Op);
+        Assert.Equal("animate", a.NexusAction.Mode);
         Assert.Equal("rainbow", a.NexusAction.Effect);
-        Assert.Equal("p1", a.NexusAction.ProfileId);
+        Assert.Equal("p1", a.NexusAction.PresetId);
         Assert.Equal("silent", a.NexusAction.Profile);
-        Assert.Equal("dev-1", a.NexusAction.DeviceId);
-        Assert.Equal("fan-1", a.NexusAction.FanId);
         Assert.Equal(42, a.NexusAction.Value);
         Assert.True(a.NexusAction.On);
         Assert.Equal("portrait", a.NexusAction.Orientation);
@@ -188,7 +187,9 @@ public class DeckActionConverterTests
         var b = RoundTrip(a);
         Assert.NotNull(b.NexusAction);
         Assert.Equal(a.NexusAction.Op, b.NexusAction!.Op);
+        Assert.Equal(a.NexusAction.Mode, b.NexusAction.Mode);
         Assert.Equal(a.NexusAction.Effect, b.NexusAction.Effect);
+        Assert.Equal(a.NexusAction.PresetId, b.NexusAction.PresetId);
         Assert.Equal(a.NexusAction.Value, b.NexusAction.Value);
         Assert.Equal(a.NexusAction.On, b.NexusAction.On);
     }

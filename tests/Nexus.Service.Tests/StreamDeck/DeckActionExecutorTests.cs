@@ -103,6 +103,10 @@ internal sealed class FakeLightingProvider : ILightingProvider
 {
     public AnimateHeadlessStart? LastAnimate;
     public StaticHeadlessStart? LastStatic;
+    public ScreenHeadlessStart? LastScreen;
+    public bool MediaIdleStarted;
+    /// <summary>Ids StartMedia accepts; anything else fails the way an empty library does.</summary>
+    public readonly HashSet<string> PlayableMedia = new();
     public string GetSync() => "none";
     public void SetSync(string sync) { }
     public void StopAll() { }
@@ -117,10 +121,10 @@ internal sealed class FakeLightingProvider : ILightingProvider
     public void StartAnimate(AnimateHeadlessStart body) => LastAnimate = body;
     public void StartStatic(StaticHeadlessStart body) => LastStatic = body;
     public void StartMusic(MusicHeadlessStart body) { }
-    public void StartScreen(ScreenHeadlessStart body) { }
+    public void StartScreen(ScreenHeadlessStart body) => LastScreen = body;
     public void ReselectScreen() { }
-    public bool StartMedia(string mediaId) => false;
-    public void StartMediaIdle() { }
+    public bool StartMedia(string mediaId) => PlayableMedia.Contains(mediaId);
+    public void StartMediaIdle() => MediaIdleStarted = true;
     public void StartGameSync() { }
     public Nexus.Service.Lighting.Engine.Effects.GameSyncEffect? ActiveGameSyncEffect() => null;
     public void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist, bool reactive = false, float reactivity = 0.5f, float intensity = 0.5f) { }
@@ -215,6 +219,10 @@ public sealed class DeckActionExecutorTests : IDisposable
     private readonly FakeY70Provider _y70 = new();
     private readonly FakeDisplayBrightnessProvider _displayProvider = new();
     private readonly FakeDeckSurfaceControl _deckSurface = new();
+    private readonly Nexus.Service.Lighting.Smart.NetworkSendThrottle _throttle = new();
+    private readonly Nexus.Service.Lighting.Engine.LightingEngine _engine = new();
+    private readonly Nexus.Service.Lighting.Smart.SmartLightProvider _smart;
+    private readonly Nexus.Service.Media.MediaLibrary _mediaLibrary;
     private readonly DeckActionExecutor _executor;
 
     public DeckActionExecutorTests()
@@ -224,6 +232,9 @@ public sealed class DeckActionExecutorTests : IDisposable
         _store = new JsonConfigStore(Path.Combine(_tempDir, "settings.json"));
         _profiles = new ProfileManager(_store);
         _profiles.Initialize();
+        _smart = new Nexus.Service.Lighting.Smart.SmartLightProvider(
+            System.Array.Empty<Nexus.Service.Lighting.Smart.ILightDriver>(), _store, _throttle);
+        _mediaLibrary = new Nexus.Service.Media.MediaLibrary(Path.Combine(_tempDir, "media"));
 
         var system = new Nexus.Service.Actions.SystemActions(
             _inputter, _clipboard, _power, _audio, _volume, _shortcuts,
@@ -232,13 +243,15 @@ public sealed class DeckActionExecutorTests : IDisposable
         var hub = new MultiplexHub();
 
         _executor = new DeckActionExecutor(
-            system, _lightingDevices, _lighting, _fans, _store, _profiles, _y70, displayBrightness, _media, hub,
+            system, _lightingDevices, _lighting, _fans, _store, _y70, displayBrightness, _media, hub,
             new Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(() => _deckSurface),
-            new Nexus.Service.Audio.AudioFilePlayer());
+            new Nexus.Service.Audio.AudioFilePlayer(),
+            _mediaLibrary, bridge: null, _smart, _engine);
     }
 
     public void Dispose()
     {
+        _throttle.Dispose();
         _profiles.Dispose();
         _store.Dispose();
         try { Directory.Delete(_tempDir, recursive: true); } catch { /* best effort */ }
@@ -444,18 +457,43 @@ public sealed class DeckActionExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task Nexus_RgbScene_UnknownProfile_LogsAndDoesNotThrow()
+    public async Task Nexus_RgbEffect_MediaMode_PlaysTheLastMedia()
     {
-        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "rgbScene", ProfileId = "does-not-exist" } });
+        _store.Update(s => s.Lighting.LastMediaId = "m1");
+        _lighting.PlayableMedia.Add("m1");
+
+        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "rgbEffect", Mode = "gif" } });
+
+        Assert.False(_lighting.MediaIdleStarted);
+    }
+
+    [Fact]
+    public async Task Nexus_RgbEffect_MediaMode_WithEmptyLibrary_IdlesInsteadOfFallingToOff()
+    {
+        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "rgbEffect", Mode = "gif" } });
+        Assert.True(_lighting.MediaIdleStarted);
+    }
+
+    [Fact]
+    public async Task Nexus_RgbEffect_MirrorMode_StartsScreenCapture()
+    {
+        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "rgbEffect", Mode = "screen" } });
+        Assert.Equal("average", _lighting.LastScreen!.Effect);
+    }
+
+    [Fact]
+    public async Task Nexus_LightingPreset_UnknownId_LogsAndDoesNotThrow()
+    {
+        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "lightingPreset", PresetId = "does-not-exist" } });
         // No exception escaped ExecuteAsync - that is the behavior under test.
     }
 
     [Fact]
-    public async Task Nexus_RgbScene_ExistingProfile_Switches()
+    public async Task Nexus_LightingPreset_ExistingId_BecomesTheActivePreset()
     {
-        var activeId = _profiles.GetManifest().ActiveProfileId;
-        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "rgbScene", ProfileId = activeId } });
-        Assert.Equal(activeId, _profiles.GetManifest().ActiveProfileId);
+        _store.Update(s => s.Lighting.LayoutPresets.Add(new Nexus.Service.Persistence.LayoutPreset { Id = "p1", Name = "Desk" }));
+        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "lightingPreset", PresetId = "p1" } });
+        Assert.Equal("p1", _store.Load().Lighting.ActiveLayoutPresetId);
     }
 
     [Fact]
@@ -466,17 +504,16 @@ public sealed class DeckActionExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task Nexus_LightingPower_SetsPowerOnTheGivenDevice()
+    public async Task Nexus_CoolingPreset_ReplaysTheSavedPresetsMode()
     {
-        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "lightingPower", DeviceId = "dev-1", On = false } });
-        Assert.Equal(("dev-1", false), _lightingDevices.LastPower);
-    }
+        FanProfiles.Apply("turbo", _fans, _store);
+        _store.Update(s => s.Cooling.Presets.Add(
+            Nexus.Service.Cooling.CoolingPresets.Capture("c1", "Quiet night", _store, _fans)));
+        _store.Update(s => s.Cooling.Presets[^1].Mode = "silent");
 
-    [Fact]
-    public async Task Nexus_FanSpeed_ClampsAndSetsDuty()
-    {
-        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "fanSpeed", FanId = "fan-1", Value = 150 } });
-        Assert.Equal(("fan-1", 100), _fans.LastSetSpeed);
+        await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "coolingPreset", PresetId = "c1" } });
+
+        Assert.Equal("silent", _store.Load().Cooling.ActivePreset);
     }
 
     [Fact]
@@ -487,29 +524,17 @@ public sealed class DeckActionExecutorTests : IDisposable
     }
 
     [Fact]
-    public async Task Nexus_LightingPower_GateOff_DoesNotSetPower()
+    public async Task Nexus_LightingPreset_GateOff_DoesNotActivate()
     {
+        _store.Update(s => s.Lighting.LayoutPresets.Add(new Nexus.Service.Persistence.LayoutPreset { Id = "p1", Name = "Desk" }));
         _store.Update(s => s.Features.Lighting = false);
         var executor = BuildExecutorWithRealGates();
 
         await executor.ExecuteAsync(
-            new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "lightingPower", DeviceId = "dev-1", On = false } },
+            new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "lightingPreset", PresetId = "p1" } },
             "dev", 0, "dev:0", CancellationToken.None);
 
-        Assert.Null(_lightingDevices.LastPower);
-    }
-
-    [Fact]
-    public async Task Nexus_FanSpeed_GateOff_DoesNotSetDuty()
-    {
-        _store.Update(s => s.Features.Cooling = false);
-        var executor = BuildExecutorWithRealGates();
-
-        await executor.ExecuteAsync(
-            new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "fanSpeed", FanId = "fan-1", Value = 100 } },
-            "dev", 0, "dev:0", CancellationToken.None);
-
-        Assert.Null(_fans.LastSetSpeed);
+        Assert.NotEqual("p1", _store.Load().Lighting.ActiveLayoutPresetId);
     }
 
     [Fact]
@@ -537,9 +562,10 @@ public sealed class DeckActionExecutorTests : IDisposable
             new ServiceCollection().BuildServiceProvider());
         var displayBrightness = new DisplayBrightnessController(_displayProvider);
         return new DeckActionExecutor(
-            system, _lightingDevices, _lighting, _fans, _store, _profiles, _y70, displayBrightness, _media, new MultiplexHub(),
+            system, _lightingDevices, _lighting, _fans, _store, _y70, displayBrightness, _media, new MultiplexHub(),
             new Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(() => _deckSurface),
             new Nexus.Service.Audio.AudioFilePlayer(),
+            _mediaLibrary, bridge: null, _smart, _engine,
             new Nexus.Service.Lifecycle.FeatureGates(_store));
     }
 
@@ -651,17 +677,17 @@ public sealed class DeckActionExecutorTests : IDisposable
             Steps = new List<DeckSequenceStep>
             {
                 new() { Action = new DeckAction { Type = "power", PowerAction = "lock" }, GapAfterMs = 0 },
-                // lightingPower with no DeviceId is a silent no-op, not a throw - the
+                // A nexus op with its field missing is a silent no-op, not a throw - the
                 // "keep going after a step throws" guarantee is exercised by the
                 // executor's per-step try/catch regardless of whether this step errors.
-                new() { Action = new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "fanSpeed", FanId = "fan-1", Value = 10 } }, GapAfterMs = 0 },
+                new() { Action = new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "fanProfile", Profile = "silent" } }, GapAfterMs = 0 },
             },
         };
 
         await Run(sequence);
 
         Assert.Equal("lock", _power.Called);
-        Assert.Equal(("fan-1", 10), _fans.LastSetSpeed);
+        Assert.Equal("silent", _store.Load().Cooling.ActivePreset);
     }
 
     [Fact]

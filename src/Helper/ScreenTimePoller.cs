@@ -47,6 +47,8 @@ public sealed class ScreenTimePoller : IDisposable
 
     private void Poll()
     {
+        if (HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.ScreenTime)) return;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             // Pipe reconnect: the helper-side cached focus survives across
@@ -75,6 +77,16 @@ public sealed class ScreenTimePoller : IDisposable
             ApplyFocus(appName, (int)pid);
         }
         catch { }
+        finally
+        {
+            sw.Stop();
+            if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs
+                && HelperPollerDiagnostics.TryFormatSlowPass(
+                    HelperPollerDiagnostics.ScreenTime, sw.Elapsed.TotalMilliseconds, 1, out var slow))
+            {
+                Nexus.Service.Platform.HelperLog.Write(slow);
+            }
+        }
     }
 
     private void RebroadcastCurrentFocus()

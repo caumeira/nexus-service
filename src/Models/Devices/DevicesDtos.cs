@@ -23,6 +23,8 @@ public sealed class DeviceListItem
     public string? Warning { get; set; }
     /// <summary>ConflictAppCatalog id of the third-party app that competes with this device (e.g. "icue", "lian-li-l-connect"), or null when none maps. Drives the device page's "close the app first" gate.</summary>
     public string? ConflictAppId { get; set; }
+    /// <summary>False when the device's controls live on shared pages (Cooling/Lighting), so the sidebar omits its row rather than linking to an empty page.</summary>
+    public bool HasPage { get; set; } = true;
 }
 
 /// <summary>Body for POST /devices/control.</summary>

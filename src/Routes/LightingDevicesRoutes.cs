@@ -368,7 +368,7 @@ public static partial class DevicesRoutes
                     ActiveId = s.Lighting.ActiveLayoutPresetId,
                 },
                 Nexus.Service.Serialization.AppJsonContext.Default.LayoutPresetsResponse);
-        });
+        }).AllowPanel();
 
         app.MapPost("/devices/lighting-devices/layout-presets", (
             CreateLayoutPresetBody body,
@@ -572,6 +572,9 @@ public static partial class DevicesRoutes
                 Nexus.Service.Serialization.AppJsonContext.Default.DeletePresetResponse);
         });
 
+        // Panel-reachable (with the list above) so a Deck widget key bound to a
+        // lighting preset fires from a panel too, matching what
+        // /cooling/presets/{id}/activate already allows.
         app.MapPost("/devices/lighting-devices/layout-presets/{id}/activate", (
             string id,
             Nexus.Service.Persistence.IConfigStore store,
@@ -595,7 +598,7 @@ public static partial class DevicesRoutes
                     statusCode: 404);
             }
             return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
-        });
+        }).AllowPanel();
 
         app.MapPost("/devices/lighting-devices/power", (
             SetLightingDevicePowerBody body,
