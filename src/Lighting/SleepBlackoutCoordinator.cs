@@ -73,7 +73,7 @@ public sealed class SleepBlackoutCoordinator
     /// frame. Bounded well under one budget so a stalled render loop still
     /// leaves time for the direct OpenRGB push.
     /// </summary>
-    private static readonly TimeSpan EnginePublishBudget = TimeSpan.FromMilliseconds(300);
+    internal static readonly TimeSpan EnginePublishBudget = TimeSpan.FromMilliseconds(300);
 
     /// <summary>
     /// Ramp down on lock. An order of magnitude longer than

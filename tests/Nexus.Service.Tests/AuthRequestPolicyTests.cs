@@ -69,13 +69,15 @@ public class AuthRequestPolicyTests
         AssertPanelAllowedRoute(app, "POST", "/system/open-task-manager");
         AssertPanelAllowedRoute(app, "POST", "/system/power/lock");
         AssertPanelAllowedRoute(app, "POST", "/system/power/sleep");
+        AssertPanelAllowedRoute(app, "POST", "/system/power/shutdown");
+        AssertPanelAllowedRoute(app, "POST", "/system/power/restart");
+        AssertPanelAllowedRoute(app, "POST", "/system/power/logout");
         AssertPanelAllowedRoute(app, "GET", "/system/audio/devices");
         AssertPanelAllowedRoute(app, "POST", "/system/audio/default-output");
         AssertPanelAllowedRoute(app, "POST", "/system/audio/default-input");
 
-        AssertPanelDeniedRoute(app, "POST", "/system/power/shutdown");
-        AssertPanelDeniedRoute(app, "POST", "/system/power/restart");
-        AssertPanelDeniedRoute(app, "POST", "/system/power/logout");
+        // pick-path opens a native dialog on the host's screen - still desktop-only.
+        AssertPanelDeniedRoute(app, "POST", "/system/pick-path");
     }
 
     [Fact]
@@ -86,6 +88,41 @@ public class AuthRequestPolicyTests
         app.MapPanelEndpoints();
 
         AssertPanelAllowedRoute(app, "GET", "/panel/phone/service-info");
+    }
+
+    /// <summary>
+    /// The phone panel's lighting Devices tab reads this list and drives the
+    /// per-device controls beside it; without the markers it 403s and renders
+    /// as "no lighting devices detected". The denied half is the desktop
+    /// editor surface, which stays off the panel.
+    /// </summary>
+    [Fact]
+    public async Task LightingDeviceRoutes_MarksPanelDeviceListAndControlsAsPanelAllowed()
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        // A handler parameter no container knows is inferred as a JSON body, and
+        // resolving LightingEngine's metadata walks DeviceFrame.LedBytes - a
+        // ReadOnlySpan, which System.Text.Json refuses. Registering it keeps the
+        // endpoint buildable; these assertions only read metadata.
+        builder.Services.AddSingleton<Nexus.Service.Lighting.Engine.LightingEngine>();
+        await using var app = builder.Build();
+        app.MapDevicesEndpoints();
+
+        AssertPanelAllowedRoute(app, "GET", "/devices/lighting-devices/all");
+        AssertPanelAllowedRoute(app, "GET", "/devices/lighting-devices/static-looks");
+        AssertPanelAllowedRoute(app, "GET", "/devices/lighting-devices/{id}/led-map");
+        AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/power");
+        AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/controlled");
+        AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/brightness");
+        AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/color");
+        AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/identify");
+
+        AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/layout");
+        AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/layout-presets");
+        AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/zone-size");
+        AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/rescan");
+        AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/{id}/led-map");
+        AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/{id}/led-test-pattern");
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Nexus.Service.Auth;
 using Nexus.Service.Devices;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Models;
@@ -265,7 +266,7 @@ public static partial class DevicesRoutes
     private static void MapLightingDevicesEndpoints(WebApplication app)
     {
         app.MapGet("/devices/lighting-devices/all", (ILightingDeviceProvider ld) =>
-            ld.GetAll());
+            ld.GetAll()).AllowPanel();
 
         app.MapPost("/devices/lighting-devices/layout", (SaveDeviceLayoutBody body, Nexus.Service.Persistence.IConfigStore store, Nexus.Service.Lighting.Engine.LightingEngine engine) =>
         {
@@ -354,7 +355,7 @@ public static partial class DevicesRoutes
             return Results.Json(
                 dto,
                 Nexus.Service.Serialization.AppJsonContext.Default.StaticDeviceLooksResponse);
-        });
+        }).AllowPanel();
 
         app.MapGet("/devices/lighting-devices/layout-presets", (
             Nexus.Service.Persistence.IConfigStore store) =>
@@ -609,7 +610,7 @@ public static partial class DevicesRoutes
             ld.SetPower(body.Id, body.On);
             CaptureDeviceStateIntoActive(store);
             return Results.Ok(ApiResponse.Ok());
-        });
+        }).AllowPanel();
         // Uncontrolled ids are pure persisted state - no provider owns a "not
         // controlled" action, so this writes the shared store directly rather
         // than dispatching through ILightingDeviceProvider. The refresh nudge
@@ -639,7 +640,7 @@ public static partial class DevicesRoutes
                 smart.RestoreStatic(body.Id);
             }
             return Results.Ok(ApiResponse.Ok());
-        });
+        }).AllowPanel();
         app.MapPost("/devices/lighting-devices/brightness", (SetLightingDeviceBrightness body, ILightingDeviceProvider ld, FeatureGates gates) =>
         {
             if (!gates.Lighting)
@@ -648,7 +649,7 @@ public static partial class DevicesRoutes
             }
             ld.SetBrightness(body.Id, body.Brightness);
             return Results.Ok(ApiResponse.Ok());
-        });
+        }).AllowPanel();
         app.MapPost("/devices/lighting-devices/color", (
             SetLightingDeviceColor body,
             ILightingDeviceProvider ld,
@@ -690,7 +691,7 @@ public static partial class DevicesRoutes
             }
             CaptureDeviceStateIntoActive(store);
             return Results.Ok(ApiResponse.Ok());
-        });
+        }).AllowPanel();
 
         // Motherboard ARGB zone LED count - persists and applies via OpenRGB RESIZEZONE
         app.MapPost("/devices/lighting-devices/zone-size", (SetZoneLedCountBody body, ILightingDeviceProvider ld, FeatureGates gates) =>
@@ -712,7 +713,7 @@ public static partial class DevicesRoutes
             }
             ld.Identify(body.Id, body.DurationMs);
             return Results.Ok(ApiResponse.Ok());
-        });
+        }).AllowPanel();
 
         // Force-rescan: restart OpenRGB subprocess (only for plugins that scan once at boot)
         // Broadcasts a `lighting` topic frame so the SPA's useRgbStatus hook
@@ -804,7 +805,7 @@ public static partial class DevicesRoutes
                     : null,
                 DeviceKey = card?.DeviceKey ?? "",
             }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
-        });
+        }).AllowPanel();
 
         // LED map: save custom overrides (+ optional group replacement). The
         // body carries zone-local indices; they re-key through the card's
