@@ -41,12 +41,13 @@ public sealed class LockInputPoller : IDisposable
     /// Input in the first moment after arming is the tail of the gesture that
     /// locked the machine - the key release of Win+L, the hand leaving the
     /// mouse - and reporting it woke the lighting 165ms into its own fade-out
-    /// (measured on T1). Deliberately shorter than the 1500ms lock ramp: a real
-    /// touch during the tail of that ramp should still be honoured, and it is,
-    /// because BeginBlackoutFade marks the hold engaged as the ramp starts, so
-    /// the release picks up from the dimmed level rather than jumping.
+    /// (measured on T1), which is what this window is sized against. It stays
+    /// well under the 1500ms lock ramp on purpose: a real touch during the tail
+    /// of that ramp is still honoured, because BeginBlackoutFade marks the hold
+    /// engaged as the ramp starts, so the release picks up from the dimmed
+    /// level rather than jumping to full.
     /// </summary>
-    private const int ArmGraceMs = 1000;
+    private const int ArmGraceMs = 500;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct LASTINPUTINFO
