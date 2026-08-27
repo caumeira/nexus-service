@@ -97,6 +97,7 @@ internal static class MacAppBootstrap
             iconPath,
             onOpenDashboard: () => MacAppWindow.OpenOrFocus(ServiceLaunchIntent.LocalDashboardUrl(servicePort)),
             onOpenSettings: () => MacAppWindow.OpenOrFocus($"http://localhost:{servicePort}/system/settings"),
+            onOpenDevices: () => MacAppWindow.OpenOrFocus($"http://localhost:{servicePort}/system/devices"),
             onQuit: () =>
             {
                 Console.WriteLine("[nexus-service] quit requested from status bar");

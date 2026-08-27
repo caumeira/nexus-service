@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
 using Nexus.Service.Update;
 using Xunit;
@@ -86,5 +88,58 @@ public sealed class UpdateInstallerTests
     public void IsOwnedTaskName_matches_our_tasks_despite_the_leading_backslash(string? csvName, bool expected)
     {
         Assert.Equal(expected, UpdateInstaller.IsOwnedTaskName(csvName!));
+    }
+
+    // Two install attempts at the SAME version are routine: a startup auto-apply
+    // that fails, then the user's retry. The stamp keeps their Inno logs apart
+    // so the failed attempt's diagnosis survives the retry.
+    [Fact]
+    public void InstallLogName_is_per_attempt_not_per_version()
+    {
+        var first = UpdateInstaller.InstallLogName("v3.0.7-beta.1", 639234361671220853);
+        var second = UpdateInstaller.InstallLogName("v3.0.7-beta.1", 639234364624392909);
+
+        Assert.NotEqual(first, second);
+        Assert.StartsWith(UpdateInstaller.InstallLogPrefix, first);
+        Assert.EndsWith(".log", first);
+        Assert.Contains("v3.0.7-beta.1", first);
+    }
+
+    // Per-attempt names mean the staging dir would otherwise grow a log per
+    // update forever. Prune keeps the newest KeepInstallLogs and nothing else.
+    [Fact]
+    public void PruneOldInstallLogs_keeps_the_newest_and_leaves_other_files_alone()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "nexus-ota-log-prune-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var written = new List<string>();
+            for (var i = 0; i < UpdateInstaller.KeepInstallLogs + 5; i++)
+            {
+                var path = Path.Combine(dir, UpdateInstaller.InstallLogName("v3.0.7-beta.1", i));
+                File.WriteAllText(path, "x");
+                // Prune orders by last-write time, so make the order unambiguous
+                // instead of relying on filesystem timestamp granularity.
+                File.SetLastWriteTimeUtc(path, new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMinutes(i));
+                written.Add(path);
+            }
+
+            var unrelated = Path.Combine(dir, "Nexus-Setup-v3.0.7-beta.1.exe");
+            File.WriteAllText(unrelated, "x");
+
+            UpdateInstaller.PruneOldInstallLogs(dir);
+
+            Assert.Equal(UpdateInstaller.KeepInstallLogs, Directory.GetFiles(dir, UpdateInstaller.InstallLogGlob).Length);
+            // The newest survive, the oldest are gone.
+            Assert.True(File.Exists(written[^1]));
+            Assert.False(File.Exists(written[0]));
+            // A non-log file in the staging dir is never touched.
+            Assert.True(File.Exists(unrelated));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 }
