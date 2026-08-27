@@ -88,11 +88,13 @@ public sealed class SleepBlackoutCoordinator
     internal static readonly TimeSpan UnlockFadeDuration = TimeSpan.FromMilliseconds(900);
 
     /// <summary>
-    /// How long the lights stay up after input at the lock screen. Long enough
-    /// to type a password you had to look at the keyboard for; short enough
-    /// that a cat on the desk leaves the room dark again a minute later.
+    /// How long the lights stay up after input at the lock screen. Matches the
+    /// 30s Windows takes to blank the display at the lock screen (measured on
+    /// T1), so the lighting goes out with the screen rather than glowing on in
+    /// a dark room; it is also long enough to type a password you had to look
+    /// at the keyboard for. Every further input restarts it.
     /// </summary>
-    internal static readonly TimeSpan DefaultLockWakeTimeout = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan DefaultLockWakeTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>Two engine ticks of slack: the ramp reaches zero on the first tick past the window.</summary>
     private TimeSpan FrameSlack => TimeSpan.FromMilliseconds(Math.Max(1, _engine.FrameIntervalMs) * 2);
