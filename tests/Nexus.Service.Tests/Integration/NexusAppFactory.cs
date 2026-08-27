@@ -45,15 +45,15 @@ public class NexusAppFactory : WebApplicationFactory<Program>
 
     /// <summary>
     /// Drops every persisted setting back to first-run defaults, so ONE host can
-    /// serve a whole test class instead of the class booting a fresh one per test
-    /// (a boot costs ~0.2s; the route classes were paying that 50 times over).
-    /// Call it from the test class constructor, which xUnit runs per test.
+    /// serve a whole test class rather than the class booting a fresh one per
+    /// test method. Call it from the constructor, which xUnit runs per test.
     ///
     /// Only the settings FILE is reset. Anything a singleton already cached in
     /// memory survives - including <see cref="Nexus.Service.Auth.TokenService"/>'s
     /// token, which is what keeps a shared host's bearer valid across the reset.
     /// A class whose tests depend on a singleton's in-memory state being fresh
-    /// must keep booting its own host.
+    /// must keep booting its own host, or reset that singleton itself - the
+    /// deck route classes do the latter for their worker and image cache.
     /// </summary>
     public void ResetSettings()
     {

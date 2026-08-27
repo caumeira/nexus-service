@@ -469,6 +469,9 @@ public sealed class RgbBridge : IDisposable
         }
     }
 
+    /// <summary>Physicals holding a frame buffer, which a blackout is limited to; populated after <see cref="Devices"/> is committed, not with it.</summary>
+    internal int PhysicalBufferCount => _physBuffers.Count;
+
     /// <summary>
     /// Pushes an all-black frame to every device this bridge drives and AWAITS
     /// each write. The <see cref="OnFrame"/> path fires its pushes and forgets
@@ -477,12 +480,6 @@ public sealed class RgbBridge : IDisposable
     /// stops. Devices the user marked not-controlled are skipped: Nexus does not
     /// drive them, so it has no business blanking them either.
     /// </summary>
-    /// <summary>How many physical devices currently have a frame buffer. Test
-    /// seam: <see cref="Devices"/> going non-empty does NOT mean the per-physical
-    /// buffers exist yet, and a blackout only reaches a device that has one - so
-    /// a test that waits on Devices alone races the allocation.</summary>
-    internal int PhysicalBufferCount => _physBuffers.Count;
-
     public async Task<int> BlackoutAsync(CancellationToken ct = default)
     {
         if (!IsActive || !_controller.IsConnected)

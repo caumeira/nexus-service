@@ -29,8 +29,8 @@ public class GoveeDriverTests : IDisposable
             listenPort: 0,
             controlPort: _device.Port);
         // Every "unreachable" answer on the Govee LAN API is a timeout, so the
-        // production windows (2500/2000/1500 ms) would be paid in full by the
-        // discovery and pair-failure cases against a loopback emulator.
+        // production windows would be paid in full by the discovery and
+        // pair-failure cases against a loopback emulator.
         _driver = new GoveeDriver(_client, scanTimeoutMs: 250, probeTimeoutMs: 250, pingTimeoutMs: 250);
     }
 

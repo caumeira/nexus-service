@@ -37,9 +37,13 @@ public sealed class StreamDeckPresetRoutesTests : IClassFixture<StreamDeckPreset
     public StreamDeckPresetRoutesTests(StreamDeckPresetHostFactory host)
     {
         _host = host;
-        // One host for the class; the store is what goes back to defaults per
-        // test. These routes read and write settings only - no worker state.
+        // The host is shared, so reset everything a route can leave behind:
+        // activate and the delete-with-promotion path both call SetNav, and the
+        // image cache is content-addressed, so a stale blob would satisfy a
+        // later "still present" assertion.
         _host.ResetSettings();
+        _host.Services.GetRequiredService<StreamDeckConnectionWorker>().ResetPerDeckStateForTests();
+        _host.ClearImageCache();
     }
 
     private string ImageCacheDir => _host.ImageCacheDir;

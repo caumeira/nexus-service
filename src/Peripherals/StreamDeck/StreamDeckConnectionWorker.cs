@@ -542,15 +542,21 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
     }
 
-    /// <summary>Drops every deck's tracked page and folder path. Test seam: the
-    /// route tests share one host per class, so nav state set by one test would
-    /// otherwise still be there for the next.</summary>
-    internal void ResetNavigationForTests()
+    /// <summary>Drops all per-serial state a route can reach: nav, sleep/idle, held keys, and the monitoring and tile dedup caches. Test seam for suites that share one host across test methods.</summary>
+    internal void ResetPerDeckStateForTests()
     {
         lock (_lock)
         {
             _folderPathsBySerial.Clear();
             _currentPageBySerial.Clear();
+            _lastInputAt.Clear();
+            _asleep.Clear();
+            _heldKeysBySerial.Clear();
+            _activeHolds.Clear();
+            _monitoringHistory.Clear();
+            _monitoringLastHash.Clear();
+            _monitoringLastPushedBytes.Clear();
+            _tileBroadcastHash.Clear();
         }
     }
 

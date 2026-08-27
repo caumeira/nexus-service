@@ -79,13 +79,14 @@ public sealed class StreamDeckRoutesTests : IClassFixture<StreamDeckRouteHostFac
         // the worker's single simulated-deck slot (SimulatedKey), which several
         // tests attach to and others assert is absent.
         _host.ResetSettings();
-        _executor.LastCall = null;
+        Executor.LastCall = null;
         var worker = _host.Services.GetRequiredService<StreamDeckConnectionWorker>();
         worker.ClearSimulatedModel();
-        worker.ResetNavigationForTests();
+        worker.ResetPerDeckStateForTests();
+        _host.ClearImageCache();
     }
 
-    private SpyDeckActionExecutor _executor => _host.Executor;
+    private SpyDeckActionExecutor Executor => _host.Executor;
 
     private string ImageCacheDir => _host.ImageCacheDir;
 
@@ -858,9 +859,9 @@ public sealed class StreamDeckRoutesTests : IClassFixture<StreamDeckRouteHostFac
                 await worker.LastDispatchTask;
             }
 
-            Assert.NotNull(_executor.LastCall);
-            Assert.Equal("SERIAL-1", _executor.LastCall!.Value.Serial);
-            Assert.Equal("lock", _executor.LastCall.Value.Action!.PowerAction);
+            Assert.NotNull(Executor.LastCall);
+            Assert.Equal("SERIAL-1", Executor.LastCall!.Value.Serial);
+            Assert.Equal("lock", Executor.LastCall.Value.Action!.PowerAction);
         }
     }
 
@@ -873,7 +874,7 @@ public sealed class StreamDeckRoutesTests : IClassFixture<StreamDeckRouteHostFac
             var res = await client.PostAsync("/streamdeck/decks/NEVER-SEEN/test-press/0", Json("{}"));
             var text = await res.Content.ReadAsStringAsync();
             Assert.Contains("\"error\":true", text);
-            Assert.Null(_executor.LastCall);
+            Assert.Null(Executor.LastCall);
         }
     }
 
@@ -904,7 +905,7 @@ public sealed class StreamDeckRoutesTests : IClassFixture<StreamDeckRouteHostFac
             // A "page" slot is intercepted before the executor, exactly like
             // a real key press - the executor must never see it.
             Assert.Equal(1, worker.GetCurrentPage("SERIAL-1"));
-            Assert.Null(_executor.LastCall);
+            Assert.Null(Executor.LastCall);
         }
     }
 
@@ -928,7 +929,7 @@ public sealed class StreamDeckRoutesTests : IClassFixture<StreamDeckRouteHostFac
             Assert.True(res.IsSuccessStatusCode);
 
             Assert.Equal(new[] { 0 }, worker.GetFolderPath("SERIAL-1"));
-            Assert.Null(_executor.LastCall);
+            Assert.Null(Executor.LastCall);
         }
     }
 

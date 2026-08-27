@@ -48,6 +48,17 @@ public sealed class StreamDeckRouteHostFactory : NexusAppFactory
         });
     }
 
+
+    /// <summary>Empties the cache dir. Blobs are content-addressed, so one test's leftover would satisfy another's "still present" assertion.</summary>
+    public void ClearImageCache()
+    {
+        if (!Directory.Exists(ImageCacheDir)) return;
+        foreach (var f in Directory.EnumerateFiles(ImageCacheDir, "*", SearchOption.AllDirectories))
+        {
+            try { File.Delete(f); } catch { /* best effort */ }
+        }
+    }
+
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
@@ -75,6 +86,17 @@ public sealed class StreamDeckPresetHostFactory : NexusAppFactory
             s.RemoveAll<StreamDeckImageCache>();
             s.AddSingleton(new StreamDeckImageCache(ImageCacheDir));
         });
+    }
+
+
+    /// <summary>Empties the cache dir. Blobs are content-addressed, so one test's leftover would satisfy another's "still present" assertion.</summary>
+    public void ClearImageCache()
+    {
+        if (!Directory.Exists(ImageCacheDir)) return;
+        foreach (var f in Directory.EnumerateFiles(ImageCacheDir, "*", SearchOption.AllDirectories))
+        {
+            try { File.Delete(f); } catch { /* best effort */ }
+        }
     }
 
     protected override void Dispose(bool disposing)

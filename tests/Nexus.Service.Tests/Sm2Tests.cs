@@ -48,9 +48,9 @@ public class Sm2Tests
     }
 
     // An ephemeral scalar whose C1 = k*G has x starting with the byte 0x04,
-    // found offline by walking k*G on sm2p256v1. Pinning it keeps this case
-    // deterministic; searching for one at ~1-in-256 odds per encrypt cost up
-    // to 5000 scalar-multiply pairs and dominated the CI suite.
+    // found offline by walking k*G on sm2p256v1. Pinned so this case is
+    // deterministic: drawing k at random hits it at roughly 1-in-256 odds per
+    // encrypt, and each miss costs two scalar multiplications.
     private const string RawC104LeadingEphemeralHex =
         "7f3a1c95d2b8e0461fa7c33d5e9b28417c60de85a1f492b3706c8ad159e2fc78";
 

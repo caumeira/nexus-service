@@ -81,8 +81,9 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
         const int simulatedTicks = 500;
         const int distinctApps = 100; // > TopAppsPerSample, so every tick saturates the cap.
         var random = new Random(1);
-        // One batched Append instead of 500: identical rows and on-disk bytes,
-        // without paying 500 segment writes in a test that only measures size.
+        // Appended as one batch: same rows and same on-disk bytes as one call
+        // per tick, without paying a segment write per tick in a test that only
+        // measures size.
         var ticks = new List<AppUsageTick>(simulatedTicks);
 
         for (var t = 0; t < simulatedTicks; t++)
@@ -139,8 +140,9 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
         const int simulatedTicks = 500;
         const int distinctApps = 100; // > TopAppsPerSample, so every tick saturates the cap.
         var random = new Random(1);
-        // One batched Append instead of 500: identical rows and on-disk bytes,
-        // without paying 500 segment writes in a test that only measures size.
+        // Appended as one batch: same rows and same on-disk bytes as one call
+        // per tick, without paying a segment write per tick in a test that only
+        // measures size.
         var ticks = new List<AppUsageTick>(simulatedTicks);
 
         for (var t = 0; t < simulatedTicks; t++)
@@ -188,8 +190,9 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
     {
         const int simulatedTicks = 500;
         var random = new Random(1);
-        // One batched Append instead of 500: identical rows and on-disk bytes,
-        // without paying 500 segment writes in a test that only measures size.
+        // Appended as one batch: same rows and same on-disk bytes as one call
+        // per tick, without paying a segment write per tick in a test that only
+        // measures size.
         var ticks = new List<AppUsageTick>(simulatedTicks);
 
         var scalarSample = new MetricSample(1_000_000, null, null, null, null, null,
