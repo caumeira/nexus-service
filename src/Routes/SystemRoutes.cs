@@ -101,13 +101,13 @@ public static class SystemRoutes
         app.MapPost("/system/open-task-manager", (Nexus.Service.Actions.SystemActions actions) =>
             actions.OpenTaskManager() ? ApiResponse.Ok() : ApiResponse.Fail("failed to open task manager")).AllowPanel();
 
-        // ── Power / session. lock + sleep are panel/relay-reachable; shutdown /
-        // restart / logout are LAN-only (no AllowPanel + denied on the relay). ──
+        // ── Power / session. All five are panel-reachable: the deck widget's
+        // power keys run on a paired panel session. ──
         app.MapPost("/system/power/lock", (Nexus.Service.Actions.SystemActions actions) => actions.Lock() ? ApiResponse.Ok() : ApiResponse.Fail("lock failed")).AllowPanel();
         app.MapPost("/system/power/sleep", (Nexus.Service.Actions.SystemActions actions) => actions.Sleep() ? ApiResponse.Ok() : ApiResponse.Fail("sleep failed")).AllowPanel();
-        app.MapPost("/system/power/shutdown", (Nexus.Service.Actions.SystemActions actions) => actions.Shutdown() ? ApiResponse.Ok() : ApiResponse.Fail("shutdown failed"));
-        app.MapPost("/system/power/restart", (Nexus.Service.Actions.SystemActions actions) => actions.Restart() ? ApiResponse.Ok() : ApiResponse.Fail("restart failed"));
-        app.MapPost("/system/power/logout", (Nexus.Service.Actions.SystemActions actions) => actions.Logout() ? ApiResponse.Ok() : ApiResponse.Fail("logout failed"));
+        app.MapPost("/system/power/shutdown", (Nexus.Service.Actions.SystemActions actions) => actions.Shutdown() ? ApiResponse.Ok() : ApiResponse.Fail("shutdown failed")).AllowPanel();
+        app.MapPost("/system/power/restart", (Nexus.Service.Actions.SystemActions actions) => actions.Restart() ? ApiResponse.Ok() : ApiResponse.Fail("restart failed")).AllowPanel();
+        app.MapPost("/system/power/logout", (Nexus.Service.Actions.SystemActions actions) => actions.Logout() ? ApiResponse.Ok() : ApiResponse.Fail("logout failed")).AllowPanel();
 
         // ── Audio device enumeration + default switching ──
         app.MapGet("/system/audio/devices", (IAudioDeviceProvider a) => a.ListDevices()).AllowPanel();

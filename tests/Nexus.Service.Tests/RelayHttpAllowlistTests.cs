@@ -24,8 +24,11 @@ public class RelayHttpAllowlistTests
     [InlineData("GET", "/panel/status?foo=bar")] // query is ignored for matching
     [InlineData("POST", "/system/input/keys")]   // deck hotkey injection (relay-allowed)
     [InlineData("POST", "/system/open-url")]      // deck open-url (relay-allowed)
-    [InlineData("POST", "/system/power/lock")]    // non-destructive power (relay-allowed)
+    [InlineData("POST", "/system/power/lock")]    // deck power keys (relay-allowed)
     [InlineData("POST", "/system/power/sleep")]
+    [InlineData("POST", "/system/power/shutdown")]
+    [InlineData("POST", "/system/power/restart")]
+    [InlineData("POST", "/system/power/logout")]
     [InlineData("GET", "/system/audio/devices")]
     public void Allows_PanelAndControlSurface(string method, string path)
         => Assert.True(RelayHttpAllowlist.IsAllowed(method, path));
@@ -41,14 +44,10 @@ public class RelayHttpAllowlistTests
     [InlineData("GET", "/panelX")]                   // not a /panel segment boundary
     [InlineData("POST", "/system/open-path")]        // opens arbitrary local files - LAN-only
     [InlineData("POST", "/system/pick-path")]        // opens a native OS dialog on the host - desktop-only
-    [InlineData("POST", "/system/power/shutdown")]   // destructive - LAN-only
-    [InlineData("POST", "/system/power/restart")]    // destructive - LAN-only
-    [InlineData("POST", "/system/power/logout")]     // strands a remote user - LAN-only
     [InlineData("POST", "/devices/firmware/flash")]  // irreversible flash - brick risk over a lossy tunnel
     [InlineData("POST", "/devices/firmware/flash/")] // trailing slash still routes to the flash handler
     [InlineData("POST", "/Devices/Firmware/Flash")]  // deny is case-insensitive
     [InlineData("POST", "/devices/firmware/flash//")] // repeated trailing slash
-    [InlineData("POST", "/system/power/shutdown/")]  // trailing slash must not slip a destructive deny
     [InlineData("POST", "/system/pick-path/")]
     [InlineData("POST", "/devices\\firmware\\flash")]  // backslash separator must not slip the deny
     [InlineData("POST", "/devices/firmware/flash\\")]  // trailing backslash
