@@ -18,7 +18,7 @@ public class KeebZoneCardsTests
     [Fact]
     public void Default_partition_matches_legacy_cards()
     {
-        var cards = KeebLightingDeviceProvider.BuildCards(HubId, new NexusSettings());
+        var cards = KeebLightingDeviceProvider.BuildCards(HubId, KeebKeyMap.Ansi, new NexusSettings());
 
         Assert.Equal(2, cards.Count);
         var keys = cards[0];
@@ -26,8 +26,8 @@ public class KeebZoneCardsTests
         Assert.Equal($"{KeebHub.ProductName} - Keys", keys.Name);
         Assert.Equal("ledstrip", keys.Type);
         Assert.Equal("keyboard", keys.IconType);
-        Assert.Equal(KeebLayout.KeyLedCount, keys.LedCount);
-        Assert.Equal(KeebLayout.KeyLedCount, keys.EnabledLedCount);
+        Assert.Equal(KeebKeyMap.Ansi.LedCount, keys.LedCount);
+        Assert.Equal(KeebKeyMap.Ansi.LedCount, keys.EnabledLedCount);
         Assert.Equal("usb:3402:0300:keys", keys.DeviceKey);
         Assert.True(keys.LedsOn);
         Assert.Equal(100, keys.Brightness);
@@ -55,7 +55,7 @@ public class KeebZoneCardsTests
         settings.Devices.DisabledLightingDevices.Add(HubId + ":underglow");
         settings.Devices.LightingDevicePrefs[HubId + ":keys"] = new LightingDevicePreference { Brightness = 42 };
 
-        var cards = KeebLightingDeviceProvider.BuildCards(HubId, settings);
+        var cards = KeebLightingDeviceProvider.BuildCards(HubId, KeebKeyMap.Ansi, settings);
         Assert.Equal(42, cards[0].Brightness);
         Assert.True(cards[0].LedsOn);
         Assert.False(cards[1].LedsOn);
@@ -72,11 +72,11 @@ public class KeebZoneCardsTests
             new() { Segment = 1, LedIndex = 1, Disabled = true },
         };
 
-        var cards = KeebLightingDeviceProvider.BuildCards(HubId, settings);
-        Assert.Equal(KeebLayout.KeyLedCount - 1, cards[0].EnabledLedCount);
+        var cards = KeebLightingDeviceProvider.BuildCards(HubId, KeebKeyMap.Ansi, settings);
+        Assert.Equal(KeebKeyMap.Ansi.LedCount - 1, cards[0].EnabledLedCount);
         Assert.Equal(KeebLayout.SurroundLedCount - 2, cards[1].EnabledLedCount);
         // The plain LED count never changes; only the enabled tally does.
-        Assert.Equal(KeebLayout.KeyLedCount, cards[0].LedCount);
+        Assert.Equal(KeebKeyMap.Ansi.LedCount, cards[0].LedCount);
         Assert.Equal(KeebLayout.SurroundLedCount, cards[1].LedCount);
     }
 
@@ -91,18 +91,18 @@ public class KeebZoneCardsTests
                 Name = "Everything",
                 Slices =
                 {
-                    new ZoneSlice { Segment = 0, Start = 0, Count = KeebLayout.KeyLedCount },
+                    new ZoneSlice { Segment = 0, Start = 0, Count = KeebKeyMap.Ansi.LedCount },
                     new ZoneSlice { Segment = 1, Start = 0, Count = KeebLayout.SurroundLedCount },
                 },
             },
         };
 
-        var cards = KeebLightingDeviceProvider.BuildCards(HubId, settings);
+        var cards = KeebLightingDeviceProvider.BuildCards(HubId, KeebKeyMap.Ansi, settings);
         Assert.Single(cards);
         var card = cards[0];
         Assert.Equal($"{HubId}:z0", card.Id);
         Assert.Equal($"{KeebHub.ProductName} - Everything", card.Name);
-        Assert.Equal(KeebLayout.KeyLedCount + KeebLayout.SurroundLedCount, card.LedCount);
+        Assert.Equal(KeebKeyMap.Ansi.LedCount + KeebLayout.SurroundLedCount, card.LedCount);
         Assert.Equal(card.LedCount, card.EnabledLedCount);
         Assert.Equal("", card.DeviceKey);
         Assert.Equal(HubId, card.ParentDeviceId);
@@ -123,7 +123,7 @@ public class KeebZoneCardsTests
             new()
             {
                 Name = "Right",
-                Slices = { new ZoneSlice { Segment = 0, Start = 40, Count = KeebLayout.KeyLedCount - 40 } },
+                Slices = { new ZoneSlice { Segment = 0, Start = 40, Count = KeebKeyMap.Ansi.LedCount - 40 } },
             },
             new()
             {
@@ -132,12 +132,12 @@ public class KeebZoneCardsTests
             },
         };
 
-        var cards = KeebLightingDeviceProvider.BuildCards(HubId, settings);
+        var cards = KeebLightingDeviceProvider.BuildCards(HubId, KeebKeyMap.Ansi, settings);
         Assert.Equal(3, cards.Count);
         Assert.Equal(new[] { $"{HubId}:z0", $"{HubId}:z1", $"{HubId}:z2" },
             new[] { cards[0].Id, cards[1].Id, cards[2].Id });
         Assert.Equal(40, cards[0].LedCount);
-        Assert.Equal(KeebLayout.KeyLedCount - 40, cards[1].LedCount);
+        Assert.Equal(KeebKeyMap.Ansi.LedCount - 40, cards[1].LedCount);
         Assert.Equal(KeebLayout.SurroundLedCount, cards[2].LedCount);
         Assert.Equal("strip", cards[2].IconType);
 
@@ -154,11 +154,11 @@ public class KeebZoneCardsTests
     [Fact]
     public void Structure_exposes_two_fixed_segments_in_device_order()
     {
-        var structure = KeebZoneSupport.BuildStructure(HubId);
+        var structure = KeebZoneSupport.BuildStructure(HubId, KeebKeyMap.Ansi);
         Assert.Equal(HubId, structure.DeviceId);
         Assert.Equal(KeebHub.ProductName, structure.Name);
         Assert.Equal(2, structure.Segments.Count);
-        Assert.Equal(KeebLayout.KeyLedCount, structure.Segments[0].LedCount);
+        Assert.Equal(KeebKeyMap.Ansi.LedCount, structure.Segments[0].LedCount);
         Assert.Equal(KeebLayout.SurroundLedCount, structure.Segments[1].LedCount);
         Assert.All(structure.Segments, s => Assert.False(s.Resizable));
         Assert.Equal(2, structure.DefaultZones.Count);

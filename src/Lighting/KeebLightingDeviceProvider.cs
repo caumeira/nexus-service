@@ -49,18 +49,18 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
     {
         var resp = new GetLightingDevicesResponse { IsInit = true };
         if (!_hub.IsConnected) return resp;
-        resp.Devices.AddRange(BuildCards(_hub.DeviceId, _store.Load()));
+        resp.Devices.AddRange(BuildCards(_hub.DeviceId, _hub.KeyMap, _store.Load()));
         return resp;
     }
 
     /// <summary>Pure card emission for the current partition; static so tests cover it without a live hub.</summary>
-    internal static List<LightingDevice> BuildCards(string hubId, NexusSettings settings)
+    internal static List<LightingDevice> BuildCards(string hubId, KeebKeyMap keys, NexusSettings settings)
     {
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var layouts = settings.Lighting.DeviceLayouts;
 
-        var structure = KeebZoneSupport.BuildStructure(hubId);
+        var structure = KeebZoneSupport.BuildStructure(hubId, keys);
         var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
         var cards = new List<LightingDevice>(zones.Count);
 
@@ -70,7 +70,7 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
                 id: hubId + KeysSuffix, name: $"{KeebHub.ProductName} - Keys",
                 deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
                     Peripherals.Hyte.Keeb.KeebProtocol.VendorId, Peripherals.Hyte.Keeb.KeebProtocol.ProductId, "keys"),
-                iconType: "keyboard", firmwareLedCount: KeebLayout.KeyLedCount,
+                iconType: "keyboard", firmwareLedCount: keys.LedCount,
                 zoneIndex: 0, parentDeviceId: hubId, structure, zones[0], settings));
             cards.Add(BuildZone(
                 id: hubId + UnderglowSuffix, name: $"{KeebHub.ProductName} - Underglow",
@@ -132,7 +132,7 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
     {
         if (!_hub.IsConnected || string.IsNullOrEmpty(_hub.DeviceId))
             return Array.Empty<Nexus.Service.Lighting.Zones.DeviceStructure>();
-        return new[] { KeebZoneSupport.BuildStructure(_hub.DeviceId) };
+        return new[] { KeebZoneSupport.BuildStructure(_hub.DeviceId, _hub.KeyMap) };
     }
 
     private static LightingDevice BuildZone(
@@ -252,7 +252,7 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
         var hubId = _hub.DeviceId;
         var settings = _store.Load();
         var layouts = settings.Lighting.DeviceLayouts;
-        var structure = KeebZoneSupport.BuildStructure(hubId);
+        var structure = KeebZoneSupport.BuildStructure(hubId, _hub.KeyMap);
         var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
         var idx = startingIndex;
         var frames = new List<DeviceFrame>(zones.Count);

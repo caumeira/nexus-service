@@ -104,13 +104,13 @@ public class KeebReactiveRendererTests
 
         // At frame 0 only the origin column is lit (minDist=0, maxDist=0).
         // 'A': commandsIndex=65, wireSlot=64.
-        var aLedIndex = Array.IndexOf(KeebLayout.KeyWireValues, 64);
+        var aLedIndex = Array.IndexOf(KeebKeyMap.Ansi.WireValues, 64);
         Assert.True(aLedIndex >= 0);
         Assert.NotNull(result![aLedIndex]);
 
         // 'S' at gridY=6, gridX=4 (dist=1) should NOT be lit at frame 0.
         // commandsIndex=66, wireSlot=65.
-        var sLedIndex = Array.IndexOf(KeebLayout.KeyWireValues, 65);
+        var sLedIndex = Array.IndexOf(KeebKeyMap.Ansi.WireValues, 65);
         if (sLedIndex >= 0)
         {
             Assert.Null(result[sLedIndex]);
@@ -134,12 +134,12 @@ public class KeebReactiveRendererTests
         Assert.NotNull(result);
 
         // 'H' at gridX=8: commandsIndex=70, wireSlot=69.
-        var hLedIndex = Array.IndexOf(KeebLayout.KeyWireValues, 69);
+        var hLedIndex = Array.IndexOf(KeebKeyMap.Ansi.WireValues, 69);
         Assert.True(hLedIndex >= 0);
         Assert.Null(result![hLedIndex]);
 
         // 'K' at gridY=6, gridX=10 (dist=2, in [1,3]): commandsIndex=72, wireSlot=71.
-        var kLedIndex = Array.IndexOf(KeebLayout.KeyWireValues, 71);
+        var kLedIndex = Array.IndexOf(KeebKeyMap.Ansi.WireValues, 71);
         if (kLedIndex >= 0)
         {
             Assert.NotNull(result[kLedIndex]);
@@ -154,7 +154,7 @@ public class KeebReactiveRendererTests
         var reactive = renderer.Render();
         Assert.NotNull(reactive);
 
-        var keyBuf = new RgbColor[KeebLayout.KeyLedCount];
+        var keyBuf = new RgbColor[KeebKeyMap.Ansi.LedCount];
         ApplyReactiveNonMask(keyBuf, reactive!);
 
         Assert.Equal(0, keyBuf[0].R);
@@ -171,7 +171,7 @@ public class KeebReactiveRendererTests
         Assert.NotNull(reactive);
 
         // Base has a non-black color at ledIndex 0.
-        var keyBuf = new RgbColor[KeebLayout.KeyLedCount];
+        var keyBuf = new RgbColor[KeebKeyMap.Ansi.LedCount];
         keyBuf[0] = new RgbColor(100, 100, 100);
         ApplyReactiveMask(keyBuf, reactive!);
 
@@ -189,7 +189,7 @@ public class KeebReactiveRendererTests
         var reactive = renderer.Render();
         Assert.NotNull(reactive);
 
-        var keyBuf = new RgbColor[KeebLayout.KeyLedCount];
+        var keyBuf = new RgbColor[KeebKeyMap.Ansi.LedCount];
         keyBuf[5] = new RgbColor(200, 200, 200);
         ApplyReactiveMask(keyBuf, reactive!);
 
@@ -211,7 +211,7 @@ public class KeebReactiveRendererTests
 
         Assert.NotNull(result);
         // 'H': commandsIndex=70, wireSlot=69.
-        var hLedIndex = Array.IndexOf(KeebLayout.KeyWireValues, 69);
+        var hLedIndex = Array.IndexOf(KeebKeyMap.Ansi.WireValues, 69);
         Assert.True(hLedIndex >= 0);
         Assert.NotNull(result![hLedIndex]);
     }
@@ -231,7 +231,7 @@ public class KeebReactiveRendererTests
         var result = renderer.Render(); // render at frame 7
 
         // 'H': commandsIndex=70, wireSlot=69.
-        var hLedIndex = Array.IndexOf(KeebLayout.KeyWireValues, 69);
+        var hLedIndex = Array.IndexOf(KeebKeyMap.Ansi.WireValues, 69);
         Assert.True(hLedIndex >= 0);
 
         if (result != null)

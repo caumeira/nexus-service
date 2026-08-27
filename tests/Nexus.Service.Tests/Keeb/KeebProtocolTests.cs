@@ -71,33 +71,21 @@ public class KeebProtocolTests
         Assert.Equal(3, KeebLayout.SurroundPageCount);
         Assert.Equal(128, KeebLayout.KeyWireSlots);
         Assert.Equal(64, KeebLayout.SurroundWireSlots);
-        Assert.Equal(63, KeebLayout.SurroundLedCount);
-        Assert.Equal(98, KeebLayout.KeyLedCount);
-    }
-
-    [Fact]
-    public void KeyWireValues_are_98_unique_ascending_in_range()
-    {
-        var v = KeebLayout.KeyWireValues;
-        Assert.Equal(98, v.Length);
-        for (var i = 1; i < v.Length; i++)
-            Assert.True(v[i] > v[i - 1], $"values must be strictly ascending at {i}");
-        Assert.All(v, x => Assert.InRange(x, 0, KeebLayout.KeyWireSlots - 1));
-        Assert.Equal(121, v[^1]); // last physical LED value per the OpenRGB layout
-        Assert.DoesNotContain(1, v); // value 1 is an unwired gap
+        Assert.Equal(51, KeebLayout.SurroundLedCount); // 50 perimeter + scroll wheel; wire slots 51..63 drive nothing
+        Assert.Equal(96, KeebKeyMap.Ansi.LedCount); // ANSI board; ISO is 97 (see KeebStockUvTests)
     }
 
     [Fact]
     public void MapKeysToWire_scatters_each_key_to_its_wire_slot()
     {
-        var leds = new RgbColor[KeebLayout.KeyLedCount];
+        var leds = new RgbColor[KeebKeyMap.Ansi.LedCount];
         for (var i = 0; i < leds.Length; i++) leds[i] = new RgbColor((byte)(i + 1), 0, 0);
         var wire = new RgbColor[KeebLayout.KeyWireSlots];
 
-        KeebLayout.MapKeysToWire(leds, wire);
+        KeebKeyMap.Ansi.MapKeysToWire(leds, wire);
 
         for (var i = 0; i < leds.Length; i++)
-            Assert.Equal(leds[i], wire[KeebLayout.KeyWireValues[i]]);
+            Assert.Equal(leds[i], wire[KeebKeyMap.Ansi.WireValues[i]]);
         // An unwired slot stays black.
         Assert.Equal(default, wire[1]);
     }

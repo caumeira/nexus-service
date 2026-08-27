@@ -1,3 +1,4 @@
+using Nexus.Service.Peripherals.Hyte.Keeb;
 using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Mappings;
 using Nexus.Service.Lighting.Zones;
@@ -169,7 +170,7 @@ public class ZoneEnabledCountTests
     [Fact]
     public void Keeb_card_count_matches_render_path_for_multi_zone_artifact()
     {
-        var structure = KeebZoneSupport.BuildStructure("keeb:SER1");
+        var structure = KeebZoneSupport.BuildStructure("keeb:SER1", KeebKeyMap.Ansi);
         var settings = new NexusSettings();
         var zones = ZoneResolution.Resolve(structure, settings);
         var glow = zones[1];

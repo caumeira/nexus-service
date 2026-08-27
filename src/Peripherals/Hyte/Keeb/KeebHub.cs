@@ -77,6 +77,13 @@ public sealed class KeebHub : IDisposable
     /// <summary>"keeb:&lt;serial&gt;" id, or empty when never connected.</summary>
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"keeb:{State.Serial}";
 
+    /// <summary>
+    /// Key table for the firmware-reported board layout. ANSI and ISO differ in
+    /// key count and in per-key board position, so everything sizing or placing
+    /// the keys zone must go through this rather than a fixed table.
+    /// </summary>
+    public KeebKeyMap KeyMap => KeebKeyMap.ForLayout(State.Layout);
+
     /// <summary>Open the keeb's vendor HID interface if not already open.</summary>
     public bool EnsureConnected()
     {
@@ -152,19 +159,20 @@ public sealed class KeebHub : IDisposable
 
     /// <summary>
     /// Stream a keyboard-zone frame. <paramref name="keysInLedOrder"/> carries
-    /// one color per physical key in <see cref="KeebLayout.KeyWireValues"/>
-    /// order; we scatter them to wire slots, arm the stream, and push 6 pages.
+    /// one color per physical key in <see cref="KeebKeyMap.WireValues"/> order
+    /// for the active layout; we scatter them to wire slots, arm the stream,
+    /// and push 6 pages.
     /// </summary>
     public bool WriteKeyboard(ReadOnlySpan<RgbColor> keysInLedOrder)
     {
         lock (_io)
         {
-            KeebLayout.MapKeysToWire(keysInLedOrder, _keyWire);
+            KeyMap.MapKeysToWire(keysInLedOrder, _keyWire);
             return StreamZoneLocked(KeebProtocol.KeyboardStreamFeature, _keyWire, KeebLayout.KeyPageCount);
         }
     }
 
-    /// <summary>Stream an underglow-zone frame (63 LEDs, 3 pages).</summary>
+    /// <summary>Stream an underglow-zone frame over its 3 pages.</summary>
     public bool WriteSurround(ReadOnlySpan<RgbColor> ledsInLedOrder)
     {
         lock (_io)

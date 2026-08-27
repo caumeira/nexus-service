@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Nexus.Service.Peripherals.Hyte.Np50;
 
@@ -32,17 +33,22 @@ public sealed class KeebReactiveRenderer
         new(255,   0, 127),
     };
 
-    // Compile-time mapping: (fwRow, fwCol) -> (ledIndex, gridY, gridX).
-    // ledIndex = Array.IndexOf(KeebLayout.KeyWireValues, commandsIndex - 1).
-    private static readonly Dictionary<(int, int), (int LedIndex, int GridY, int GridX)> FwToLed;
+    /// <summary>
+    /// Per-layout lookups. LED indices are positions in a <see cref="KeebKeyMap"/>'s
+    /// wire-value list, so they shift with the board layout and cannot be
+    /// type-level state.
+    /// </summary>
+    private sealed record Lookups(
+        // (fwRow, fwCol) -> (ledIndex, gridY, gridX).
+        Dictionary<(int, int), (int LedIndex, int GridY, int GridX)> FwToLed,
+        // (gridY, gridX) -> ledIndex for SingleKey and neighbor lookups.
+        Dictionary<(int, int), int> GridToLedIndex,
+        // Flat array of (gridY, gridX, ledIndex) for HLine/VLine/Ripple iteration.
+        (int GridY, int GridX, int LedIndex)[] GridEntries);
 
-    // (gridY, gridX) -> ledIndex for SingleKey and neighbor lookups.
-    private static readonly Dictionary<(int, int), int> GridToLedIndex;
+    private static readonly ConcurrentDictionary<KeebKeyMap, Lookups> LookupCache = new();
 
-    // Flat array of (gridY, gridX, ledIndex) for HLine/VLine/Ripple iteration.
-    private static readonly (int GridY, int GridX, int LedIndex)[] GridEntries;
-
-    static KeebReactiveRenderer()
+    private static Lookups BuildLookups(KeebKeyMap keys)
     {
         // Table: (fwRow, fwCol, gridY, gridX, commandsIndex)
         (int FwRow, int FwCol, int GridY, int GridX, int CommandsIndex)[] table =
@@ -136,32 +142,47 @@ public sealed class KeebReactiveRenderer
             (5, 16, 8, 19, 122), // Right
         };
 
-        FwToLed = new Dictionary<(int, int), (int, int, int)>(table.Length);
-        GridToLedIndex = new Dictionary<(int, int), int>(table.Length);
+        var fwToLed = new Dictionary<(int, int), (int, int, int)>(table.Length);
+        var gridToLedIndex = new Dictionary<(int, int), int>(table.Length);
         var gridEntries = new List<(int, int, int)>(table.Length);
-        var keyWireValues = KeebLayout.KeyWireValues;
         foreach (var (fwRow, fwCol, gridY, gridX, commandsIndex) in table)
         {
-            var wireSlot = commandsIndex - 1;
-            var ledIndex = Array.IndexOf(keyWireValues, wireSlot);
+            // A key absent from this layout (ANSI BackSlash on an ISO board)
+            // resolves to -1 and simply carries no reaction.
+            var ledIndex = keys.IndexOfWireValue(commandsIndex - 1);
             if (ledIndex < 0) continue;
-            FwToLed[(fwRow, fwCol)] = (ledIndex, gridY, gridX);
-            GridToLedIndex[(gridY, gridX)] = ledIndex;
+            fwToLed[(fwRow, fwCol)] = (ledIndex, gridY, gridX);
+            gridToLedIndex[(gridY, gridX)] = ledIndex;
             gridEntries.Add((gridY, gridX, ledIndex));
         }
-        GridEntries = gridEntries.ToArray();
+        return new Lookups(fwToLed, gridToLedIndex, gridEntries.ToArray());
     }
+
+    private KeebKeyMap _keys = KeebKeyMap.Ansi;
+    private Lookups _lookups = LookupCache.GetOrAdd(KeebKeyMap.Ansi, BuildLookups);
 
     private record struct Reaction(int GridY, int GridX, int Frame, string Mode);
 
     private readonly object _lock = new();
     private readonly Queue<(int FwRow, int FwCol)> _pending = new();
     private readonly List<Reaction> _active = new();
-    private readonly RgbColor?[] _renderBuf = new RgbColor?[KeebLayout.KeyLedCount];
+    // Sized to the largest layout; Render() only fills the active map's prefix.
+    private readonly RgbColor?[] _renderBuf = new RgbColor?[KeebKeyMap.MaxLedCount];
 
     // Snapshotted settings, written from Configure() on the frame writer thread.
     private string _mode = "SingleKey";
     private RgbColor _color = new(255, 0, 0);
+
+    /// <summary>
+    /// Point the renderer at a board layout. Cheap and idempotent: the lookups
+    /// are cached per map, so a re-set of the same layout is a reference compare.
+    /// </summary>
+    public void SetKeyMap(KeebKeyMap keys)
+    {
+        if (ReferenceEquals(_keys, keys)) return;
+        _keys = keys;
+        _lookups = LookupCache.GetOrAdd(keys, BuildLookups);
+    }
 
     public void Configure(bool enabled, string mode, RgbColor color)
     {
@@ -208,7 +229,7 @@ public sealed class KeebReactiveRenderer
         while (_pending.Count > 0)
         {
             var (fwRow, fwCol) = _pending.Dequeue();
-            if (!FwToLed.TryGetValue((fwRow, fwCol), out var info)) continue;
+            if (!_lookups.FwToLed.TryGetValue((fwRow, fwCol), out var info)) continue;
             var (_, gridY, gridX) = info;
 
             var mode = _mode;
@@ -287,7 +308,7 @@ public sealed class KeebReactiveRenderer
 
     private void RenderSingleKey(Reaction r)
     {
-        if (!GridToLedIndex.TryGetValue((r.GridY, r.GridX), out var ledIndex)) return;
+        if (!_lookups.GridToLedIndex.TryGetValue((r.GridY, r.GridX), out var ledIndex)) return;
         // Fade: 10 steps, frame 0 = full brightness (step 10), frame 9 = step 1.
         var step = 10 - r.Frame;
         var brightness = step / 10.0;
@@ -301,7 +322,7 @@ public sealed class KeebReactiveRenderer
         var minDist = Math.Max(0, f - (LineMovement - 1));
         var maxDist = f;
 
-        foreach (var (gridY, gridX, ledIndex) in GridEntries)
+        foreach (var (gridY, gridX, ledIndex) in _lookups.GridEntries)
         {
             if (gridY != r.GridY) continue;
             var dist = Math.Abs(gridX - r.GridX);
@@ -316,7 +337,7 @@ public sealed class KeebReactiveRenderer
         var minDist = Math.Max(0, f - (LineMovement - 1));
         var maxDist = f;
 
-        foreach (var (gridY, gridX, ledIndex) in GridEntries)
+        foreach (var (gridY, gridX, ledIndex) in _lookups.GridEntries)
         {
             if (gridX != r.GridX) continue;
             var dist = Math.Abs(gridY - r.GridY);
@@ -332,7 +353,7 @@ public sealed class KeebReactiveRenderer
         var ringMin = f >= RippleInnerSize ? (double)(f - RippleInnerSize) : 0.0;
         var ringMax = (double)f;
 
-        foreach (var (gridY, gridX, ledIndex) in GridEntries)
+        foreach (var (gridY, gridX, ledIndex) in _lookups.GridEntries)
         {
             var dy = gridY - r.GridY;
             var dx = gridX - r.GridX;

@@ -195,27 +195,33 @@ public class GameSyncEffectTests
 
     // ── KeebLayout UV round-trip ─────────────────────────────────────────────
 
-    [Fact]
-    public void WriteToDevices_KeebLayoutUvs_MapsKeyToExpectedCell()
+    [Theory]
+    // ESC: wire value 0, board grid (col 1, row 3) -> u .05, v .333 -> cell (2, 1).
+    [InlineData(0, 2, 1)]
+    // MediaLED1: wire value 77, board grid (col 1, row 2) -> cell (1, 1). Decoding
+    // the wire value as a stride-21 scan matrix would put it at col 14 -> cell 15,
+    // which is the placement bug this pins.
+    [InlineData(77, 1, 1)]
+    // Right arrow: wire value 121, board grid (col 19, row 8) -> cell (4, 20).
+    [InlineData(121, 4, 20)]
+    public void WriteToDevices_KeebLayoutUvs_MapsKeyToItsBoardCell(
+        int wireValue, int expectedRow, int expectedCol)
     {
-        // The HYTE Keeb TKL key matrix: wire value encodes (row, col) in a
-        // stride-21 matrix. KeebLayout.ComputeKeyUv normalizes by maxCol=20,
-        // maxRow=5. Verify that a known key (e.g. wire value 0 -> row=0, col=0)
-        // samples cell (0,0) of a 6x22 Chroma grid.
-        var (ledU, ledV) = KeebLayout.ComputeKeyUv();
+        var keys = KeebKeyMap.Ansi;
+        var (ledU, ledV) = keys.ComputeUv();
+        var led = keys.IndexOfWireValue(wireValue);
+        Assert.True(led >= 0);
 
         const int rows = 6, cols = 22;
         var colors = new int[rows * cols];
-        // Cell (row=0, col=0) = red; everything else black.
-        colors[0] = Colorref(255, 0, 0);
+        colors[expectedRow * cols + expectedCol] = Colorref(255, 0, 0);
 
         var effect = new GameSyncEffect();
         effect.IngestFrame("keyboard", "CHROMA_CUSTOM", rows, cols, colors);
 
-        // LED 0 has wire value 0 -> U = 0/20 = 0, V = 0/5 = 0 -> maps to cell (0,0).
         var frame = new DeviceFrame(0, "kb:keys", 1) { Archetype = "keyboard" };
-        frame.LedU = new float[] { ledU[0] };
-        frame.LedV = new float[] { ledV[0] };
+        frame.LedU = new float[] { ledU[led] };
+        frame.LedV = new float[] { ledV[led] };
 
         effect.WriteToDevices(new[] { frame });
         frame.Publish();

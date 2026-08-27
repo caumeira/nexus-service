@@ -1,6 +1,6 @@
 using System;
+using System.Collections.Concurrent;
 using Nexus.Service.Lighting.Mappings;
-using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.Hyte.Keeb;
 using Nexus.Service.Persistence;
@@ -10,30 +10,30 @@ namespace Nexus.Service.Lighting;
 /// <summary>
 /// Authored zone structure for the HYTE Keeb TKL: two fixed segments in
 /// device order, keys then underglow, with counts and stock per-LED
-/// positions from the firmware layout (the key matrix decoded from the wire
-/// values; the underglow as a clockwise board-edge perimeter). Both are
-/// fixed (the firmware never re-wires LED counts), so any user partition
-/// over them is index-stable.
+/// positions from the firmware board-grid tables - keys from the layout's
+/// <see cref="KeebKeyMap"/>, the underglow from <see cref="KeebLayout.SurroundGrid"/>,
+/// both normalized on the one shared grid. Counts are fixed per layout (the
+/// firmware never re-wires them), so any user partition over them is
+/// index-stable for as long as the board stays the same.
 /// </summary>
 public static class KeebZoneSupport
 {
     public const int KeysSegment = 0;
     public const int UnderglowSegment = 1;
 
-    private static readonly Lazy<(float[] U, float[] V)> KeyUv = new(KeebLayout.ComputeKeyUv);
+    // Key UV depends on the board layout, so cache one per map rather than one
+    // for the type. Two entries, ever.
+    private static readonly ConcurrentDictionary<KeebKeyMap, (float[] U, float[] V)> KeyUv = new();
 
-    private static readonly Lazy<(float[] U, float[] V)> UnderglowUv = new(() =>
-    {
-        var u = new float[KeebLayout.SurroundLedCount];
-        var v = new float[KeebLayout.SurroundLedCount];
-        // The underglow strip physically closes on itself; closed-loop
-        // spacing keeps the seam LEDs from sharing a seed position.
-        LedUvComputer.FillPerimeter(u, v, closedLoop: true);
-        return (u, v);
-    });
+    // The underglow strip is NOT an evenly-spaced ring: it is seamed at top
+    // centre, runs counter-clockwise, and its last LED is the scroll wheel,
+    // off the perimeter entirely. A generic FillPerimeter walk cannot express
+    // any of that, so the positions come from the firmware layout table.
+    private static readonly Lazy<(float[] U, float[] V)> UnderglowUv = new(KeebLayout.ComputeSurroundUv);
 
-    public static DeviceStructure BuildStructure(string hubId)
+    public static DeviceStructure BuildStructure(string hubId, KeebKeyMap keys)
     {
+        var keyUv = KeyUv.GetOrAdd(keys, static m => m.ComputeUv());
         var structure = new DeviceStructure
         {
             DeviceId = hubId,
@@ -44,12 +44,12 @@ public static class KeebZoneSupport
         {
             Index = KeysSegment,
             Name = "Keys",
-            LedCount = KeebLayout.KeyLedCount,
-            FrameLedCount = KeebLayout.KeyLedCount,
+            LedCount = keys.LedCount,
+            FrameLedCount = keys.LedCount,
             Resizable = false,
             ZoneType = "linear",
-            DefaultU = KeyUv.Value.U,
-            DefaultV = KeyUv.Value.V,
+            DefaultU = keyUv.U,
+            DefaultV = keyUv.V,
         });
         structure.Segments.Add(new StructureSegment
         {
@@ -69,7 +69,7 @@ public static class KeebZoneSupport
             RawName = structure.Segments[KeysSegment].Name,
             DeviceKey = DeviceKeyComputer.ForFirstParty(KeebProtocol.VendorId, KeebProtocol.ProductId, "keys"),
             LegacyZoneIndex = 0,
-            Slices = { new ZoneSlice { Segment = KeysSegment, Start = 0, Count = KeebLayout.KeyLedCount } },
+            Slices = { new ZoneSlice { Segment = KeysSegment, Start = 0, Count = keys.LedCount } },
         });
         structure.DefaultZones.Add(new DefaultZoneDef
         {
