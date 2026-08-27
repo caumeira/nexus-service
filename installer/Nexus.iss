@@ -75,6 +75,10 @@ ShowLanguageDialog=no
 ; open, which is more precise than what Restart Manager would close for us.
 CloseApplications=no
 RestartApplications=no
+; OTA passes its own /LOG (UpdateInstaller.cs), but a hand-run installer
+; carries no switches. Log unconditionally so a user-reported failure has
+; a %TEMP%\Setup Log*.txt to read - Log() calls are dropped without this.
+SetupLogging=yes
 ; build-installer.ps1 -Sign defines EnableSigning and the nexussign tool via
 ; /S. SignedUninstaller matters for Smart App Control: the extracted
 ; unins000.exe is a PE on the installed image and must be signed like the rest.
@@ -94,7 +98,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 UninstalledMost=%1 uninstall complete.%n%nA few files were still in use and will be cleaned up on next sign-in.
 
 [Files]
-Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; BeforeInstall: UnlockTarget
 
 [Icons]
 ; Launch shortcut -> Nexus.exe (no args; routes through WindowsLauncher.Run to
@@ -160,6 +164,11 @@ procedure BringWizardToFront();
 begin
   if WizardForm <> nil then ForceWindowToFront(WizardForm.Handle);
 end;
+
+const
+  // Suffix for a destination UnlockTarget could not delete and had to move
+  // out of the way. Swept on the next install and on uninstall.
+  StaleSuffix = '.nexus-stale';
 
 var
   DesktopShortcutCheck: TNewCheckBox;
@@ -250,6 +259,17 @@ begin
   //      left alone; the runtime image lives outside {app}, so a path match
   //      cannot distinguish them. Folded into the same powershell hop as the
   //      adb sweep to keep this to one process spawn.
+  //   6. Then wait for the images to unmap. taskkill and Kill both return once
+  //      termination is REQUESTED, not once the process is gone, so [Files]
+  //      could otherwise start while a dying process still held a payload file.
+  //      One budget shared across the names, not one per process. Only the
+  //      three killed by image name above: steps 4 and 5 select adb and
+  //      msedgewebview2 by path/command line and deliberately spare foreign
+  //      ones, which never exit, so waiting on those by name would hand the
+  //      whole budget to a process nobody killed. Purely an optimisation - a
+  //      clean delete beats a rename-aside - since UnlockTarget handles whatever
+  //      is still locked; correctness never rests on the wait being long enough,
+  //      which is why it can be this short.
   Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -NonInteractive -Command "Get-Process -Name adb -ErrorAction SilentlyContinue | ' +
     'Where-Object { $_.Path -ieq ''' + AdbExe + ''' } | ' +
@@ -257,13 +277,109 @@ begin
     'Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | ' +
     'Where-Object { $_.Name -ieq ''msedgewebview2.exe'' -and ' +
     '$_.CommandLine -like ''*\Nexus\DesktopWebView2*'' } | ' +
-    'ForEach-Object { & ''' + TaskKill + ''' /F /PID $_.ProcessId }"',
+    'ForEach-Object { & ''' + TaskKill + ''' /F /PID $_.ProcessId }; ' +
+    '$d = [DateTime]::UtcNow.AddMilliseconds(2000); ' +
+    'foreach ($p in Get-Process -Name Nexus,OpenRGB-headless,nexus-overlay -ErrorAction SilentlyContinue) { ' +
+    '$ms = [int]($d - [DateTime]::UtcNow).TotalMilliseconds; ' +
+    'if ($ms -gt 0) { try { [void]$p.WaitForExit($ms) } catch { } } }"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+// Reaps the aside-renames UnlockTarget left behind on a previous install. By the
+// time this runs the processes that held them are gone, so a plain delete works.
+// Recursive because the locked binaries are spread across {app}, {app}\overlay
+// and {app}\tools\adb.
+procedure SweepStaleFiles(const Dir: String);
+var
+  FindRec: TFindRec;
+  Full: String;
+begin
+  if not FindFirst(AddBackslash(Dir) + '*', FindRec) then exit;
+  try
+    repeat
+      if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+      begin
+        Full := AddBackslash(Dir) + FindRec.Name;
+        // FILE_ATTRIBUTE_REPARSE_POINT: this runs as SYSTEM, so following a
+        // junction planted under {app} would redirect the deletes below out of
+        // {app} entirely.
+        if (FindRec.Attributes and $400) = 0 then
+        begin
+          // FILE_ATTRIBUTE_DIRECTORY
+          if (FindRec.Attributes and $10) <> 0 then
+            SweepStaleFiles(Full)
+          // Contains, not ends-with: the numbered fallbacks append a digit.
+          else if Pos(StaleSuffix, FindRec.Name) > 0 then
+            DeleteFile(Full);
+        end;
+      end;
+    until not FindNext(FindRec);
+  finally
+    FindClose(FindRec);
+  end;
+end;
+
+// Runs once per file of the [Files] wildcard entry, immediately before Inno
+// replaces that file. BeforeInstall on a wildcard entry fires per matched file;
+// CurrentFileName is that file's destination.
+//
+// Inno retries a locked destination 4 times and then shows an Abort/Retry/Ignore
+// box. OTA passes /SUPPRESSMSGBOXES, which answers it with Abort - so one stuck
+// file rolls back the WHOLE update. Clearing the destination here keeps that
+// from ever being reachable:
+//   - delete it, which is what Inno would do anyway;
+//   - a mapped PE refuses DeleteFile with code 5 but permits a rename, so move
+//     it aside and let Inno write into the freed name. SweepStaleFiles reaps it.
+//   - if neither works the file cannot be replaced at all: log it and let Inno
+//     take its normal course, rather than silently shipping a half-old install.
+procedure UnlockTarget();
+var
+  Target, Stale: String;
+  I: Integer;
+begin
+  // Raw first: this arrives already expanded, and re-expanding can only corrupt
+  // it - a '{{' in the user-chosen install dir collapses to '{' silently, naming
+  // a different file. Expand only when the raw value names nothing, and swallow
+  // the "Unknown constant" a literal '{' raises, which would otherwise escape
+  // BeforeInstall and abort the install this procedure exists to protect.
+  Target := CurrentFileName;
+  if not FileExists(Target) then
+  begin
+    try
+      Target := ExpandConstant(Target);
+    except
+    end;
+  end;
+  if not FileExists(Target) then exit;
+  if DeleteFile(Target) then exit;
+
+  // Numbered fallbacks: a leftover aside-rename from an earlier attempt can
+  // still be held by a process that outlived it, in which case neither the
+  // delete nor a rename onto that name would succeed. Don't let that one stuck
+  // name be what fails the update.
+  for I := 0 to 9 do
+  begin
+    if I = 0 then
+      Stale := Target + StaleSuffix
+    else
+      Stale := Target + StaleSuffix + IntToStr(I);
+    DeleteFile(Stale);
+    if RenameFile(Target, Stale) then
+    begin
+      Log('[nexus] locked, renamed aside so the update can continue: ' + Target);
+      exit;
+    end;
+  end;
+
+  Log('[nexus] LOCKED AND UNMOVABLE, install will fail on this file: ' + Target);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   StopServiceIfRunning();
+  // After the kills, so anything a previous install had to rename aside is now
+  // unheld and deletes cleanly.
+  SweepStaleFiles(ExpandConstant('{app}'));
   Result := '';
 end;
 
@@ -277,6 +393,9 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     StopServiceIfRunning();
+    // Aside-renames are not in the uninstall log, so without this they survive
+    // and leave {app} behind as a non-empty directory.
+    SweepStaleFiles(ExpandConstant('{app}'));
     // Lift the uninstall progress form (and so the data-wipe dialog parented to
     // it) above the user's other windows, same foreground-lock fix as the wizard.
     ForceWindowToFront(UninstallProgressForm.Handle);
