@@ -21,8 +21,8 @@ public class HelperPollerDiagnosticsTests
     [Fact]
     public void Parse_SplitsOnCommaSpaceAndSemicolon()
     {
-        var set = HelperPollerDiagnostics.Parse("windowset, screentime;audio watchdog");
-        Assert.Equal(4, set.Count);
+        var set = HelperPollerDiagnostics.Parse("windowset, screentime;audio watchdog lockinput");
+        Assert.Equal(HelperPollerDiagnostics.Known.Length, set.Count);
         foreach (var known in HelperPollerDiagnostics.Known)
         {
             Assert.Contains(known, set);

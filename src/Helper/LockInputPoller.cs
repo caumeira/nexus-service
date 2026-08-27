@@ -89,6 +89,7 @@ public sealed class LockInputPoller : IDisposable
     private void Poll()
     {
         if (!_armed) return;
+        if (HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.LockInput)) return;
         try
         {
             var tick = QueryLastInputTick();
