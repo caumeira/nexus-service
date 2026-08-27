@@ -249,6 +249,7 @@ internal static class WindowsUserHelper
         };
         new OrientationHandler(new Platform.Displays.WindowsDisplayOrientationProvider()).Register(handlerRegistry);
         new ScreenMirrorHandler(screenCapture.Start, screenCapture.Stop).Register(handlerRegistry);
+        new WindowSetHandler(windowSet.SetWanted).Register(handlerRegistry);
         // The default-endpoint switch is per-user, so it runs here rather than in
         // the Session-0 service.
         var audioDevices = new Nexus.Service.Activity.WindowsAudioDeviceProvider();

@@ -46,6 +46,13 @@ public sealed class WindowSetPoller : IDisposable
     private HashSet<int> _lastSent = new();
     private bool _wasConnected;
 
+    /// <summary>
+    /// Set from the service over windowSet.wanted. Defaults true so a helper
+    /// talking to a service that never sends it keeps the old behaviour rather
+    /// than silently losing the App/Background split.
+    /// </summary>
+    private volatile bool _wanted = true;
+
     // Pinned callback - EnumWindows requires a delegate that isn't GC'd
     // mid-enumeration (same guard as TrayIcon._pinnedEnumProc). The timer
     // only re-arms after Poll returns, so one instance field is safe: no two
@@ -63,8 +70,20 @@ public sealed class WindowSetPoller : IDisposable
         _timer = new JitteredPeriodicTimer(periodMs: PeriodMs, jitterMs: 500, Poll);
     }
 
+    /// <summary>
+    /// Service-driven demand. Clearing _lastSent on the way back up matters:
+    /// the service's snapshot went stale while we were off, and the change-only
+    /// send would otherwise never resend an unchanged window set.
+    /// </summary>
+    public void SetWanted(bool wanted)
+    {
+        if (wanted && !_wanted) _lastSent = new HashSet<int>();
+        _wanted = wanted;
+    }
+
     private void Poll()
     {
+        if (!_wanted) return;
         if (HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.WindowSet)) return;
         try
         {
@@ -263,7 +282,9 @@ public sealed class WindowSetPoller : IDisposable
             // Process exited, or its name is inaccessible, between
             // GetWindowThreadProcessId and this lookup - keep the placeholder.
         }
-        ServiceLog.Info(WindowDiagnostics.FormatLine(
+        // ServiceLog is a no-op in this process: the helper short-circuits in
+        // CommandLineEntry.TryEarlyExit, long before Program.cs initializes it.
+        Nexus.Service.Platform.HelperLog.Write(WindowDiagnostics.FormatLine(
             pid, processName, isVisible, owner != IntPtr.Zero, isToolWindow, isCloaked,
             hasTitle, titleLength, titleReadError, hasOnScreenBounds, coversMonitor, isForegroundWindow, isCountable));
     }
