@@ -19,8 +19,9 @@ public sealed class LinuxTrayHost : IDisposable
     private const int MenuRoot = 0;
     private const int MenuOpenDashboard = 1;
     private const int MenuSettings = 2;
-    private const int MenuSeparator = 3;
-    private const int MenuQuit = 4;
+    private const int MenuDevices = 3;
+    private const int MenuSeparator = 4;
+    private const int MenuQuit = 5;
 
     public LinuxTrayHost(DBusConnection dbus, string url, Action onQuit)
     {
@@ -192,6 +193,7 @@ public sealed class LinuxTrayHost : IDisposable
                         w.OpenArray(alignment: 1);
                         WriteMenuItemVariant(w, MenuOpenDashboard, "Open Dashboard", false);
                         WriteMenuItemVariant(w, MenuSettings, "Settings", false);
+                        WriteMenuItemVariant(w, MenuDevices, "Devices", false);
                         WriteMenuItemVariant(w, MenuSeparator, "", true);
                         WriteMenuItemVariant(w, MenuQuit, "Quit Nexus", false);
                         w.CloseArray();
@@ -202,6 +204,7 @@ public sealed class LinuxTrayHost : IDisposable
                         w.OpenArray(alignment: 8);
                         WriteMenuItemStruct(w, MenuOpenDashboard, "Open Dashboard", false);
                         WriteMenuItemStruct(w, MenuSettings, "Settings", false);
+                        WriteMenuItemStruct(w, MenuDevices, "Devices", false);
                         WriteMenuItemStruct(w, MenuSeparator, "", true);
                         WriteMenuItemStruct(w, MenuQuit, "Quit Nexus", false);
                         w.CloseArray();
@@ -267,8 +270,12 @@ public sealed class LinuxTrayHost : IDisposable
             case MenuOpenDashboard:
                 OpenUrl(_url);
                 break;
+            // The SPA router parses location.pathname; a hash route lands on the dashboard.
             case MenuSettings:
-                OpenUrl($"{_url}/#/settings");
+                OpenUrl($"{_url}/system/settings");
+                break;
+            case MenuDevices:
+                OpenUrl($"{_url}/system/devices");
                 break;
             case MenuQuit:
                 _onQuit();
