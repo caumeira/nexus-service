@@ -649,7 +649,9 @@ public class LightingSleepBlackoutTests : IDisposable
         engine.SetEffect(new FillEffect(255, 255, 255));
         Assert.True(await WaitUntil(() => !AllBlack(devices[0]), TimeSpan.FromSeconds(2)));
 
-        var coordinator = new SleepBlackoutCoordinator(engine, _store);
+        // Short window so the test does not leave a live timer behind that
+        // fires against the disposed engine after it returns.
+        var coordinator = new SleepBlackoutCoordinator(engine, _store, lockWakeTimeout: TimeSpan.FromSeconds(5));
         coordinator.OnSessionLocked();
         Assert.True(await WaitUntil(() => AllBlack(devices[0]), TimeSpan.FromSeconds(4)));
 

@@ -253,8 +253,21 @@ internal static class TrayBootstrap
         var lockBlackout = app.Services.GetService<Nexus.Service.Lighting.SleepBlackoutCoordinator>();
         if (lockBlackout is not null)
         {
+            var lockInputArmed = false;
             lockBlackout.LockInputWatch = enabled =>
+            {
+                lockInputArmed = enabled;
                 _ = Nexus.Service.Helper.Domains.LockLightingCommands.SetLockInputWatchAsync(helperRegistry, enabled);
+            };
+            // The push is dropped when no helper is connected, so a lock that
+            // spans a helper reconnect would come back with the poll in the
+            // wrong state - silently off for that lock, or armed for the rest
+            // of the session. Re-assert on connect, like the tray and
+            // orientation state above.
+            helperRegistry.Connected += conn =>
+            {
+                _ = Nexus.Service.Helper.Domains.LockLightingCommands.SetLockInputWatchAsync(helperRegistry, lockInputArmed);
+            };
             helperRegistry.InboundEnvelope += (_, env) =>
             {
                 if (env.Type != Nexus.Service.Helper.Domains.LockLightingCommands.InputSeenType) return;

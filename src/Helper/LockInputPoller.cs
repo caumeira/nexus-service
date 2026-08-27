@@ -56,22 +56,21 @@ public sealed class LockInputPoller : IDisposable
         public uint dwTime;
     }
 
-    [DllImport("user32.dll", SetLastError = true)]
+    [DllImport("user32.dll")]
     private static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
 
     private readonly HelperOutbound _outbound;
-    private readonly JitteredPeriodicTimer _timer;
+    private readonly object _gate = new();
+
+    /// <summary>Exists only while armed; see <see cref="SetArmed"/>.</summary>
+    private JitteredPeriodicTimer? _timer;
 
     private volatile bool _armed;
     private uint _lastSeenTick;
     private long _lastEmitMs;
     private long _armedAtMs;
 
-    public LockInputPoller(HelperOutbound outbound)
-    {
-        _outbound = outbound;
-        _timer = new JitteredPeriodicTimer(PollPeriodMs, jitterMs: 0, Poll);
-    }
+    public LockInputPoller(HelperOutbound outbound) => _outbound = outbound;
 
     /// <summary>
     /// Arm or disarm from the service's <c>lighting.lockInputWatch</c>. Arming
@@ -80,13 +79,27 @@ public sealed class LockInputPoller : IDisposable
     /// </summary>
     public void SetArmed(bool armed)
     {
-        if (armed == _armed) return;
-        if (armed)
+        lock (_gate)
         {
-            _lastSeenTick = QueryLastInputTick();
-            _armedAtMs = Environment.TickCount64;
+            if (armed)
+            {
+                // Re-baseline on every arm, not only on a transition. A disarm
+                // lost to a helper reconnect would otherwise leave this armed,
+                // and the next lock would reuse a stale baseline and report the
+                // locking gesture as a wake.
+                if (TryQueryLastInputTick(out var tick)) _lastSeenTick = tick;
+                _armedAtMs = Environment.TickCount64;
+                _armed = true;
+                // Only ticking while a lock blackout is up: the other helper
+                // pollers run at 2s or slower, and this one is four times a
+                // second.
+                _timer ??= new JitteredPeriodicTimer(PollPeriodMs, jitterMs: 0, Poll);
+                return;
+            }
+            _armed = false;
+            _timer?.Dispose();
+            _timer = null;
         }
-        _armed = armed;
     }
 
     private void Poll()
@@ -95,7 +108,10 @@ public sealed class LockInputPoller : IDisposable
         if (HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.LockInput)) return;
         try
         {
-            var tick = QueryLastInputTick();
+            // A failed call must not stand in for a tick: reporting the
+            // sentinel, then reporting the recovery back to a real tick, would
+            // light an unattended locked machine twice over.
+            if (!TryQueryLastInputTick(out var tick)) return;
             if (tick == _lastSeenTick) return;
             _lastSeenTick = tick;
 
@@ -115,12 +131,18 @@ public sealed class LockInputPoller : IDisposable
         catch { /* best-effort; the next poll is 250ms away */ }
     }
 
-    private static uint QueryLastInputTick()
+    private static bool TryQueryLastInputTick(out uint tick)
     {
         var lii = new LASTINPUTINFO { cbSize = (uint)Marshal.SizeOf<LASTINPUTINFO>() };
-        return GetLastInputInfo(ref lii) ? lii.dwTime : 0;
+        if (!GetLastInputInfo(ref lii))
+        {
+            tick = 0;
+            return false;
+        }
+        tick = lii.dwTime;
+        return true;
     }
 
-    public void Dispose() => _timer.Dispose();
+    public void Dispose() => SetArmed(false);
 }
 #endif

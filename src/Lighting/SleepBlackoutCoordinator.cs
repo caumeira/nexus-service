@@ -120,8 +120,16 @@ public sealed class SleepBlackoutCoordinator
     private volatile bool _lockHold;
 
     /// <summary>
+    /// Serializes clearing <see cref="_lockHold"/> against the idle window
+    /// engaging a blackout on it. Without it the timer can pass its check and
+    /// then darken a desktop the user has just unlocked - with the hold flag
+    /// already false, so nothing is left to release it.
+    /// </summary>
+    private readonly object _lockHoldGate = new();
+
+    /// <summary>
     /// Idle window after lock-screen input, refreshed by every further input.
-    /// Overridable so tests do not wait a minute for the re-dark.
+    /// Overridable so tests do not wait out the real window for the re-dark.
     /// </summary>
     private readonly TimeSpan _lockWakeTimeout;
 
@@ -210,7 +218,10 @@ public sealed class SleepBlackoutCoordinator
     {
         try
         {
-            _lockHold = false;
+            lock (_lockHoldGate)
+            {
+                _lockHold = false;
+            }
             SetLockInputWatch(false);
             // The session is the user's again, so the idle window has nothing
             // left to re-darken; a pending one would fire into a live desktop.
@@ -235,8 +246,8 @@ public sealed class SleepBlackoutCoordinator
     /// window after which it goes dark again.
     ///
     /// Every input refreshes the window, whether the lights are already up or
-    /// not, so a hand resting on the keyboard keeps them up and a single
-    /// accidental keypress leaves the machine dark a minute later.
+    /// not, so a hand resting on the keyboard keeps them up while a single
+    /// accidental keypress buys one window and then lets the machine go dark.
     /// </summary>
     public void OnLockScreenInput()
     {
@@ -277,15 +288,20 @@ public sealed class SleepBlackoutCoordinator
     {
         try
         {
-            if (!_lockHold)
-            {
-                return;
-            }
             if (_engine.Blackout && !_engine.BlackoutReleasing)
             {
                 return;
             }
-            EngageLockBlackout();
+            lock (_lockHoldGate)
+            {
+                // Re-read under the gate: an unlock landing between the check
+                // and the engage would leave the desktop dark for good.
+                if (!_lockHold)
+                {
+                    return;
+                }
+                EngageLockBlackout();
+            }
         }
         catch (Exception ex)
         {
@@ -309,7 +325,8 @@ public sealed class SleepBlackoutCoordinator
         // Nothing is painting, so there is no ramp to run and no frames
         // reaching the OpenRGB bridge either - the hold on its own would
         // leave those devices lit. The push is off-thread because it blocks
-        // and this runs on an OS notification callback.
+        // for as long as the bridge takes, and both callers (the lock
+        // notification hop and the idle timer) are threads worth returning.
         _engine.SetBlackout(true);
         _ = Task.Run(() =>
         {
