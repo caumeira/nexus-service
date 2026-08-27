@@ -36,6 +36,21 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// <summary>Budget for the engine to publish the black frame, shared with the suspend path.</summary>
     private static readonly TimeSpan EnginePublishBudget = SleepBlackoutCoordinator.EnginePublishBudget;
 
+    /// <summary>
+    /// Grace for OpenRGB to apply the black before the subprocess is killed.
+    /// UpdateLEDs only raises CallFlag_UpdateLEDs; DeviceUpdateLEDs - the SMBus
+    /// transaction - runs on a per-controller thread polling at 1ms
+    /// (openrgb-headless RGBController.cpp:2131) and the SDK carries no
+    /// completion ack, so there is no signal to wait on and the kill is the only
+    /// lever. Sized for two ENE DRAM modules behind the SMBus mutex, which is
+    /// the slowest controller here; NEXUS_STOP_SETTLE_MS overrides it for bench
+    /// measurement.
+    /// </summary>
+    private static TimeSpan SettleWindow =>
+        int.TryParse(Environment.GetEnvironmentVariable("NEXUS_STOP_SETTLE_MS"), out var ms) && ms >= 0
+            ? TimeSpan.FromMilliseconds(Math.Min(ms, 5000))
+            : TimeSpan.FromMilliseconds(300);
+
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
     private readonly LightingOutputHub _hub;
@@ -219,9 +234,14 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         }
         var pushedMs = sw.ElapsedMilliseconds - publishedMs;
 
+        var settle = SettleWindow;
+        if (_rgb is not null && settle > TimeSpan.Zero)
+        {
+            Thread.Sleep(settle);
+        }
         ServiceLog.Info(
             $"[lighting-stop] blackout engine={(published ? "published" : "timeout")}/{publishedMs}ms " +
-            $"openrgb={pushed}/{pushedMs}ms total={sw.ElapsedMilliseconds}ms");
+            $"openrgb={pushed}/{pushedMs}ms settle={(int)settle.TotalMilliseconds}ms total={sw.ElapsedMilliseconds}ms");
     }
 
     /// <summary>
