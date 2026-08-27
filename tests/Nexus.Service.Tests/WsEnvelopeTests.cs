@@ -31,7 +31,7 @@ public class WsEnvelopeTests
         {
             Processes = new List<ProcessEntry>
             {
-                new() { Name = "chrome", CpuPercent = 12.5, MemoryMb = 512 },
+                new() { Name = "chrome", CpuPercent = 12.5, MemoryMb = 512, StorageBytesPerSec = 1048576 },
             },
             TotalCpu = 45.0,
             TotalMemoryPercent = 67.0,
@@ -46,7 +46,11 @@ public class WsEnvelopeTests
         Assert.Equal("processes", root.GetProperty("t").GetString());
         var d = root.GetProperty("d");
         Assert.Equal(45.0, d.GetProperty("totalCpu").GetDouble());
-        Assert.Equal("chrome", d.GetProperty("processes")[0].GetProperty("name").GetString());
+        var first = d.GetProperty("processes")[0];
+        Assert.Equal("chrome", first.GetProperty("name").GetString());
+        // The AOT source-generated context has to carry the new property, and
+        // it is the only per-process disk figure that reaches the client.
+        Assert.Equal(1048576, first.GetProperty("storageBytesPerSec").GetDouble());
     }
 
     [Fact]
