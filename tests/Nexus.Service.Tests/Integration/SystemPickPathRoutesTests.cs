@@ -20,7 +20,6 @@ namespace Nexus.Service.Tests.Integration;
 /// dialog opens on the host, so it must reject a paired panel session the
 /// same way the gallery picker does.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class SystemPickPathRoutesTests : IDisposable
 {
     private readonly NexusAppFactory _baseFactory;

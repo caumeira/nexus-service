@@ -11,16 +11,6 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Tests.Integration;
 
 /// <summary>
-/// Integration classes that boot a <see cref="NexusAppFactory"/> host join this
-/// collection so only one in-process host runs at a time. Several hosts booting
-/// in parallel contend on process-global state (the Console redirection in
-/// ServiceLog.Initialize, the boot timer) and can deadlock the run. The rest of
-/// the suite still parallelizes normally.
-/// </summary>
-[CollectionDefinition("NexusHost", DisableParallelization = true)]
-public sealed class NexusHostCollection { }
-
-/// <summary>
 /// In-process integration host. Boots the real <c>Program.cs</c> request
 /// pipeline - middleware order, CORS, SecurityHeaders, PathAuth, every mapped
 /// route, the source-generated JSON, and the WebSocket hubs - against an
@@ -51,6 +41,28 @@ public class NexusAppFactory : WebApplicationFactory<Program>
         _configDir = Path.Combine(Path.GetTempPath(), "nexus-itest-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_configDir);
         SettingsPath = Path.Combine(_configDir, "settings.json");
+    }
+
+    /// <summary>
+    /// Drops every persisted setting back to first-run defaults, so ONE host can
+    /// serve a whole test class instead of the class booting a fresh one per test
+    /// (a boot costs ~0.2s; the route classes were paying that 50 times over).
+    /// Call it from the test class constructor, which xUnit runs per test.
+    ///
+    /// Only the settings FILE is reset. Anything a singleton already cached in
+    /// memory survives - including <see cref="Nexus.Service.Auth.TokenService"/>'s
+    /// token, which is what keeps a shared host's bearer valid across the reset.
+    /// A class whose tests depend on a singleton's in-memory state being fresh
+    /// must keep booting its own host.
+    /// </summary>
+    public void ResetSettings()
+    {
+        var store = Services.GetRequiredService<IConfigStore>();
+        // Flush first: Update() queues an async write, and one landing after the
+        // delete would restore the previous test's document.
+        store.FlushNow();
+        try { File.Delete(SettingsPath); } catch { /* already gone */ }
+        store.Reload();
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)

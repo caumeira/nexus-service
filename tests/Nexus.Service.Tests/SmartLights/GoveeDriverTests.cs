@@ -28,7 +28,10 @@ public class GoveeDriverTests : IDisposable
             scanEndpoint: new IPEndPoint(IPAddress.Loopback, _device.Port),
             listenPort: 0,
             controlPort: _device.Port);
-        _driver = new GoveeDriver(_client);
+        // Every "unreachable" answer on the Govee LAN API is a timeout, so the
+        // production windows (2500/2000/1500 ms) would be paid in full by the
+        // discovery and pair-failure cases against a loopback emulator.
+        _driver = new GoveeDriver(_client, scanTimeoutMs: 250, probeTimeoutMs: 250, pingTimeoutMs: 250);
     }
 
     private SmartLight PairedDevice(string extra) => new()

@@ -22,7 +22,6 @@ namespace Nexus.Service.Tests.Integration;
 /// fires only when no dashboard WebSocket is subscribed to the "transfer" topic,
 /// and at most once per request (a batch must not pop one balloon per file).
 /// </summary>
-[Collection("NexusHost")]
 public sealed class TransferAttentionTests : IDisposable
 {
     private readonly NexusAppFactory _baseFactory;

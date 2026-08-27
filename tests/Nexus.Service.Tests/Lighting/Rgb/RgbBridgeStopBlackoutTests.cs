@@ -95,18 +95,27 @@ public class RgbBridgeStopBlackoutTests : IDisposable
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
+    /// <summary>Activates and waits for the per-physical frame buffers, NOT just
+    /// for <c>Devices</c>. The initial-rescan hold delays the first committed
+    /// device list, and the buffers are allocated after it - a blackout can only
+    /// push to a physical that already has one, so waiting on Devices alone
+    /// races that allocation and intermittently sees zero pushes.</summary>
+    private async Task ActivateAndWaitForBuffersAsync()
+    {
+        _bridge.Activate();
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        while (DateTime.UtcNow < deadline && _bridge.PhysicalBufferCount == 0)
+        {
+            await Task.Delay(20);
+        }
+        Assert.NotEmpty(_bridge.Devices);
+        Assert.True(_bridge.PhysicalBufferCount > 0, "per-physical frame buffers were never allocated");
+    }
+
     [Fact]
     public async Task Blackout_pushes_black_to_every_driven_device()
     {
-        _bridge.Activate();
-        // The initial-rescan hold delays the first committed device list, and
-        // the per-physical buffers this blacks out are allocated with it.
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
-        while (DateTime.UtcNow < deadline && _bridge.Devices.Count == 0)
-        {
-            await Task.Delay(50);
-        }
-        Assert.NotEmpty(_bridge.Devices);
+        await ActivateAndWaitForBuffersAsync();
         _controller.ResetOps();
 
         var count = await _bridge.BlackoutAsync();
@@ -120,13 +129,7 @@ public class RgbBridgeStopBlackoutTests : IDisposable
     [Fact]
     public async Task StopAll_blacks_the_devices_out_before_the_subprocess_is_stopped()
     {
-        _bridge.Activate();
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
-        while (DateTime.UtcNow < deadline && _bridge.Devices.Count == 0)
-        {
-            await Task.Delay(50);
-        }
-        Assert.NotEmpty(_bridge.Devices);
+        await ActivateAndWaitForBuffersAsync();
 
         using var gpu = new GpuContext(160, 90);
         using var provider = new LightingProvider(

@@ -30,29 +30,26 @@ namespace Nexus.Service.Tests.StreamDeck;
 /// /streamdeck/* route is LocalhostOnly, which needs a loopback
 /// RemoteIpAddress to pass auth in a WebApplicationFactory test client.
 /// </summary>
-[Collection("NexusHost")]
-public sealed class StreamDeckPresetRoutesTests : IDisposable
+public sealed class StreamDeckPresetRoutesTests : IClassFixture<StreamDeckPresetHostFactory>
 {
-    private readonly string _imageCacheDir = Path.Combine(Path.GetTempPath(), "nexus-streamdeck-preset-cache-" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly StreamDeckPresetHostFactory _host;
 
-    public void Dispose()
+    public StreamDeckPresetRoutesTests(StreamDeckPresetHostFactory host)
     {
-        try { Directory.Delete(_imageCacheDir, recursive: true); } catch { /* best effort */ }
+        _host = host;
+        // One host for the class; the store is what goes back to defaults per
+        // test. These routes read and write settings only - no worker state.
+        _host.ResetSettings();
     }
 
-    private (WebApplicationFactory<Program> factory, HttpClient client) Boot()
+    private string ImageCacheDir => _host.ImageCacheDir;
+
+    private (SharedHost factory, HttpClient client) Boot()
     {
-        var factory = new NexusAppFactory().WithWebHostBuilder(b =>
-            b.ConfigureTestServices(s =>
-            {
-                s.AddTransient<IStartupFilter, LoopbackConnectionFilter>();
-                s.RemoveAll<StreamDeckImageCache>();
-                s.AddSingleton(new StreamDeckImageCache(_imageCacheDir));
-            }));
-        var client = factory.CreateClient();
+        var client = _host.CreateClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", factory.Services.GetRequiredService<TokenService>().Token);
-        return (factory, client);
+            new AuthenticationHeaderValue("Bearer", _host.Services.GetRequiredService<TokenService>().Token);
+        return (new SharedHost(_host.Services), client);
     }
 
     private static StringContent Json(string body) => new(body, Encoding.UTF8, "application/json");
@@ -768,7 +765,7 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
 
             // The preset still references originalHash even though the live
             // slot moved on, so the blob must survive the eviction check.
-            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", originalHash + ".bin")));
+            Assert.True(File.Exists(Path.Combine(ImageCacheDir, "SERIAL-1", originalHash + ".bin")));
         }
     }
 
@@ -790,14 +787,14 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
             var other = new byte[] { 8, 8, 8 };
             var otherHash = StreamDeckImageCache.Hash(other);
             await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", ImageBytes(other));
-            var blobPath = Path.Combine(_imageCacheDir, "SERIAL-1", hash + ".bin");
+            var blobPath = Path.Combine(ImageCacheDir, "SERIAL-1", hash + ".bin");
             Assert.True(File.Exists(blobPath), "the preset should have kept the original blob alive");
 
             var res = await client.DeleteAsync($"/streamdeck/decks/SERIAL-1/presets/{id}");
             Assert.Equal(HttpStatusCode.OK, res.StatusCode);
 
             Assert.False(File.Exists(blobPath));
-            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", otherHash + ".bin")));
+            Assert.True(File.Exists(Path.Combine(ImageCacheDir, "SERIAL-1", otherHash + ".bin")));
         }
     }
 
@@ -818,7 +815,7 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
             var res = await client.DeleteAsync($"/streamdeck/decks/SERIAL-1/presets/{id}");
             Assert.Equal(HttpStatusCode.OK, res.StatusCode);
 
-            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", sharedHash + ".bin")));
+            Assert.True(File.Exists(Path.Combine(ImageCacheDir, "SERIAL-1", sharedHash + ".bin")));
         }
     }
 
@@ -844,7 +841,7 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
             var res = await client.DeleteAsync($"/streamdeck/decks/SERIAL-1/presets/{firstId}");
             Assert.Equal(HttpStatusCode.OK, res.StatusCode);
 
-            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", sharedHash + ".bin")));
+            Assert.True(File.Exists(Path.Combine(ImageCacheDir, "SERIAL-1", sharedHash + ".bin")));
             Assert.NotEmpty(secondId);
         }
     }
@@ -865,7 +862,7 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
             // Replace the live image (the preset keeps originalHash alive here).
             var replacement = new byte[] { 2, 4, 6 };
             await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", ImageBytes(replacement));
-            var blobPath = Path.Combine(_imageCacheDir, "SERIAL-1", originalHash + ".bin");
+            var blobPath = Path.Combine(ImageCacheDir, "SERIAL-1", originalHash + ".bin");
             Assert.True(File.Exists(blobPath));
 
             // saveCurrent re-snapshots the preset onto the replacement image,
@@ -895,15 +892,15 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
             var liveOnly = new byte[] { 2, 2, 2 };
             var liveOnlyHash = StreamDeckImageCache.Hash(liveOnly);
             await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", ImageBytes(liveOnly));
-            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", liveOnlyHash + ".bin")));
+            Assert.True(File.Exists(Path.Combine(ImageCacheDir, "SERIAL-1", liveOnlyHash + ".bin")));
 
             var res = await client.PostAsync($"/streamdeck/decks/SERIAL-1/presets/{id}/activate", null);
             Assert.Equal(HttpStatusCode.OK, res.StatusCode);
 
             // Activate swaps ImageRefs back to the preset's savedHash - nothing
             // references liveOnlyHash anymore, so it must be evicted.
-            Assert.False(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", liveOnlyHash + ".bin")));
-            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", savedHash + ".bin")));
+            Assert.False(File.Exists(Path.Combine(ImageCacheDir, "SERIAL-1", liveOnlyHash + ".bin")));
+            Assert.True(File.Exists(Path.Combine(ImageCacheDir, "SERIAL-1", savedHash + ".bin")));
         }
     }
 

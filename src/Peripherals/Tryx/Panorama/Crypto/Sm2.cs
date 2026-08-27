@@ -27,14 +27,20 @@ public static class Sm2
     private static readonly BigInteger Gy = ParseUnsigned("BC3736A2F4F6779C59BDCEE36B692153D0A9877CC62A474002DF32E52139F0A0");
     private static readonly EcPoint G = new(Gx, Gy);
 
-    public static string Encrypt(string plaintextUtf8, string pubKeyHex)
+    public static string Encrypt(string plaintextUtf8, string pubKeyHex) =>
+        Encrypt(plaintextUtf8, pubKeyHex, ephemeral: null);
+
+    /// <param name="ephemeral">Fixed ephemeral scalar k, for tests that need a
+    /// specific C1. Null draws a fresh random k per attempt, which is the only
+    /// production behaviour - reusing k across messages leaks the private key.</param>
+    internal static string Encrypt(string plaintextUtf8, string pubKeyHex, BigInteger? ephemeral)
     {
         var msg = Encoding.UTF8.GetBytes(plaintextUtf8);
         var pub = ParsePoint(pubKeyHex);
 
         while (true)
         {
-            var k = RandomScalar();
+            var k = ephemeral ?? RandomScalar();
             var c1 = ScalarMultiply(k, G);
             var kp = ScalarMultiply(k, pub);
             var x2 = ToFixedBytes(kp.X);
@@ -46,6 +52,12 @@ public static class Sm2
             var t = Kdf(Concat(x2, y2), msg.Length);
             if (msg.Length > 0 && IsAllZero(t))
             {
+                // A pinned k cannot be re-rolled, so this would spin forever.
+                if (ephemeral is not null)
+                {
+                    throw new CryptographicException("SM2 KDF keystream is all zero for the pinned ephemeral scalar.");
+                }
+
                 continue;
             }
 

@@ -15,7 +15,6 @@ namespace Nexus.Service.Tests.Integration;
 /// (as the auth-middleware tests do). Effect is asserted via the shared
 /// IConfigStore rather than the response body.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class TelemetryConsentIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

@@ -26,7 +26,6 @@ namespace Nexus.Service.Tests.StreamDeck;
 /// Config (the importer's save path). Reuses LoopbackConnectionFilter from
 /// StreamDeckRoutesTests.cs - every /streamdeck/* route is LocalhostOnly.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class ElgatoImportRoutesTests : IDisposable
 {
     private readonly string _imagesDir = Path.Combine(Path.GetTempPath(), "nexus-elgato-route-images-" + Guid.NewGuid().ToString("N")[..8]);

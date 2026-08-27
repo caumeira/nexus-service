@@ -17,7 +17,6 @@ namespace Nexus.Service.Tests.Integration;
 /// platform - the real Windows signature/version/helper pipeline has no
 /// portable unit test, same posture as ProcessIconRouteTests.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class ProcessDetailRouteTests : IDisposable
 {
     private readonly NexusAppFactory _baseFactory;

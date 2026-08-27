@@ -21,7 +21,6 @@ namespace Nexus.Service.Tests.Integration;
 /// exercised off-platform - the SMTC / AppleScript / MPRIS legs need their
 /// respective OS.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class MediaSeekRouteTests
 {
     private sealed class RecordingMediaProvider : IMediaProvider

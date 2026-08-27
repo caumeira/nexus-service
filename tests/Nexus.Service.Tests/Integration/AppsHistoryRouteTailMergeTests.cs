@@ -16,7 +16,6 @@ namespace Nexus.Service.Tests.Integration;
 /// gap a prior review round found (the apps route ignored the unflushed
 /// tail entirely, so its right edge disagreed with /monitoring/history's).
 /// </summary>
-[Collection("NexusHost")]
 public sealed class AppsHistoryRouteTailMergeTests : IDisposable
 {
     private readonly NexusAppFactory _baseFactory;

@@ -13,7 +13,6 @@ namespace Nexus.Service.Tests.Integration;
 /// CorsConfigTests) could not cover. Uses <see cref="TestServer.SendAsync"/>
 /// to set RemoteIpAddress for the loopback-gated paths.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class AuthMiddlewareIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;

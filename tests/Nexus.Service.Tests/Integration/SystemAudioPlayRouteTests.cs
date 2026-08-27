@@ -13,7 +13,6 @@ namespace Nexus.Service.Tests.Integration;
 /// reachable from a paired panel session, matching every other deck-action
 /// route in SystemRoutes.cs.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class SystemAudioPlayRouteTests : IDisposable
 {
     private readonly NexusAppFactory _baseFactory;

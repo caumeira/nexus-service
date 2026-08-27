@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Monitoring.History.Binary;
@@ -80,6 +81,9 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
         const int simulatedTicks = 500;
         const int distinctApps = 100; // > TopAppsPerSample, so every tick saturates the cap.
         var random = new Random(1);
+        // One batched Append instead of 500: identical rows and on-disk bytes,
+        // without paying 500 segment writes in a test that only measures size.
+        var ticks = new List<AppUsageTick>(simulatedTicks);
 
         for (var t = 0; t < simulatedTicks; t++)
         {
@@ -95,13 +99,14 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
                 .Select(i => new AppUsagePoint($"app{i}.exe", random.Next(1, 500_000) / 10.0, null))
                 .ToList();
 
-            var tick = new AppUsageTick(ts, new[]
+            ticks.Add(new AppUsageTick(ts, new[]
             {
                 new AppMetricSample("cpu", cpuApps),
                 new AppMetricSample("memory", memApps),
-            });
-            Store.Append(new[] { tick }, null);
+            }));
         }
+
+        Store.Append(ticks, null);
 
         var bytesForSimulatedWindow = MeasureStorageBytes();
         var rowsWritten = (long)simulatedTicks * MetricsHistory.TopAppsPerSample * 2; // cpu + memory
@@ -134,6 +139,9 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
         const int simulatedTicks = 500;
         const int distinctApps = 100; // > TopAppsPerSample, so every tick saturates the cap.
         var random = new Random(1);
+        // One batched Append instead of 500: identical rows and on-disk bytes,
+        // without paying 500 segment writes in a test that only measures size.
+        var ticks = new List<AppUsageTick>(simulatedTicks);
 
         for (var t = 0; t < simulatedTicks; t++)
         {
@@ -144,9 +152,10 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
                 .Select(i => new AppUsagePoint($"app{i}.exe", random.Next(1, 50_000_000), null))
                 .ToList();
 
-            var tick = new AppUsageTick(ts, new[] { new AppMetricSample("storage", storageApps) });
-            Store.Append(new[] { tick }, null);
+            ticks.Add(new AppUsageTick(ts, new[] { new AppMetricSample("storage", storageApps) }));
         }
+
+        Store.Append(ticks, null);
 
         var bytesForSimulatedWindow = MeasureStorageBytes();
         var rowsWritten = (long)simulatedTicks * MetricsHistory.TopAppsPerSample;
@@ -179,6 +188,9 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
     {
         const int simulatedTicks = 500;
         var random = new Random(1);
+        // One batched Append instead of 500: identical rows and on-disk bytes,
+        // without paying 500 segment writes in a test that only measures size.
+        var ticks = new List<AppUsageTick>(simulatedTicks);
 
         var scalarSample = new MetricSample(1_000_000, null, null, null, null, null,
             new[] { new GpuReading("gpu-0", "RTX 5080", "", 50, 60) }, Array.Empty<FanReading>());
@@ -190,8 +202,10 @@ public abstract class AppUsageStorageEstimateSpec : IDisposable
             var vramApps = Enumerable.Range(0, MetricsHistory.TopAppsPerSample)
                 .Select(i => new AppUsagePoint($"app{i}.exe", random.Next(1, 20_000), null))
                 .ToList();
-            Store.Append(new[] { new AppUsageTick(ts, new[] { new AppMetricSample("vram:gpu-0", vramApps) }) }, null);
+            ticks.Add(new AppUsageTick(ts, new[] { new AppMetricSample("vram:gpu-0", vramApps) }));
         }
+
+        Store.Append(ticks, null);
 
         var bytesForSimulatedWindow = MeasureStorageBytes();
         var rowsWritten = (long)simulatedTicks * MetricsHistory.TopAppsPerSample;

@@ -542,6 +542,18 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
     }
 
+    /// <summary>Drops every deck's tracked page and folder path. Test seam: the
+    /// route tests share one host per class, so nav state set by one test would
+    /// otherwise still be there for the next.</summary>
+    internal void ResetNavigationForTests()
+    {
+        lock (_lock)
+        {
+            _folderPathsBySerial.Clear();
+            _currentPageBySerial.Clear();
+        }
+    }
+
     /// <summary>
     /// Tears down the currently tracked simulated surface, if any: removes it
     /// from _surfaces and clears its serial-keyed nav/idle state, mirroring

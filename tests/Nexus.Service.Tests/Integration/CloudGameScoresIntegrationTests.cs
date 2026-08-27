@@ -33,7 +33,6 @@ public sealed class CloudGameScoresAppFactory : NexusAppFactory
     }
 }
 
-[Collection("NexusHost")]
 public sealed class CloudGameScoresIntegrationTests : IClassFixture<CloudGameScoresAppFactory>
 {
     private readonly CloudGameScoresAppFactory _factory;

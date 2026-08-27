@@ -35,7 +35,6 @@ public sealed class CloudAccountDevicesAppFactory : NexusAppFactory
     }
 }
 
-[Collection("NexusHost")]
 public sealed class CloudAccountDevicesIntegrationTests : IClassFixture<CloudAccountDevicesAppFactory>
 {
     private readonly CloudAccountDevicesAppFactory _factory;

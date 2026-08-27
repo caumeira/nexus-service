@@ -11,7 +11,6 @@ namespace Nexus.Service.Tests.Integration;
 /// JsonConfigStore (temp-isolated) → route path. Replaces the unit suite's
 /// TestableConfigStore fake with a test of the actual persistence wiring.
 /// </summary>
-[Collection("NexusHost")]
 public sealed class ConfigRoundTripIntegrationTests : IClassFixture<NexusAppFactory>
 {
     private readonly NexusAppFactory _factory;
