@@ -160,10 +160,16 @@ internal static class WindowsUserHelper
         // forwarded as argv, with the service-side env var as the fallback for
         // a helper started by hand. Configure before any poller is constructed.
         var disableArg = Array.Find(args, a => a.StartsWith(Helper.HelperPollerDiagnostics.HelperArgPrefix, StringComparison.Ordinal));
+        var disableFile = Path.Combine(
+            Nexus.Service.Platform.ServiceLog.LogsDirectory,
+            Helper.HelperPollerDiagnostics.DisableFileName);
         Helper.HelperPollerDiagnostics.Configure(
             disableArg is not null
                 ? disableArg.Substring(Helper.HelperPollerDiagnostics.HelperArgPrefix.Length)
-                : Environment.GetEnvironmentVariable(Helper.HelperPollerDiagnostics.EnvVarName));
+                : Environment.GetEnvironmentVariable(Helper.HelperPollerDiagnostics.EnvVarName),
+            disableFile);
+        Nexus.Service.Platform.ServiceLog.Info(
+            $"[helper-perf] switch file: {disableFile}");
         Nexus.Service.Platform.ServiceLog.Info(
             Helper.HelperPollerDiagnostics.FormatStartupLine(Helper.HelperPollerDiagnostics.Current));
 

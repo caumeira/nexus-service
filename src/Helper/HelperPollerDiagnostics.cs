@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Threading;
 
 namespace Nexus.Service.Helper;
 
@@ -34,7 +36,23 @@ public static class HelperPollerDiagnostics
     /// <summary>A tick slower than this is worth a log line; a healthy pass is single-digit ms.</summary>
     public const int SlowPassMs = 25;
 
+    /// <summary>
+    /// Live switch file, re-read on a short interval so the reporter can turn a
+    /// poller off and back on by saving a text file - no admin, no service
+    /// restart, no killing the helper (it holds a session mutex, so a restart
+    /// alone would leave the old un-switched helper polling and the test would
+    /// silently prove nothing). It sits in the logs directory because that is
+    /// the one path the user-session helper is known to write, and it lands
+    /// beside the logs the reporter collects anyway.
+    /// </summary>
+    public const string DisableFileName = "helper-disable.txt";
+
+    private static readonly TimeSpan RecheckInterval = TimeSpan.FromSeconds(2);
+    private static readonly object s_gate = new();
     private static HashSet<string> s_disabled = new(StringComparer.OrdinalIgnoreCase);
+    private static long s_nextCheckTicks;
+    private static string? s_filePath;
+    private static bool s_fromEnv;
 
     /// <summary>
     /// Comma- or space-separated poller names, case-insensitive. An unrecognized
@@ -48,7 +66,7 @@ public static class HelperPollerDiagnostics
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(value)) return set;
-        foreach (var part in value.Split(new[] { ',', ' ', ';' }, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var part in value.Split(new[] { ',', ' ', ';', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
         {
             var name = part.Trim();
             if (name.Length > 0 && IsSafeToken(name)) set.Add(name);
@@ -67,10 +85,65 @@ public static class HelperPollerDiagnostics
         return true;
     }
 
-    /// <summary>Called once from WindowsUserHelper.Run, before any poller is constructed.</summary>
-    public static void Configure(string? value) => s_disabled = Parse(value);
+    /// <summary>
+    /// Called once from WindowsUserHelper.Run, before any poller is constructed.
+    /// A non-empty argv/env value pins the set for the process lifetime; otherwise
+    /// the switch file owns it and is re-read as the pollers tick.
+    /// </summary>
+    public static void Configure(string? value, string? filePath)
+    {
+        lock (s_gate)
+        {
+            s_filePath = filePath;
+            var pinned = Parse(value);
+            s_fromEnv = pinned.Count > 0;
+            s_disabled = s_fromEnv ? pinned : ReadFile(filePath);
+            s_nextCheckTicks = Environment.TickCount64 + (long)RecheckInterval.TotalMilliseconds;
+        }
+    }
 
-    public static bool IsDisabled(string poller) => s_disabled.Contains(poller);
+    public static bool IsDisabled(string poller)
+    {
+        RefreshIfDue();
+        return Volatile.Read(ref s_disabled).Contains(poller);
+    }
+
+    /// <summary>
+    /// Cheap enough to sit on every poller tick: a File.Exists plus a short read,
+    /// at most once per RecheckInterval across all callers.
+    /// </summary>
+    private static void RefreshIfDue()
+    {
+        if (s_fromEnv) return;
+        if (Environment.TickCount64 < Volatile.Read(ref s_nextCheckTicks)) return;
+
+        lock (s_gate)
+        {
+            if (s_fromEnv || Environment.TickCount64 < s_nextCheckTicks) return;
+            s_nextCheckTicks = Environment.TickCount64 + (long)RecheckInterval.TotalMilliseconds;
+
+            var next = ReadFile(s_filePath);
+            if (next.SetEquals(s_disabled)) return;
+            s_disabled = next;
+            Nexus.Service.Platform.ServiceLog.Info(FormatStartupLine(next));
+        }
+    }
+
+    /// <summary>Missing or unreadable file means every poller runs - the default.</summary>
+    private static HashSet<string> ReadFile(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            return File.Exists(path) ? Parse(File.ReadAllText(path)) : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // Mid-save read, or the file locked by the editor: keep the current
+            // set rather than flipping every poller back on for one tick.
+            return s_disabled;
+        }
+    }
 
     /// <summary>
     /// One line at helper start so a collected log is unambiguous about what was
@@ -104,5 +177,5 @@ public static class HelperPollerDiagnostics
         $"[helper-perf] {poller} pass={elapsedMs:F1}ms items={items}";
 
     /// <summary>Exposed for the startup line; Configure already stored it.</summary>
-    public static HashSet<string> Current => s_disabled;
+    public static HashSet<string> Current => Volatile.Read(ref s_disabled);
 }

@@ -1,3 +1,5 @@
+using System.IO;
+using System.Threading.Tasks;
 using Nexus.Service.Helper;
 using Xunit;
 
@@ -107,13 +109,77 @@ public class HelperPollerDiagnosticsTests
     {
         try
         {
-            HelperPollerDiagnostics.Configure("windowset");
+            HelperPollerDiagnostics.Configure("windowset", filePath: null);
             Assert.True(HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.WindowSet));
             Assert.False(HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.Audio));
         }
         finally
         {
-            HelperPollerDiagnostics.Configure(null);
+            HelperPollerDiagnostics.Configure(null, filePath: null);
+        }
+    }
+
+    [Fact]
+    public void Configure_ReadsSwitchFile_WhenNoEnvValue()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            File.WriteAllText(path, "audio\n");
+            HelperPollerDiagnostics.Configure(null, path);
+            Assert.True(HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.Audio));
+        }
+        finally
+        {
+            HelperPollerDiagnostics.Configure(null, filePath: null);
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    // The whole point of the switch file: the reporter edits it and the poller
+    // stops without restarting anything.
+    [Fact]
+    public async Task SwitchFile_IsRePickedUp_WithoutReconfigure()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            HelperPollerDiagnostics.Configure(null, path);
+            Assert.False(HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.WindowSet));
+
+            File.WriteAllText(path, "windowset");
+            await Task.Delay(2200);
+            Assert.True(HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.WindowSet));
+
+            File.Delete(path);
+            await Task.Delay(2200);
+            Assert.False(HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.WindowSet));
+        }
+        finally
+        {
+            HelperPollerDiagnostics.Configure(null, filePath: null);
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    // An env/argv value must win outright, so a stale file on disk cannot
+    // quietly re-enable something the operator pinned off.
+    [Fact]
+    public async Task EnvValue_PinsSet_AndIgnoresSwitchFile()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            File.WriteAllText(path, "audio");
+            HelperPollerDiagnostics.Configure("windowset", path);
+            Assert.True(HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.WindowSet));
+            await Task.Delay(2200);
+            Assert.False(HelperPollerDiagnostics.IsDisabled(HelperPollerDiagnostics.Audio));
+        }
+        finally
+        {
+            HelperPollerDiagnostics.Configure(null, filePath: null);
+            try { File.Delete(path); } catch { }
         }
     }
 }
