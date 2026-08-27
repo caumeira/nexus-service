@@ -87,10 +87,6 @@ public sealed class Slv3Hub : IDisposable
     // non-converging (fan unreachable); ~1 s per tick.
     private const int PendingOpTickBudget = 15;
 
-    // L-Connect's NeedSyncPwm threshold: a driven port is only re-commanded
-    // once its reported duty is more than this off target.
-    private const int NeedSyncPwmDelta = 5;
-
     // Header-repeat tiers for RGB pushes (no CRC on this link - see
     // SendRgbFrame). Reliable = one-shot effect application: 4 repeats spaced
     // ~20 ms or the collided header locks the controller up. Streaming = a
@@ -579,34 +575,22 @@ public sealed class Slv3Hub : IDisposable
 
     /// <summary>
     /// Whether this tick's bind/PWM keepalive carries anything the chain does
-    /// not already have: nothing sent to it yet on this link, a changed target
-    /// tuple, or a driven port whose reported duty has drifted more than
-    /// <see cref="NeedSyncPwmDelta"/> off target. A port left on the
-    /// motherboard header reports the header's duty rather than the
-    /// <see cref="Slv3Protocol.PwmFollowMotherboard"/> sentinel, so it is
-    /// compared by intent only and never re-sent on drift. Caller holds _lock.
+    /// not already have: nothing sent to it yet on this link, or a changed
+    /// target tuple.
+    ///
+    /// Intent only, deliberately. L-Connect's `NeedSyncPwm` also re-sends when
+    /// a port's REPORTED duty drifts off target, but this firmware reports
+    /// `fans_pwm` as all-zero whatever the commanded duty is, which
+    /// `TryParseRecord` then reads as 100 for a spinning fan (Y70, hardware:
+    /// commanded 14 and 100 both report 100 and both hold ~590 rpm). A drift
+    /// comparison against that can never converge, so it degenerates into the
+    /// per-tick re-bind this gate exists to prevent. Caller holds _lock.
     /// </summary>
     private bool NeedsBindFrameLocked(Slv3DeviceRecord record)
     {
         var pwm = Slv3Protocol.BuildPwmTuple(DutyTargetsLocked(record.Mac), record.FanCount, record.Family);
-        if (!_lastPwmSent.TryGetValue(Convert.ToHexString(record.Mac), out var last)
-            || !last.AsSpan().SequenceEqual(pwm))
-        {
-            return true;
-        }
-        for (var port = 0; port < pwm.Length; port++)
-        {
-            if (pwm[port] == 0 || pwm[port] == Slv3Protocol.PwmFollowMotherboard)
-            {
-                continue;
-            }
-            var reported = port < record.Pwm.Length ? record.Pwm[port] : 0;
-            if (Math.Abs(reported - pwm[port]) > NeedSyncPwmDelta)
-            {
-                return true;
-            }
-        }
-        return false;
+        return !_lastPwmSent.TryGetValue(Convert.ToHexString(record.Mac), out var last)
+            || !last.AsSpan().SequenceEqual(pwm);
     }
 
     // Caller holds _lock.

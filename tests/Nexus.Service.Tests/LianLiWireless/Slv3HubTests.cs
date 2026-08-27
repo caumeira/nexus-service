@@ -626,6 +626,27 @@ public class Slv3HubTests
     }
 
     [Fact]
+    public void DriveTick_keeps_quiet_when_the_chain_reports_a_duty_that_never_matches()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.Bind(Convert.ToHexString(FanMac)));
+        Assert.True(hub.DriveTick());
+
+        // The fake reports fans_pwm as all-zero, exactly like the real
+        // firmware, so a reported-duty comparison could never converge and
+        // would re-bind on every tick.
+        Assert.True(hub.SetPortDuty(Convert.ToHexString(FanMac), 0, 50));
+        Assert.True(hub.DriveTick());
+        var settled = CountBindFrames(tx);
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+        Assert.Equal(settled, CountBindFrames(tx));
+    }
+
+    [Fact]
     public void DriveTick_re_binds_once_a_port_duty_changes()
     {
         var (hub, net, tx, _) = CreateConnectedHub();
