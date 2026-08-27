@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -96,6 +97,23 @@ public class HelperPollerDiagnosticsTests
         var set = HelperPollerDiagnostics.Parse("audio,<script>");
         Assert.Single(set);
         Assert.Contains(HelperPollerDiagnostics.Audio, set);
+    }
+
+    // No log spam: a stuck poller trips every tick, and one line every few
+    // seconds for hours would bury the rest of the file.
+    [Fact]
+    public void TryFormatSlowPass_EmitsOnce_ThenSuppressesAndCounts()
+    {
+        var poller = "spamtest-" + Guid.NewGuid().ToString("N");
+        Assert.True(HelperPollerDiagnostics.TryFormatSlowPass(poller, 250, 400, out var first));
+        Assert.Contains("pass=250.0ms", first);
+        Assert.DoesNotContain("more in the last", first);
+
+        for (var i = 0; i < 20; i++)
+        {
+            Assert.False(HelperPollerDiagnostics.TryFormatSlowPass(poller, 250, 400, out var line));
+            Assert.Equal("", line);
+        }
     }
 
     [Fact]

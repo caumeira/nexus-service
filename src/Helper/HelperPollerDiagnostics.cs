@@ -33,8 +33,22 @@ public static class HelperPollerDiagnostics
 
     public static readonly string[] Known = { WindowSet, ScreenTime, Audio, Watchdog };
 
-    /// <summary>A tick slower than this is worth a log line; a healthy pass is single-digit ms.</summary>
-    public const int SlowPassMs = 25;
+    /// <summary>
+    /// A tick slower than this is worth a log line. Set at the rough floor of
+    /// human-perceptible hitching: below it there is nothing for a user to
+    /// notice, so a line would be noise. A healthy pass is single-digit ms.
+    /// </summary>
+    public const int SlowPassMs = 100;
+
+    /// <summary>
+    /// At most one slow-pass line per poller per minute. A genuinely stuck
+    /// poller trips on every tick, and a line every few seconds for hours is
+    /// log spam that buries the rest of the file; the suppressed count carries
+    /// the frequency instead.
+    /// </summary>
+    private static readonly TimeSpan SlowPassLogInterval = TimeSpan.FromSeconds(60);
+    private static readonly Dictionary<string, (long NextTicks, int Suppressed)> s_slowPassGate =
+        new(StringComparer.Ordinal);
 
     /// <summary>
     /// Live switch file, re-read on a short interval so the reporter can turn a
@@ -185,6 +199,34 @@ public static class HelperPollerDiagnostics
 
     public static string FormatSlowPass(string poller, double elapsedMs, int items) =>
         $"[helper-perf] {poller} pass={elapsedMs:F1}ms items={items}";
+
+    /// <summary>
+    /// Rate-limited slow-pass line. Returns false when this poller already
+    /// reported inside the last <see cref="SlowPassLogInterval"/>; the
+    /// occurrence is counted and reported on the next line that does emit.
+    /// Callers on several poller threads, so the gate is locked.
+    /// </summary>
+    public static bool TryFormatSlowPass(string poller, double elapsedMs, int items, out string line)
+    {
+        int suppressed;
+        lock (s_gate)
+        {
+            var now = Environment.TickCount64;
+            if (s_slowPassGate.TryGetValue(poller, out var gate) && now < gate.NextTicks)
+            {
+                s_slowPassGate[poller] = (gate.NextTicks, gate.Suppressed + 1);
+                line = "";
+                return false;
+            }
+
+            suppressed = gate.Suppressed;
+            s_slowPassGate[poller] = (now + (long)SlowPassLogInterval.TotalMilliseconds, 0);
+        }
+
+        line = FormatSlowPass(poller, elapsedMs, items);
+        if (suppressed > 0) line += $" (+{suppressed} more in the last {SlowPassLogInterval.TotalSeconds:F0}s)";
+        return true;
+    }
 
     /// <summary>Exposed for the startup line; Configure already stored it.</summary>
     public static HashSet<string> Current => Volatile.Read(ref s_disabled);

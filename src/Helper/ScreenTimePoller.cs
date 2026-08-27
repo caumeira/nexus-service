@@ -80,10 +80,11 @@ public sealed class ScreenTimePoller : IDisposable
         finally
         {
             sw.Stop();
-            if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs)
+            if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs
+                && HelperPollerDiagnostics.TryFormatSlowPass(
+                    HelperPollerDiagnostics.ScreenTime, sw.Elapsed.TotalMilliseconds, 1, out var slow))
             {
-                Nexus.Service.Platform.HelperLog.Write(HelperPollerDiagnostics.FormatSlowPass(
-                    HelperPollerDiagnostics.ScreenTime, sw.Elapsed.TotalMilliseconds, 1));
+                Nexus.Service.Platform.HelperLog.Write(slow);
             }
         }
     }

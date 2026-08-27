@@ -84,10 +84,11 @@ public sealed class AudioSessionPusher : IDisposable
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var sessions = _enumerator.Snapshot();
                 sw.Stop();
-                if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs)
+                if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs
+                    && HelperPollerDiagnostics.TryFormatSlowPass(
+                        HelperPollerDiagnostics.Audio, sw.Elapsed.TotalMilliseconds, sessions.Count, out var slow))
                 {
-                    Nexus.Service.Platform.HelperLog.Write(HelperPollerDiagnostics.FormatSlowPass(
-                        HelperPollerDiagnostics.Audio, sw.Elapsed.TotalMilliseconds, sessions.Count));
+                    Nexus.Service.Platform.HelperLog.Write(slow);
                 }
                 // Peaks move every sample; carrying them while nobody is
                 // watching would turn the idle pass into a push every second.

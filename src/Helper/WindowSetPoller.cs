@@ -31,6 +31,15 @@ namespace Nexus.Service.Helper;
 [SupportedOSPlatform("windows")]
 public sealed class WindowSetPoller : IDisposable
 {
+    /// <summary>
+    /// 5 s, matching MonitoringEventCollector's own poll - it is the only
+    /// always-on consumer, so anything faster was oversampling. The other
+    /// consumer (the processes frame's App/Background split) is demand-gated
+    /// UI, where a newly launched app settling into its group a few seconds
+    /// later is not perceptible.
+    /// </summary>
+    private const int PeriodMs = 5000;
+
     private readonly HelperOutbound _outbound;
     private readonly JitteredPeriodicTimer _timer;
     private readonly bool _diagEnabled;
@@ -51,7 +60,7 @@ public sealed class WindowSetPoller : IDisposable
     {
         _outbound = outbound;
         _diagEnabled = WindowDiagnostics.IsEnabled(Environment.GetEnvironmentVariable(WindowDiagnostics.EnvVarName));
-        _timer = new JitteredPeriodicTimer(periodMs: 2000, jitterMs: 200, Poll);
+        _timer = new JitteredPeriodicTimer(periodMs: PeriodMs, jitterMs: 500, Poll);
     }
 
     private void Poll()
@@ -66,10 +75,11 @@ public sealed class WindowSetPoller : IDisposable
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var current = SnapshotWindowedPids();
             sw.Stop();
-            if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs)
+            if (sw.ElapsedMilliseconds >= HelperPollerDiagnostics.SlowPassMs
+                && HelperPollerDiagnostics.TryFormatSlowPass(
+                    HelperPollerDiagnostics.WindowSet, sw.Elapsed.TotalMilliseconds, _enumerated, out var slow))
             {
-                Nexus.Service.Platform.HelperLog.Write(HelperPollerDiagnostics.FormatSlowPass(
-                    HelperPollerDiagnostics.WindowSet, sw.Elapsed.TotalMilliseconds, _enumerated));
+                Nexus.Service.Platform.HelperLog.Write(slow);
             }
             if (!justReconnected && current.SetEquals(_lastSent)) return;
 
@@ -109,35 +119,52 @@ public sealed class WindowSetPoller : IDisposable
         _pinnedEnumProc = (hwnd, _) =>
         {
             enumerated++;
+            // Cheap, local win32k reads first. These alone decide the outcome
+            // for the large majority of windows, and IsCountableWindow's own
+            // short-circuit order is what makes that safe to rely on.
             var isForegroundWindow = hwnd == foregroundHwnd;
             var owner = GetWindow(hwnd, GwOwner);
             var isToolWindow = (GetWindowLong(hwnd, GwlExstyle) & WsExToolwindow) != 0;
-            var isCloaked = IsCloaked(hwnd);
-            var titleLength = GetWindowTextLength(hwnd);
-            var hasTitle = titleLength > 0;
-            // Must read immediately after GetWindowTextLength, before any other
-            // P/Invoke call, or the Win32 last-error value is clobbered. Read
-            // unconditionally (not diag-only): IsCountableWindow below needs
-            // titleBlockedByUipi for every window, not just logged ones.
-            var titleReadError = !hasTitle ? Marshal.GetLastWin32Error() : 0;
-            var titleBlockedByUipi = titleReadError == ErrorAccessDenied;
+            var isVisible = IsWindowVisible(hwnd);
             var hasOnScreenBounds = GetWindowRect(hwnd, out var rect) &&
                 WindowClassification.HasOnScreenBounds(
                     rect.Left, rect.Top, rect.Right, rect.Bottom,
                     virtualLeft, virtualTop, virtualRight, virtualBottom);
-            // Only load-bearing through IsCountableWindow's (!isCloaked ||
-            // coversMonitor) check - skip the extra monitor lookup for the
-            // vast majority of windows where isCloaked is already false and
-            // the value can never change the outcome.
-            var coversMonitor = isCloaked &&
-                TryGetMonitorBounds(hwnd, out var monitorRect) &&
-                WindowClassification.CoversMonitor(
-                    rect.Left, rect.Top, rect.Right, rect.Bottom,
-                    monitorRect.Left, monitorRect.Top, monitorRect.Right, monitorRect.Bottom);
-            // Evaluated last, same as the pre-diagnostic code (it was the
-            // inline first argument to IsCountableWindow below) - preserved
-            // so the Win32 reads happen in the original order.
-            var isVisible = IsWindowVisible(hwnd);
+
+            // The two calls below leave this process: DwmGetWindowAttribute is an
+            // RPC into dwm.exe and GetWindowTextLength sends WM_GETTEXTLENGTH to
+            // the owning UI thread. Running them for every window cost ~240 ms per
+            // pass on a 467-window desktop and stalled composition system-wide
+            // (Discord report, 2026-08-27). IsCountableWindow only reaches the
+            // terms they feed when owner/bounds/foreground/visible/tool-window
+            // already allow it, so gating on exactly that condition is pure
+            // short-circuit evaluation - the classification is unchanged.
+            var isCloaked = false;
+            var coversMonitor = false;
+            var titleLength = 0;
+            var hasTitle = false;
+            var titleReadError = 0;
+            var titleBlockedByUipi = false;
+            if (_diagEnabled
+                || (owner == IntPtr.Zero && hasOnScreenBounds && !isForegroundWindow
+                    && isVisible && !isToolWindow))
+            {
+                isCloaked = IsCloaked(hwnd);
+                // Only load-bearing through IsCountableWindow's (!isCloaked ||
+                // coversMonitor) check - skip the extra monitor lookup when
+                // isCloaked is false and the value cannot change the outcome.
+                coversMonitor = isCloaked &&
+                    TryGetMonitorBounds(hwnd, out var monitorRect) &&
+                    WindowClassification.CoversMonitor(
+                        rect.Left, rect.Top, rect.Right, rect.Bottom,
+                        monitorRect.Left, monitorRect.Top, monitorRect.Right, monitorRect.Bottom);
+                titleLength = GetWindowTextLength(hwnd);
+                hasTitle = titleLength > 0;
+                // Must read immediately after GetWindowTextLength, before any other
+                // P/Invoke call, or the Win32 last-error value is clobbered.
+                titleReadError = !hasTitle ? Marshal.GetLastWin32Error() : 0;
+                titleBlockedByUipi = titleReadError == ErrorAccessDenied;
+            }
 
             var isCountable = WindowClassification.IsCountableWindow(
                 isVisible, owner, isToolWindow, isCloaked, hasTitle, hasOnScreenBounds,
