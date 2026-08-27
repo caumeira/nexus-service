@@ -834,6 +834,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.HelperShutdownPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OverlayPrefsChangedPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ServiceRequestStopPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.LockInputWatchPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.LockInputSeenPayload))]
 // Diagnostics
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenLogsPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenEventViewerPayload))]

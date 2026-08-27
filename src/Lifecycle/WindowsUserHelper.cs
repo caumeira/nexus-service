@@ -165,6 +165,9 @@ internal static class WindowsUserHelper
         using var screenCapture = new ScreenCapturePusher(outbound);
         using var windowSet = new WindowSetPoller(outbound);
         using var audioMixer = new AudioSessionPusher(outbound);
+        // Idle until the service arms it, which it does only while a lock
+        // blackout is engaged.
+        using var lockInput = new Helper.LockInputPoller(outbound);
         var brightness = new Platform.Displays.WindowsDisplayBrightnessProvider();
 
         // Each domain registers its own envelope handler against this
@@ -183,6 +186,7 @@ internal static class WindowsUserHelper
         // Runs in the user session, so this set lands on the clipboard the
         // user actually pastes from (the service's Session-0 one is invisible).
         new ClipboardHandler(new Platform.Clipboard.WindowsClipboardProvider().SetText).Register(handlerRegistry);
+        new LockLightingHandler(lockInput.SetArmed).Register(handlerRegistry);
         new LifecycleHandler(
             onShutdown: () =>
             {
