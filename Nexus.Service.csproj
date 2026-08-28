@@ -896,38 +896,46 @@
     <Delete Files="$(_OverlayPublishDir)nexus-overlay.pdb" />
   </Target>
 
-  <!-- Bundled SDK apps. Live in the separate `nexus-apps` submodule
-       (../nexus-apps in this layout): apps/<id>/ is source, and its
-       `npm run build` assembles dist/<id>/ - the complete, source-free ship
-       tree. We copy that wholesale, exactly as BuildWebForService copies
-       nexus-web's dist/ into wwwroot, so this file needs no per-file knowledge
-       of an app's payload. -->
+  <!-- Bundled SDK apps, from the separate private `nexus-apps` submodule
+       (../nexus-apps in this layout). apps/<id>/ is source; that repo's
+       `npm run build` assembles a complete, source-free ship tree, which we
+       copy wholesale - exactly as BuildWebForService copies nexus-web's dist
+       into wwwroot - so this file needs no per-file knowledge of a payload.
+       Building it here (rather than committing the bundle) keeps what ships in
+       step with the SDK runtime it is built against.
+
+       nexus-apps is OPTIONAL and private: a tree without it builds a complete
+       service that ships zero bundled apps, which AppRegistry already handles
+       (AppInstallPaths hands it a root that does not exist, and the scan
+       returns). Do not reinstate a hard error for the ABSENT case - it makes a
+       public clone of the umbrella unbuildable. The one error below is
+       narrower and fires only when the repo IS present but predates the ship
+       tree, which would otherwise ship an app-less build with no signal.
+
+       NOTE: NexusAppsRoot now names the repo ROOT, not its apps/ subdir - the
+       build script lives at the root. -->
   <PropertyGroup>
     <NexusAppsRoot Condition="'$(NexusAppsRoot)' == ''">$(MSBuildThisFileDirectory)..\nexus-apps</NexusAppsRoot>
-    <!-- Assembled under THIS project's obj/, not in nexus-apps. Every worktree
-         reaches that repo through a symlink to one shared checkout, so a shared
-         output dir would let concurrent builds race (and would dirty another
-         checkout's working tree on every build). -->
+    <NexusAppsAvailable>false</NexusAppsAvailable>
+    <NexusAppsAvailable Condition="Exists('$(NexusAppsRoot)')">true</NexusAppsAvailable>
     <!-- Absolute: the build Exec runs with WorkingDirectory=$(NexusAppsRoot),
-         so a relative out path would land in the payload repo, not here. -->
+         so a relative out path would land in the payload repo, not here. Under
+         this project's obj/ because every worktree reaches nexus-apps through a
+         symlink to ONE shared checkout - a shared output tree would let
+         concurrent builds race and would dirty another checkout. -->
     <NexusAppsDist Condition="'$(NexusAppsDist)' == ''">$(MSBuildThisFileDirectory)$(BaseIntermediateOutputPath)nexus-apps-dist</NexusAppsDist>
   </PropertyGroup>
-
-  <!-- The payload repo is private, so a standalone public clone won't have it.
-       Warn and ship zero bundled apps rather than failing the build. -->
-  <Target Name="CheckNexusAppsSubmodule" BeforeTargets="BeforeBuild" Condition="'$(BuildApps)' != 'false'">
-    <Warning Condition="!Exists('$(NexusAppsRoot)')"
-             Text="nexus-apps not present at $(NexusAppsRoot); building with no bundled apps. Run: git submodule update --init nexus-apps" />
+  <Target Name="ReportNexusAppsSubmodule" BeforeTargets="BeforeBuild">
+    <Message Importance="high" Condition="'$(NexusAppsAvailable)' != 'true'"
+             Text="nexus-apps not present at $(NexusAppsRoot); building with no bundled apps. To include them: git submodule update --init nexus-apps" />
   </Target>
 
-  <!-- Assemble dist/ from source. The bundler resolves its deps from
+  <!-- Assemble the ship tree from source. The bundler resolves its deps from
        nexus-web/sdk/node_modules (an isolated react@18 project - the host app
-       is react@19), which CI installs explicitly; a job that has no node must
-       pass -p:BuildApps=false, the same escape hatch BuildWeb offers. -->
+       is react@19), which CI installs explicitly; a job with no node passes
+       -p:BuildApps=false, the same escape hatch BuildWeb offers. -->
   <Target Name="BuildAppsForService" BeforeTargets="Build"
-          Condition="'$(BuildApps)' != 'false' AND Exists('$(NexusAppsRoot)')">
-    <!-- Present but pre-dist (a parent that bumped nexus-service without
-         nexus-apps): stop, rather than silently shipping an app-less build. -->
+          Condition="'$(BuildApps)' != 'false' AND '$(NexusAppsAvailable)' == 'true'">
     <Error Condition="!Exists('$(NexusAppsRoot)\scripts\build.mjs')"
            Text="nexus-apps at $(NexusAppsRoot) has no scripts/build.mjs - its pointer is behind this nexus-service. Bump both submodules together, or pass -p:BuildApps=false to build without bundled apps." />
     <Message Text="Building nexus-apps payload..." Importance="high" />
@@ -936,10 +944,10 @@
            Text="nexus-apps build produced no payload at $(NexusAppsDist)." />
   </Target>
 
-  <!-- Copied by target, not a Content glob: dist/ is generated by the target
-       above, and a Content ItemGroup is evaluated before any target runs, so a
-       static glob would never see it. Both item groups live inside their
-       targets for the same reason. -->
+  <!-- Copied by target, not a Content glob: the ship tree is generated by the
+       target above, and a Content ItemGroup is evaluated before any target
+       runs, so a static glob would never see it. Both item groups live inside
+       their targets for the same reason. -->
   <Target Name="CopyAppsToOutput" AfterTargets="BuildAppsForService" Condition="Exists('$(NexusAppsDist)')">
     <RemoveDir Directories="$(OutputPath)apps" Condition="Exists('$(OutputPath)apps')" />
     <ItemGroup>
@@ -967,6 +975,7 @@
           DestinationFiles="@(_NexusAppPublishFile->'$(_NexusPublishDir)apps/%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
+
 
   <!-- GitHub Actions sets GITHUB_ACTIONS=true on every runner; nothing local
        (including a build-pc tar sync, which has no .git) sets it. build.yml
