@@ -180,7 +180,14 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// unconditionally with no check for an existing controller, so the dedupe
     /// has to happen here.
     /// </summary>
-    private static readonly string[] DisabledDetectors = { "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub", "HID LampArray Device" };
+    private static readonly string[] DisabledDetectors = {
+        "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub", "HID LampArray Device",
+        // Nollie controllers are driven natively; names match the
+        // REGISTER_HID_DETECTOR strings in openrgb-headless.
+        "Nollie 32CH", "Nollie 16CH", "Nollie 8CH", "Nollie 1CH", "Nollie 28 12", "Nollie 28 L1",
+        "Nollie 28 L2", "Nollie 32_OS2", "Nollie 16_OS2", "Nollie 8_OS2", "Nollie 1_OS2",
+        "Nollie 32_OS2_1", "Nollie 16_OS2_1", "Nollie 8_OS2_1", "Prism8 8_OS2_1", "Nollie 1_OS2_1",
+    };
 
     /// <summary>
     /// Detector names the user excluded by turning Nexus Control off for every

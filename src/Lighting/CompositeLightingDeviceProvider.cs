@@ -29,6 +29,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly CorsairLinkLightingDeviceProvider _corsair;
     private readonly StrimerLightingDeviceProvider _strimer;
     private readonly Galahad2LightingDeviceProvider _galahad2;
+    private readonly NollieLightingDeviceProvider _nollie;
     private readonly Nexus.Service.Lighting.Smart.SmartLightProvider _smart;
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
@@ -46,6 +47,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         CorsairLinkLightingDeviceProvider corsair,
         StrimerLightingDeviceProvider strimer,
         Galahad2LightingDeviceProvider galahad2,
+        NollieLightingDeviceProvider nollie,
         Nexus.Service.Lighting.Smart.SmartLightProvider smart,
         IConfigStore store,
         LightingEngine engine)
@@ -62,12 +64,13 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _corsair  = corsair;
         _strimer  = strimer;
         _galahad2 = galahad2;
+        _nollie   = nollie;
         _smart    = smart;
         _store    = store;
         _engine   = engine;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _lianLiWireless.IsConnected || _corsair.IsConnected || _strimer.IsConnected || _galahad2.IsConnected || _smart.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _lianLiWireless.IsConnected || _corsair.IsConnected || _strimer.IsConnected || _galahad2.IsConnected || _nollie.IsConnected || _smart.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -151,6 +154,15 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
                 rgb.Devices.RemoveAll(d =>
                     d.Name.Contains("GAII", StringComparison.OrdinalIgnoreCase));
             }
+            if (_nollie.IsConnected)
+            {
+                // Nollie detectors are disabled in openrgb-headless; strip by
+                // name too so a stale entry can't shadow the native cards. The
+                // Prism8 shares the firmware and OpenRGB's naming.
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("Nollie", StringComparison.OrdinalIgnoreCase) ||
+                    d.Name.Contains("Prism8", StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         var hub = _np50.GetAll();
@@ -164,6 +176,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         {
             rgb.IsInit = rgb.IsInit || mini.IsInit;
             rgb.Devices.AddRange(mini.Devices);
+        }
+        var nollie = _nollie.GetAll();
+        if (nollie.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || nollie.IsInit;
+            rgb.Devices.AddRange(nollie.Devices);
         }
         var smart = _smartHub.GetAll();
         if (smart.Devices.Count > 0)
@@ -341,6 +359,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         : IsCorsairId(id)    ? _corsair
         : IsStrimerId(id)    ? _strimer
         : IsGalahad2Id(id)   ? _galahad2
+        : IsNollieId(id)     ? _nollie
         : _smart.Owns(id)    ? _smart
         : _openRgb;
 
@@ -352,6 +371,9 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
 
     private static bool IsSmartHubId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("smarthub:", StringComparison.Ordinal);
+
+    private static bool IsNollieId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("nollie-", StringComparison.Ordinal);
 
     private static bool IsCnvsId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("cnvs:", StringComparison.Ordinal);

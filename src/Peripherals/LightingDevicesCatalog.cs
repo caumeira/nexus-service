@@ -176,12 +176,13 @@ public static class LightingDevicesCatalog
     /// <summary>
     /// OpenRGB controllers whose hardware Nexus now drives natively; their rows are
     /// skipped from the OpenRGB catalog so the curated FirstPartyDevices entries are
-    /// the single source. Both map 1:1 to native drivers under src/Peripherals/.
+    /// the single source. Each maps 1:1 to a native driver under src/Peripherals/.
     /// </summary>
     private static readonly HashSet<string> NativelyDrivenControllers = new()
     {
         "LianLiController",           // Uni Fan family, Strimer, Galahad II
         "CorsairICueLinkController",  // iCUE LINK System Hub
+        "NollieController",           // Nollie ARGB channel controllers + Prism8
     };
 
     /// <summary>
@@ -217,6 +218,25 @@ public static class LightingDevicesCatalog
         Native("Lian Li", "L-Wireless Kit",         "fan",      "0x0416", "0x8040"),
         Native("Lian Li", "SL-LCD",                 "light",    "0x1CBE", "0x0005", screen: true),
         Native("Lian Li", "TL-LCD",                 "light",    "0x1CBE", "0x0006", screen: true),
+
+        // Nollie - VID/PIDs from src/Peripherals/Nollie/NollieProtocol.cs. ARGB
+        // channel controllers; the channel count is the marketed model number.
+        Native("Nollie",  "Nollie 1",               "light",    "0x16D2", "0x1F11"),
+        Native("Nollie",  "Nollie 8",               "light",    "0x16D2", "0x1F01"),
+        Native("Nollie",  "Nollie 28-12",           "light",    "0x16D2", "0x1616"),
+        Native("Nollie",  "Nollie 28 L1",           "light",    "0x16D2", "0x1617"),
+        Native("Nollie",  "Nollie 28 L2",           "light",    "0x16D2", "0x1618"),
+        Native("Nollie",  "Nollie 16",              "light",    "0x3061", "0x4716"),
+        Native("Nollie",  "Nollie 32",              "light",    "0x3061", "0x4714"),
+        Native("Nollie",  "Nollie 1 (OS2)",         "light",    "0x16D5", "0x1F11"),
+        Native("Nollie",  "Nollie 8 (OS2)",         "light",    "0x16D5", "0x1F01"),
+        Native("Nollie",  "Nollie 16 (OS2)",        "light",    "0x16D5", "0x4716"),
+        Native("Nollie",  "Nollie 32 (OS2)",        "light",    "0x16D5", "0x4714"),
+        Native("Nollie",  "Nollie 1 (OS2.1)",       "light",    "0x16D5", "0x2A01"),
+        Native("Nollie",  "Nollie 8 (OS2.1)",       "light",    "0x16D5", "0x2A08"),
+        Native("Nollie",  "Nollie 16 (OS2.1)",      "light",    "0x16D5", "0x2A16"),
+        Native("Nollie",  "Nollie 32 (OS2.1)",      "light",    "0x16D5", "0x2A32"),
+        Native("Nollie",  "Prism8 (OS2.1)",         "light",    "0x16D5", "0x2C08"),
 
         // Tryx - PIDs from src/Peripherals/Tryx/Panorama. All are LCD-screen AIOs.
         Native("Tryx",    "Panorama",               "aio",      "0x391A", "0x1011", screen: true),

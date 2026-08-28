@@ -574,6 +574,19 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.SmartHubLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingFrameWriter>());
 
+        // Nollie: multi-channel ARGB controllers driven natively over HID.
+        // Several attach at once, so the hub holds a set. Channels are always
+        // resizable - the protocol reports no LED count.
+        services.AddSingleton<Nexus.Service.Peripherals.Nollie.NollieHub>();
+        services.AddSingleton<Nexus.Service.Lighting.NollieLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.NollieLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingFrameWriter>());
+        services.AddHostedService<Nexus.Service.Peripherals.Nollie.NollieConnectionWorker>();
+
         // CNVS lighting: CnvsHub owns COM7 (not OpenRGB). This provider
         // surfaces the 50-LED zone to the lighting engine and the writer pushes
         // 30 Hz LED frames to the hub. Reuses Np50IdentifyTracker (shared
@@ -835,6 +848,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
@@ -854,6 +868,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
