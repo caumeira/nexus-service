@@ -79,8 +79,7 @@ public sealed class ScreenTimePoller : IDisposable
             catch { return; }
 
             var exePath = TryGetExePath(pid);
-            var (winW, winH) = GetClientSize(hwnd);
-            var monitorDevice = ResolveMonitorDevice(hwnd);
+            var (winW, winH, monitorDevice) = ReadWindowGeometry(hwnd);
 
             ApplyFocus(appName, (int)pid, exePath, winW, winH, monitorDevice);
         }
@@ -264,10 +263,33 @@ public sealed class ScreenTimePoller : IDisposable
         }
     }
 
-    private static (int Width, int Height) GetClientSize(IntPtr hwnd)
+    // The helper sets no process-wide DPI awareness, so without this
+    // GetClientRect/GetMonitorInfoW return 96-DPI-virtualized units on a
+    // scaled display (see WindowsDisplayTopologyProvider.TrySetPerMonitorAwareV2).
+    private static (int Width, int Height, string? MonitorDevice) ReadWindowGeometry(IntPtr hwnd)
     {
-        if (!GetClientRect(hwnd, out var rect)) return (0, 0);
-        return (rect.Right - rect.Left, rect.Bottom - rect.Top);
+        var previousContext = TrySetPerMonitorAwareV2();
+        try
+        {
+            var (winW, winH) = GetClientRect(hwnd, out var rect) ? (rect.Right - rect.Left, rect.Bottom - rect.Top) : (0, 0);
+            return (winW, winH, ResolveMonitorDevice(hwnd));
+        }
+        finally
+        {
+            RestoreThreadDpiContext(previousContext);
+        }
+    }
+
+    private static IntPtr TrySetPerMonitorAwareV2()
+    {
+        try { return SetThreadDpiAwarenessContext(DpiAwarenessContextPerMonitorAwareV2); }
+        catch { return IntPtr.Zero; }
+    }
+
+    private static void RestoreThreadDpiContext(IntPtr previous)
+    {
+        if (previous == IntPtr.Zero) return;
+        try { SetThreadDpiAwarenessContext(previous); } catch { }
     }
 
     // Resolves to the same stable id space as RawDisplayInfo.Id
@@ -288,6 +310,7 @@ public sealed class ScreenTimePoller : IDisposable
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint MonitorDefaultToNearest = 2;
     private const int CchDeviceName = 32;
+    private static readonly IntPtr DpiAwarenessContextPerMonitorAwareV2 = new(-4);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, uint processId);
@@ -312,6 +335,9 @@ public sealed class ScreenTimePoller : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }

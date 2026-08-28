@@ -29,6 +29,20 @@ public sealed class MetricsSampleBuffer
         }
     }
 
+    /// <summary>Updates the Fps field of an already-buffered sample for
+    /// tsSec (fps arrives on its own lagged cadence); a no-op if that
+    /// second's scalar tick already flushed or never ran.</summary>
+    public void SetFps(long tsSec, int frames)
+    {
+        lock (_lock)
+        {
+            if (_samples.TryGetValue(tsSec, out var existing))
+            {
+                _samples[tsSec] = existing with { Fps = frames };
+            }
+        }
+    }
+
     /// <summary>Every buffered sample, oldest first - the tail a caller is
     /// about to hand to the store.</summary>
     public IReadOnlyList<MetricSample> PendingSnapshot()

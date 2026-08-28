@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Activity;
@@ -11,17 +12,18 @@ using Nexus.Service.Sensors;
 namespace Nexus.Service.Games;
 
 /// <summary>
-/// Follows the helper's own focus session (IScreenTimeProvider.FocusChanged /
-/// IFocusDetailsProvider.SessionEnded) rather than any boundary logic of its
-/// own: a session opens when focus lands on a pid whose exe resolves via
-/// GameCatalog, consumes the per-second frames IFpsProvider.TryReadSecond
-/// already exposes for the 1Hz history sampler, and closes on the matching
-/// session-end event (pid change, idle split, or helper disconnect flush).
+/// Follows the helper's own focus session with no boundary logic of its own:
+/// its 1Hz poll loop opens a session whenever nothing is open and the
+/// current focus resolves to a catalog game (start = now), consumes
+/// IFpsProvider.ReadCompletedSeconds for per-second frames, and closes on a
+/// matching IFocusDetailsProvider.SessionEnded (pid match only) or a
+/// mid-session display mode change.
 ///
-/// Windows-only in practice: registered as a hosted service only where
-/// IFocusDetailsProvider is registered (WindowsScreenTimeProvider); the
-/// class itself has no platform guard since every other dependency here is
-/// already a cross-platform interface.
+/// IFocusDetailsProvider.SessionEnded is raised synchronously from the
+/// helper pipe's read loop, so its handler only enqueues the event and
+/// returns; the poll loop drains the queue and does the actual close/persist
+/// work on its own background task. Registered as a hosted service only
+/// where IFocusDetailsProvider is registered (WindowsScreenTimeProvider).
 /// </summary>
 public sealed class FpsSessionRecorder : IHostedService, IDisposable
 {
@@ -30,7 +32,6 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
     private const int ModeCheckEveryTicks = 5;
 
     private readonly IFpsProvider _fps;
-    private readonly IScreenTimeProvider _screenTime;
     private readonly IFocusDetailsProvider _focusDetails;
     private readonly GameCatalog _catalog;
     private readonly IConfigStore _config;
@@ -39,18 +40,19 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
     private readonly ISensorProvider _sensors;
 
     private readonly object _lock = new();
+    private readonly ConcurrentQueue<FocusSessionEnded> _pendingEnds = new();
     private TrackedSession? _open;
     private int _modeCheckCounter;
+    private long _lastConsumedFpsSec = long.MinValue;
     private CancellationTokenSource? _cts;
     private Task? _pollTask;
 
     public FpsSessionRecorder(
-        IFpsProvider fps, IScreenTimeProvider screenTime, IFocusDetailsProvider focusDetails,
+        IFpsProvider fps, IFocusDetailsProvider focusDetails,
         GameCatalog catalog, IConfigStore config, BinaryFpsSessionStore store,
         IDisplayTopologyProvider displays, ISensorProvider sensors)
     {
         _fps = fps;
-        _screenTime = screenTime;
         _focusDetails = focusDetails;
         _catalog = catalog;
         _config = config;
@@ -62,18 +64,13 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _cts = new CancellationTokenSource();
-        _screenTime.FocusChanged += OnFocusChanged;
         _focusDetails.SessionEnded += OnFocusSessionEnded;
         _pollTask = Task.Run(() => PollLoopAsync(_cts.Token), _cts.Token);
-
-        // Pick up a game already focused when the service starts.
-        OnFocusChanged();
         return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _screenTime.FocusChanged -= OnFocusChanged;
         _focusDetails.SessionEnded -= OnFocusSessionEnded;
         _cts?.Cancel();
         if (_pollTask is not null)
@@ -92,6 +89,12 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
 
     public void Dispose() => _cts?.Dispose();
 
+    // Called synchronously from the helper pipe's read loop
+    // (HelperConnection.ReadLoopAsync -> WindowsScreenTimeProvider.OnEnvelope);
+    // must stay O(1) and never block, or every helper round-trip stalls
+    // behind it.
+    private void OnFocusSessionEnded(FocusSessionEnded ended) => _pendingEnds.Enqueue(ended);
+
     private async Task PollLoopAsync(CancellationToken ct)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
@@ -99,38 +102,24 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         {
             while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false))
             {
+                ProcessPendingEnds();
+
                 if (!IsTrackingEnabled())
                 {
-                    // "no sessions" is emphatic in the plan - a session open
-                    // when tracking is switched off is discarded, not persisted.
                     lock (_lock) { _open = null; }
                     continue;
                 }
 
                 TrackedSession? open;
                 lock (_lock) { open = _open; }
+
                 if (open is null)
                 {
+                    TryOpenIfFocusedOnAGame();
                     continue;
                 }
 
-                var tsSec = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 1;
-                if (_fps.TryReadSecond(tsSec, out var pid, out var frames)
-                    && pid == open.Pid && FpsSessionRules.IsValidFrameCount(frames))
-                {
-                    lock (_lock)
-                    {
-                        if (!ReferenceEquals(_open, open))
-                        {
-                            continue;
-                        }
-                        open.ValidSec++;
-                        open.Frames += frames;
-                        FpsHistogram.AddSample(open.Hist, frames);
-                        open.MinFps = Math.Min(open.MinFps, frames);
-                        open.MaxFps = Math.Max(open.MaxFps, frames);
-                    }
-                }
+                AccumulateFpsForOpenSession(open);
 
                 if (++_modeCheckCounter >= ModeCheckEveryTicks)
                 {
@@ -144,32 +133,60 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         }
     }
 
-    private void OnFocusChanged()
+    private void ProcessPendingEnds()
     {
-        if (!IsTrackingEnabled())
+        while (_pendingEnds.TryDequeue(out var ended))
         {
-            return;
+            TrackedSession? toClose = null;
+            lock (_lock)
+            {
+                if (_open is not null && _open.Pid == ended.Pid)
+                {
+                    toClose = _open;
+                    _open = null;
+                }
+            }
+            if (toClose is not null)
+            {
+                FinalizeAndPersist(toClose, ended.EndedUtcMs);
+            }
         }
+    }
 
+    private void AccumulateFpsForOpenSession(TrackedSession open)
+    {
+        foreach (var second in _fps.ReadCompletedSeconds(_lastConsumedFpsSec))
+        {
+            _lastConsumedFpsSec = second.TsSec;
+            if (second.Pid != open.Pid || !FpsSessionRules.IsValidFrameCount(second.Frames))
+            {
+                continue;
+            }
+
+            lock (_lock)
+            {
+                if (!ReferenceEquals(_open, open))
+                {
+                    return;
+                }
+                open.ValidSec++;
+                open.Frames += second.Frames;
+                FpsHistogram.AddSample(open.Hist, second.Frames);
+                ExactFpsCounts.Add(open.ExactCounts, second.Frames);
+                open.MinFps = Math.Min(open.MinFps, second.Frames);
+                open.MaxFps = Math.Max(open.MaxFps, second.Frames);
+            }
+        }
+    }
+
+    private void TryOpenIfFocusedOnAGame()
+    {
         var details = _focusDetails.GetCurrentFocusDetails();
         if (details is null)
         {
             return;
         }
 
-        lock (_lock)
-        {
-            if (_open is not null && _open.Pid == details.Pid && _open.StartedUtcMs == details.StartedUtcMs)
-            {
-                return;
-            }
-        }
-
-        TryOpenForFocus(details);
-    }
-
-    private void TryOpenForFocus(FocusDetails details)
-    {
         if (string.IsNullOrEmpty(details.ExePath))
         {
             _catalog.NotifyUnknownExe();
@@ -195,7 +212,7 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
             GameKey = identity.GameKey,
             GameName = identity.Name,
             Store = identity.Store,
-            StartedUtcMs = details.StartedUtcMs,
+            StartedUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             MonitorDevice = details.MonitorDevice,
             DispW = dispW,
             DispH = dispH,
@@ -212,40 +229,20 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         }
     }
 
-    private void OnFocusSessionEnded(FocusSessionEnded ended)
-    {
-        TrackedSession? toClose = null;
-        lock (_lock)
-        {
-            if (_open is not null && _open.Pid == ended.Pid && _open.StartedUtcMs == ended.StartedUtcMs)
-            {
-                toClose = _open;
-                _open = null;
-            }
-        }
-        if (toClose is not null)
-        {
-            FinalizeAndPersist(toClose, ended.EndedUtcMs);
-        }
-    }
-
-    // A mode change mid-session closes and reopens per the plan's decision 5
-    // (resolution/Hz are part of the signature): re-fetches current focus
-    // details for the fresh window snapshot rather than reusing the stale
-    // one from open.
+    // Resolution/Hz are part of the signature, so a mode change mid-session
+    // closes and reopens rather than folding two resolutions into one row.
     private void CheckForModeChange(TrackedSession open)
     {
         var (dispW, dispH, refreshHz) = ResolveDisplayMode(open.MonitorDevice);
         if (dispW == 0 && dispH == 0)
         {
-            return; // topology unavailable this tick; do not thrash the session over it
+            return;
         }
         if (dispW == open.DispW && dispH == open.DispH && refreshHz == open.RefreshHz)
         {
             return;
         }
 
-        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         TrackedSession? closed;
         lock (_lock)
         {
@@ -256,14 +253,9 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
             closed = _open;
             _open = null;
         }
-        FinalizeAndPersist(closed, nowMs);
+        FinalizeAndPersist(closed, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
 
-        var details = _focusDetails.GetCurrentFocusDetails();
-        if (details is null || details.Pid != open.Pid)
-        {
-            return;
-        }
-        TryOpenForFocus(details);
+        TryOpenIfFocusedOnAGame();
     }
 
     private void FinalizeAndPersist(TrackedSession open, long endedUtcMs)
@@ -274,10 +266,14 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
             return;
         }
 
-        var p10 = FpsHistogram.Percentile(open.Hist, 10);
-        var p50 = FpsHistogram.Percentile(open.Hist, 50);
-        var p90 = FpsHistogram.Percentile(open.Hist, 90);
-        var capped = p90 - p10 <= FpsSessionRules.CappedSpreadFps && FpsHistogram.Total(open.Hist) > 0;
+        // Capped detection needs exact fps values: the persisted hist's
+        // ~11%-wide log buckets can straddle a v-sync target (e.g. 60 Hz
+        // spanning bucket edges 54/60), which flattens p90-p10 into "capped"
+        // false negatives.
+        var p10 = ExactFpsCounts.Percentile(open.ExactCounts, 10);
+        var p50 = ExactFpsCounts.Percentile(open.ExactCounts, 50);
+        var p90 = ExactFpsCounts.Percentile(open.ExactCounts, 90);
+        var capped = open.ValidSec > 0 && p90 - p10 <= FpsSessionRules.CappedSpreadFps;
 
         var fullscreen = open.WinW > 0 && open.WinH > 0 && open.WinW == open.DispW && open.WinH == open.DispH;
 
@@ -365,16 +361,15 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         public int ValidSec;
         public long Frames;
         public uint[] Hist { get; } = new uint[FpsHistogram.BucketCount];
+        public uint[] ExactCounts { get; } = new uint[ExactFpsCounts.MaxFps + 1];
         public int MinFps = int.MaxValue;
         public int MaxFps;
     }
 }
 
 /// <summary>Deterministic 64-bit hash of a rig's stable identity fields
-/// (cpu, primary gpu, motherboard, ram capacity) - not a benchmark score, per
-/// the fps-benchmarks plan's decision 1. Plain FNV-1a: fast, stable across
-/// runs and platforms, and the exact algorithm never leaves this box (only
-/// the resulting number would, in a later upload phase).</summary>
+/// (cpu, primary gpu, motherboard, ram capacity), not a benchmark score.
+/// Plain FNV-1a: fast and stable across runs and platforms.</summary>
 public static class HardwareHash
 {
     public static ulong Compute(string cpu, string gpu, string motherboard, long ramBytes)

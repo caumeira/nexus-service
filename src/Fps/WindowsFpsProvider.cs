@@ -45,15 +45,9 @@ public sealed class WindowsFpsProvider : IFpsProvider
     private DateTime _nextStartAllowedUtc = DateTime.MinValue;
     private DateTime _lastErrorLoggedUtc = DateTime.MinValue;
 
-    // Per-second frame bucket for TryReadSecond, independent of the rolling
-    // FpsCalculator gauge above. SecUnset marks "no bucket seen yet" (never
-    // a real epoch second).
-    private const long SecUnset = long.MinValue;
-    private long _currentSecTs = SecUnset;
-    private int _currentSecCount;
-    private long _lastCompletedSecTs = SecUnset;
-    private int _lastCompletedSecPid;
-    private int _lastCompletedSecCount;
+    private const int CompletedRingSize = 8;
+    private const int CompletionLagSec = 2;
+    private readonly CompletedSecondsRing _completedSeconds = new(CompletedRingSize, CompletionLagSec);
 
     public WindowsFpsProvider(IScreenTimeProvider screenTime)
     {
@@ -236,6 +230,11 @@ public sealed class WindowsFpsProvider : IFpsProvider
                         _fps = 0;
                         _hasValue = false;
                         _lastPresentUtc = DateTime.MinValue;
+                        _completedSeconds.Reset();
+                        if (target.Pid > 0)
+                        {
+                            _completedSeconds.StartTracking(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                        }
                     }
                 }
 
@@ -325,33 +324,25 @@ public sealed class WindowsFpsProvider : IFpsProvider
             _hasValue = _calculator.Count >= 2;
             _lastPresentUtc = DateTime.UtcNow;
 
-            var eventSec = new DateTimeOffset(data.TimeStamp).ToUnixTimeSeconds();
-            if (_currentSecTs != SecUnset && eventSec != _currentSecTs)
-            {
-                _lastCompletedSecTs = _currentSecTs;
-                _lastCompletedSecPid = data.ProcessID;
-                _lastCompletedSecCount = _currentSecCount;
-                _currentSecCount = 0;
-            }
-            _currentSecTs = eventSec;
-            _currentSecCount++;
+            _completedSeconds.RecordFrame(new DateTimeOffset(data.TimeStamp).ToUnixTimeSeconds());
         }
     }
 
-    public bool TryReadSecond(long tsSec, out int pid, out int frames)
+    public IReadOnlyList<FpsSecond> ReadCompletedSeconds(long afterTsSec)
     {
         lock (_gate)
         {
-            if (_lastCompletedSecTs == tsSec)
+            if (_cts is null)
             {
-                pid = _lastCompletedSecPid;
-                frames = _lastCompletedSecCount;
-                return true;
+                return Array.Empty<FpsSecond>();
             }
+
+            var pid = _targetPid;
+            return _completedSeconds
+                .ReadCompleted(afterTsSec, DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+                .Select(r => new FpsSecond(r.TsSec, pid, r.Frames))
+                .ToList();
         }
-        pid = 0;
-        frames = 0;
-        return false;
     }
 
     private void HandleTraceFailure(Exception ex)
@@ -386,11 +377,7 @@ public sealed class WindowsFpsProvider : IFpsProvider
         _hasValue = false;
         _lastPresentUtc = DateTime.MinValue;
         _calculator.Reset();
-        _currentSecTs = SecUnset;
-        _currentSecCount = 0;
-        _lastCompletedSecTs = SecUnset;
-        _lastCompletedSecPid = 0;
-        _lastCompletedSecCount = 0;
+        _completedSeconds.Reset();
     }
 
     private static async Task IgnoreFaults(Task? task)

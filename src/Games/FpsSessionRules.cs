@@ -1,10 +1,7 @@
 namespace Nexus.Service.Games;
 
-/// <summary>
-/// Session-validity constants from the fps-benchmarks plan's decision 4/6,
-/// kept in one place so the recorder, the store's prune logic, and tests
-/// never drift against each other.
-/// </summary>
+/// <summary>Session-validity constants kept in one place so the recorder,
+/// the store's prune logic, and tests never drift against each other.</summary>
 public static class FpsSessionRules
 {
     /// <summary>A second's frame count counts toward validSec/frames/hist

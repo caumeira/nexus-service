@@ -7,12 +7,7 @@ public sealed class StubFpsProvider : IFpsProvider
     public void SetDemand(string source, bool wanted) { }
     public void Dispose() { }
 
-    public bool TryReadSecond(long tsSec, out int pid, out int frames)
-    {
-        pid = 0;
-        frames = 0;
-        return false;
-    }
+    public IReadOnlyList<FpsSecond> ReadCompletedSeconds(long afterTsSec) => Array.Empty<FpsSecond>();
 
     public HardwareComponent GetComponent() => new()
     {

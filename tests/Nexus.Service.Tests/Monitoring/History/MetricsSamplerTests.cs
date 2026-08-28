@@ -61,22 +61,12 @@ public class MetricsSamplerTests
     private sealed class SpyFpsProvider : IFpsProvider
     {
         public List<bool> DemandCalls { get; } = new();
-        public (long TsSec, int Pid, int Frames)? Second { get; set; }
+        public FpsSecond? Second { get; set; }
 
         public void SetDemand(string source, bool wanted) => DemandCalls.Add(wanted);
 
-        public bool TryReadSecond(long tsSec, out int pid, out int frames)
-        {
-            if (Second is { } s && s.TsSec == tsSec)
-            {
-                pid = s.Pid;
-                frames = s.Frames;
-                return true;
-            }
-            pid = 0;
-            frames = 0;
-            return false;
-        }
+        public IReadOnlyList<FpsSecond> ReadCompletedSeconds(long afterTsSec) =>
+            Second is { } s && s.TsSec > afterTsSec ? new[] { s } : Array.Empty<FpsSecond>();
 
         public HardwareComponent GetComponent() => new() { Id = "fps", Name = "FPS", Sensors = new List<HardwareSensor>() };
         public void Dispose() { }
@@ -263,18 +253,24 @@ public class MetricsSamplerTests
     }
 
     [Fact]
-    public async Task Tick_FoldsThePreviousSecondsFrameCount_IntoTheSample()
+    public async Task Tick_FoldsACompletedFpsSecond_IntoTheAlreadyBufferedSampleForThatSecond()
     {
+        // Fps arrives on its own lagged cadence (IFpsProvider.ReadCompletedSeconds),
+        // so it lands one tick after the scalar sample for that same ts was
+        // already buffered, via MetricsSampleBuffer.SetFps rather than a
+        // fresh Append.
         var fps = new SpyFpsProvider();
-        var now = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
-        var previousSec = new DateTimeOffset(now).ToUnixTimeSeconds() - 1;
-        fps.Second = (previousSec, 4321, 144);
         var buffer = new MetricsSampleBuffer();
         var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), buffer, fps: fps);
 
-        await sampler.Tick(now, CancellationToken.None);
+        var firstTick = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
+        var firstTickSec = new DateTimeOffset(firstTick).ToUnixTimeSeconds();
+        await sampler.Tick(firstTick, CancellationToken.None);
 
-        var sample = Assert.Single(buffer.PendingSnapshot());
+        fps.Second = new FpsSecond(firstTickSec, 4321, 144);
+        await sampler.Tick(firstTick.AddSeconds(1), CancellationToken.None);
+
+        var sample = Assert.Single(buffer.PendingSnapshot(), s => s.TsSec == firstTickSec);
         Assert.Equal(144, sample.Fps);
     }
 

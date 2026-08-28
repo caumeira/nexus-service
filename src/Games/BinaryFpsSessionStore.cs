@@ -34,11 +34,11 @@ public sealed record FpsGameSummary(
 /// dropped once every record in it is older than the retention window,
 /// checked on an internal hourly throttle inside Append rather than a
 /// dedicated worker, since sessions close infrequently enough that this is
-/// no less prompt in practice.
+/// no less prompt.
 ///
-/// Separate store on purpose (see the fps-benchmarks plan's Privacy &amp;
-/// Data section): DELETE /api/fps/all purges only this store's segments,
-/// leaving screen time and the /monitoring/history fps series untouched.
+/// A separate store from screen time and the /monitoring/history fps
+/// series: DELETE /api/fps/all purges only this store's segments, leaving
+/// the other two untouched.
 /// </summary>
 public sealed class BinaryFpsSessionStore : IDisposable
 {
@@ -108,6 +108,62 @@ public sealed class BinaryFpsSessionStore : IDisposable
                 }
             }
             return result;
+        }
+    }
+
+    /// <summary>Every session (across every game) whose [StartedUtcMs,
+    /// EndedUtcMs] overlaps [fromUtcMs, toUtcMs], newest first, capped at
+    /// limit. Scans only the month segments that can possibly hold such a
+    /// session rather than every existing month.</summary>
+    public IReadOnlyList<FpsSessionRecord> QuerySessionsByTimeRange(long fromUtcMs, long toUtcMs, int limit)
+    {
+        lock (_lock)
+        {
+            var result = new List<FpsSessionRecord>();
+            foreach (var month in MonthsPossiblyOverlapping(fromUtcMs, toUtcMs).OrderByDescending(m => m, StringComparer.Ordinal))
+            {
+                var matches = ReadMonth(month)
+                    .Where(r => r.EndedUtcMs >= fromUtcMs && r.StartedUtcMs <= toUtcMs)
+                    .OrderByDescending(r => r.StartedUtcMs);
+                foreach (var raw in matches)
+                {
+                    result.Add(ToRecord(raw));
+                    if (result.Count >= limit)
+                    {
+                        return result;
+                    }
+                }
+            }
+            return result;
+        }
+    }
+
+    // A session's segment file is keyed by its own start month, but its end
+    // can spill one month past that for a session that started near a
+    // month boundary; pads the scan by one month before fromUtcMs to catch
+    // those without scanning every month on disk.
+    private IEnumerable<string> MonthsPossiblyOverlapping(long fromUtcMs, long toUtcMs)
+    {
+        var existing = new HashSet<string>(ExistingMonths(), StringComparer.Ordinal);
+        var toMonthKey = DateTimeOffset.FromUnixTimeMilliseconds(toUtcMs).UtcDateTime.ToString(DateFormat);
+
+        var fromMonthStart = DateTimeOffset.FromUnixTimeMilliseconds(fromUtcMs).UtcDateTime;
+        var cursor = new DateTime(fromMonthStart.Year, fromMonthStart.Month, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(-1);
+
+        // Bounds a caller passing an inverted or pathologically wide range;
+        // the route validates to >= from, but this method is public.
+        for (var iterations = 0; iterations < 2400; iterations++)
+        {
+            var key = cursor.ToString(DateFormat);
+            if (existing.Contains(key))
+            {
+                yield return key;
+            }
+            if (string.CompareOrdinal(key, toMonthKey) >= 0)
+            {
+                yield break;
+            }
+            cursor = cursor.AddMonths(1);
         }
     }
 

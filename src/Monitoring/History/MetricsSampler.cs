@@ -59,6 +59,11 @@ public sealed class MetricsSampler : IHostedService, IDisposable
     // IFpsProvider.SetDemand's multi-source contract.
     private const string FpsDemandSource = "history";
 
+    // This sampler's own cursor into IFpsProvider.ReadCompletedSeconds -
+    // each caller tracks its own, so this and FpsSessionRecorder never
+    // race or double-count the same second.
+    private long _lastConsumedFpsSec = long.MinValue;
+
     public MetricsSampler(
         ISensorProvider sensors, IMetricsSource source, MetricsSampleBuffer buffer,
         IMetricsHistoryStore store,
@@ -219,14 +224,14 @@ public sealed class MetricsSampler : IHostedService, IDisposable
 
         var tsSec = new DateTimeOffset(nowUtc).ToUnixTimeSeconds();
         var sample = await _source.SampleAsync(tsSec, ct).ConfigureAwait(false);
-        // The second that just fully elapsed, not the current one: WindowsFpsProvider
-        // only finalizes a bucket once an event lands in the next second.
-        if (_fps.TryReadSecond(tsSec - 1, out _, out var fpsFrames))
-        {
-            sample = sample with { Fps = fpsFrames };
-        }
         _buffer.Append(sample);
         _tickCount++;
+
+        foreach (var second in _fps.ReadCompletedSeconds(_lastConsumedFpsSec))
+        {
+            _buffer.SetFps(second.TsSec, second.Frames);
+            _lastConsumedFpsSec = second.TsSec;
+        }
 
         if (_tickCount % MetricsHistory.AppSampleIntervalSeconds == 0)
         {

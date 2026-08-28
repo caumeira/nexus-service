@@ -145,12 +145,7 @@ public class TryxPanoramaHubTests
             Sensors = Sensors,
         };
 
-        public bool TryReadSecond(long tsSec, out int pid, out int frames)
-        {
-            pid = 0;
-            frames = 0;
-            return false;
-        }
+        public IReadOnlyList<FpsSecond> ReadCompletedSeconds(long afterTsSec) => Array.Empty<FpsSecond>();
 
         public void Dispose() { }
     }

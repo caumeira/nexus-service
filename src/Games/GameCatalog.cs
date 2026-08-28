@@ -6,12 +6,9 @@ using Microsoft.Win32;
 
 namespace Nexus.Service.Games;
 
-/// <summary>
-/// Cheap installed-game enumeration (manifests/registry only, no file
-/// content scan) shared by GameSyncGameScanner (which layers its own Chroma
-/// file scan on top) and GameCatalog. Moved out of GameSyncGameScanner
-/// verbatim so its own scan behavior and output are unchanged.
-/// </summary>
+/// <summary>Cheap installed-game enumeration (manifests/registry only, no
+/// file content scan) shared by GameSyncGameScanner (which layers its own
+/// Chroma file scan on top) and GameCatalog.</summary>
 internal static class InstalledGameCollectors
 {
     public readonly record struct Candidate(string Name, string InstallDir, string Store, string AppId);
@@ -309,7 +306,6 @@ public sealed class GameCatalog
     private readonly ILogger<GameCatalog> _logger;
     private readonly object _lock = new();
     private long _lastRefreshEpoch;
-    private IReadOnlyList<GameIdentity> _games = Array.Empty<GameIdentity>();
     private IReadOnlyList<(string DirKey, GameIdentity Game)> _resolveIndex = Array.Empty<(string, GameIdentity)>();
 
     public GameCatalog(ILogger<GameCatalog> logger)
@@ -323,23 +319,18 @@ public sealed class GameCatalog
         Task.Run(RefreshNow);
     }
 
-    public IReadOnlyList<GameIdentity> Games => _games;
-
     public void RefreshNow()
     {
         var candidates = InstalledGameCollectors.CollectAll(_logger);
-        var games = new List<GameIdentity>(candidates.Count);
         var index = new List<(string, GameIdentity)>(candidates.Count);
         foreach (var c in candidates)
         {
             var identity = new GameIdentity(BuildGameKey(c.Store, c.AppId, c.Name), c.Name, c.Store, c.AppId);
-            games.Add(identity);
             index.Add((InstalledGameCollectors.CanonicalDirKey(c.InstallDir), identity));
         }
 
         lock (_lock)
         {
-            _games = games;
             _resolveIndex = index;
             _lastRefreshEpoch = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         }
@@ -347,7 +338,9 @@ public sealed class GameCatalog
 
     /// <summary>Rate-limited refresh trigger for a foreground exe the catalog
     /// could not resolve - a no-op within RefreshRateLimitSeconds of the last
-    /// refresh, so a run of unrelated exes cannot each force a rescan.</summary>
+    /// refresh, so a run of unrelated exes cannot each force a rescan. Runs
+    /// off the caller's thread, the same reason the constructor's initial
+    /// refresh does.</summary>
     public void NotifyUnknownExe()
     {
         lock (_lock)
@@ -357,7 +350,7 @@ public sealed class GameCatalog
                 return;
             }
         }
-        RefreshNow();
+        Task.Run(RefreshNow);
     }
 
     /// <summary>Resolves exePath to the catalog game whose install dir is the

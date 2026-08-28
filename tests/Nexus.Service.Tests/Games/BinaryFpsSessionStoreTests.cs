@@ -170,6 +170,61 @@ public class BinaryFpsSessionStoreTests : IDisposable
     }
 
     [Fact]
+    public void QuerySessionsByTimeRange_ReturnsSessionsAcrossGames_NewestFirst()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        var older = Session(gameKey: "steam:1", name: "Game A", startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000);
+        var newer = Session(gameKey: "epic:gameb", name: "Game B", store: "epic",
+            startedUtcMs: NowUtcMs + 1_000_000, endedUtcMs: NowUtcMs + 1_600_000);
+        store.Append(older);
+        store.Append(newer);
+
+        var sessions = store.QuerySessionsByTimeRange(NowUtcMs, NowUtcMs + 2_000_000, limit: 10);
+
+        Assert.Equal(2, sessions.Count);
+        Assert.Equal(newer.Id, sessions[0].Id);
+        Assert.Equal(older.Id, sessions[1].Id);
+    }
+
+    [Fact]
+    public void QuerySessionsByTimeRange_ExcludesSessionsOutsideTheRange()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session(startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000));
+
+        var sessions = store.QuerySessionsByTimeRange(NowUtcMs + 10_000_000, NowUtcMs + 20_000_000, limit: 10);
+
+        Assert.Empty(sessions);
+    }
+
+    [Fact]
+    public void QuerySessionsByTimeRange_ASessionOverlappingTheRangeBoundary_IsIncluded()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        var session = Session(startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000);
+        store.Append(session);
+
+        // The query window starts mid-session and ends after it.
+        var sessions = store.QuerySessionsByTimeRange(NowUtcMs + 300_000, NowUtcMs + 900_000, limit: 10);
+
+        Assert.Single(sessions);
+    }
+
+    [Fact]
+    public void QuerySessionsByTimeRange_RespectsLimit()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        for (var i = 0; i < 5; i++)
+        {
+            store.Append(Session(startedUtcMs: NowUtcMs + i * 1_000, endedUtcMs: NowUtcMs + i * 1_000 + 600_000));
+        }
+
+        var sessions = store.QuerySessionsByTimeRange(NowUtcMs, NowUtcMs + 1_000_000, limit: 2);
+
+        Assert.Equal(2, sessions.Count);
+    }
+
+    [Fact]
     public void Reopen_SeesSessionsPersistedByThePreviousInstance()
     {
         using (var store = new BinaryFpsSessionStore(_dir))
