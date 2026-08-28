@@ -38,13 +38,15 @@ internal sealed class OfflineCloudApiClient : ICloudApiClient
 
     public Task<CloudApiResult<CloudVoid>> PutDeviceAsync(string accessToken, string installId, CloudDevicePutRequest body, CancellationToken ct) => Offline<CloudVoid>();
 
+    public Task<CloudApiResult<List<CloudDeviceDto>>> ListDevicesAsync(string accessToken, CancellationToken ct) => Offline<List<CloudDeviceDto>>();
+
     public Task<CloudApiResult<List<CloudProfileSummaryDto>>> ListProfilesAsync(string accessToken, CancellationToken ct) => Offline<List<CloudProfileSummaryDto>>();
 
-    public Task<CloudApiResult<CloudProfileDto>> GetProfileAsync(string accessToken, string profileId, CancellationToken ct) => Offline<CloudProfileDto>();
+    public Task<CloudApiResult<CloudProfileDto>> GetProfileAsync(string accessToken, string installId, string profileId, CancellationToken ct) => Offline<CloudProfileDto>();
 
-    public Task<CloudApiResult<CloudPutProfileResult>> PutProfileAsync(string accessToken, string profileId, CloudPutProfileRequest body, CancellationToken ct) => Offline<CloudPutProfileResult>();
+    public Task<CloudApiResult<CloudPutProfileResult>> PutProfileAsync(string accessToken, string installId, string profileId, CloudPutProfileRequest body, CancellationToken ct) => Offline<CloudPutProfileResult>();
 
-    public Task<CloudApiResult<CloudVoid>> DeleteProfileAsync(string accessToken, string profileId, CancellationToken ct) => Offline<CloudVoid>();
+    public Task<CloudApiResult<CloudVoid>> DeleteProfileAsync(string accessToken, string installId, string profileId, CancellationToken ct) => Offline<CloudVoid>();
 
     public Task<CloudApiResult<CloudRawResponse>> PostRawAsync(string path, string rawJsonBody, string? accessToken, CancellationToken ct) => Offline<CloudRawResponse>();
 
