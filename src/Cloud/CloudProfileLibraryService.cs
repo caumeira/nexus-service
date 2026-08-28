@@ -191,10 +191,15 @@ public sealed class CloudProfileLibraryService
         return result.Value.FirstOrDefault(d => string.Equals(d.InstallId, installId, StringComparison.Ordinal))?.Hostname ?? "";
     }
 
+    /// <summary>Serialized length of a settings object with nothing populated; the baseline every category size is measured against.</summary>
+    private static readonly int EmptySettingsLength =
+        JsonSerializer.Serialize(new NexusSettings(), PersistenceJsonContext.Default.NexusSettings).Length;
+
     /// <summary>
-    /// Per-category size plus a few counts the user can recognize. Size comes
-    /// from serializing that category alone, so it is the real cost of the
-    /// import rather than an estimate.
+    /// Per-category counts plus what that category ADDS over an empty settings
+    /// object. NexusSettings serializes every property, so measuring the
+    /// isolated object whole would report the shared skeleton (~8KB) as if it
+    /// were the category's own content.
     /// </summary>
     private static CloudImportCategoryDto Summarize(NexusSettings source, string category)
     {
@@ -222,7 +227,9 @@ public sealed class CloudProfileLibraryService
         return new CloudImportCategoryDto
         {
             Category = category,
-            SizeBytes = JsonSerializer.Serialize(isolated, PersistenceJsonContext.Default.NexusSettings).Length,
+            SizeBytes = Math.Max(
+                JsonSerializer.Serialize(isolated, PersistenceJsonContext.Default.NexusSettings).Length - EmptySettingsLength,
+                0),
             Metrics = metrics,
         };
     }

@@ -132,6 +132,12 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
         var cooling = result.Value.Categories.Single(c => c.Category == ProfileSharing.Cooling);
         Assert.Equal(2, cooling.Metrics["namedFans"]);
         Assert.True(cooling.SizeBytes > 0);
+
+        // Size is what the category ADDS. NexusSettings serializes every
+        // property, so a category holding nothing must not report the shared
+        // skeleton (~8KB on the real settings shape) as its own content.
+        var theme = result.Value.Categories.Single(c => c.Category == ProfileSharing.Theme);
+        Assert.Equal(0, theme.SizeBytes);
     }
 
     [Fact]
