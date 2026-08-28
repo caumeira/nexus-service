@@ -30,8 +30,9 @@ public static class HelperPollerDiagnostics
     public const string ScreenTime = "screentime";
     public const string Audio = "audio";
     public const string Watchdog = "watchdog";
+    public const string LockInput = "lockinput";
 
-    public static readonly string[] Known = { WindowSet, ScreenTime, Audio, Watchdog };
+    public static readonly string[] Known = { WindowSet, ScreenTime, Audio, Watchdog, LockInput };
 
     /// <summary>
     /// A tick slower than this is worth a log line. Set at the rough floor of

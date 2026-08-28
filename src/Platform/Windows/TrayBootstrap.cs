@@ -247,6 +247,34 @@ internal static class TrayBootstrap
             catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] requestStop failed: {ex.Message}"); }
         };
 
+        // Lock-screen wake-on-input. The helper owns the poll because
+        // GetLastInputInfo is session-scoped and this service runs in Session 0;
+        // the coordinator owns when it is worth polling at all.
+        var lockBlackout = app.Services.GetService<Nexus.Service.Lighting.SleepBlackoutCoordinator>();
+        if (lockBlackout is not null)
+        {
+            var lockInputArmed = false;
+            lockBlackout.LockInputWatch = enabled =>
+            {
+                lockInputArmed = enabled;
+                _ = Nexus.Service.Helper.Domains.LockLightingCommands.SetLockInputWatchAsync(helperRegistry, enabled);
+            };
+            // The push is dropped when no helper is connected, so a lock that
+            // spans a helper reconnect would come back with the poll in the
+            // wrong state - silently off for that lock, or armed for the rest
+            // of the session. Re-assert on connect, like the tray and
+            // orientation state above.
+            helperRegistry.Connected += conn =>
+            {
+                _ = Nexus.Service.Helper.Domains.LockLightingCommands.SetLockInputWatchAsync(helperRegistry, lockInputArmed);
+            };
+            helperRegistry.InboundEnvelope += (_, env) =>
+            {
+                if (env.Type != Nexus.Service.Helper.Domains.LockLightingCommands.InputSeenType) return;
+                lockBlackout.OnLockScreenInput();
+            };
+        }
+
         helperRegistry.InboundEnvelope += (_, env) =>
         {
             if (env.Type != "profiles.switch") return;

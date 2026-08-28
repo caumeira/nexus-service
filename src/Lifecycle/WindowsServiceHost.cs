@@ -43,10 +43,19 @@ internal static class WindowsServiceHost
     private const uint SERVICE_ACCEPT_STOP = 0x00000001;
     private const uint SERVICE_ACCEPT_SHUTDOWN = 0x00000004;
     private const uint SERVICE_ACCEPT_SESSIONCHANGE = 0x00000080;
+    // Accepting preshutdown is what makes the OS-shutdown path reachable at all.
+    // Measured on T1 2026-08-27: without it the earliest signal a service sees is
+    // the console CTRL_SHUTDOWN event at logoff+0.22s, which .NET's ConsoleLifetime
+    // turns into StopApplication - so the process is already gone when
+    // SERVICE_CONTROL_SHUTDOWN arrives 5.0s later and IsOsShutdown never gets set.
+    // Preshutdown lands at logoff+1.14s, BEFORE that console event is dispatched,
+    // and the SCM waited 25s for the probe without complaint.
+    private const uint SERVICE_ACCEPT_PRESHUTDOWN = 0x00000100;
 
     // Control codes
     private const uint SERVICE_CONTROL_STOP = 0x00000001;
     private const uint SERVICE_CONTROL_SHUTDOWN = 0x00000005;
+    private const uint SERVICE_CONTROL_PRESHUTDOWN = 0x0000000F;
     private const uint SERVICE_CONTROL_INTERROGATE = 0x00000004;
     private const uint SERVICE_CONTROL_SESSIONCHANGE = 0x0000000E;
 
@@ -174,7 +183,8 @@ internal static class WindowsServiceHost
             s_appTask = Task.Run(RunAppGuardedAsync);
 
             ReportStatus(SERVICE_RUNNING, waitHintMs: 0,
-                controlsAccepted: SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_SESSIONCHANGE);
+                controlsAccepted: SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN
+                    | SERVICE_ACCEPT_PRESHUTDOWN | SERVICE_ACCEPT_SESSIONCHANGE);
 
             // Block ServiceMain until the app task finishes (either it crashed or the
             // control handler signalled cancellation).
@@ -208,6 +218,9 @@ internal static class WindowsServiceHost
     {
         switch (dwControl)
         {
+            // Preshutdown is the one that actually fires on a machine going down;
+            // SHUTDOWN stays handled for the case where preshutdown is unavailable.
+            case SERVICE_CONTROL_PRESHUTDOWN:
             case SERVICE_CONTROL_SHUTDOWN:
                 HostShutdown.IsOsShutdown = true;
                 goto case SERVICE_CONTROL_STOP;

@@ -87,6 +87,15 @@ public sealed class SleepBlackoutCoordinator
     /// already at the machine waiting for it.</summary>
     internal static readonly TimeSpan UnlockFadeDuration = TimeSpan.FromMilliseconds(900);
 
+    /// <summary>
+    /// How long the lights stay up after input at the lock screen. Matches the
+    /// 30s Windows takes to blank the display at the lock screen (measured on
+    /// T1), so the lighting goes out with the screen rather than glowing on in
+    /// a dark room; it is also long enough to type a password you had to look
+    /// at the keyboard for. Every further input restarts it.
+    /// </summary>
+    internal static readonly TimeSpan DefaultLockWakeTimeout = TimeSpan.FromSeconds(30);
+
     /// <summary>Two engine ticks of slack: the ramp reaches zero on the first tick past the window.</summary>
     private TimeSpan FrameSlack => TimeSpan.FromMilliseconds(Math.Max(1, _engine.FrameIntervalMs) * 2);
 
@@ -110,12 +119,39 @@ public sealed class SleepBlackoutCoordinator
     /// </summary>
     private volatile bool _lockHold;
 
-    public SleepBlackoutCoordinator(LightingEngine engine, IConfigStore store, RgbBridge? bridge = null, FeatureGates? gates = null)
+    /// <summary>
+    /// Serializes clearing <see cref="_lockHold"/> against the idle window
+    /// engaging a blackout on it. Without it the timer can pass its check and
+    /// then darken a desktop the user has just unlocked - with the hold flag
+    /// already false, so nothing is left to release it.
+    /// </summary>
+    private readonly object _lockHoldGate = new();
+
+    /// <summary>
+    /// Idle window after lock-screen input, refreshed by every further input.
+    /// Overridable so tests do not wait out the real window for the re-dark.
+    /// </summary>
+    private readonly TimeSpan _lockWakeTimeout;
+
+    /// <summary>Fires when <see cref="_lockWakeTimeout"/> elapses with no further input.</summary>
+    private readonly Timer _lockWakeTimer;
+
+    /// <summary>
+    /// Arms and disarms the helper's lock-screen input poll. Set by the Windows
+    /// helper wiring; null everywhere else, which simply means no wake-on-input.
+    /// A delegate rather than a HelperRegistry because that type is Windows-only
+    /// and this class is not.
+    /// </summary>
+    public Action<bool>? LockInputWatch { get; set; }
+
+    public SleepBlackoutCoordinator(LightingEngine engine, IConfigStore store, RgbBridge? bridge = null, FeatureGates? gates = null, TimeSpan? lockWakeTimeout = null)
     {
         _engine = engine;
         _store = store;
         _bridge = bridge;
         _gates = gates ?? FeatureGates.AllEnabled;
+        _lockWakeTimeout = lockWakeTimeout ?? DefaultLockWakeTimeout;
+        _lockWakeTimer = new Timer(_ => OnLockWakeExpired(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
     /// <summary>
@@ -153,28 +189,18 @@ public sealed class SleepBlackoutCoordinator
                 return;
             }
             _lockHold = true;
+            // Armed for as long as the session is locked, so input can bring the
+            // lighting back for whoever is standing at the prompt. Armed even
+            // when the blackout is already engaged below - the poll is what
+            // notices them arriving, not what darkened the room.
+            SetLockInputWatch(true);
             if (_engine.Blackout && !_engine.BlackoutReleasing)
             {
                 // Already dark or on its way (a second lock notification, or a
                 // lock arriving on top of the suspend blackout).
                 return;
             }
-            if (_engine.LoopPublishing && _engine.BeginBlackoutFade(LockFadeDuration))
-            {
-                ServiceLog.Info($"[lighting-lock] fading out over {(int)LockFadeDuration.TotalMilliseconds}ms");
-                return;
-            }
-
-            // Nothing is painting, so there is no ramp to run and no frames
-            // reaching the OpenRGB bridge either - the hold on its own would
-            // leave those devices lit. The push is off-thread because it blocks
-            // and this runs on an OS notification callback.
-            _engine.SetBlackout(true);
-            _ = Task.Run(() =>
-            {
-                var pushed = PushBridgeBlackout(DateTime.UtcNow + Budget);
-                ServiceLog.Info($"[lighting-lock] blanked (no render loop, openrgb={pushed})");
-            });
+            EngageLockBlackout();
         }
         catch (Exception ex)
         {
@@ -192,7 +218,14 @@ public sealed class SleepBlackoutCoordinator
     {
         try
         {
-            _lockHold = false;
+            lock (_lockHoldGate)
+            {
+                _lockHold = false;
+            }
+            SetLockInputWatch(false);
+            // The session is the user's again, so the idle window has nothing
+            // left to re-darken; a pending one would fire into a live desktop.
+            StopLockWakeTimer();
             if (!_engine.Blackout || _engine.BlackoutReleasing)
             {
                 return;
@@ -203,6 +236,113 @@ public sealed class SleepBlackoutCoordinator
         catch (Exception ex)
         {
             ServiceLog.Info($"[lighting-lock] unlock release failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Call when the helper reports input at the lock screen. Brings the
+    /// lighting back on the same ramp an unlock uses - the point is someone in
+    /// a dark room needing to see the keys - and starts (or restarts) the idle
+    /// window after which it goes dark again.
+    ///
+    /// Every input refreshes the window, whether the lights are already up or
+    /// not, so a hand resting on the keyboard keeps them up while a single
+    /// accidental keypress buys one window and then lets the machine go dark.
+    /// </summary>
+    public void OnLockScreenInput()
+    {
+        try
+        {
+            // Only meaningful while the session is locked. An envelope arriving
+            // after an unlock (in flight as the user signed in) must not park a
+            // timer that would darken a desktop the user is sitting at.
+            if (!_lockHold)
+            {
+                return;
+            }
+            if (!_store.Load().Lighting.LockBlackout)
+            {
+                return;
+            }
+
+            _lockWakeTimer.Change(_lockWakeTimeout, Timeout.InfiniteTimeSpan);
+
+            if (_engine.Blackout && !_engine.BlackoutReleasing)
+            {
+                _engine.BeginBlackoutRelease(UnlockFadeDuration);
+                ServiceLog.Info($"[lighting-lock] input at the lock screen - fading in over {(int)UnlockFadeDuration.TotalMilliseconds}ms");
+            }
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[lighting-lock] lock-screen input wake failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The idle window elapsed. Re-darkens only if the session is still locked;
+    /// an unlock in the meantime already cancelled this, but the check also
+    /// covers the race where it fired first.
+    /// </summary>
+    private void OnLockWakeExpired()
+    {
+        try
+        {
+            if (_engine.Blackout && !_engine.BlackoutReleasing)
+            {
+                return;
+            }
+            lock (_lockHoldGate)
+            {
+                // Re-read under the gate: an unlock landing between the check
+                // and the engage would leave the desktop dark for good.
+                if (!_lockHold)
+                {
+                    return;
+                }
+                EngageLockBlackout();
+            }
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[lighting-lock] re-blackout after idle failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Ramps to black on the lock ramp, or cuts and pushes directly when no
+    /// render loop is painting. Shared by the lock transition and the idle
+    /// window expiring, which want identical behaviour.
+    /// </summary>
+    private void EngageLockBlackout()
+    {
+        if (_engine.LoopPublishing && _engine.BeginBlackoutFade(LockFadeDuration))
+        {
+            ServiceLog.Info($"[lighting-lock] fading out over {(int)LockFadeDuration.TotalMilliseconds}ms");
+            return;
+        }
+
+        // Nothing is painting, so there is no ramp to run and no frames
+        // reaching the OpenRGB bridge either - the hold on its own would
+        // leave those devices lit. The push is off-thread because it blocks
+        // for as long as the bridge takes, and both callers (the lock
+        // notification hop and the idle timer) are threads worth returning.
+        _engine.SetBlackout(true);
+        _ = Task.Run(() =>
+        {
+            var pushed = PushBridgeBlackout(DateTime.UtcNow + Budget);
+            ServiceLog.Info($"[lighting-lock] blanked (no render loop, openrgb={pushed})");
+        });
+    }
+
+    private void StopLockWakeTimer() => _lockWakeTimer.Change(Timeout.Infinite, Timeout.Infinite);
+
+    private void SetLockInputWatch(bool enabled)
+    {
+        try { LockInputWatch?.Invoke(enabled); }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[lighting-lock] input watch {(enabled ? "arm" : "disarm")} failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 

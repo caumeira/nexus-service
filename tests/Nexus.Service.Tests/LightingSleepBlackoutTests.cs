@@ -639,6 +639,96 @@ public class LightingSleepBlackoutTests : IDisposable
         Assert.True(floor > 0, "the release dropped the lights to black before ramping up");
     }
 
+    [Fact]
+    public async Task LockScreenInput_WhileLocked_BringsTheLightingBack()
+    {
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 5;
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetEffect(new FillEffect(255, 255, 255));
+        Assert.True(await WaitUntil(() => !AllBlack(devices[0]), TimeSpan.FromSeconds(2)));
+
+        // Short window so the test does not leave a live timer behind that
+        // fires against the disposed engine after it returns.
+        var coordinator = new SleepBlackoutCoordinator(engine, _store, lockWakeTimeout: TimeSpan.FromSeconds(5));
+        coordinator.OnSessionLocked();
+        Assert.True(await WaitUntil(() => AllBlack(devices[0]), TimeSpan.FromSeconds(4)));
+
+        coordinator.OnLockScreenInput();
+
+        Assert.True(await WaitUntil(() => !AllBlack(devices[0]), TimeSpan.FromSeconds(4)));
+    }
+
+    [Fact]
+    public async Task LockScreenInput_AfterUnlock_IsIgnored()
+    {
+        // An envelope in flight as the user signs in must not park an idle
+        // timer that would darken the desktop they are now sitting at.
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 5;
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetEffect(new FillEffect(255, 255, 255));
+
+        var coordinator = new SleepBlackoutCoordinator(engine, _store, lockWakeTimeout: TimeSpan.FromMilliseconds(150));
+        coordinator.OnSessionLocked();
+        coordinator.OnSessionUnlocked();
+        Assert.True(await WaitUntil(() => !AllBlack(devices[0]), TimeSpan.FromSeconds(4)));
+
+        coordinator.OnLockScreenInput();
+        await Task.Delay(500);
+
+        Assert.False(engine.Blackout);
+        Assert.False(AllBlack(devices[0]));
+    }
+
+    [Fact]
+    public async Task LockScreenInput_GoesDarkAgainAfterTheIdleWindow()
+    {
+        using var engine = new LightingEngine();
+        engine.FrameIntervalMs = 5;
+        var devices = MakeLitDevices();
+        engine.UpdateDevices(devices);
+        engine.SetEffect(new FillEffect(255, 255, 255));
+
+        var coordinator = new SleepBlackoutCoordinator(engine, _store, lockWakeTimeout: TimeSpan.FromMilliseconds(150));
+        coordinator.OnSessionLocked();
+        Assert.True(await WaitUntil(() => AllBlack(devices[0]), TimeSpan.FromSeconds(4)));
+
+        coordinator.OnLockScreenInput();
+        Assert.True(await WaitUntil(() => !AllBlack(devices[0]), TimeSpan.FromSeconds(4)));
+
+        // No further input: the window elapses and the lock ramp runs again.
+        Assert.True(await WaitUntil(() => AllBlack(devices[0]), TimeSpan.FromSeconds(6)));
+    }
+
+    [Fact]
+    public void LockInputWatch_ArmsOnLockAndDisarmsOnUnlock()
+    {
+        using var engine = new LightingEngine();
+        var seen = new List<bool>();
+        var coordinator = new SleepBlackoutCoordinator(engine, _store) { LockInputWatch = seen.Add };
+
+        coordinator.OnSessionLocked();
+        coordinator.OnSessionUnlocked();
+
+        Assert.Equal(new[] { true, false }, seen);
+    }
+
+    [Fact]
+    public void LockInputWatch_NotArmedWhenLockBlackoutIsOff()
+    {
+        _store.Update(s => s.Lighting.LockBlackout = false);
+        using var engine = new LightingEngine();
+        var seen = new List<bool>();
+        var coordinator = new SleepBlackoutCoordinator(engine, _store) { LockInputWatch = seen.Add };
+
+        coordinator.OnSessionLocked();
+
+        Assert.Empty(seen);
+    }
+
     private static async Task<bool> WaitUntil(Func<bool> predicate, TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
