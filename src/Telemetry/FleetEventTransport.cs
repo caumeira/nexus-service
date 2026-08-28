@@ -22,6 +22,7 @@ internal sealed class FleetEventTransport : IFleetEventTransport
         {
             using var client = _http.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(10);
+            Common.ClientCredential.Apply(client);
             using var content = JsonContent.Create(payload, AppJsonContext.Default.FleetEventPayload);
             using var res = await client.PostAsync(Endpoint, content, ct).ConfigureAwait(false);
             if (!res.IsSuccessStatusCode)

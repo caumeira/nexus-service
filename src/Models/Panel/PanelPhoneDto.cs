@@ -161,6 +161,9 @@ public sealed class RelayHostHello
     public string? OsVer { get; set; }
     public string? App { get; set; }
     public string? Dev { get; set; }
+
+    /// <summary>Signed build credential; null is omitted, which the relay rejects once enforcement is on.</summary>
+    public string? Cred { get; set; }
 }
 
 /// <summary>

@@ -93,6 +93,30 @@
     <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
   </PropertyGroup>
 
+  <!-- OFFICIAL_BUILD: derived, never set by hand. The build credential is the
+       single input - CI mints a signed token into $(NEXUS_CLIENT_TOKEN); a lab
+       machine keeps a long-lived dev token at ~/.nexus-build/client-token. A
+       public clone has neither, so every path to our backend is gated off at
+       registration and at each egress point. The define makes IsOfficial a
+       constant false rather than a runtime read, so those paths are also
+       unreachable. The web half reads the same credential in vite.config.ts,
+       which is what keeps the two from disagreeing. -->
+  <PropertyGroup>
+    <_NexusClientTokenFile Condition="'$(USERPROFILE)' != ''">$(USERPROFILE)\.nexus-build\client-token</_NexusClientTokenFile>
+    <_NexusClientTokenFile Condition="'$(_NexusClientTokenFile)' == ''">$(HOME)/.nexus-build/client-token</_NexusClientTokenFile>
+    <NexusClientToken Condition="'$(NexusClientToken)' == ''">$(NEXUS_CLIENT_TOKEN)</NexusClientToken>
+    <NexusClientToken Condition="'$(NexusClientToken)' == '' AND Exists('$(_NexusClientTokenFile)')">$([System.IO.File]::ReadAllText('$(_NexusClientTokenFile)').Trim())</NexusClientToken>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(NexusClientToken)' != ''">
+    <DefineConstants>$(DefineConstants);OFFICIAL_BUILD</DefineConstants>
+  </PropertyGroup>
+
+  <!-- Our PostHog project key, injected the same way. A fork shipping it would
+       file its installs under our analytics, so it is not committed. -->
+  <PropertyGroup>
+    <NexusPostHogKey Condition="'$(NexusPostHogKey)' == ''">$(NEXUS_POSTHOG_KEY)</NexusPostHogKey>
+  </PropertyGroup>
+
   <!-- DEV_TOOLS: internal/test builds only. Publish with -p:DevTools=true to
        include firmware downgrade / cross-branch flashing (status DevImages +
        the TryStart allowance). Off by default so release publishes don't carry
@@ -946,6 +970,17 @@
     <WriteLinesToFile File="$(IntermediateOutputPath)GitVersion.g.cs" Lines="namespace Nexus.Service { internal static partial class BuildInfo { public const string Version = &quot;$(NexusBuildVersion)&quot;%3B } }" Overwrite="true" />
     <ItemGroup>
       <Compile Include="$(IntermediateOutputPath)GitVersion.g.cs" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Bake the build credential the same way as the version. The token never
+       enters the source tree, a PR diff, or a public clone - it exists only in
+       the CI secret store and in obj/. Always written (empty when absent) so
+       BuildInfo.ClientToken resolves in every configuration. -->
+  <Target Name="SetClientCredential" BeforeTargets="CoreCompile">
+    <WriteLinesToFile File="$(IntermediateOutputPath)ClientCredential.g.cs" Lines="namespace Nexus.Service { internal static partial class BuildInfo { public const string ClientToken = &quot;$(NexusClientToken)&quot;%3B public const string PostHogKey = &quot;$(NexusPostHogKey)&quot;%3B } }" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)ClientCredential.g.cs" />
     </ItemGroup>
   </Target>
 

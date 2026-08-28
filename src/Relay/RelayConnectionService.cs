@@ -49,6 +49,10 @@ public sealed class RelayConnectionService : BackgroundService
 
     private const int ReceiveBufferSize = 8192;
     private const int InitialReconnectDelayMs = 1_000;
+    // Relay close code for a host hello it would not accept. Terminal: another
+    // attempt cannot produce a credential this build does not carry, and a
+    // clean close otherwise resets the backoff to one second.
+    private const WebSocketCloseStatus UnauthorizedClose = (WebSocketCloseStatus)4401;
     private const int MaxReconnectDelayMs = 30_000;
     // Relay caps inbound frames at 256 KB; refuse to buffer anything larger so a
     // hostile relay can't push us into unbounded allocation.
@@ -166,6 +170,7 @@ public sealed class RelayConnectionService : BackgroundService
         {
             using var client = _httpFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(5);
+            Common.ClientCredential.Apply(client);
             var json = await client.GetStringAsync(DirectoryUrl, ct).ConfigureAwait(false);
             var dir = JsonSerializer.Deserialize(json, AppJsonContext.Default.RelayDirectoryResponse);
             if (dir is not null
@@ -526,6 +531,7 @@ public sealed class RelayConnectionService : BackgroundService
         // consumed and this link is obsolete (Reconcile removes it). Set so the
         // reconnect loop stops instead of re-registering a dead pair rendezvous.
         private volatile bool _pairClaimDone;
+        private volatile bool _unauthorized;
 
         /// <summary>The reconcile key this link satisfies (sess:&lt;id&gt; or pair:&lt;rid&gt;).</summary>
         public string LinkKey { get; }
@@ -588,6 +594,24 @@ public sealed class RelayConnectionService : BackgroundService
                 if (_pairClaimDone)
                     break;
 
+                // Only terminal for a build that cannot produce a credential.
+                // An official build seeing 4401 means something is wrong on the
+                // relay side, and stranding the link would need a remote toggle
+                // to clear - so it keeps retrying on the capped backoff.
+                if (_unauthorized)
+                {
+                    if (!Common.ClientCredential.IsOfficial)
+                    {
+                        _owner._log.LogWarning(
+                            "relay refused this build's credential on {LinkKey}; not retrying", LinkKey);
+                        break;
+                    }
+
+                    _unauthorized = false;
+                    _owner._log.LogWarning(
+                        "relay refused our credential on {LinkKey}; retrying", LinkKey);
+                }
+
                 try { await Task.Delay(delayMs, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
                 delayMs = Math.Min(delayMs * 2, MaxReconnectDelayMs);
@@ -626,7 +650,11 @@ public sealed class RelayConnectionService : BackgroundService
                     {
                         result = await transport.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
                         if (result.MessageType == WebSocketMessageType.Close)
-                            return; // relay closed the host socket → outer loop reconnects
+                        {
+                            if (transport.CloseStatus == UnauthorizedClose)
+                                _unauthorized = true;
+                            return; // relay closed the host socket; outer loop reconnects
+                        }
                         if (message.Length + result.Count > MaxFrameBytes)
                             throw new InvalidOperationException("relay frame exceeds 256 KB cap");
                         message.Write(buffer, 0, result.Count);
@@ -744,7 +772,11 @@ public sealed class RelayConnectionService : BackgroundService
                 {
                     result = await transport.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
                     if (result.MessageType == WebSocketMessageType.Close)
-                        return; // relay closed the host socket → outer loop reconnects
+                    {
+                        if (transport.CloseStatus == UnauthorizedClose)
+                            _unauthorized = true;
+                        return; // relay closed the host socket; outer loop reconnects
+                    }
                     if (message.Length + result.Count > MaxFrameBytes)
                         throw new InvalidOperationException("relay frame exceeds 256 KB cap");
                     message.Write(buffer, 0, result.Count);
@@ -934,7 +966,11 @@ public sealed class RelayConnectionService : BackgroundService
                     {
                         result = await transport.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
                         if (result.MessageType == WebSocketMessageType.Close)
-                            return; // relay closed the host socket → outer loop reconnects
+                        {
+                            if (transport.CloseStatus == UnauthorizedClose)
+                                _unauthorized = true;
+                            return; // relay closed the host socket; outer loop reconnects
+                        }
                         if (message.Length + result.Count > MaxFrameBytes)
                             throw new InvalidOperationException("relay frame exceeds 256 KB cap");
                         message.Write(buffer, 0, result.Count);
@@ -1017,6 +1053,8 @@ public sealed class RelayConnectionService : BackgroundService
                 OsVer = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
                 App = BuildInfo.Version,
                 Dev = "desktop",
+                // Null is omitted; the relay refuses a credential-less hello once enforcement is on.
+                Cred = Common.ClientCredential.IsOfficial ? Common.ClientCredential.Token : null,
             };
             var json = JsonSerializer.SerializeToUtf8Bytes(hello, AppJsonContext.Default.RelayHostHello);
             await transport
