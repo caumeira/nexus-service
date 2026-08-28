@@ -1,0 +1,183 @@
+using Nexus.Service.Games;
+
+namespace Nexus.Service.Tests.Games;
+
+public class BinaryFpsSessionStoreTests : IDisposable
+{
+    private readonly string _dir;
+
+    public BinaryFpsSessionStoreTests()
+    {
+        _dir = Path.Combine(Path.GetTempPath(), "nexus-fpsstore-" + Guid.NewGuid().ToString("N")[..8]);
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch { }
+    }
+
+    // Recent, not a fixed historical constant: the store prunes month
+    // segments wholly outside its 1-year retention window on every Append,
+    // so a fixture timestamped years in the past is deleted the instant it
+    // is written.
+    private static readonly long NowUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+    private static FpsSessionRecord Session(
+        string gameKey = "steam:1091500", string name = "Cyberpunk 2077", string store = "steam",
+        long? startedUtcMs = null, long? endedUtcMs = null,
+        int focusedSec = 600, int validSec = 590, long frames = 590 * 60,
+        int minFps = 30, int maxFps = 144, uint[]? hist = null,
+        int dispW = 2560, int dispH = 1440, int refreshHz = 144, int winW = 2560, int winH = 1440,
+        bool fullscreen = true, bool capped = false, int capValue = 0, ulong hardwareHash = 12345)
+    {
+        var started = startedUtcMs ?? NowUtcMs;
+        var ended = endedUtcMs ?? started + 600_000;
+        var h = hist ?? new uint[FpsHistogram.BucketCount];
+        if (hist is null)
+        {
+            FpsHistogram.AddSample(h, 60);
+        }
+        return new FpsSessionRecord(
+            Guid.NewGuid(), gameKey, name, store, started, ended, focusedSec, validSec, frames,
+            minFps, maxFps, h, dispW, dispH, refreshHz, winW, winH, fullscreen, capped, capValue, hardwareHash,
+            FpsUploadState.Pending);
+    }
+
+    [Fact]
+    public void Append_ThenQuerySessions_RoundTripsEveryField()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        var record = Session();
+        store.Append(record);
+
+        var sessions = store.QuerySessions("steam:1091500", 10);
+
+        var row = Assert.Single(sessions);
+        Assert.Equal(record.Id, row.Id);
+        Assert.Equal(record.GameKey, row.GameKey);
+        Assert.Equal(record.GameName, row.GameName);
+        Assert.Equal(record.Store, row.Store);
+        Assert.Equal(record.StartedUtcMs, row.StartedUtcMs);
+        Assert.Equal(record.EndedUtcMs, row.EndedUtcMs);
+        Assert.Equal(record.FocusedSec, row.FocusedSec);
+        Assert.Equal(record.ValidSec, row.ValidSec);
+        Assert.Equal(record.Frames, row.Frames);
+        Assert.Equal(record.MinFps, row.MinFps);
+        Assert.Equal(record.MaxFps, row.MaxFps);
+        Assert.Equal(record.Hist, row.Hist);
+        Assert.Equal(record.DispW, row.DispW);
+        Assert.Equal(record.DispH, row.DispH);
+        Assert.Equal(record.RefreshHz, row.RefreshHz);
+        Assert.Equal(record.WinW, row.WinW);
+        Assert.Equal(record.WinH, row.WinH);
+        Assert.Equal(record.Fullscreen, row.Fullscreen);
+        Assert.Equal(record.Capped, row.Capped);
+        Assert.Equal(record.HardwareHash, row.HardwareHash);
+    }
+
+    [Fact]
+    public void QuerySessions_UnknownGameKey_ReturnsEmpty()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session());
+
+        Assert.Empty(store.QuerySessions("steam:999", 10));
+    }
+
+    [Fact]
+    public void QuerySessions_ReturnsNewestFirst()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        var older = Session(startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 100_000);
+        var newer = Session(startedUtcMs: NowUtcMs + 1_000_000, endedUtcMs: NowUtcMs + 1_100_000);
+        store.Append(older);
+        store.Append(newer);
+
+        var sessions = store.QuerySessions("steam:1091500", 10);
+
+        Assert.Equal(2, sessions.Count);
+        Assert.Equal(newer.Id, sessions[0].Id);
+        Assert.Equal(older.Id, sessions[1].Id);
+    }
+
+    [Fact]
+    public void QuerySessions_RespectsLimit()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        for (var i = 0; i < 5; i++)
+        {
+            store.Append(Session(startedUtcMs: NowUtcMs + i * 1000, endedUtcMs: NowUtcMs + i * 1000 + 600_000));
+        }
+
+        Assert.Equal(2, store.QuerySessions("steam:1091500", 2).Count);
+    }
+
+    [Fact]
+    public void QueryGameSummaries_MergesAcrossSessions()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session(focusedSec: 600, validSec: 590, frames: 590 * 60, minFps: 40, maxFps: 100,
+            startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000));
+        var lastPlayedUtcMs = NowUtcMs + 1_400_000;
+        store.Append(Session(focusedSec: 400, validSec: 390, frames: 390 * 80, minFps: 20, maxFps: 144,
+            startedUtcMs: NowUtcMs + 1_000_000, endedUtcMs: lastPlayedUtcMs));
+
+        var summaries = store.QueryGameSummaries();
+
+        var summary = Assert.Single(summaries);
+        Assert.Equal("steam:1091500", summary.GameKey);
+        Assert.Equal("1091500", summary.SteamAppId);
+        Assert.Equal(2, summary.Sessions);
+        Assert.Equal(1000, summary.FocusedSec);
+        Assert.Equal(980, summary.ValidSec);
+        Assert.Equal(20, summary.MinFps);
+        Assert.Equal(144, summary.MaxFps);
+        Assert.Equal(lastPlayedUtcMs, summary.LastPlayedUtcMs);
+    }
+
+    [Fact]
+    public void QueryGameSummaries_NonSteamGame_HasNoSteamAppId()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session(gameKey: "epic:fortnite", name: "Fortnite", store: "epic"));
+
+        var summary = Assert.Single(store.QueryGameSummaries());
+
+        Assert.Null(summary.SteamAppId);
+    }
+
+    [Fact]
+    public void DeleteAll_RemovesEverySession_AndReportsTheCount()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session());
+        store.Append(Session(startedUtcMs: NowUtcMs + 1_000_000, endedUtcMs: NowUtcMs + 1_600_000));
+
+        var deleted = store.DeleteAll();
+
+        Assert.Equal(2, deleted);
+        Assert.Empty(store.QuerySessions("steam:1091500", 10));
+        Assert.Empty(store.QueryGameSummaries());
+    }
+
+    [Fact]
+    public void Append_RejectsAHistogramOfTheWrongLength()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        var badRecord = Session(hist: new uint[10]);
+
+        Assert.Throws<ArgumentException>(() => store.Append(badRecord));
+    }
+
+    [Fact]
+    public void Reopen_SeesSessionsPersistedByThePreviousInstance()
+    {
+        using (var store = new BinaryFpsSessionStore(_dir))
+        {
+            store.Append(Session());
+        }
+
+        using var reopened = new BinaryFpsSessionStore(_dir);
+        Assert.Single(reopened.QuerySessions("steam:1091500", 10));
+    }
+}
