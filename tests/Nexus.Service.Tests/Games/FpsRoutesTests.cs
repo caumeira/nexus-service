@@ -55,6 +55,25 @@ public class FpsRoutesTests
     }
 
     [Fact]
+    public void ToSessionOverviewDto_MapsEveryField()
+    {
+        var hist = new uint[FpsHistogram.BucketCount];
+        var record = new FpsSessionRecord(
+            Guid.NewGuid(), "steam:1", "Game", "steam", 1_000, 2_000, 600, 590, 590 * 90,
+            30, 144, hist, 2560, 1440, 144, 2560, 1440, true, false, 0, 12345, FpsUploadState.Pending);
+
+        var dto = FpsRoutes.ToSessionOverviewDto(record);
+
+        Assert.Equal(record.Id.ToString(), dto.Id);
+        Assert.Equal("steam:1", dto.GameKey);
+        Assert.Equal("Game", dto.Name);
+        Assert.Equal("steam", dto.Store);
+        Assert.Equal(1_000, dto.StartedUtcMs);
+        Assert.Equal(2_000, dto.EndedUtcMs);
+        Assert.Equal(90, dto.AvgFps);
+    }
+
+    [Fact]
     public void ToSessionDto_MapsEveryField()
     {
         var hist = new uint[FpsHistogram.BucketCount];

@@ -1115,6 +1115,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.FpsGamesResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionOverviewDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionsOverviewResponse))]
 
 // Monitoring timeline events (GET/POST/DELETE /monitoring/events)
 [JsonSerializable(typeof(Nexus.Service.Routes.MonitoringEventDto))]

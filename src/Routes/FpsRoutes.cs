@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Nexus.Service.Auth;
 using Nexus.Service.Games;
 using Nexus.Service.Models;
@@ -19,6 +20,9 @@ public static class FpsRoutes
     private const int DefaultSessionsLimit = 50;
     private const int MinSessionsLimit = 1;
     private const int MaxSessionsLimit = 200;
+    private const int DefaultSessionsOverviewLimit = 200;
+    private const int MinSessionsOverviewLimit = 1;
+    private const int MaxSessionsOverviewLimit = 500;
 
     public static void MapFpsEndpoints(this WebApplication app)
     {
@@ -64,6 +68,23 @@ public static class FpsRoutes
                 .ToList();
             return new FpsSessionsResponse { Sessions = sessions };
         }).AllowPanel();
+
+        // Backs the monitoring page's fps overlay: which game was being
+        // played across a time range, cheap over a 7-day window since
+        // QuerySessionsByTimeRange scans only the overlapping month segments.
+        app.MapGet("/api/fps/sessions", (long? from, long? to, int? limit, BinaryFpsSessionStore store) =>
+        {
+            if (from is null || to is null || to < from)
+            {
+                return Results.BadRequest(ApiResponse.Fail("from and to are required and to must be >= from"));
+            }
+
+            var clampedLimit = Math.Clamp(limit ?? DefaultSessionsOverviewLimit, MinSessionsOverviewLimit, MaxSessionsOverviewLimit);
+            var sessions = store.QuerySessionsByTimeRange(from.Value, to.Value, clampedLimit)
+                .Select(ToSessionOverviewDto)
+                .ToList();
+            return Results.Ok(new FpsSessionsOverviewResponse { Sessions = sessions });
+        }).AllowPanel();
     }
 
     internal static FpsGameDto ToGameDto(FpsGameSummary s) => new()
@@ -102,10 +123,20 @@ public static class FpsRoutes
         CapValue = r.CapValue,
     };
 
-    // Pure and directly unit-tested: sum-of-frames / sum-of-validSec is the
-    // wire contract's avgFps, per the fps-benchmarks plan (not an average of
-    // per-second values, which would over-weight seconds that report a
-    // frame count of exactly 1).
+    internal static FpsSessionOverviewDto ToSessionOverviewDto(FpsSessionRecord r) => new()
+    {
+        Id = r.Id.ToString(),
+        GameKey = r.GameKey,
+        Name = r.GameName,
+        Store = r.Store,
+        StartedUtcMs = r.StartedUtcMs,
+        EndedUtcMs = r.EndedUtcMs,
+        AvgFps = AverageFps(r.Frames, r.ValidSec),
+    };
+
+    // avgFps is sum-of-frames / sum-of-validSec, not an average of
+    // per-second values (which would over-weight seconds reporting exactly
+    // 1 frame).
     internal static double AverageFps(long frames, long validSec) =>
         validSec > 0 ? Math.Round((double)frames / validSec, 1) : 0;
 }
@@ -155,4 +186,20 @@ public sealed record FpsSessionDto
 public sealed record FpsSessionsResponse
 {
     public IReadOnlyList<FpsSessionDto> Sessions { get; init; } = Array.Empty<FpsSessionDto>();
+}
+
+public sealed record FpsSessionOverviewDto
+{
+    public string Id { get; init; } = "";
+    public string GameKey { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Store { get; init; } = "";
+    public long StartedUtcMs { get; init; }
+    public long EndedUtcMs { get; init; }
+    public double AvgFps { get; init; }
+}
+
+public sealed record FpsSessionsOverviewResponse
+{
+    public IReadOnlyList<FpsSessionOverviewDto> Sessions { get; init; } = Array.Empty<FpsSessionOverviewDto>();
 }
