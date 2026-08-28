@@ -100,6 +100,7 @@ src/
   Media/              # media session state (GSMTC on Windows)
   Diagnostics/        # failure diagnostics: event-log monitor, SMART/NVMe health, GPU/cooling/memory checks, health model + support bundle
   Fps/                # FPS capture
+  Games/              # installed-game catalog (Steam/Epic/Ubisoft) + per-game fps session recorder/store (Windows)
   Relay/              # off-LAN relay client for the phone panel
   Rtc/                # WebRTC DataChannel direct P2P transport (SIPSorcery), signaled via POST /rtc/offer
   Discovery/          # mDNS/Bonjour advertising

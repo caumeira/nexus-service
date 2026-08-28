@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Nexus.Service.Activity;
 using Nexus.Service.Fps;
 using Nexus.Service.Lifecycle;
+using Nexus.Service.Models.Activity;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Persistence;
@@ -55,6 +56,38 @@ public class MetricsSamplerTests
         public void Reload() { }
         public void FlushNow() { }
         public event Action? OnChanged;
+    }
+
+    private sealed class SpyFpsProvider : IFpsProvider
+    {
+        public List<bool> DemandCalls { get; } = new();
+        public (long TsSec, int Pid, int Frames)? Second { get; set; }
+
+        public void SetDemand(string source, bool wanted) => DemandCalls.Add(wanted);
+
+        public bool TryReadSecond(long tsSec, out int pid, out int frames)
+        {
+            if (Second is { } s && s.TsSec == tsSec)
+            {
+                pid = s.Pid;
+                frames = s.Frames;
+                return true;
+            }
+            pid = 0;
+            frames = 0;
+            return false;
+        }
+
+        public HardwareComponent GetComponent() => new() { Id = "fps", Name = "FPS", Sensors = new List<HardwareSensor>() };
+        public void Dispose() { }
+    }
+
+    private sealed class FakeScreenTimeProvider : IScreenTimeProvider
+    {
+        public FocusSession? Session { get; set; }
+        public FocusSession? GetCurrentSession() => Session;
+        public event Action? FocusChanged { add { } remove { } }
+        public IReadOnlyList<AppUsage> GetTodayUsage() => Array.Empty<AppUsage>();
     }
 
     private sealed class StubMetricsSource : IMetricsSource
@@ -154,10 +187,10 @@ public class MetricsSamplerTests
     private static MetricsSampler CreateSampler(
         StubMetricsSource source, RecordingMetricsHistoryStore store, MetricsSampleBuffer? buffer = null,
         IAppUsageSource? appSource = null, AppSampleBuffer? appBuffer = null, IAppUsageHistoryStore? appStore = null,
-        FeatureGates? gates = null) =>
+        FeatureGates? gates = null, IFpsProvider? fps = null, IScreenTimeProvider? screenTime = null, IConfigStore? config = null) =>
         new(new StubSensors(), source, buffer ?? new MetricsSampleBuffer(), store,
             appSource ?? new StubAppUsageSource(), appBuffer ?? new AppSampleBuffer(), appStore ?? new RecordingAppUsageHistoryStore(),
-            new StubFpsProvider(), new StubScreenTimeProvider(), new FakeConfigStore(),
+            fps ?? new StubFpsProvider(), screenTime ?? new StubScreenTimeProvider(), config ?? new FakeConfigStore(),
             gates);
 
     [Fact]
@@ -171,6 +204,78 @@ public class MetricsSamplerTests
 
         Assert.Equal(1, source.Calls);
         Assert.Single(buffer.PendingSnapshot());
+    }
+
+    [Fact]
+    public async Task Tick_HoldsFpsDemand_WhenTrackingEnabledAndSomethingIsFocused()
+    {
+        var fps = new SpyFpsProvider();
+        var screenTime = new FakeScreenTimeProvider { Session = new FocusSession { Id = "1234", Name = "game.exe" } };
+        var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), fps: fps, screenTime: screenTime);
+
+        await sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), CancellationToken.None);
+
+        Assert.Equal(new[] { true }, fps.DemandCalls);
+    }
+
+    [Fact]
+    public async Task Tick_ReleasesFpsDemand_WhenNothingIsFocused()
+    {
+        var fps = new SpyFpsProvider();
+        var screenTime = new FakeScreenTimeProvider { Session = null };
+        var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), fps: fps, screenTime: screenTime);
+
+        await sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), CancellationToken.None);
+
+        Assert.Equal(new[] { false }, fps.DemandCalls);
+    }
+
+    [Fact]
+    public async Task Tick_ReleasesFpsDemand_WhenTrackingDisabled_EvenWhileFocused()
+    {
+        var fps = new SpyFpsProvider();
+        var screenTime = new FakeScreenTimeProvider { Session = new FocusSession { Id = "1234", Name = "game.exe" } };
+        var config = new FakeConfigStore();
+        config.Update(s => s.Fps.TrackingEnabled = false);
+        var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), fps: fps, screenTime: screenTime, config: config);
+
+        await sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), CancellationToken.None);
+
+        Assert.Equal(new[] { false }, fps.DemandCalls);
+    }
+
+    [Fact]
+    public async Task Tick_HoldsFpsDemand_EvenWhenMonitoringGateIsOff()
+    {
+        // FpsSessionRecorder rides this same demand and must keep working
+        // with the Monitoring history pillar off.
+        var fps = new SpyFpsProvider();
+        var screenTime = new FakeScreenTimeProvider { Session = new FocusSession { Id = "1234", Name = "game.exe" } };
+        var monitoringOffConfig = new FakeConfigStore();
+        monitoringOffConfig.Update(s => s.Features.Monitoring = false);
+        var sampler = CreateSampler(
+            new StubMetricsSource(), new RecordingMetricsHistoryStore(), fps: fps, screenTime: screenTime,
+            gates: new FeatureGates(monitoringOffConfig));
+
+        await sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), CancellationToken.None);
+
+        Assert.Equal(new[] { true }, fps.DemandCalls);
+    }
+
+    [Fact]
+    public async Task Tick_FoldsThePreviousSecondsFrameCount_IntoTheSample()
+    {
+        var fps = new SpyFpsProvider();
+        var now = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
+        var previousSec = new DateTimeOffset(now).ToUnixTimeSeconds() - 1;
+        fps.Second = (previousSec, 4321, 144);
+        var buffer = new MetricsSampleBuffer();
+        var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), buffer, fps: fps);
+
+        await sampler.Tick(now, CancellationToken.None);
+
+        var sample = Assert.Single(buffer.PendingSnapshot());
+        Assert.Equal(144, sample.Fps);
     }
 
     [Fact]

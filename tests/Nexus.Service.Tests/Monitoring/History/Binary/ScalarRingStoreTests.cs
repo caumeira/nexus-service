@@ -85,6 +85,29 @@ public class ScalarRingStoreTests : IDisposable
     }
 
     [Fact]
+    public void BlankFps_ClearsOnlyFps_LeavingEveryOtherFieldOnTheSameSlotIntact()
+    {
+        using var store = CreateStore();
+        store.Append(new[] { Scalars(10, cpu: 42, fps: 144) });
+
+        var cleared = store.BlankFps();
+
+        var row = Assert.Single(store.Query(0, 100));
+        Assert.Equal(1, cleared);
+        Assert.Null(row.Fps);
+        Assert.Equal(42, row.CpuPercent);
+    }
+
+    [Fact]
+    public void BlankFps_SlotWithNoFpsReading_IsNotCounted()
+    {
+        using var store = CreateStore();
+        store.Append(new[] { Scalars(10, fps: null) });
+
+        Assert.Equal(0, store.BlankFps());
+    }
+
+    [Fact]
     public void Append_AZeroReading_RoundTripsAsZero_NotAsNull()
     {
         // Zero is a legitimate reading (idle CPU, no network traffic) and

@@ -221,4 +221,34 @@ public class BinaryMetricsHistoryStoreTests : IDisposable
         Assert.Contains(rows, r => r.ComponentTemps.Any(c => c.ComponentId == "ram:0" && c.ValueC == 38));
         Assert.Contains(rows, r => r.ComponentTemps.Any(c => c.ComponentId == "storage:serial1" && c.ValueC == 45));
     }
+
+    [Fact]
+    public void ResetAll_ClearsScalarHistory_AndRecordingContinuesAfterwards()
+    {
+        using var store = new BinaryMetricsHistoryStore(_dir);
+        store.Append(new[] { Scalars(10, cpu: 50) }, null);
+
+        store.ResetAll();
+        Assert.Empty(store.Query(0, 100));
+
+        store.Append(new[] { Scalars(20, cpu: 70) }, null);
+        var row = Assert.Single(store.Query(0, 100));
+        Assert.Equal(70, row.CpuPercent);
+    }
+
+    [Fact]
+    public void BlankFpsSeries_ClearsOnlyFps_LeavingOtherFieldsOnTheSameSlotIntact()
+    {
+        using var store = new BinaryMetricsHistoryStore(_dir);
+        store.Append(new[] { new MetricSample(10, 42, 61, 1000, 500, 55,
+            Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { Fps = 60 } }, null);
+
+        var cleared = store.BlankFpsSeries();
+
+        var row = Assert.Single(store.Query(0, 100));
+        Assert.Equal(1, cleared);
+        Assert.Null(row.Fps);
+        Assert.Equal(42, row.CpuPercent);
+        Assert.Equal(61, row.MemoryPercent);
+    }
 }
