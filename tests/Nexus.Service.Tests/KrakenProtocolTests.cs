@@ -224,16 +224,51 @@ public class KrakenProtocolTests
     }
 
     [Fact]
+    public void EncodeDirectColors_moves_the_21st_colour_onto_the_second_report()
+    {
+        // The firmware reads 20 colours per report and discards the rest, so a 24-LED
+        // ring lit past index 19 stays dark unless the tail rides the 0x11 report.
+        var rgb = new byte[KrakenProtocol.MaxDirectColors * 3];
+        rgb[22 * 3] = 0x11;       // R
+        rgb[(22 * 3) + 1] = 0x22; // G
+        rgb[(22 * 3) + 2] = 0x33; // B
+
+        var reports = KrakenProtocol.EncodeDirectColors(KrakenProtocol.ColorChannelRing, rgb);
+
+        Assert.All(reports[0][4..], b => Assert.Equal(0, b));
+        // Colour 22 is the third slot of the second report, GRB on the wire.
+        Assert.Equal(new byte[] { 0x22, 0x11, 0x33 }, reports[1][10..13]);
+    }
+
+    [Fact]
+    public void AccessoryRings_gives_one_circle_per_fan_on_a_multi_fan_radiator()
+    {
+        Assert.Equal((1, 24), KrakenProtocol.AccessoryRings(0x1E)); // Kraken Elite ring
+        Assert.Equal((2, 8), KrakenProtocol.AccessoryRings(0x1B));  // F240: two fans
+        Assert.Equal((3, 8), KrakenProtocol.AccessoryRings(0x1D));  // F360: three fans
+        // Ring counts must agree with the LED counts they are derived from.
+        foreach (byte id in new byte[] { 0x10, 0x11, 0x17, 0x18, 0x19, 0x1B, 0x1D, 0x1E, 0x1F })
+        {
+            var (rings, perRing) = KrakenProtocol.AccessoryRings(id);
+            Assert.Equal(KrakenProtocol.LedCountForAccessory(id), rings * perRing);
+        }
+        // Unmeasured accessory: no geometry rather than a guess.
+        Assert.Equal((0, 0), KrakenProtocol.AccessoryRings(0x13));
+    }
+
+    [Fact]
     public void EncodeDirectColors_drops_colours_past_the_channel_limit()
     {
         var rgb = new byte[(KrakenProtocol.MaxDirectColors + 5) * 3];
         rgb.AsSpan().Fill(0x7F);
 
-        var table = KrakenProtocol.EncodeDirectColors(0b001, rgb)[0];
+        // The last accepted colour is the 20th slot of the second report; everything
+        // past the channel limit is dropped rather than wrapping.
+        var second = KrakenProtocol.EncodeDirectColors(0b001, rgb)[1];
 
-        var lastSlot = 4 + ((KrakenProtocol.MaxDirectColors - 1) * 3);
-        Assert.Equal(0x7F, table[lastSlot]);
-        Assert.Equal(0, table[lastSlot + 3]);
+        var lastSlot = 4 + (19 * 3);
+        Assert.Equal(0x7F, second[lastSlot]);
+        Assert.Equal(0, second[lastSlot + 3]);
     }
 
     [Fact]

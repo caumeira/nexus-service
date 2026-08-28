@@ -30,6 +30,12 @@ public sealed class KrakenHub : IDisposable
     // Last image pushed, stored unrotated so a rotation change can re-render it.
     private byte[]? _lastLcdFrame;
 
+    // Streaming state. Two buckets are allocated once, then alternated: the panel
+    // rejects a transfer into the bucket it is currently displaying (code 9), so a
+    // stream has to write the idle one and switch to it.
+    private bool _streamReady;
+    private int _streamActiveBucket = -1;
+
     public KrakenHub(IKrakenLcdTransportFactory? lcdFactory = null)
     {
         _lcdFactory = lcdFactory;
@@ -43,6 +49,18 @@ public sealed class KrakenHub : IDisposable
     public const string FansZoneId = "nzxt-kraken:led-fans";
 
     public bool IsConnected => _isConnected;
+
+    /// <summary>USB serial of the attached cooler, or null when nothing is attached.</summary>
+    public string? Serial
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _device?.Serial;
+            }
+        }
+    }
 
     /// <summary>Read this reference once, then use it for all field accesses.</summary>
     public KrakenSnapshot Snapshot => _snapshot;
@@ -156,18 +174,40 @@ public sealed class KrakenHub : IDisposable
         int count = KrakenProtocol.DecodeChannelCount(reply);
         for (int channel = 0; channel < count; channel++)
         {
-            // Only the first accessory slot is populated on this cooler; a fan chain
-            // reports as one accessory type covering the whole chain.
-            byte accessory = KrakenProtocol.DecodeAccessory(reply, channel, 0);
-            if (accessory == 0)
+            // A channel is a chain: each slot is one accessory daisied off the last. A
+            // multi-fan radiator reports as ONE accessory covering the whole radiator
+            // (an F240 is a single 0x1B, not two entries), so the slots past the first
+            // are only populated when the user has chained more hardware onto the port.
+            byte first = 0;
+            int leds = 0;
+            int rings = 0;
+            int accessories = 0;
+            for (int slot = 0; slot < KrakenProtocol.AccessorySlotsPerChannel; slot++)
+            {
+                byte accessory = KrakenProtocol.DecodeAccessory(reply, channel, slot);
+                if (accessory == 0)
+                {
+                    continue;
+                }
+                if (accessories == 0)
+                {
+                    first = accessory;
+                }
+                accessories++;
+                leds += KrakenProtocol.LedCountForAccessory(accessory);
+                var (accRings, _) = KrakenProtocol.AccessoryRings(accessory);
+                rings += accRings;
+            }
+            if (accessories == 0)
             {
                 continue;
             }
-            channels.Add(new KrakenLightingChannel(
-                (byte)(1 << channel),
-                accessory,
-                KrakenProtocol.AccessoryName(accessory),
-                KrakenProtocol.LedCountForAccessory(accessory)));
+            var name = KrakenProtocol.AccessoryName(first);
+            if (accessories > 1)
+            {
+                name = $"{name} x{accessories}";
+            }
+            channels.Add(new KrakenLightingChannel((byte)(1 << channel), first, name, leds, rings));
         }
         return channels;
     }
@@ -353,6 +393,7 @@ public sealed class KrakenHub : IDisposable
                 return false;
             }
             _lastLcdFrame = source;
+            _streamReady = false;
             return UploadLcdFrameLocked(source, _snapshot.LcdOrientationQuarterTurns);
         }
     }
@@ -418,6 +459,110 @@ public sealed class KrakenHub : IDisposable
             _snapshot = _snapshot.WithDisplayMode(KrakenDisplayMode.Bucket);
             return true;
         }
+    }
+
+    /// <summary>
+    /// Pushes one frame for a live stream, double-buffered. Allocates its two buckets on
+    /// the first call and alternates thereafter; unlike <see cref="UploadLcdImage"/> this
+    /// does not wipe the bucket table per frame, which is what makes a stream viable.
+    ///
+    /// Measured ceiling on the Elite V2 is ~2.3 fps: a full 640x640 RGBA frame is 1.6 MB
+    /// and the bulk pipe accepts about 4 MB/s, which dominates the ~24 ms of handshake.
+    /// </summary>
+    public bool PushStreamFrame(ReadOnlySpan<byte> rgba)
+    {
+        if (rgba.Length != KrakenProtocol.LcdFrameBytes)
+        {
+            return false;
+        }
+        var source = rgba.ToArray();
+        lock (_lock)
+        {
+            if (_device == null || _lcd == null)
+            {
+                return false;
+            }
+            if (!_streamReady && !PrepareStreamBucketsLocked())
+            {
+                return false;
+            }
+
+            int target = _streamActiveBucket == 0 ? 1 : 0;
+            var payload = KrakenProtocol.RotateRgba(
+                source, KrakenProtocol.LcdWidth, KrakenProtocol.LcdHeight, _snapshot.LcdOrientationQuarterTurns);
+            if (!WriteBucketLocked(target, payload))
+            {
+                // Re-allocate next call: a rejected transfer usually means the bucket
+                // table no longer matches what this hub believes.
+                _streamReady = false;
+                return false;
+            }
+
+            var activate = ExchangeLocked(
+                KrakenProtocol.EncodeSetDisplayMode(KrakenDisplayMode.Bucket, target), 0x39, 0x01, CommandReadTimeoutMs);
+            if (activate == null || !KrakenProtocol.IsAck(activate))
+            {
+                _streamReady = false;
+                return false;
+            }
+            _streamActiveBucket = target;
+            _snapshot = _snapshot.WithDisplayMode(KrakenDisplayMode.Bucket);
+            return true;
+        }
+    }
+
+    /// <summary>Clears the bucket table and reserves two non-overlapping frame slots.</summary>
+    private bool PrepareStreamBucketsLocked()
+    {
+        int pages = KrakenProtocol.PagesFor(KrakenProtocol.LcdFrameBytes);
+        ExchangeLocked(KrakenProtocol.EncodeSetDisplayMode(KrakenDisplayMode.Liquid, 0), 0x39, 0x01, CommandReadTimeoutMs);
+        for (int i = 0; i < KrakenProtocol.BucketCount; i++)
+        {
+            ExchangeLocked(KrakenProtocol.EncodeDeleteBucket(i), 0x33, 0x02, CommandReadTimeoutMs);
+        }
+        for (int bucket = 0; bucket < 2; bucket++)
+        {
+            var setup = ExchangeLocked(
+                KrakenProtocol.EncodeSetupBucket(bucket, bucket * pages, pages), 0x33, 0x01, CommandReadTimeoutMs);
+            if (setup == null || !KrakenProtocol.IsAck(setup))
+            {
+                ServiceLog.Warn($"[nzxt-kraken] stream bucket {bucket} setup rejected");
+                return false;
+            }
+        }
+        _streamActiveBucket = -1;
+        _streamReady = true;
+        return true;
+    }
+
+    /// <summary>Transfers one already-rotated frame into a prepared bucket.</summary>
+    private bool WriteBucketLocked(int bucket, byte[] payload)
+    {
+        if (_device == null || _lcd == null)
+        {
+            return false;
+        }
+        var start = ExchangeLocked(KrakenProtocol.EncodeStartTransfer(bucket), 0x37, 0x01, CommandReadTimeoutMs);
+        if (start == null || !KrakenProtocol.IsAck(start))
+        {
+            return false;
+        }
+        var header = KrakenProtocol.EncodeBulkHeader(KrakenProtocol.BulkFormatRgba8888, payload.Length);
+        // The header must be its own bulk transfer; concatenating corrupts the upload.
+        if (!_lcd.Write(header))
+        {
+            return false;
+        }
+        for (int offset = 0; offset < payload.Length; offset += BulkChunkBytes)
+        {
+            int len = Math.Min(BulkChunkBytes, payload.Length - offset);
+            if (!_lcd.Write(payload.AsSpan(offset, len)))
+            {
+                return false;
+            }
+        }
+        ExchangeLocked(KrakenProtocol.EncodeEndTransfer(), 0x37, 0x02, CommandReadTimeoutMs);
+        return true;
     }
 
     /// <summary>

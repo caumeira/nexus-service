@@ -66,7 +66,7 @@ public sealed class KrakenLightingDeviceProvider :
         return sb.ToString();
     }
 
-    private sealed record ZoneDef(string Id, string Name, string RawName, int LedCount, byte ChannelId);
+    private sealed record ZoneDef(string Id, string Name, string RawName, int LedCount, byte ChannelId, int Rings);
 
     private List<ZoneDef> BuildZoneDefs()
     {
@@ -81,10 +81,47 @@ public sealed class KrakenLightingDeviceProvider :
                 $"{KrakenHub.ProductName} - {c.AccessoryName}",
                 raw,
                 c.LedCount,
-                c.ChannelId));
+                c.ChannelId,
+                c.Rings));
         }
         return defs;
     }
+
+    /// <summary>
+    /// LEDs laid out as the hardware actually wears them: a pump ring is one circle, a
+    /// fan chain is one circle per fan side by side. Falls back to a single circle when
+    /// the accessory's ring count is unknown or the user has overridden the LED count,
+    /// which still beats the straight line a strip would give.
+    /// </summary>
+    private static (float[] u, float[] v) BuildRingUv(int ledCount, int rings)
+    {
+        if (ledCount <= 0)
+        {
+            return (Array.Empty<float>(), Array.Empty<float>());
+        }
+        // An uneven split would put a partial circle at the end, so only trust the ring
+        // count when it divides the LEDs evenly.
+        var circles = rings > 0 && ledCount % rings == 0 ? rings : 1;
+        var perCircle = ledCount / circles;
+        var u = new float[ledCount];
+        var v = new float[ledCount];
+        for (var c = 0; c < circles; c++)
+        {
+            var centerU = (c + 0.5f) / circles;
+            for (var i = 0; i < perCircle; i++)
+            {
+                // Start at 12 o'clock and run clockwise, which is how both the pump ring
+                // and NZXT's fans are wired.
+                var angle = ((i / (double)perCircle) * 2.0 * Math.PI) - (Math.PI / 2.0);
+                u[(c * perCircle) + i] = centerU + ((Radius / circles) * (float)Math.Cos(angle));
+                v[(c * perCircle) + i] = 0.5f + (Radius * (float)Math.Sin(angle));
+            }
+        }
+        return (u, v);
+    }
+
+    /// <summary>Circle radius in normalised frame space; leaves a small margin at the edge.</summary>
+    private const float Radius = 0.42f;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -128,12 +165,8 @@ public sealed class KrakenLightingDeviceProvider :
             hue = pref.Hue;
             saturation = pref.Saturation;
         }
-        var effectiveLedCount = def.LedCount;
-        if (counts.TryGetValue(def.Id, out var persisted))
-        {
-            effectiveLedCount = Math.Max(0, persisted);
-        }
-        var (defX, defY, defW, defH) = DefaultKrakenLayout(zoneIndex);
+        var effectiveLedCount = EffectiveLedCount(def, counts);
+        var (defX, defY, defW, defH) = DefaultKrakenLayout(zoneIndex, CirclesFor(def, effectiveLedCount));
         layouts.TryGetValue(def.Id, out var layout);
         return new LightingDevice
         {
@@ -154,10 +187,29 @@ public sealed class KrakenLightingDeviceProvider :
             ParentDeviceId = KrakenHub.DeviceId,
             ZoneIndex = zoneIndex,
             ZoneType = "linear",
-            // The fan chain length varies by radiator size, so the count stays user-editable.
-            ZoneResizable = true,
+            ZoneResizable = IsCountUnknown(def),
         };
     }
+
+    /// <summary>
+    /// The accessory table gives the exact LED count for every accessory we have measured,
+    /// so those zones are fixed and the editor says so. Only an accessory we cannot size
+    /// stays hand-editable - otherwise a stray edit silently drives the wrong length.
+    /// </summary>
+    private static bool IsCountUnknown(ZoneDef def) => def.LedCount <= 0;
+
+    /// <summary>
+    /// The accessory table wins whenever it knows the accessory: a hand-set count left
+    /// over from before we could size the chain would otherwise keep driving the wrong
+    /// length forever. Only an unmeasured accessory reads the user's override.
+    /// </summary>
+    private static int EffectiveLedCount(ZoneDef def, IReadOnlyDictionary<string, int> counts) =>
+        IsCountUnknown(def) && counts.TryGetValue(def.Id, out var persisted)
+            ? Math.Max(0, persisted)
+            : def.LedCount;
+
+    private static int CirclesFor(ZoneDef def, int effectiveLedCount) =>
+        def.Rings > 0 && effectiveLedCount > 0 && effectiveLedCount % def.Rings == 0 ? def.Rings : 1;
 
     public void SetDisabled(IReadOnlyList<string> ids) => _store.Update(s =>
         s.Devices.DisabledLightingDevices = new List<string>(ids));
@@ -227,7 +279,8 @@ public sealed class KrakenLightingDeviceProvider :
         var result = new List<DeviceStructure>(defs.Count);
         foreach (var def in defs)
         {
-            var ledCount = counts.TryGetValue(def.Id, out var persisted) ? Math.Max(0, persisted) : def.LedCount;
+            var ledCount = EffectiveLedCount(def, counts);
+            var (u, v) = BuildRingUv(ledCount, def.Rings);
             var structure = new DeviceStructure { DeviceId = def.Id, Name = def.Name, Partitionable = false };
             structure.Segments.Add(new StructureSegment
             {
@@ -235,8 +288,10 @@ public sealed class KrakenLightingDeviceProvider :
                 Name = def.RawName,
                 LedCount = ledCount,
                 FrameLedCount = ledCount,
-                Resizable = true,
+                Resizable = IsCountUnknown(def),
                 ZoneType = "linear",
+                DefaultU = u,
+                DefaultV = v,
             });
             structure.DefaultZones.Add(new DefaultZoneDef
             {
@@ -290,12 +345,8 @@ public sealed class KrakenLightingDeviceProvider :
         IReadOnlyDictionary<string, int> counts,
         ref int idx)
     {
-        var effectiveLedCount = def.LedCount;
-        if (counts.TryGetValue(def.Id, out var persisted))
-        {
-            effectiveLedCount = Math.Max(0, persisted);
-        }
-        var (defX, defY, defW, defH) = DefaultKrakenLayout(zoneIndex);
+        var effectiveLedCount = EffectiveLedCount(def, counts);
+        var (defX, defY, defW, defH) = DefaultKrakenLayout(zoneIndex, CirclesFor(def, effectiveLedCount));
         layouts.TryGetValue(def.Id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
         var thisIdx = idx++;
@@ -320,15 +371,21 @@ public sealed class KrakenLightingDeviceProvider :
         return frame;
     }
 
-    /// <summary>Default canvas slots, placed on the free row below the MiniHub cards.</summary>
-    internal static (float x, float y, float w, float h) DefaultKrakenLayout(int slot)
+    /// <summary>
+    /// Default canvas slots, placed on the free row below the MiniHub cards. The box is
+    /// square per circle so the ring lands round rather than as a flat ellipse; a two-fan
+    /// chain gets a box twice as wide, one square per fan.
+    /// </summary>
+    internal static (float x, float y, float w, float h) DefaultKrakenLayout(int slot, int circles = 1)
     {
         const float Y = 366f;
-        const float W = 220f;
-        const float H = 60f;
-        const float Gap = 240f;
+        const float Side = 120f;
+        const float Gap = 20f;
         const float BaseX = 40f;
         var s = Math.Max(0, slot);
-        return (BaseX + ((s % 4) * Gap), Y, W, H);
+        var c = Math.Max(1, circles);
+        // Slots are laid left to right, each as wide as the zone before it needs.
+        var x = BaseX + (s * (Side + Gap) * 2);
+        return (x, Y, Side * c, Side);
     }
 }

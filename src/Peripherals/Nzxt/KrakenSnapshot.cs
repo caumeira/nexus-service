@@ -5,18 +5,25 @@ namespace Nexus.Service.Peripherals.Nzxt;
 /// <summary>One RGB channel and whatever accessory the cooler reports on it.</summary>
 public sealed class KrakenLightingChannel
 {
-    public KrakenLightingChannel(byte channelId, byte accessoryId, string accessoryName, int ledCount)
+    public KrakenLightingChannel(byte channelId, byte accessoryId, string accessoryName, int ledCount, int rings = 0)
     {
         ChannelId = channelId;
         AccessoryId = accessoryId;
         AccessoryName = accessoryName;
         LedCount = ledCount;
+        Rings = rings;
     }
 
     public byte ChannelId { get; }
     public byte AccessoryId { get; }
     public string AccessoryName { get; }
     public int LedCount { get; }
+
+    /// <summary>
+    /// Circles the LEDs sit on - one per fan on a fan chain, one for a pump ring. 0 when
+    /// the accessory's geometry is unmeasured, which the LED map reads as a single ring.
+    /// </summary>
+    public int Rings { get; }
 }
 
 // Immutable; swapped atomically under the hub lock. Readers take the reference once.

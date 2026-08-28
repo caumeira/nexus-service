@@ -257,13 +257,21 @@ internal static class KrakenProtocol
     /// <summary>Per-LED addressing accepts up to this many colours per channel.</summary>
     public const int MaxDirectColors = 40;
 
+    /// <summary>
+    /// Colours the firmware reads out of ONE direct report. The report is 512 bytes and all
+    /// 40 triplets fit in it, but anything past this offset is discarded: the second report
+    /// carries the rest. Bench-proven (2026-08-28) by lighting ring LED 22 alone - nothing
+    /// lit until the colour moved into the second report.
+    /// </summary>
+    private const int DirectColorsPerReport = 20;
+
     private const byte ReportDirect = 0x22;
 
     /// <summary>
     /// Builds the three reports that set every LED on a channel individually. They must be
-    /// written in order: the colour table, a latch, then the command that applies it.
-    /// <paramref name="rgbColors"/> is packed RGB triplets; this method does the GRB swap
-    /// and zero-fills the unused slots.
+    /// written in order: the first colour table, the second, then the command that applies
+    /// them. <paramref name="rgbColors"/> is packed RGB triplets; this method does the GRB
+    /// swap and zero-fills the unused slots.
     /// </summary>
     public static byte[][] EncodeDirectColors(byte channelId, ReadOnlySpan<byte> rgbColors)
     {
@@ -273,20 +281,22 @@ internal static class KrakenProtocol
         table[2] = channelId;
         table[3] = 0x00;
 
-        int count = Math.Min(rgbColors.Length / 3, MaxDirectColors);
-        for (int i = 0; i < count; i++)
-        {
-            int src = i * 3;
-            int dst = 4 + (i * 3);
-            table[dst] = rgbColors[src + 1];     // G
-            table[dst + 1] = rgbColors[src];     // R
-            table[dst + 2] = rgbColors[src + 2]; // B
-        }
-
         var latch = new byte[ReportLength];
         latch[0] = ReportDirect;
         latch[1] = 0x11;
         latch[2] = channelId;
+        latch[3] = 0x00;
+
+        int count = Math.Min(rgbColors.Length / 3, MaxDirectColors);
+        for (int i = 0; i < count; i++)
+        {
+            var report = i < DirectColorsPerReport ? table : latch;
+            int src = i * 3;
+            int dst = 4 + ((i % DirectColorsPerReport) * 3);
+            report[dst] = rgbColors[src + 1];     // G
+            report[dst + 1] = rgbColors[src];     // R
+            report[dst + 2] = rgbColors[src + 2]; // B
+        }
 
         // Trailer constants are firmware magic carried over verbatim from liquidctl's
         // super-fixed path; speed is fixed because per-LED output is not animated.
@@ -508,6 +518,29 @@ internal static class KrakenProtocol
         0x1E => 24, // Kraken Elite pump ring
         0x1F => 24, // F420 RGB
         _ => 0,
+    };
+
+    /// <summary>
+    /// How an accessory's LEDs sit in space: how many rings it carries and how many LEDs
+    /// go round each one. A multi-fan accessory (the F240/F360/F420 report as ONE id
+    /// covering the whole radiator) is one ring per fan, which is what makes the LED map
+    /// show two circles for an F240 instead of a 16-LED strip. Rings is 0 for an accessory
+    /// whose geometry we have not measured; the caller then lays the LEDs out as one ring.
+    /// </summary>
+    public static (int Rings, int LedsPerRing) AccessoryRings(byte accessoryId) => accessoryId switch
+    {
+        0x10 => (1, 8),   // Kraken X3 pump ring
+        0x11 => (1, 1),   // Kraken X3 logo
+        0x17 => (1, 8),   // F120 RGB Core
+        0x18 => (1, 8),   // F140 RGB Core
+        0x19 => (1, 8),   // F120 RGB Core, case version
+        0x1B => (2, 8),   // F240 RGB Core: two fans on one accessory id
+        0x1D => (3, 8),   // F360 RGB Core: three fans
+        0x1E => (1, 24),  // Kraken Elite pump ring
+        0x1F => (3, 8),   // F420 RGB: three fans
+        // F120/F140 RGB and the Duos put their LEDs on more than one ring per fan; the
+        // split is unmeasured, so they stay a single ring until a unit is on the bench.
+        _ => (0, 0),
     };
 
     public static string AccessoryName(byte accessoryId) => accessoryId switch
