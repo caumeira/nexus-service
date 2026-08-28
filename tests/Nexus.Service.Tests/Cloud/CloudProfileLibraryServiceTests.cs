@@ -116,32 +116,28 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task Preview_reports_per_category_contents()
+    public async Task Import_creates_a_new_profile_named_after_the_source_machine()
     {
         var remote = new NexusSettings();
-        remote.Cooling.FanNames["fan-1"] = "Front intake";
-        remote.Cooling.FanNames["fan-2"] = "Rear exhaust";
-        remote.Keeb.RotaryLeft = "volume-down";
+        remote.Lighting.GlobalBrightness = 0.25f;
         SeedRemote("install-y70", "HYTEY70", "p-remote", remote);
+        var before = _profiles.GetManifest().Profiles.Count;
 
-        var result = await _library.GetPreviewAsync("install-y70", "p-remote", CancellationToken.None);
+        var result = await _library.ImportAsync(new CloudImportRequest
+        {
+            InstallId = "install-y70",
+            ProfileId = "p-remote",
+        }, CancellationToken.None);
 
         Assert.True(result.Success);
-        Assert.Equal("HYTEY70", result.Value!.Hostname);
-        Assert.Equal(ProfileSharing.All.Count, result.Value.Categories.Count);
-        var cooling = result.Value.Categories.Single(c => c.Category == ProfileSharing.Cooling);
-        Assert.Equal(2, cooling.Metrics["namedFans"]);
-        Assert.True(cooling.SizeBytes > 0);
-
-        // Size is what the category ADDS. NexusSettings serializes every
-        // property, so a category holding nothing must not report the shared
-        // skeleton (~8KB on the real settings shape) as its own content.
-        var theme = result.Value.Categories.Single(c => c.Category == ProfileSharing.Theme);
-        Assert.Equal(0, theme.SizeBytes);
+        var manifest = _profiles.GetManifest().Profiles;
+        Assert.Equal(before + 1, manifest.Count);
+        var created = Assert.Single(manifest.Where(p => p.Name == "Their Default (HYTEY70)"));
+        Assert.Equal(0.25f, _profiles.ExportProfile(created.Id)!.Lighting.GlobalBrightness);
     }
 
     [Fact]
-    public async Task Import_overwrites_only_the_chosen_categories()
+    public async Task Import_leaves_every_existing_profile_untouched()
     {
         var remote = new NexusSettings();
         remote.Lighting.GlobalBrightness = 0.25f;
@@ -159,38 +155,32 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
         {
             InstallId = "install-y70",
             ProfileId = "p-remote",
-            Categories = new List<string> { ProfileSharing.Lighting },
         }, CancellationToken.None);
 
         Assert.True(result.Success);
+        // The copy lands beside the active profile rather than over it.
         var settings = _store.Load();
-        Assert.Equal(0.25f, settings.Lighting.GlobalBrightness);
-        // Cooling was not selected, so the local value must survive untouched.
+        Assert.Equal(1.0f, settings.Lighting.GlobalBrightness);
         Assert.Equal(1.0, settings.Cooling.GlobalSpeedModifier);
     }
 
     [Fact]
-    public async Task Import_rejects_an_empty_or_unknown_category_set()
+    public async Task Import_reports_the_local_profile_cap()
     {
         SeedRemote("install-y70", "HYTEY70", "p-remote", new NexusSettings());
+        while (_profiles.GetManifest().Profiles.Count < 5)
+        {
+            _profiles.CreateProfile("Filler " + _profiles.GetManifest().Profiles.Count);
+        }
 
-        var empty = await _library.ImportAsync(new CloudImportRequest
+        var result = await _library.ImportAsync(new CloudImportRequest
         {
             InstallId = "install-y70",
             ProfileId = "p-remote",
-            Categories = new List<string>(),
         }, CancellationToken.None);
-        Assert.False(empty.Success);
-        Assert.Equal("no_categories", empty.ErrorCode);
 
-        var bogus = await _library.ImportAsync(new CloudImportRequest
-        {
-            InstallId = "install-y70",
-            ProfileId = "p-remote",
-            Categories = new List<string> { "not-a-category" },
-        }, CancellationToken.None);
-        Assert.False(bogus.Success);
-        Assert.Equal("no_categories", bogus.ErrorCode);
+        Assert.False(result.Success);
+        Assert.Equal("profile_limit_reached", result.ErrorCode);
     }
 
     [Fact]
@@ -202,7 +192,6 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
         {
             InstallId = "install-y70",
             ProfileId = "p-remote",
-            Categories = new List<string> { ProfileSharing.Lighting },
         }, CancellationToken.None);
 
         Assert.False(result.Success);

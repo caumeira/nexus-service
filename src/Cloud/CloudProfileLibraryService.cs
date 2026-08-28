@@ -105,49 +105,15 @@ public sealed class CloudProfileLibraryService
             })
             .ToList();
 
-    /// <summary>What each category of a remote profile actually holds, so the toggles in the import sheet are not blind.</summary>
-    public async Task<CloudActionResult<CloudImportPreviewResponse>> GetPreviewAsync(string installId, string profileId, CancellationToken ct)
-    {
-        var fetched = await FetchAsync(installId, profileId, ct).ConfigureAwait(false);
-        if (!fetched.Success || fetched.Value is not { } dto || dto.Payload?.Settings is not { } settings)
-        {
-            return fetched.Success
-                ? CloudActionResult<CloudImportPreviewResponse>.Fail("not_found", "That profile has no payload.", 404)
-                : CloudActionResult<CloudImportPreviewResponse>.FromError(fetched);
-        }
-
-        var categories = new List<CloudImportCategoryDto>();
-        foreach (var category in ProfileSharing.All)
-        {
-            categories.Add(Summarize(settings, category));
-        }
-
-        return CloudActionResult<CloudImportPreviewResponse>.Ok(new CloudImportPreviewResponse
-        {
-            InstallId = installId,
-            Hostname = await HostnameForAsync(installId, ct).ConfigureAwait(false),
-            ProfileId = profileId,
-            Name = dto.Name,
-            Revision = dto.Revision,
-            UpdatedAt = dto.UpdatedAt,
-            Categories = categories,
-        });
-    }
-
-    /// <summary>Overwrites the chosen categories of a local profile from a remote one. Everything not chosen is left exactly as it was.</summary>
+    /// <summary>
+    /// Copies another computer's profile into a NEW local profile. Nothing
+    /// existing is overwritten, so there is nothing for the user to choose and
+    /// nothing to confirm; the copy is named after the profile and the machine
+    /// it came from. Only the shareable categories are in the payload to begin
+    /// with, so that is all the new profile carries.
+    /// </summary>
     public async Task<CloudActionResult> ImportAsync(CloudImportRequest request, CancellationToken ct)
     {
-        var categories = (request.Categories ?? new List<string>())
-            .Select(ProfileSharing.Normalize)
-            .Where(c => c is not null)
-            .Select(c => c!)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        if (categories.Count == 0)
-        {
-            return CloudActionResult.Fail("no_categories", "Pick at least one thing to import.", 400);
-        }
-
         var fetched = await FetchAsync(request.InstallId, request.ProfileId, ct).ConfigureAwait(false);
         if (!fetched.Success)
         {
@@ -158,14 +124,19 @@ public sealed class CloudProfileLibraryService
             return CloudActionResult.Fail("not_found", "That profile has no payload.", 404);
         }
 
-        var target = string.IsNullOrWhiteSpace(request.TargetProfileId)
-            ? _profiles.ActiveProfileId
-            : request.TargetProfileId;
-        if (!_profiles.ApplyCategoriesFromImport(target, settings, categories))
+        var hostname = await HostnameForAsync(request.InstallId, ct).ConfigureAwait(false);
+        var sourceName = string.IsNullOrWhiteSpace(fetched.Value.Name) ? "Imported" : fetched.Value.Name;
+        var name = string.IsNullOrWhiteSpace(hostname) ? sourceName : $"{sourceName} ({hostname})";
+
+        try
         {
-            return CloudActionResult.Fail("not_found", "Target profile not found.", 404);
+            var entry = _profiles.ImportProfile(name, settings);
+            return CloudActionResult.Ok();
         }
-        return CloudActionResult.Ok();
+        catch (InvalidOperationException)
+        {
+            return CloudActionResult.Fail("profile_limit_reached", "This computer already has the maximum number of profiles.", 400);
+        }
     }
 
     private async Task<CloudApiResult<CloudProfileDto>> FetchAsync(string installId, string profileId, CancellationToken ct)
@@ -189,48 +160,5 @@ public sealed class CloudProfileLibraryService
             return "";
         }
         return result.Value.FirstOrDefault(d => string.Equals(d.InstallId, installId, StringComparison.Ordinal))?.Hostname ?? "";
-    }
-
-    /// <summary>Serialized length of a settings object with nothing populated; the baseline every category size is measured against.</summary>
-    private static readonly int EmptySettingsLength =
-        JsonSerializer.Serialize(new NexusSettings(), PersistenceJsonContext.Default.NexusSettings).Length;
-
-    /// <summary>
-    /// Per-category counts plus what that category ADDS over an empty settings
-    /// object. NexusSettings serializes every property, so measuring the
-    /// isolated object whole would report the shared skeleton (~8KB) as if it
-    /// were the category's own content.
-    /// </summary>
-    private static CloudImportCategoryDto Summarize(NexusSettings source, string category)
-    {
-        var isolated = new NexusSettings();
-        ProfileSharing.ApplyCategory(isolated, source, category);
-
-        var metrics = new Dictionary<string, int>();
-        switch (category)
-        {
-            case ProfileSharing.Lighting:
-                metrics["layoutPresets"] = source.Lighting.LayoutPresets.Count;
-                metrics["deviceLayouts"] = source.Lighting.DeviceLayouts.Count;
-                break;
-            case ProfileSharing.Cooling:
-                metrics["curves"] = source.Cooling.Curves.Count;
-                metrics["namedFans"] = source.Cooling.FanNames.Count;
-                metrics["fixedSpeeds"] = source.Cooling.ManualSpeeds.Count;
-                break;
-            case ProfileSharing.Device:
-                metrics["keebMacros"] = source.Keeb.Macros.Count;
-                metrics["keyOverrides"] = source.Keeb.KeyOverrides.Count;
-                break;
-        }
-
-        return new CloudImportCategoryDto
-        {
-            Category = category,
-            SizeBytes = Math.Max(
-                JsonSerializer.Serialize(isolated, PersistenceJsonContext.Default.NexusSettings).Length - EmptySettingsLength,
-                0),
-            Metrics = metrics,
-        };
     }
 }

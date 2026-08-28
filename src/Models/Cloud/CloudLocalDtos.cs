@@ -156,31 +156,9 @@ public sealed class CloudLibraryResponse : ApiResponse
     public List<CloudLibraryMachineDto> Machines { get; set; } = new();
 }
 
-/// <summary>What one category of a remote profile holds, so the user can see what an import would bring before accepting it.</summary>
-public sealed class CloudImportCategoryDto
-{
-    public string Category { get; set; } = "";
-    public long SizeBytes { get; set; }
-    /// <summary>Metric id -> count, rendered by the web against its own localized labels.</summary>
-    public Dictionary<string, int> Metrics { get; set; } = new();
-}
-
-public sealed class CloudImportPreviewResponse : ApiResponse
-{
-    public string InstallId { get; set; } = "";
-    public string Hostname { get; set; } = "";
-    public string ProfileId { get; set; } = "";
-    public string Name { get; set; } = "";
-    public int Revision { get; set; }
-    public string UpdatedAt { get; set; } = "";
-    public List<CloudImportCategoryDto> Categories { get; set; } = new();
-}
-
+/// <summary>Copies another machine's profile in as a NEW local profile; nothing existing is touched, so there is nothing to select.</summary>
 public sealed class CloudImportRequest
 {
     public string InstallId { get; set; } = "";
     public string ProfileId { get; set; } = "";
-    /// <summary>The LOCAL profile the selected categories overwrite. Defaults to the active profile when empty.</summary>
-    public string TargetProfileId { get; set; } = "";
-    public List<string> Categories { get; set; } = new();
 }

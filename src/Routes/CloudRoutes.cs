@@ -200,16 +200,6 @@ public static class CloudRoutes
             return Results.Json(result.Value, AppJsonContext.Default.CloudLibraryResponse);
         });
 
-        app.MapGet("/cloud/profiles/{installId}/{profileId}/preview", async (string installId, string profileId, CloudProfileLibraryService library, CancellationToken ct) =>
-        {
-            var result = await library.GetPreviewAsync(installId, profileId, ct).ConfigureAwait(false);
-            if (!result.Success || result.Value is null)
-            {
-                return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
-            }
-            return Results.Json(result.Value, AppJsonContext.Default.CloudImportPreviewResponse);
-        });
-
         app.MapPost("/cloud/profiles/import", async (CloudImportRequest body, CloudProfileLibraryService library, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(body.InstallId) || string.IsNullOrWhiteSpace(body.ProfileId))
