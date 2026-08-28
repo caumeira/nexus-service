@@ -903,15 +903,24 @@
        <output>/apps/<id>/, the bundled-install root the AppRegistry scans
        (an app's widget facet renders from widget.mjs in the sandboxed host).
        The Web SDK's default Content include sometimes shadows the Link
-       metadata; remove + re-add to ensure our metadata wins. -->
+       metadata; remove + re-add to ensure our metadata wins.
+
+       nexus-apps is OPTIONAL and private: a tree without it builds a complete
+       service that ships zero bundled apps, which AppRegistry already handles
+       (AppInstallPaths hands it a root that does not exist, and the scan
+       returns). Do not reinstate a hard error here - it makes a public clone
+       of the umbrella unbuildable, and apps are moving to downloadable
+       installs anyway. -->
   <PropertyGroup>
     <NexusAppsRoot Condition="'$(NexusAppsRoot)' == ''">$(MSBuildThisFileDirectory)..\nexus-apps\apps</NexusAppsRoot>
+    <NexusAppsAvailable>false</NexusAppsAvailable>
+    <NexusAppsAvailable Condition="Exists('$(NexusAppsRoot)')">true</NexusAppsAvailable>
   </PropertyGroup>
-  <Target Name="CheckNexusAppsSubmodule" BeforeTargets="BeforeBuild">
-    <Error Condition="!Exists('$(NexusAppsRoot)')"
-           Text="nexus-apps submodule missing at $(NexusAppsRoot). Run: git submodule update --init nexus-apps" />
+  <Target Name="ReportNexusAppsSubmodule" BeforeTargets="BeforeBuild">
+    <Message Importance="high" Condition="'$(NexusAppsAvailable)' != 'true'"
+             Text="nexus-apps not present at $(NexusAppsRoot); building with no bundled apps. To include them: git submodule update --init nexus-apps" />
   </Target>
-  <ItemGroup>
+  <ItemGroup Condition="'$(NexusAppsAvailable)' == 'true'">
     <Content Remove="$(NexusAppsRoot)\**\*" />
     <Content Include="$(NexusAppsRoot)\**\*">
       <Link>apps\%(RecursiveDir)%(Filename)%(Extension)</Link>
