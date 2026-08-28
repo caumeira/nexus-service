@@ -102,11 +102,12 @@ public sealed class CloudProfileSyncService : BackgroundService
     }
 
     /// <summary>Manual "sync now" trigger for POST /cloud/sync/now. No-op when logged out.</summary>
+    /// <summary>The user pressed "Back up now": push straight away rather than waiting out the debounce, which exists only to batch background passes that no longer run.</summary>
     public void TriggerNow()
     {
         if (_accounts.ActiveAccountId is { } accountId)
         {
-            _ = RunGuardedAsync(() => RunSyncPassAsync(accountId, CancellationToken.None), CancellationToken.None);
+            _ = RunGuardedAsync(() => RunSyncPassAsync(accountId, CancellationToken.None, manual: true), CancellationToken.None);
         }
     }
 
@@ -197,8 +198,8 @@ public sealed class CloudProfileSyncService : BackgroundService
         // firing HTTP route (login/activate) must never run any part of the
         // sync pass synchronously on its own thread, even the in-memory part
         // before the first real network await.
-        _accounts.OnAccountActivated += accountId =>
-            _ = Task.Run(() => RunGuardedAsync(() => RunSyncPassAsync(accountId, CancellationToken.None), CancellationToken.None));
+        // Signing in no longer uploads anything; it only clears state from the
+        // previous account. Backing up is an explicit action.
         _accounts.OnAccountSwitching += (from, to) =>
         {
             // AnnounceSwitch runs BEFORE the Task.Run dispatch below,
@@ -217,22 +218,13 @@ public sealed class CloudProfileSyncService : BackgroundService
         };
         _accounts.OnAccountLoggedOut += ClearLocalState;
 
-        // A service restart with someone still logged in resumes syncing without
-        // waiting for the first tick.
-        if (_accounts.ActiveAccountId is { } activeAtBoot)
-        {
-            _ = RunGuardedAsync(() => RunSyncPassAsync(activeAtBoot, stoppingToken), stoppingToken);
-        }
-
+        // No periodic pass and no pass at boot: profiles reach the cloud only
+        // when the user asks (TriggerNow), so nothing is uploaded behind their
+        // back. The timer still turns so the service has a cancellation-aware
+        // idle loop for the hosted-service lifetime.
         using var timer = new PeriodicTimer(TickInterval, _clock);
         while (await WaitAsync(timer, stoppingToken).ConfigureAwait(false))
         {
-            var accountId = _accounts.ActiveAccountId;
-            if (accountId is null)
-            {
-                continue;
-            }
-            await RunGuardedAsync(() => RunSyncPassAsync(accountId, stoppingToken), stoppingToken).ConfigureAwait(false);
         }
     }
 
@@ -339,7 +331,7 @@ public sealed class CloudProfileSyncService : BackgroundService
 
     // ── regular sync pass ────────────────────────────────────────────────
 
-    internal async Task RunSyncPassAsync(string accountId, CancellationToken ct)
+    internal async Task RunSyncPassAsync(string accountId, CancellationToken ct, bool manual = false)
     {
         if (accountId != _accounts.ActiveAccountId)
         {
@@ -459,7 +451,7 @@ public sealed class CloudProfileSyncService : BackgroundService
                     break;
 
                 case CloudSyncAction.Push:
-                    if (!DebounceElapsed(id, now))
+                    if (!manual && !DebounceElapsed(id, now))
                     {
                         anyPending = true;
                         break;

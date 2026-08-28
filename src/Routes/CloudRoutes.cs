@@ -10,6 +10,7 @@ using Nexus.Service.Auth;
 using Nexus.Service.Cloud;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Cloud;
+using Nexus.Service.Sockets;
 using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
@@ -200,13 +201,23 @@ public static class CloudRoutes
             return Results.Json(result.Value, AppJsonContext.Default.CloudLibraryResponse);
         });
 
-        app.MapPost("/cloud/profiles/import", async (CloudImportRequest body, CloudProfileLibraryService library, CancellationToken ct) =>
+        app.MapPost("/cloud/profiles/import", async (CloudImportRequest body, CloudProfileLibraryService library, MultiplexHub hub, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(body.InstallId) || string.IsNullOrWhiteSpace(body.ProfileId))
             {
                 return Results.BadRequest(ApiResponse.Fail("installId and profileId are required."));
             }
             var result = await library.ImportAsync(body, ct).ConfigureAwait(false);
+            if (result.Success && library.LastImportReplacedActive)
+            {
+                // Replacing the profile in use changes theme/lighting/cooling
+                // under connected UIs; without this the dashboard keeps the old
+                // accent until the user switches profiles and back. Mirrors
+                // what /profiles/import does on replace.
+                PanelTopics.BroadcastPrefs(hub);
+                PanelTopics.BroadcastLighting(hub);
+                PanelTopics.BroadcastCooling(hub);
+            }
             return CloudResult(result);
         });
 

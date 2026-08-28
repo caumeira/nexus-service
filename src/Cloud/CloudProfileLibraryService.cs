@@ -112,6 +112,9 @@ public sealed class CloudProfileLibraryService
     /// it came from. Only the shareable categories are in the payload to begin
     /// with, so that is all the new profile carries.
     /// </summary>
+    /// <summary>True when the last import overwrote the profile that is currently active, so the caller must rebroadcast for connected UIs.</summary>
+    public bool LastImportReplacedActive { get; private set; }
+
     public async Task<CloudActionResult> ImportAsync(CloudImportRequest request, CancellationToken ct)
     {
         var fetched = await FetchAsync(request.InstallId, request.ProfileId, ct).ConfigureAwait(false);
@@ -128,9 +131,11 @@ public sealed class CloudProfileLibraryService
         var sourceName = string.IsNullOrWhiteSpace(fetched.Value.Name) ? "Imported" : fetched.Value.Name;
         var name = string.IsNullOrWhiteSpace(hostname) ? sourceName : $"{sourceName} ({hostname})";
 
+        LastImportReplacedActive = false;
         try
         {
-            _profiles.ImportProfile(name, settings, request.ReplaceExisting);
+            var entry = _profiles.ImportProfile(name, settings, request.ReplaceExisting);
+            LastImportReplacedActive = entry.Id == _profiles.ActiveProfileId;
             return CloudActionResult.Ok();
         }
         catch (ProfileNameConflictException)

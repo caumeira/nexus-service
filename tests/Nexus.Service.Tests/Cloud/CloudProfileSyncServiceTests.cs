@@ -811,4 +811,25 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
 
         Assert.Equal(OwnId, pushedInstallId);
     }
+
+    [Fact]
+    public async Task A_manual_pass_pushes_without_waiting_out_the_debounce()
+    {
+        SeedAccount("acct-1", "refresh-1");
+        var pushes = 0;
+        _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>());
+        _api.OnPutProfile = (_, _, _, _) =>
+        {
+            pushes++;
+            return CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 1 });
+        };
+
+        // Background passes no longer run, so the debounce would otherwise mean
+        // "Back up now" did nothing until a minute after the last edit.
+        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
+        Assert.Equal(0, pushes);
+
+        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None, manual: true);
+        Assert.True(pushes > 0);
+    }
 }
