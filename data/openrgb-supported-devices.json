@@ -1,5 +1,5 @@
 {
-  "count": 2039,
+  "count": 1965,
   "devices": [
     {
       "name": "Bloody B820R",
@@ -107,6 +107,13 @@
       "kind": "i2c"
     },
     {
+      "name": "ASRock Radeon RX 9070 XT Steel Legend",
+      "vid": null,
+      "pid": null,
+      "controller": "ASRockSMBusController",
+      "kind": "i2c"
+    },
+    {
       "name": "AULA F75 Max",
       "vid": "0x0C45",
       "pid": "0x800A",
@@ -114,10 +121,10 @@
       "kind": "hid"
     },
     {
-      "name": "Akko Multi-modes Keyboard-B",
-      "vid": "0x3151",
-      "pid": "0x4003",
-      "controller": "AkkoKeyboardController",
+      "name": "AcerNitroHidKeyboardController",
+      "vid": "0x0CF2",
+      "pid": "0x5130",
+      "controller": "AcerNitroHidKeyboardController",
       "kind": "hid"
     },
     {
@@ -1605,9 +1612,16 @@
       "kind": "hid"
     },
     {
-      "name": "Clevo Keyboard",
+      "name": "Clevo Keyboard (ITE 8291)",
       "vid": "0x048D",
       "pid": "0x600B",
+      "controller": "ClevoKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "Clevo Keyboard (ITE 829x)",
+      "vid": "0x048D",
+      "pid": "0x8910",
       "controller": "ClevoKeyboardController",
       "kind": "hid"
     },
@@ -1738,6 +1752,13 @@
       "kind": "i2c"
     },
     {
+      "name": "iGame GeForce RTX 4070 Ultra W OC-V",
+      "vid": null,
+      "pid": null,
+      "controller": "ColorfulGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "iGame GeForce RTX 4070 Vulcan OC-V",
       "vid": null,
       "pid": null,
@@ -1759,6 +1780,13 @@
       "kind": "i2c"
     },
     {
+      "name": "iGame GeForce RTX 4090 Neptune OC-V",
+      "vid": null,
+      "pid": null,
+      "controller": "ColorfulGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "iGame GeForce RTX 5060 Ti Ultra W DUO OC",
       "vid": null,
       "pid": null,
@@ -1767,6 +1795,13 @@
     },
     {
       "name": "iGame GeForce RTX 5060 Ultra W OC",
+      "vid": null,
+      "pid": null,
+      "controller": "ColorfulGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "iGame GeForce RTX 5070 Ti Ultra W OC",
       "vid": null,
       "pid": null,
       "controller": "ColorfulGPUController",
@@ -2515,6 +2550,20 @@
       "kind": "hid"
     },
     {
+      "name": "Corsair Ironclaw Wireless SE",
+      "vid": "0x1B1C",
+      "pid": null,
+      "controller": "CorsairPeripheralV2Controller",
+      "kind": "hid"
+    },
+    {
+      "name": "Corsair Ironclaw Wireless SE (Wired)",
+      "vid": "0x1B1C",
+      "pid": null,
+      "controller": "CorsairPeripheralV2Controller",
+      "kind": "hid"
+    },
+    {
       "name": "Corsair K100 MX Red",
       "vid": "0x1B1C",
       "pid": null,
@@ -2663,6 +2712,20 @@
     },
     {
       "name": "Corsair M75 Gaming Mouse",
+      "vid": "0x1B1C",
+      "pid": null,
+      "controller": "CorsairPeripheralV2Controller",
+      "kind": "hid"
+    },
+    {
+      "name": "Corsair M75 Wireless",
+      "vid": "0x1B1C",
+      "pid": null,
+      "controller": "CorsairPeripheralV2Controller",
+      "kind": "hid"
+    },
+    {
+      "name": "Corsair M75 Wireless (Wired)",
       "vid": "0x1B1C",
       "pid": null,
       "controller": "CorsairPeripheralV2Controller",
@@ -3880,6 +3943,13 @@
       "kind": "i2c"
     },
     {
+      "name": "ASUS TUF GeForce RTX 5060 Ti Gaming OC",
+      "vid": null,
+      "pid": null,
+      "controller": "ENESMBusController",
+      "kind": "i2c"
+    },
+    {
       "name": "ASUS TUF GeForce RTX 5070 Gaming OC",
       "vid": null,
       "pid": null,
@@ -4741,6 +4811,13 @@
       "kind": "i2c"
     },
     {
+      "name": "EVGA X12 Gaming Mouse",
+      "vid": "0x3842",
+      "pid": "0x2422",
+      "controller": "EVGAUSBController",
+      "kind": "hid"
+    },
+    {
       "name": "EVGA X20 Gaming Mouse",
       "vid": "0x3842",
       "pid": "0x2420",
@@ -4783,13 +4860,6 @@
       "kind": "hid"
     },
     {
-      "name": "CSB/ICL01 Keyboard",
-      "vid": "0x320F",
-      "pid": "0x5041",
-      "controller": "EVisionKeyboardController",
-      "kind": "hid"
-    },
-    {
       "name": "EVision Keyboard 0C45:5004",
       "vid": "0x0C45",
       "pid": "0x5004",
@@ -4818,6 +4888,13 @@
       "kind": "hid"
     },
     {
+      "name": "EVision Keyboard 0C45:7672",
+      "vid": "0x0C45",
+      "pid": "0x7672",
+      "controller": "EVisionKeyboardController",
+      "kind": "hid"
+    },
+    {
       "name": "EVision Keyboard 0C45:7698",
       "vid": "0x0C45",
       "pid": "0x7698",
@@ -4842,6 +4919,13 @@
       "name": "EVision Keyboard 320F:502A",
       "vid": "0x320F",
       "pid": "0x502A",
+      "controller": "EVisionKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "EVision Keyboard 320F:5041",
+      "vid": "0x320F",
+      "pid": "0x5041",
       "controller": "EVisionKeyboardController",
       "kind": "hid"
     },
@@ -4881,10 +4965,10 @@
       "kind": "hid"
     },
     {
-      "name": "Gamepower Ogre RGB 0C45:7672",
-      "vid": "0x0C45",
-      "pid": "0x7672",
-      "controller": "EVisionKeyboardController",
+      "name": "Edifier Halo Pixelbar",
+      "vid": "0x2D99",
+      "pid": "0xA106",
+      "controller": "EdifierHaloController",
       "kind": "hid"
     },
     {
@@ -4900,41 +4984,6 @@
       "pid": null,
       "controller": "ElgatoLightStripController",
       "kind": "generic"
-    },
-    {
-      "name": "Attack Shark K86 (Bluetooth)",
-      "vid": "0x3151",
-      "pid": "0x4012",
-      "controller": "EpomakerController",
-      "kind": "hid"
-    },
-    {
-      "name": "Attack Shark K86 (USB Cable)",
-      "vid": "0x3151",
-      "pid": "0x4015",
-      "controller": "EpomakerController",
-      "kind": "hid"
-    },
-    {
-      "name": "Epomaker TH80 Pro (Bluetooth)",
-      "vid": "0x3151",
-      "pid": "0x4013",
-      "controller": "EpomakerController",
-      "kind": "hid"
-    },
-    {
-      "name": "Epomaker TH80 Pro (USB Cable)",
-      "vid": "0x3151",
-      "pid": "0x4010",
-      "controller": "EpomakerController",
-      "kind": "hid"
-    },
-    {
-      "name": "Epomaker TH80 Pro (USB Dongle)",
-      "vid": "0x3151",
-      "pid": "0x4011",
-      "controller": "EpomakerController",
-      "kind": "hid"
     },
     {
       "name": "Espurna",
@@ -5126,7 +5175,21 @@
       "kind": "i2c"
     },
     {
+      "name": "Gainward GeForce RTX 4080 Phantom GS",
+      "vid": null,
+      "pid": null,
+      "controller": "GainwardGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "GALAX GeForce RTX 2070 SUPER EX Gamer Black",
+      "vid": null,
+      "pid": null,
+      "controller": "GalaxGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "GALAX GeForce RTX 3070 1-Click OC",
       "vid": null,
       "pid": null,
       "controller": "GalaxGPUController",
@@ -5180,6 +5243,13 @@
       "pid": null,
       "controller": "GalaxGPUController",
       "kind": "i2c"
+    },
+    {
+      "name": "GameSir Nova 2 Lite",
+      "vid": "0x3537",
+      "pid": "0x100F",
+      "controller": "GameSirController",
+      "kind": "hid"
     },
     {
       "name": "Gigabyte AORUS ATC800",
@@ -5399,6 +5469,13 @@
       "kind": "i2c"
     },
     {
+      "name": "Gigabyte Radeon RX 9070 GAMING OC",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2BlackwellGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "Gigabyte Radeon RX 9070 XT GAMING",
       "vid": null,
       "pid": null,
@@ -5477,6 +5554,13 @@
     },
     {
       "name": "Gigabyte AORUS GeForce RTX 2080 SUPER Waterforce WB",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2GPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "Gigabyte AORUS GeForce RTX 2080 Ti 11G",
       "vid": null,
       "pid": null,
       "controller": "GigabyteRGBFusion2GPUController",
@@ -5610,6 +5694,13 @@
     },
     {
       "name": "Gigabyte AORUS RX 6900 XT EXTREME WATERFORCE WB",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2GPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "Gigabyte AORUS RX 6900 XT MASTER rev 2.0",
       "vid": null,
       "pid": null,
       "controller": "GigabyteRGBFusion2GPUController",
@@ -5833,6 +5924,13 @@
       "kind": "i2c"
     },
     {
+      "name": "Gigabyte Radeon RX 6700 XT EAGLE 12G",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2GPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "Gigabyte Radeon RX 6700 XT GAMING OC 12G",
       "vid": null,
       "pid": null,
@@ -5897,13 +5995,6 @@
     },
     {
       "name": "Gigabyte Radeon RX 7900 XTX GAMING OC",
-      "vid": null,
-      "pid": null,
-      "controller": "GigabyteRGBFusion2GPUController",
-      "kind": "i2c"
-    },
-    {
-      "name": "Gigabyte Radeon RX 9070 GAMING OC",
       "vid": null,
       "pid": null,
       "controller": "GigabyteRGBFusion2GPUController",
@@ -6408,6 +6499,13 @@
     },
     {
       "name": "Gigabyte GeForce RTX 4060 Gaming OC",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusionGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "Gigabyte GeForce RTX 4060 Ti AERO OC",
       "vid": null,
       "pid": null,
       "controller": "GigabyteRGBFusionGPUController",
@@ -7023,6 +7121,13 @@
       "kind": "hid"
     },
     {
+      "name": "Lenovo Legion K500",
+      "vid": "0x17EF",
+      "pid": "0x60D5",
+      "controller": "LenovoControllers",
+      "kind": "hid"
+    },
+    {
       "name": "Lenovo Legion K510 Mini Pro",
       "vid": "0x17EF",
       "pid": "0x619A",
@@ -7303,13 +7408,6 @@
       "kind": "hid"
     },
     {
-      "name": "Logitech G560 Lightsync Speaker",
-      "vid": "0x046D",
-      "pid": "0x0A78",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
       "name": "Logitech G600 Gaming Mouse",
       "vid": "0x046D",
       "pid": "0xC24A",
@@ -7527,49 +7625,7 @@
       "kind": "hid"
     },
     {
-      "name": "Logitech HID++ 2.0 G502 X Plus (wired)",
-      "vid": "0x046D",
-      "pid": "0xC095",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech HID++ 2.0 G502 X Plus (wireless)",
-      "vid": "0x046D",
-      "pid": "0x4099",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech HID++ 2.0 G515 LS TKL (wired)",
-      "vid": "0x046D",
-      "pid": "0xC355",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech HID++ 2.0 G515 LS TKL (wireless)",
-      "vid": "0x046D",
-      "pid": "0x40B4",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech HID++ 2.0 G522 Lightspeed (dongle)",
-      "vid": "0x046D",
-      "pid": "0x0B18",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech HID++ 2.0 G522 Lightspeed (wired)",
-      "vid": "0x046D",
-      "pid": "0x0B19",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech HID++ 2.0 Lightspeed Receiver (C547)",
+      "name": "Logitech HID++ 2.0 (C547 receiver)",
       "vid": "0x046D",
       "pid": "0xC547",
       "controller": "LogitechController",
@@ -8283,6 +8339,13 @@
       "kind": "i2c"
     },
     {
+      "name": "MSI GeForce RTX 4090 Suprim X Classic",
+      "vid": null,
+      "pid": null,
+      "controller": "MSIGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "MSI GeForce RTX 5070 Gaming Trio",
       "vid": null,
       "pid": null,
@@ -8465,6 +8528,27 @@
       "kind": "hid"
     },
     {
+      "name": "MSI Mystic Light MS_1562",
+      "vid": "0x1462",
+      "pid": "0x1562",
+      "controller": "MSIKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "MSI Mystic Light MS_1563",
+      "vid": "0x1462",
+      "pid": "0x1563",
+      "controller": "MSIKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "MSI Mystic Light MS_1564",
+      "vid": "0x1462",
+      "pid": "0x1564",
+      "controller": "MSIKeyboardController",
+      "kind": "hid"
+    },
+    {
       "name": "MSI Laptop Keyboard",
       "vid": "0x1038",
       "pid": "0x1122",
@@ -8489,861 +8573,840 @@
       "name": "MSI Mystic Light Common",
       "vid": "0x0DB0",
       "pid": null,
-      "controller": "MSIMysticLightController",
-      "kind": "hid"
-    },
-    {
-      "name": "MSI Mystic Light MS_1562",
-      "vid": "0x1462",
-      "pid": "0x1562",
-      "controller": "MSIMysticLightController",
-      "kind": "hid"
-    },
-    {
-      "name": "MSI Mystic Light MS_1563",
-      "vid": "0x1462",
-      "pid": "0x1563",
-      "controller": "MSIMysticLightController",
-      "kind": "hid"
-    },
-    {
-      "name": "MSI Mystic Light MS_1564",
-      "vid": "0x1462",
-      "pid": "0x1564",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_1720",
       "vid": "0x1462",
       "pid": "0x1720",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_3EA4",
       "vid": "0x1462",
       "pid": "0x3EA4",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_4459",
       "vid": "0x1462",
       "pid": "0x4459",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B10",
       "vid": "0x1462",
       "pid": "0x7B10",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B12",
       "vid": "0x1462",
       "pid": "0x7B12",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B16",
       "vid": "0x1462",
       "pid": "0x7B16",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B17",
       "vid": "0x1462",
       "pid": "0x7B17",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B18",
       "vid": "0x1462",
       "pid": "0x7B18",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B50",
       "vid": "0x1462",
       "pid": "0x7B50",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B85",
       "vid": "0x1462",
       "pid": "0x7B85",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B92",
       "vid": "0x1462",
       "pid": "0x7B92",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B93",
       "vid": "0x1462",
       "pid": "0x7B93",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B94",
       "vid": "0x1462",
       "pid": "0x7B94",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7B96",
       "vid": "0x1462",
       "pid": "0x7B96",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C02",
       "vid": "0x1462",
       "pid": "0x7C02",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C34",
       "vid": "0x1462",
       "pid": "0x7C34",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C35",
       "vid": "0x1462",
       "pid": "0x7C35",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C36",
       "vid": "0x1462",
       "pid": "0x7C36",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C37",
       "vid": "0x1462",
       "pid": "0x7C37",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C42",
       "vid": "0x1462",
       "pid": "0x7C42",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C56",
       "vid": "0x1462",
       "pid": "0x7C56",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C59",
       "vid": "0x1462",
       "pid": "0x7C59",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C60",
       "vid": "0x1462",
       "pid": "0x7C60",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C67",
       "vid": "0x1462",
       "pid": "0x7C67",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C70",
       "vid": "0x1462",
       "pid": "0x7C70",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C71",
       "vid": "0x1462",
       "pid": "0x7C71",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C73",
       "vid": "0x1462",
       "pid": "0x7C73",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C75",
       "vid": "0x1462",
       "pid": "0x7C75",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C76",
       "vid": "0x1462",
       "pid": "0x7C76",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C77",
       "vid": "0x1462",
       "pid": "0x7C77",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C79",
       "vid": "0x1462",
       "pid": "0x7C79",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C80",
       "vid": "0x1462",
       "pid": "0x7C80",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C81",
       "vid": "0x1462",
       "pid": "0x7C81",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C82",
       "vid": "0x1462",
       "pid": "0x7C82",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C83",
       "vid": "0x1462",
       "pid": "0x7C83",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C84",
       "vid": "0x1462",
       "pid": "0x7C84",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C85",
       "vid": "0x1462",
       "pid": "0x7C85",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C86",
       "vid": "0x1462",
       "pid": "0x7C86",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C87",
       "vid": "0x1462",
       "pid": "0x7C87",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C88",
       "vid": "0x1462",
       "pid": "0x7C88",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C89",
       "vid": "0x1462",
       "pid": "0x7C89",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C90",
       "vid": "0x1462",
       "pid": "0x7C90",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C91",
       "vid": "0x1462",
       "pid": "0x7C91",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C92",
       "vid": "0x1462",
       "pid": "0x7C92",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C94",
       "vid": "0x1462",
       "pid": "0x7C94",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C95",
       "vid": "0x1462",
       "pid": "0x7C95",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C96",
       "vid": "0x1462",
       "pid": "0x7C96",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C98",
       "vid": "0x1462",
       "pid": "0x7C98",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7C99",
       "vid": "0x1462",
       "pid": "0x7C99",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D03",
       "vid": "0x1462",
       "pid": "0x7D03",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D04",
       "vid": "0x1462",
       "pid": "0x7D04",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D06",
       "vid": "0x1462",
       "pid": "0x7D06",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D07",
       "vid": "0x1462",
       "pid": "0x7D07",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D08",
       "vid": "0x1462",
       "pid": "0x7D08",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D09",
       "vid": "0x1462",
       "pid": "0x7D09",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D13",
       "vid": "0x1462",
       "pid": "0x7D13",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D14",
       "vid": "0x1462",
       "pid": "0x7D14",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D15",
       "vid": "0x1462",
       "pid": "0x7D15",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D17",
       "vid": "0x1462",
       "pid": "0x7D17",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D18",
       "vid": "0x1462",
       "pid": "0x7D18",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D19",
       "vid": "0x1462",
       "pid": "0x7D19",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D20",
       "vid": "0x1462",
       "pid": "0x7D20",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D25",
       "vid": "0x1462",
       "pid": "0x7D25",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D27",
       "vid": "0x1462",
       "pid": "0x7D27",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D28",
       "vid": "0x1462",
       "pid": "0x7D28",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D29",
       "vid": "0x1462",
       "pid": "0x7D29",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D30",
       "vid": "0x1462",
       "pid": "0x7D30",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D31",
       "vid": "0x1462",
       "pid": "0x7D31",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D32",
       "vid": "0x1462",
       "pid": "0x7D32",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D33",
       "vid": "0x1462",
       "pid": "0x7D33",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D36",
       "vid": "0x1462",
       "pid": "0x7D36",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D37",
       "vid": "0x1462",
       "pid": "0x7D37",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D38",
       "vid": "0x1462",
       "pid": "0x7D38",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D40",
       "vid": "0x1462",
       "pid": "0x7D40",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D41",
       "vid": "0x1462",
       "pid": "0x7D41",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D42",
       "vid": "0x1462",
       "pid": "0x7D42",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D43",
       "vid": "0x1462",
       "pid": "0x7D43",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D46",
       "vid": "0x1462",
       "pid": "0x7D46",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D50",
       "vid": "0x1462",
       "pid": "0x7D50",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D51",
       "vid": "0x1462",
       "pid": "0x7D51",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D52",
       "vid": "0x1462",
       "pid": "0x7D52",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D53",
       "vid": "0x1462",
       "pid": "0x7D53",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D54",
       "vid": "0x1462",
       "pid": "0x7D54",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D59",
       "vid": "0x1462",
       "pid": "0x7D59",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D67",
       "vid": "0x1462",
       "pid": "0x7D67",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D69",
       "vid": "0x1462",
       "pid": "0x7D69",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D70",
       "vid": "0x1462",
       "pid": "0x7D70",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D73",
       "vid": "0x1462",
       "pid": "0x7D73",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D74",
       "vid": "0x1462",
       "pid": "0x7D74",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D75",
       "vid": "0x1462",
       "pid": "0x7D75",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D76",
       "vid": "0x1462",
       "pid": "0x7D76",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D77",
       "vid": "0x1462",
       "pid": "0x7D77",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D78",
       "vid": "0x1462",
       "pid": "0x7D78",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D86",
       "vid": "0x1462",
       "pid": "0x7D86",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D88",
       "vid": "0x1462",
       "pid": "0x7D88",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D89",
       "vid": "0x1462",
       "pid": "0x7D89",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D90",
       "vid": "0x1462",
       "pid": "0x7D90",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D91",
       "vid": "0x1462",
       "pid": "0x7D91",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D93",
       "vid": "0x1462",
       "pid": "0x7D93",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D96",
       "vid": "0x1462",
       "pid": "0x7D96",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D97",
       "vid": "0x1462",
       "pid": "0x7D97",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D98",
       "vid": "0x1462",
       "pid": "0x7D98",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7D99",
       "vid": "0x1462",
       "pid": "0x7D99",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E01",
       "vid": "0x1462",
       "pid": "0x7E01",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E03",
       "vid": "0x1462",
       "pid": "0x7E03",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E06",
       "vid": "0x1462",
       "pid": "0x7E06",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E07",
       "vid": "0x1462",
       "pid": "0x7E07",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E09",
       "vid": "0x1462",
       "pid": "0x7E09",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E10",
       "vid": "0x1462",
       "pid": "0x7E10",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E20",
       "vid": "0x1462",
       "pid": "0x7E20",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E32",
       "vid": "0x1462",
       "pid": "0x7E32",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E34",
       "vid": "0x1462",
       "pid": "0x7E34",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E59",
       "vid": "0x1462",
       "pid": "0x7E59",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E70",
       "vid": "0x1462",
       "pid": "0x7E70",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E80",
       "vid": "0x1462",
       "pid": "0x7E80",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_7E81",
       "vid": "0x1462",
       "pid": "0x7E81",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_905D",
       "vid": "0x1462",
       "pid": "0x905D",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light MS_B926",
       "vid": "0x1462",
       "pid": "0xB926",
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
       "name": "MSI Mystic Light X870",
       "vid": "0x0DB0",
       "pid": null,
-      "controller": "MSIMysticLightController",
+      "controller": "MSIMotherboardController",
       "kind": "hid"
     },
     {
@@ -9475,14 +9538,14 @@
     {
       "name": "NZXT Kraken X3 Series",
       "vid": "0x1E71",
-      "pid": "0x2007",
+      "pid": null,
       "controller": "NZXTHue2Controller",
       "kind": "hid"
     },
     {
       "name": "NZXT Kraken X3 Series RGB",
       "vid": "0x1E71",
-      "pid": "0x2014",
+      "pid": null,
       "controller": "NZXTHue2Controller",
       "kind": "hid"
     },
@@ -9627,6 +9690,13 @@
       "kind": "hid"
     },
     {
+      "name": "Nollie 16_OS2_1",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
       "name": "Nollie 1CH",
       "vid": null,
       "pid": null,
@@ -9635,6 +9705,13 @@
     },
     {
       "name": "Nollie 1_OS2",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
+      "name": "Nollie 1_OS2_1",
       "vid": null,
       "pid": null,
       "controller": "NollieController",
@@ -9676,6 +9753,13 @@
       "kind": "hid"
     },
     {
+      "name": "Nollie 32_OS2_1",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
       "name": "Nollie 8CH",
       "vid": null,
       "pid": null,
@@ -9684,6 +9768,20 @@
     },
     {
       "name": "Nollie 8_OS2",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
+      "name": "Nollie 8_OS2_1",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
+      "name": "Prism8 8_OS2_1",
       "vid": null,
       "pid": null,
       "controller": "NollieController",
@@ -9712,6 +9810,13 @@
     },
     {
       "name": "PNY GeForce RTX 5070 ARGB Epic-X OC",
+      "vid": null,
+      "pid": null,
+      "controller": "PNYARGBEpicXGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "PNY GeForce RTX 5070Ti ARGB Epic-X",
       "vid": null,
       "pid": null,
       "controller": "PNYARGBEpicXGPUController",
@@ -9936,6 +10041,13 @@
     },
     {
       "name": "Palit GeForce RTX 3090 Gamerock",
+      "vid": null,
+      "pid": null,
+      "controller": "PNYGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "Palit GeForce RTX 3090 Ti Gamerock",
       "vid": null,
       "pid": null,
       "controller": "PNYGPUController",
@@ -10229,6 +10341,20 @@
       "kind": "i2c"
     },
     {
+      "name": "PowerColor Red Devil RX7900XTX",
+      "vid": null,
+      "pid": null,
+      "controller": "PowerColorGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "PowerColor Red Devil RX9070",
+      "vid": null,
+      "pid": null,
+      "controller": "PowerColorGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "PowerColor Red Devil RX9070XT",
       "vid": null,
       "pid": null,
@@ -10236,728 +10362,7 @@
       "kind": "i2c"
     },
     {
-      "name": "Keychron C1 Pro",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron C1 Pro 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron C1 Pro V2",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron C2 Pro",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron C2 Pro 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron C2 Pro V2",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron C3 Pro",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron C3 Pro 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron J2 HE 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K0 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K1 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K1 V6",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K10 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K10 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K10 V2",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K11 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K13 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K15 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K17 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K2 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K2 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K2 V3",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K3 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K3 V3",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K4 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K4 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K4 V3",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K5 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K5 V2",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K6 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K7 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K8 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K8 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K8 Pro",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K8 V2",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron K9 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q0",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q0 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q0 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q0 Plus",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q1 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q1 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q1 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q1 V1",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q1 V2",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q10",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q10 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q11",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q12",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q12 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q12 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q13 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q14 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q15 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q2",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q2 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q2 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q3",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q3 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q3 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q3 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q4",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q4 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q5",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q5 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q5 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q6",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q6 HE",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q6 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q6 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q60 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q65 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q7",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q8",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q8 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q9",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Q9 Plus",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron S1",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V0 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V1",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V1 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V1 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V10",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V10 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V10 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V2",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V2 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V2 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V3",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V3 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V3 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V4",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V4 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V5",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V5 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V5 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V6",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V6 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V6 Ultra 8K",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V6 V2",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V7",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V8",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron V8 Max",
-      "vid": null,
-      "pid": null,
-      "controller": "QMKController",
-      "kind": "hid"
-    },
-    {
-      "name": "Keychron Z2-70 Ultra 8K",
+      "name": "Keychron RGB",
       "vid": null,
       "pid": null,
       "controller": "QMKController",
@@ -12406,13 +11811,6 @@
       "kind": "hid"
     },
     {
-      "name": "Red Square Keyrox TKL Classic",
-      "vid": "0x0416",
-      "pid": "0xC345",
-      "controller": "RedSquareKeyroxController",
-      "kind": "hid"
-    },
-    {
       "name": "Red Square Keyrox TKL V2",
       "vid": "0x1A2C",
       "pid": "0x2511",
@@ -12430,6 +11828,13 @@
       "name": "Redragon M711 Cobra",
       "vid": "0x04D9",
       "pid": "0xFC30",
+      "controller": "RedragonController",
+      "kind": "hid"
+    },
+    {
+      "name": "Redragon M711-FPS-1 Cobra FPS",
+      "vid": "0x04D9",
+      "pid": "0xFC62",
       "controller": "RedragonController",
       "kind": "hid"
     },
@@ -12683,6 +12088,41 @@
       "vid": "0x10F5",
       "pid": null,
       "controller": "RoccatController",
+      "kind": "hid"
+    },
+    {
+      "name": "Akko 3068B Plus",
+      "vid": "0x3151",
+      "pid": "0x4003",
+      "controller": "RoyuanKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "Attack Shark K86 (USB Cable)",
+      "vid": "0x3151",
+      "pid": "0x4015",
+      "controller": "RoyuanKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "Epomaker TH80 Pro (USB Cable)",
+      "vid": "0x3151",
+      "pid": "0x4010",
+      "controller": "RoyuanKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "Epomaker TH80 Pro (USB Dongle)",
+      "vid": "0x3151",
+      "pid": "0x4011",
+      "controller": "RoyuanKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "Skyloong GK68HE Pro",
+      "vid": "0x3151",
+      "pid": "0x5029",
+      "controller": "RoyuanKeyboardController",
       "kind": "hid"
     },
     {
@@ -13001,6 +12441,20 @@
       "kind": "hid"
     },
     {
+      "name": "Skydimo SK0902",
+      "vid": "0x1A86",
+      "pid": "0xE316",
+      "controller": "SkydimoHIDController",
+      "kind": "hid"
+    },
+    {
+      "name": "Skydimo Serial",
+      "vid": null,
+      "pid": null,
+      "controller": "SkydimoSerialController",
+      "kind": "generic"
+    },
+    {
       "name": "Skyloong GK104 Pro",
       "vid": "0x1EA7",
       "pid": "0x0907",
@@ -13044,505 +12498,505 @@
     },
     {
       "name": "Acer Predator Gaming Mouse (Rival 300)",
-      "vid": "0x1038",
-      "pid": "0x1714",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 3 CS2 Dragon Lore Edition Wireless",
-      "vid": "0x1038",
-      "pid": "0x1878",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 3 CS2 Dragon Lore Edition Wireless Wired",
-      "vid": "0x1038",
-      "pid": "0x187A",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 3 Wired",
-      "vid": "0x1038",
-      "pid": "0x1836",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 3 Wireless",
-      "vid": "0x1038",
-      "pid": "0x1838",
+      "vid": null,
+      "pid": null,
+      "controller": "SteelSeriesController",
+      "kind": "hid"
+    },
+    {
+      "name": "SteelSeries Aerox 3 Wireless Gen 2",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 3 Wireless Wired",
-      "vid": "0x1038",
-      "pid": "0x183A",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 5 Destiny 2 Edition Wireless",
-      "vid": "0x1038",
-      "pid": "0x185C",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 5 Destiny 2 Edition Wireless Wired",
-      "vid": "0x1038",
-      "pid": "0x185E",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 5 Diablo IV Edition Wireless",
-      "vid": "0x1038",
-      "pid": "0x1860",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 5 Diablo IV Edition Wireless Wired",
-      "vid": "0x1038",
-      "pid": "0x1862",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 5 Wired",
-      "vid": "0x1038",
-      "pid": "0x1850",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 5 Wireless",
-      "vid": "0x1038",
-      "pid": "0x1852",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 5 Wireless Wired",
-      "vid": "0x1038",
-      "pid": "0x1854",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 9 Wireless",
-      "vid": "0x1038",
-      "pid": "0x1858",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Aerox 9 Wireless Wired",
-      "vid": "0x1038",
-      "pid": "0x185A",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex (OG)/Apex Fnatic",
-      "vid": "0x1038",
-      "pid": "0x1202",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex 3",
-      "vid": "0x1038",
-      "pid": "0x161A",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex 3 TKL",
-      "vid": "0x1038",
-      "pid": "0x1622",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex 350",
-      "vid": "0x1038",
-      "pid": "0x1206",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex 5",
-      "vid": "0x1038",
-      "pid": "0x161C",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex 7",
-      "vid": "0x1038",
-      "pid": "0x1612",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex 7 TKL",
-      "vid": "0x1038",
-      "pid": "0x1618",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex 9 Mini",
-      "vid": "0x1038",
-      "pid": "0x1620",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex 9 TKL",
-      "vid": "0x1038",
-      "pid": "0x1634",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex M750",
-      "vid": "0x1038",
-      "pid": "0x0616",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex Pro",
-      "vid": "0x1038",
-      "pid": "0x1610",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex Pro 3",
-      "vid": "0x1038",
-      "pid": "0x1640",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex Pro TKL",
-      "vid": "0x1038",
-      "pid": "0x1614",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex Pro TKL 2023 Wired",
-      "vid": "0x1038",
-      "pid": "0x1628",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex Pro TKL 2023 Wireless",
-      "vid": "0x1038",
-      "pid": "0x1630",
-      "controller": "SteelSeriesController",
-      "kind": "hid"
-    },
-    {
-      "name": "SteelSeries Apex Pro TKL 2023 Wireless",
-      "vid": "0x1038",
-      "pid": "0x1632",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex Pro TKL Gen 3 Wired",
-      "vid": "0x1038",
-      "pid": "0x1642",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Apex Pro TKL Gen 3 Wireless",
-      "vid": "0x1038",
-      "pid": "0x1644",
-      "controller": "SteelSeriesController",
-      "kind": "hid"
-    },
-    {
-      "name": "SteelSeries Apex Pro TKL Gen 3 Wireless",
-      "vid": "0x1038",
-      "pid": "0x1646",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Arctis 5",
-      "vid": "0x1038",
-      "pid": "0x1250",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
-      "name": "SteelSeries Arctis 5",
-      "vid": "0x1038",
-      "pid": "0x12AA",
+      "name": "SteelSeries Arctis Nova 3",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries QCK Prism Cloth 3XL",
-      "vid": "0x1038",
-      "pid": "0x1516",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries QCK Prism Cloth 4XL",
-      "vid": "0x1038",
-      "pid": "0x1518",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries QCK Prism Cloth 5XL",
-      "vid": "0x1038",
-      "pid": "0x151A",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries QCK Prism Cloth Medium",
-      "vid": "0x1038",
-      "pid": "0x150A",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries QCK Prism Cloth XL",
-      "vid": "0x1038",
-      "pid": "0x150D",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries QCK Prism Cloth XL CS:GO Neo Noir Ed.",
-      "vid": "0x1038",
-      "pid": "0x151C",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries QCK Prism Cloth XL CS:GO Neon Rider Ed.",
-      "vid": "0x1038",
-      "pid": "0x1514",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries QCK Prism Cloth XL Destiny 2 Lightfall Ed.",
-      "vid": "0x1038",
-      "pid": "0x1520",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries QCK Prism Cloth XL Destiny Ed.",
-      "vid": "0x1038",
-      "pid": "0x151E",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 100",
-      "vid": "0x1038",
-      "pid": "0x1702",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 100 DotA 2 Edition",
-      "vid": "0x1038",
-      "pid": "0x170C",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 105",
-      "vid": "0x1038",
-      "pid": "0x1814",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 106",
-      "vid": "0x1038",
-      "pid": "0x1816",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 110",
-      "vid": "0x1038",
-      "pid": "0x1729",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 3",
-      "vid": "0x1038",
-      "pid": "0x184C",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 3 (Old Firmware)",
-      "vid": "0x1038",
-      "pid": "0x1824",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 300",
-      "vid": "0x1038",
-      "pid": "0x1710",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 300 Black Ops Edition",
-      "vid": "0x1038",
-      "pid": "0x1710",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 300 CS:GO Fade Edition",
-      "vid": "0x1038",
-      "pid": "0x1394",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 300 CS:GO Fade Edition (stm32)",
-      "vid": "0x1038",
-      "pid": "0x1716",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 300 CS:GO Hyperbeast Edition",
-      "vid": "0x1038",
-      "pid": "0x171A",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 300 Dota 2 Edition",
-      "vid": "0x1038",
-      "pid": "0x1392",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 300 HP Omen Edition",
-      "vid": "0x1038",
-      "pid": "0x1718",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 310",
-      "vid": "0x1038",
-      "pid": "0x1720",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 310 CS:GO Howl Edition",
-      "vid": "0x1038",
-      "pid": "0x171E",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 310 PUBG Edition",
-      "vid": "0x1038",
-      "pid": "0x1736",
+      "vid": null,
+      "pid": null,
+      "controller": "SteelSeriesController",
+      "kind": "hid"
+    },
+    {
+      "name": "SteelSeries Rival 5",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 600",
-      "vid": "0x1038",
-      "pid": "0x1724",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 600 Dota 2 Edition",
-      "vid": "0x1038",
-      "pid": "0x172E",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 650",
-      "vid": "0x1038",
-      "pid": "0x172B",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 650 Wireless",
-      "vid": "0x1038",
-      "pid": "0x1726",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 700",
-      "vid": "0x1038",
-      "pid": "0x1700",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Rival 710",
-      "vid": "0x1038",
-      "pid": "0x1730",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Sensei 310",
-      "vid": "0x1038",
-      "pid": "0x1722",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Sensei TEN",
-      "vid": "0x1038",
-      "pid": "0x1832",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Sensei TEN CS:GO Neon Rider Edition",
-      "vid": "0x1038",
-      "pid": "0x1834",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
     {
       "name": "SteelSeries Siberia 350",
-      "vid": "0x1038",
-      "pid": "0x1229",
+      "vid": null,
+      "pid": null,
       "controller": "SteelSeriesController",
       "kind": "hid"
     },
@@ -13960,6 +13414,13 @@
       "kind": "hid"
     },
     {
+      "name": "Turtle Beach Command Series KP7",
+      "vid": null,
+      "pid": null,
+      "controller": "TurtleBeachKP7Controller",
+      "kind": "hid"
+    },
+    {
       "name": "Valkyrie VK99",
       "vid": null,
       "pid": null,
@@ -13972,6 +13433,13 @@
       "pid": null,
       "controller": "ValkyrieKeyboardController",
       "kind": "hid"
+    },
+    {
+      "name": "Valve Steam Machine",
+      "vid": null,
+      "pid": null,
+      "controller": "ValveSteamMachineController",
+      "kind": "generic"
     },
     {
       "name": "ViewSonic Monitor XG270QC",
@@ -13999,6 +13467,13 @@
       "vid": "0x0416",
       "pid": "0xB23C",
       "controller": "WinbondGamingKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "Witmod Keyboard",
+      "vid": "0x0416",
+      "pid": "0xC345",
+      "controller": "WitmodKeyboardController",
       "kind": "hid"
     },
     {
@@ -14129,6 +13604,13 @@
     },
     {
       "name": "ZOTAC GAMING GeForce RTX 5080 AMP Extreme INFINITY",
+      "vid": null,
+      "pid": null,
+      "controller": "ZotacBlackwellGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "ZOTAC GAMING GeForce RTX 5090 D SOLID OC",
       "vid": null,
       "pid": null,
       "controller": "ZotacBlackwellGPUController",
