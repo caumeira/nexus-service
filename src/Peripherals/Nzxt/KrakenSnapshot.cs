@@ -1,0 +1,74 @@
+using System.Collections.Generic;
+
+namespace Nexus.Service.Peripherals.Nzxt;
+
+/// <summary>One RGB channel and whatever accessory the cooler reports on it.</summary>
+public sealed class KrakenLightingChannel
+{
+    public KrakenLightingChannel(byte channelId, byte accessoryId, string accessoryName, int ledCount)
+    {
+        ChannelId = channelId;
+        AccessoryId = accessoryId;
+        AccessoryName = accessoryName;
+        LedCount = ledCount;
+    }
+
+    public byte ChannelId { get; }
+    public byte AccessoryId { get; }
+    public string AccessoryName { get; }
+    public int LedCount { get; }
+}
+
+// Immutable; swapped atomically under the hub lock. Readers take the reference once.
+public sealed class KrakenSnapshot
+{
+    public static readonly KrakenSnapshot Empty = new(
+        0, 0, 0, 0, 0, "", 0, 0, KrakenDisplayMode.Liquid, new List<KrakenLightingChannel>());
+
+    public KrakenSnapshot(
+        double liquidTempC,
+        int pumpRpm,
+        int pumpDuty,
+        int fanRpm,
+        int fanDuty,
+        string firmwareVersion,
+        int lcdBrightness,
+        int lcdOrientationQuarterTurns,
+        KrakenDisplayMode displayMode,
+        IReadOnlyList<KrakenLightingChannel> channels)
+    {
+        LiquidTempC = liquidTempC;
+        PumpRpm = pumpRpm;
+        PumpDuty = pumpDuty;
+        FanRpm = fanRpm;
+        FanDuty = fanDuty;
+        FirmwareVersion = firmwareVersion;
+        LcdBrightness = lcdBrightness;
+        LcdOrientationQuarterTurns = lcdOrientationQuarterTurns;
+        DisplayMode = displayMode;
+        Channels = channels;
+    }
+
+    public double LiquidTempC { get; }
+    public int PumpRpm { get; }
+    public int PumpDuty { get; }
+    public int FanRpm { get; }
+    public int FanDuty { get; }
+    public string FirmwareVersion { get; }
+    public int LcdBrightness { get; }
+    public int LcdOrientationQuarterTurns { get; }
+    public KrakenDisplayMode DisplayMode { get; }
+    public IReadOnlyList<KrakenLightingChannel> Channels { get; }
+
+    public KrakenSnapshot WithReading(KrakenReading reading) => new(
+        reading.LiquidTempC, reading.PumpRpm, reading.PumpDuty, reading.FanRpm, reading.FanDuty,
+        FirmwareVersion, LcdBrightness, LcdOrientationQuarterTurns, DisplayMode, Channels);
+
+    public KrakenSnapshot WithLcd(int brightness, int orientationQuarterTurns) => new(
+        LiquidTempC, PumpRpm, PumpDuty, FanRpm, FanDuty,
+        FirmwareVersion, brightness, orientationQuarterTurns, DisplayMode, Channels);
+
+    public KrakenSnapshot WithDisplayMode(KrakenDisplayMode mode) => new(
+        LiquidTempC, PumpRpm, PumpDuty, FanRpm, FanDuty,
+        FirmwareVersion, LcdBrightness, LcdOrientationQuarterTurns, mode, Channels);
+}
