@@ -268,6 +268,25 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         }
     }
 
+    public int BlankFpsSeries()
+    {
+        lock (_lock)
+        {
+            var count = 0;
+            var keys = _rows.Keys.ToList();
+            foreach (var ts in keys)
+            {
+                if (_rows[ts].Fps is null)
+                {
+                    continue;
+                }
+                _rows[ts] = _rows[ts] with { Fps = null };
+                count++;
+            }
+            return count;
+        }
+    }
+
     public void Upsert(string capability, string appId, long startUtcSec, long? endUtcSec)
     {
         lock (_lock)

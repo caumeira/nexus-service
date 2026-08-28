@@ -54,6 +54,13 @@ internal sealed class ScalarRingStore : IDisposable
 
     private readonly RingFile _ring;
 
+    // RingFile's "one writer at a time" contract assumes a single caller
+    // over the store's lifetime (MetricsSampler's own dedicated thread);
+    // BlankFps is a second, route-triggered writer, so both writing paths
+    // serialize through this lock rather than racing WriteSlot calls
+    // against each other.
+    private readonly object _writeLock = new();
+
     public ScalarRingStore(string path, long capacity, long initialPruneFloorSec)
     {
         _ring = RingFile.CreateOrOpen(path, capacity, BodyLength, initialPruneFloorSec);
@@ -81,13 +88,16 @@ internal sealed class ScalarRingStore : IDisposable
 
     public void Append(IReadOnlyList<MetricSample> samples)
     {
-        Span<byte> body = stackalloc byte[BodyLength];
-        foreach (var s in samples)
+        lock (_writeLock)
         {
-            Encode(s, body);
-            _ring.WriteSlot(s.TsSec, body);
+            Span<byte> body = stackalloc byte[BodyLength];
+            foreach (var s in samples)
+            {
+                Encode(s, body);
+                _ring.WriteSlot(s.TsSec, body);
+            }
+            _ring.Flush();
         }
-        _ring.Flush();
     }
 
     /// <summary>Reconstructs every reading with ts in [fromSec, toSec],
@@ -297,7 +307,42 @@ internal sealed class ScalarRingStore : IDisposable
 
     private static long? UnscaleWhole(long raw) => raw == NullWhole ? null : raw;
 
-    public void Clear() => _ring.Clear();
+    public void Clear()
+    {
+        lock (_writeLock)
+        {
+            _ring.Clear();
+        }
+    }
+
+    /// <summary>Rewrites every currently-stored slot with its Fps field
+    /// cleared, leaving cpu/mem/net/disk/temp fields on that same slot
+    /// untouched - DELETE /api/fps/all blanks only the fps series, not the
+    /// whole scalar ring. Returns the number of slots rewritten.</summary>
+    public int BlankFps()
+    {
+        var count = 0;
+        Span<byte> body = stackalloc byte[BodyLength];
+        lock (_writeLock)
+        {
+            for (long index = 0; index < _ring.Capacity; index++)
+            {
+                if (!_ring.TryReadSlotAtIndex(index, body, out var ts))
+                {
+                    continue;
+                }
+                if (BinaryPrimitives.ReadInt16LittleEndian(body[FpsOffset..]) == NullFps)
+                {
+                    continue;
+                }
+                BinaryPrimitives.WriteInt16LittleEndian(body[FpsOffset..], NullFps);
+                _ring.WriteSlot(ts, body);
+                count++;
+            }
+            _ring.Flush();
+        }
+        return count;
+    }
 
     public void Dispose() => _ring.Dispose();
 }

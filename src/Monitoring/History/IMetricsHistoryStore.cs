@@ -56,6 +56,11 @@ public interface IMetricsHistoryStore : IDisposable
     /// Append. Returns the number of files/segments reset. Screen time and
     /// fps session history live in separate stores and are untouched.</summary>
     int ResetAll();
+
+    /// <summary>Clears only the fps field of every stored scalar slot,
+    /// leaving cpu/mem/net/disk/temp on those same slots untouched -
+    /// DELETE /api/fps/all's history-side effect.</summary>
+    int BlankFpsSeries();
 }
 
 /// <summary>One bucket for one temperature component. BucketUtcMs is the

@@ -102,6 +102,7 @@ public class MetricsSamplerTests
             Array.Empty<ComponentTempDecimatedSlot>();
 
         public int ResetAll() => 0;
+        public int BlankFpsSeries() => 0;
 
         public void Dispose() { }
     }

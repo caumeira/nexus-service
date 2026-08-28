@@ -394,6 +394,26 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Per-game fps session recording: the installed-game catalog, the
+    /// binary session store under db/fps/, and (Windows only, since it needs
+    /// IFocusDetailsProvider - see AddNexusActivity) the recorder itself.
+    /// GameCatalog and BinaryFpsSessionStore are registered on every
+    /// platform so GET /api/fps/games still answers (empty) off Windows;
+    /// only the recorder that would ever populate them is platform-gated.
+    /// </summary>
+    public static IServiceCollection AddNexusFps(this IServiceCollection services)
+    {
+        services.AddSingleton<Nexus.Service.Games.GameCatalog>();
+        services.AddSingleton(_ => new Nexus.Service.Games.BinaryFpsSessionStore(
+            System.IO.Path.Combine(NexusDataPaths.DatabaseDir(), "fps")));
+#if WINDOWS
+        services.AddSingleton<Nexus.Service.Games.FpsSessionRecorder>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.FpsSessionRecorder>());
+#endif
+        return services;
+    }
+
     public static IServiceCollection AddNexusLighting(this IServiceCollection services)
     {
         services.AddSingleton<Nexus.Service.Lighting.StaticDeviceEffectTracker>();

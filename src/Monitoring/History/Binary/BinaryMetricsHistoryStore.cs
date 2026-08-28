@@ -362,6 +362,8 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
         return count;
     }
 
+    public int BlankFpsSeries() => _scalars.BlankFps();
+
     // ----- IAppUsageHistoryStore -----
 
     public void Append(IReadOnlyList<AppUsageTick> ticks, long? pruneCutoffSec) => _apps.Append(ticks, pruneCutoffSec);
