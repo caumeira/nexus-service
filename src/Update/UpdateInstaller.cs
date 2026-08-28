@@ -79,6 +79,10 @@ public static class UpdateInstaller
     internal const string InstallLogPrefix = "ota-install-";
     internal const string InstallLogGlob = InstallLogPrefix + "*.log";
 
+    // Filename prefix for the per-version launcher .cmd in the staging dir. The
+    // downloader's prune matches on it; see UpdateDownloader.PruneSupersededVersions.
+    internal const string LauncherPrefix = "run-ota-";
+
     // How many per-attempt install logs to keep. Enough to cover the
     // failed-then-retried pattern several times over without letting the
     // staging dir grow without bound.
@@ -87,6 +91,10 @@ public static class UpdateInstaller
     // Platform-agnostic so it is unit-tested off-Windows.
     internal static string InstallLogName(string version, long stamp) =>
         $"{InstallLogPrefix}{version}-{stamp}.log";
+
+    // Platform-agnostic so it is unit-tested off-Windows.
+    internal static string LauncherName(string version) =>
+        $"{LauncherPrefix}{version}.cmd";
 
     /// <summary>
     /// Trims the completed per-attempt install logs in <paramref name="dir"/> to
@@ -187,7 +195,7 @@ public static class UpdateInstaller
         // pre-planted file's owner + DACL, leaving the .cmd that SYSTEM executes
         // attacker-writable for an overwrite race. A fresh file in the locked dir
         // inherits its SYSTEM-only ACL. Abort if a stale one can't be removed.
-        var cmdPath = Path.Combine(UpdateDownloader.StagingDir, $"run-ota-{version}.cmd");
+        var cmdPath = Path.Combine(UpdateDownloader.StagingDir, LauncherName(version));
         if (!TryDeleteForReplace(cmdPath))
         {
             Console.Error.WriteLine($"[ota-install] could not replace stale launcher: {cmdPath}");

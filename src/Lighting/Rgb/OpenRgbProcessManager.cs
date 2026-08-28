@@ -171,8 +171,16 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// CorsairICueLinkControllerDetect.cpp -> "Corsair iCUE Link System Hub").
     /// Unknown names in this list are ignored, so disabling the iCUE Link detector
     /// is a safe no-op on bundled builds that predate that controller.
+    ///
+    /// "HID LampArray Device" is disabled for a different reason: it is a generic
+    /// detector matching the standard LampArray HID usage on any vendor, so a
+    /// board that exposes both a vendor protocol and a LampArray collection is
+    /// detected twice - once by its real controller with full zones, and once as
+    /// a near-empty duplicate on the other HID interface. Upstream registers it
+    /// unconditionally with no check for an existing controller, so the dedupe
+    /// has to happen here.
     /// </summary>
-    private static readonly string[] DisabledDetectors = { "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub" };
+    private static readonly string[] DisabledDetectors = { "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub", "HID LampArray Device" };
 
     /// <summary>
     /// Detector names the user excluded by turning Nexus Control off for every
