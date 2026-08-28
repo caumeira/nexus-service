@@ -400,6 +400,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudDeleteAccountRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudDevicePutRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudLibraryResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudImportConflictResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudImportRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudDeviceDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Cloud.CloudDeviceDto>))]

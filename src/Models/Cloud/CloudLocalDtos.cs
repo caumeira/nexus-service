@@ -156,6 +156,12 @@ public sealed class CloudLibraryResponse : ApiResponse
     public List<CloudLibraryMachineDto> Machines { get; set; } = new();
 }
 
+/// <summary>409 body for an import that clashes: carries the LOCAL name it clashed with, which is the derived "&lt;name&gt; (&lt;hostname&gt;)" and not the name shown on the source row.</summary>
+public sealed class CloudImportConflictResponse : ApiResponse
+{
+    public string Name { get; set; } = "";
+}
+
 /// <summary>Copies another machine's profile in as a NEW local profile; nothing existing is touched, so there is nothing to select.</summary>
 public sealed class CloudImportRequest
 {

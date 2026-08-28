@@ -214,6 +214,14 @@ public static class CloudRoutes
                 return Results.BadRequest(ApiResponse.Fail("installId and profileId are required."));
             }
             var result = await library.ImportAsync(body, ct).ConfigureAwait(false);
+            if (!result.Success && result.ErrorCode == "profile_name_taken")
+            {
+                // The prompt has to name the profile that actually clashed.
+                return Results.Json(
+                    new CloudImportConflictResponse { Error = true, Msg = "profile_name_taken", Name = library.LastConflictName },
+                    AppJsonContext.Default.CloudImportConflictResponse,
+                    statusCode: StatusCodes.Status409Conflict);
+            }
             if (result.Success && library.LastImportReplacedActive)
             {
                 // Replacing the profile in use changes theme/lighting/cooling

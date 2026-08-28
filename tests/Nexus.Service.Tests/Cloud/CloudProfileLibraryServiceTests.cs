@@ -186,6 +186,10 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
         Assert.False(second.Success);
         Assert.Equal("profile_name_taken", second.ErrorCode);
         Assert.Equal(409, second.StatusCode);
+        // The prompt has to name the LOCAL profile that clashed, which is the
+        // derived "<name> (<hostname>)" - not "Their Default", the name on the
+        // row the user clicked.
+        Assert.Equal("Their Default (HYTEY70)", _library.LastConflictName);
     }
 
     [Fact]

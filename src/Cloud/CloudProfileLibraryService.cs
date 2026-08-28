@@ -117,6 +117,9 @@ public sealed class CloudProfileLibraryService
     /// <summary>True when the last import overwrote the profile that is currently active, so the caller must rebroadcast for connected UIs.</summary>
     public bool LastImportReplacedActive { get; private set; }
 
+    /// <summary>The LOCAL profile name the last import clashed with. Not the source row's name: an import from another machine is renamed "&lt;name&gt; (&lt;hostname&gt;)", and that derived name is what the user has to be asked about.</summary>
+    public string LastConflictName { get; private set; } = "";
+
     public async Task<CloudActionResult> ImportAsync(CloudImportRequest request, CancellationToken ct)
     {
         var fetched = await FetchAsync(request.InstallId, request.ProfileId, ct).ConfigureAwait(false);
@@ -160,6 +163,7 @@ public sealed class CloudProfileLibraryService
         }
         catch (ProfileNameConflictException)
         {
+            LastConflictName = name;
             // The caller asks the user whether to replace, then retries with
             // ReplaceExisting. Importing the same profile twice lands here.
             return CloudActionResult.Fail("profile_name_taken", name, 409);
