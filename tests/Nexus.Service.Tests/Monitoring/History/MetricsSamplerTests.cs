@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Activity;
+using Nexus.Service.Fps;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Monitoring.History;
+using Nexus.Service.Persistence;
 using Nexus.Service.Sensors;
 using Xunit;
 
@@ -41,6 +44,17 @@ public class MetricsSamplerTests
         public string GetOsVersion() => "TestOS";
         public void SetPollingRate(int pollingRate) { }
         public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class FakeConfigStore : IConfigStore
+    {
+        private readonly NexusSettings _settings = new();
+        public string SettingsPath => ":memory:";
+        public NexusSettings Load() => _settings;
+        public void Update(Action<NexusSettings> mutator) { mutator(_settings); OnChanged?.Invoke(); }
+        public void Reload() { }
+        public void FlushNow() { }
+        public event Action? OnChanged;
     }
 
     private sealed class StubMetricsSource : IMetricsSource
@@ -142,6 +156,7 @@ public class MetricsSamplerTests
         FeatureGates? gates = null) =>
         new(new StubSensors(), source, buffer ?? new MetricsSampleBuffer(), store,
             appSource ?? new StubAppUsageSource(), appBuffer ?? new AppSampleBuffer(), appStore ?? new RecordingAppUsageHistoryStore(),
+            new StubFpsProvider(), new StubScreenTimeProvider(), new FakeConfigStore(),
             gates);
 
     [Fact]
@@ -258,7 +273,8 @@ public class MetricsSamplerTests
         var store = new RecordingMetricsHistoryStore();
         var buffer = new MetricsSampleBuffer();
         var sampler = new MetricsSampler(new StubSensors(), source, buffer, store,
-            new StubAppUsageSource(), new AppSampleBuffer(), new RecordingAppUsageHistoryStore());
+            new StubAppUsageSource(), new AppSampleBuffer(), new RecordingAppUsageHistoryStore(),
+            new StubFpsProvider(), new StubScreenTimeProvider(), new FakeConfigStore());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), CancellationToken.None));

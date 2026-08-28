@@ -11,6 +11,7 @@ using Microsoft.Net.Http.Headers;
 using Nexus.Service.Activity;
 using Nexus.Service.Auth;
 using Nexus.Service.Models;
+using Nexus.Service.Models.Activity;
 using Nexus.Service.Monitoring.Events;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Platform;
@@ -136,6 +137,13 @@ public static class MonitoringHistoryRoutes
                 return Results.Ok(new MetricsHistoryResponse { Supported = false });
             }
         }).AllowPanel();
+
+        // Resets every ring/segment store IMetricsHistoryStore owns (scalars
+        // incl fps, gpu, fan, component temps, temp buckets, app usage).
+        // Screen time and fps session history live in separate stores and
+        // are untouched; recording continues on the next sampler tick.
+        app.MapDelete("/monitoring/history", (IMetricsHistoryStore store) =>
+            Results.Ok(new DeleteResponse { Deleted = store.ResetAll() }));
 
         app.MapGet("/monitoring/privacy", (long? from, long? to, IPrivacySessionStore store) =>
         {
@@ -630,6 +638,9 @@ public static class MonitoringHistoryRoutes
         AddDecimatedScalarSeries(series, "cpu-temp", "cpu-temp", "CPU Temperature",
             dbScalars.Select(s => (s.Slot, s.CpuTempAvg, s.CpuTempMax)), s => s.CpuTempC,
             tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: false);
+        AddDecimatedScalarSeries(series, "fps", "fps", "FPS",
+            dbScalars.Select(s => (s.Slot, s.FpsAvg, s.FpsMax)), s => (double?)s.Fps,
+            tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
 
         AddDecimatedGpuSeries(series, dbGpu, tailSamples, fromSec, toSec, stepSeconds, seriesFilter, gpuAdapterLuids);
         AddDecimatedFanSeries(series, dbFan, tailSamples, fromSec, toSec, stepSeconds, seriesFilter);
@@ -989,6 +1000,7 @@ public static class MonitoringHistoryRoutes
         AddScalarSeries(series, merged, "disk-read", "disk", "Disk Read", s => s.DiskReadBytesPerSec, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
         AddScalarSeries(series, merged, "disk-write", "disk", "Disk Write", s => s.DiskWriteBytesPerSec, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
         AddScalarSeries(series, merged, "cpu-temp", "cpu-temp", "CPU Temperature", s => s.CpuTempC, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: false);
+        AddScalarSeries(series, merged, "fps", "fps", "FPS", s => (double?)s.Fps, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
 
         AddGpuSeries(series, merged, fromSec, toSec, stepSeconds, seriesFilter, gpuAdapterLuids);
         AddFanSeries(series, merged, fromSec, toSec, stepSeconds, seriesFilter);

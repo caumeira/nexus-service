@@ -33,8 +33,9 @@ public class ScalarRingStoreTests : IDisposable
     private ScalarRingStore CreateStore(long capacity = 100, long initialPruneFloorSec = long.MinValue) =>
         new(Path.Combine(_dir, "scalars.ring"), capacity, initialPruneFloorSec);
 
-    private static MetricSample Scalars(long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
-        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
+    private static MetricSample Scalars(
+        long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55, int? fps = null) =>
+        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(), Fps: fps);
 
     [Fact]
     public void Append_ThenQuery_RoundTripsEveryField()
@@ -49,6 +50,38 @@ public class ScalarRingStoreTests : IDisposable
         Assert.Equal(12345, row.NetInBytesPerSec);
         Assert.Equal(6789, row.NetOutBytesPerSec);
         Assert.Equal(55.4, row.CpuTempC);
+    }
+
+    [Fact]
+    public void Append_AnFpsReading_RoundTrips()
+    {
+        using var store = CreateStore();
+        store.Append(new[] { Scalars(10, fps: 144) });
+
+        var row = Assert.Single(store.Query(0, 100));
+        Assert.Equal(144, row.Fps);
+    }
+
+    [Fact]
+    public void Append_FpsZero_RoundTripsAsNull_UnlikeEveryOtherScalarField()
+    {
+        // Decision: frames == 0 (loading, paused, minimized) reads as an
+        // absent second on the fps series, not as a genuine zero.
+        using var store = CreateStore();
+        store.Append(new[] { Scalars(10, fps: 0) });
+
+        var row = Assert.Single(store.Query(0, 100));
+        Assert.Null(row.Fps);
+    }
+
+    [Fact]
+    public void Append_NoFpsReading_RoundTripsAsNull()
+    {
+        using var store = CreateStore();
+        store.Append(new[] { Scalars(10) });
+
+        var row = Assert.Single(store.Query(0, 100));
+        Assert.Null(row.Fps);
     }
 
     [Fact]
