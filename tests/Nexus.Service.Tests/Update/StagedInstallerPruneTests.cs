@@ -8,7 +8,7 @@ namespace Nexus.Service.Tests.Update;
 public sealed class StagedInstallerPruneTests
 {
     [Fact]
-    public void PruneStaleInstallers_keeps_only_the_target_installer()
+    public void PruneSupersededVersions_keeps_only_the_target_installer_and_its_launcher()
     {
         var dir = Path.Combine(Path.GetTempPath(), "nexus-prune-" + Path.GetRandomFileName());
         Directory.CreateDirectory(dir);
@@ -20,16 +20,20 @@ public sealed class StagedInstallerPruneTests
             File.WriteAllText(Path.Combine(dir, "Nexus-Setup-v3.0.1-beta.3.exe"), "old");
             // A partial download from a superseded attempt.
             File.WriteAllText(Path.Combine(dir, "Nexus-Setup-v3.0.1-beta.3.exe.tmp"), "partial");
-            // Non-installer artifacts must survive (marker / launcher / log).
+            // The superseded installer's launcher goes with it; the launcher of
+            // the version being staged stays.
+            var keepLauncher = UpdateInstaller.LauncherName("v3.0.1-beta.4");
+            File.WriteAllText(Path.Combine(dir, keepLauncher), "echo");
+            File.WriteAllText(Path.Combine(dir, UpdateInstaller.LauncherName("v3.0.1-beta.2")), "echo");
+            // Marker and logs must survive.
             File.WriteAllText(Path.Combine(dir, "pending-install.json"), "{}");
-            File.WriteAllText(Path.Combine(dir, "run-ota-v3.0.1-beta.2.cmd"), "echo");
             File.WriteAllText(Path.Combine(dir, "ota-install-v3.0.1-beta.2.log"), "log");
 
-            UpdateDownloader.PruneStaleInstallers(dir, keep);
+            UpdateDownloader.PruneSupersededVersions(dir, keep, keepLauncher);
 
             var remaining = Directory.GetFiles(dir).Select(Path.GetFileName).OrderBy(n => n).ToArray();
             Assert.Equal(
-                new[] { "Nexus-Setup-v3.0.1-beta.4.exe", "ota-install-v3.0.1-beta.2.log", "pending-install.json", "run-ota-v3.0.1-beta.2.cmd" },
+                new[] { "Nexus-Setup-v3.0.1-beta.4.exe", "ota-install-v3.0.1-beta.2.log", "pending-install.json", keepLauncher },
                 remaining);
         }
         finally

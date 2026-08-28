@@ -79,9 +79,9 @@ public static class UpdateInstaller
     internal const string InstallLogPrefix = "ota-install-";
     internal const string InstallLogGlob = InstallLogPrefix + "*.log";
 
-    // Filename prefix + glob for the per-version launcher .cmd in the staging dir.
+    // Filename prefix for the per-version launcher .cmd in the staging dir. The
+    // downloader's prune matches on it; see UpdateDownloader.PruneSupersededVersions.
     internal const string LauncherPrefix = "run-ota-";
-    internal const string LauncherGlob = LauncherPrefix + "*.cmd";
 
     // How many per-attempt install logs to keep. Enough to cover the
     // failed-then-retried pattern several times over without letting the
@@ -126,32 +126,6 @@ public static class UpdateInstaller
             for (var i = KeepInstallLogs; i < byAge.Length; i++)
             {
                 try { File.Delete(byAge[i].Path); } catch { }
-            }
-        }
-        catch { }
-    }
-
-    /// <summary>
-    /// Deletes every launcher in <paramref name="dir"/> except
-    /// <paramref name="keepFileName"/>. A launcher names one installer and
-    /// nothing else, so every other version's is dead weight once its installer
-    /// has been superseded. Runs here rather than alongside the installer prune
-    /// in <see cref="UpdateDownloader.PruneStaleInstallers"/> because only this
-    /// call site knows which launcher is live: schtasks /Run returns as soon as
-    /// the task is TRIGGERED, so a prune driven by a later download could delete
-    /// the .cmd of an install Task Scheduler has not opened yet. Install logs are
-    /// kept - they are the only record of a failed attempt.
-    /// </summary>
-    internal static void PruneStaleLaunchers(string dir, string keepFileName)
-    {
-        try
-        {
-            foreach (var f in Directory.GetFiles(dir, LauncherGlob))
-            {
-                if (!string.Equals(Path.GetFileName(f), keepFileName, StringComparison.OrdinalIgnoreCase))
-                {
-                    try { File.Delete(f); } catch { }
-                }
             }
         }
         catch { }
@@ -229,10 +203,6 @@ public static class UpdateInstaller
         }
         File.WriteAllText(cmdPath,
             $"@echo off\r\n\"{installerPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART \"/LOG={logPath}\"\r\n");
-
-        // Only after the live launcher exists: every other one belongs to a
-        // superseded installer the downloader has already pruned.
-        PruneStaleLaunchers(UpdateDownloader.StagingDir, Path.GetFileName(cmdPath));
 
         // /ST 00:00 with the default (today) start date leaves the ONCE trigger
         // already in the past, so Task Scheduler never auto-runs it - the install
