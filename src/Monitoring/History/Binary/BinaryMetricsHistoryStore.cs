@@ -283,7 +283,8 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
             FieldAgg.FromReadings(raw.Select(r => (double?)r.NetOutBytesPerSec)),
             FieldAgg.FromReadings(raw.Select(r => r.CpuTempC)),
             FieldAgg.FromReadings(raw.Select(r => (double?)r.DiskReadBytesPerSec)),
-            FieldAgg.FromReadings(raw.Select(r => (double?)r.DiskWriteBytesPerSec)));
+            FieldAgg.FromReadings(raw.Select(r => (double?)r.DiskWriteBytesPerSec)),
+            FieldAgg.FromReadings(raw.Select(r => (double?)r.Fps)));
         _scalarRollup.RebuildMinute(minuteFloorSec, agg);
     }
 
@@ -305,6 +306,7 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
                 ComponentTemps = componentsByTs.TryGetValue(s.TsSec, out var comps) ? comps : Array.Empty<ComponentTempReading>(),
                 DiskReadBytesPerSec = s.DiskReadBytesPerSec,
                 DiskWriteBytesPerSec = s.DiskWriteBytesPerSec,
+                Fps = s.Fps,
             });
         }
         return result;
@@ -341,6 +343,24 @@ public sealed class BinaryMetricsHistoryStore : IMetricsHistoryStore, IAppUsageH
     // bucket.
     public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs) =>
         _tempBuckets.Query(fromUtcMs / 1000, toUtcMs / 1000);
+
+    // Resets every ring/segment store this class owns; screen time and fps
+    // session history are separate stores under separate directories and are
+    // never touched here.
+    public int ResetAll()
+    {
+        var count = 0;
+        _scalars.Clear();
+        count++;
+        _scalarRollup.Clear();
+        count++;
+        count += _gpus.Clear();
+        count += _fans.Clear();
+        count += _tempComponents.Clear();
+        count += _tempBuckets.Clear();
+        count += _apps.ClearAll();
+        return count;
+    }
 
     // ----- IAppUsageHistoryStore -----
 

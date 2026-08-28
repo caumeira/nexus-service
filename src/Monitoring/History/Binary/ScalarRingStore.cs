@@ -17,7 +17,8 @@ internal readonly record struct ScalarReading(
     long? NetOutBytesPerSec,
     double? CpuTempC,
     long? DiskReadBytesPerSec,
-    long? DiskWriteBytesPerSec);
+    long? DiskWriteBytesPerSec,
+    int? Fps = null);
 
 /// <summary>
 /// The 1Hz scalar ring (cpu/mem/net-in/net-out/cpu-temp/disk-read/disk-write):
@@ -44,9 +45,11 @@ internal sealed class ScalarRingStore : IDisposable
     private const int CpuOffset = DiskWriteOffset + sizeof(long);
     private const int MemOffset = CpuOffset + sizeof(short);
     private const int CpuTempOffset = MemOffset + sizeof(short);
-    public const int BodyLength = CpuTempOffset + sizeof(short);
+    private const int FpsOffset = CpuTempOffset + sizeof(short);
+    public const int BodyLength = FpsOffset + sizeof(short);
 
     private const short NullX10 = short.MinValue;
+    private const short NullFps = short.MinValue;
     private const long NullWhole = long.MinValue;
 
     private readonly RingFile _ring;
@@ -168,6 +171,7 @@ internal sealed class ScalarRingStore : IDisposable
         var temp = Slots(rows, r => r.CpuTempC, fromSec, toSec, stepSeconds);
         var diskRead = Slots(rows, r => r.DiskReadBytesPerSec, fromSec, toSec, stepSeconds);
         var diskWrite = Slots(rows, r => r.DiskWriteBytesPerSec, fromSec, toSec, stepSeconds);
+        var fps = Slots(rows, r => (double?)r.Fps, fromSec, toSec, stepSeconds);
 
         var allSlots = new SortedSet<long>();
         allSlots.UnionWith(cpu.Keys);
@@ -177,6 +181,7 @@ internal sealed class ScalarRingStore : IDisposable
         allSlots.UnionWith(temp.Keys);
         allSlots.UnionWith(diskRead.Keys);
         allSlots.UnionWith(diskWrite.Keys);
+        allSlots.UnionWith(fps.Keys);
 
         var result = new List<ScalarDecimatedSlot>(allSlots.Count);
         foreach (var slot in allSlots)
@@ -189,7 +194,8 @@ internal sealed class ScalarRingStore : IDisposable
                 netOut.GetValueOrDefault(slot)?.Avg, netOut.GetValueOrDefault(slot)?.Max,
                 temp.GetValueOrDefault(slot)?.Avg, temp.GetValueOrDefault(slot)?.Max,
                 diskRead.GetValueOrDefault(slot)?.Avg, diskRead.GetValueOrDefault(slot)?.Max,
-                diskWrite.GetValueOrDefault(slot)?.Avg, diskWrite.GetValueOrDefault(slot)?.Max));
+                diskWrite.GetValueOrDefault(slot)?.Avg, diskWrite.GetValueOrDefault(slot)?.Max,
+                fps.GetValueOrDefault(slot)?.Avg, fps.GetValueOrDefault(slot)?.Max));
         }
         return result;
     }
@@ -208,6 +214,7 @@ internal sealed class ScalarRingStore : IDisposable
         BinaryPrimitives.WriteInt16LittleEndian(body[CpuOffset..], ScaleX10(s.CpuPercent));
         BinaryPrimitives.WriteInt16LittleEndian(body[MemOffset..], ScaleX10(s.MemoryPercent));
         BinaryPrimitives.WriteInt16LittleEndian(body[CpuTempOffset..], ScaleX10(s.CpuTempC));
+        BinaryPrimitives.WriteInt16LittleEndian(body[FpsOffset..], ScaleFps(s.Fps));
     }
 
     private static ScalarReading Decode(long ts, ReadOnlySpan<byte> body)
@@ -219,12 +226,14 @@ internal sealed class ScalarRingStore : IDisposable
         var cpu = BinaryPrimitives.ReadInt16LittleEndian(body[CpuOffset..]);
         var mem = BinaryPrimitives.ReadInt16LittleEndian(body[MemOffset..]);
         var cpuTemp = BinaryPrimitives.ReadInt16LittleEndian(body[CpuTempOffset..]);
+        var fps = BinaryPrimitives.ReadInt16LittleEndian(body[FpsOffset..]);
         return new ScalarReading(
             ts,
             UnscaleX10(cpu), UnscaleX10(mem),
             UnscaleWhole(netIn), UnscaleWhole(netOut),
             UnscaleX10(cpuTemp),
-            UnscaleWhole(diskRead), UnscaleWhole(diskWrite));
+            UnscaleWhole(diskRead), UnscaleWhole(diskWrite),
+            UnscaleFps(fps));
     }
 
     // Non-finite (NaN/Infinity) is treated the same as a missing reading
@@ -250,6 +259,24 @@ internal sealed class ScalarRingStore : IDisposable
 
     private static double? UnscaleX10(short raw) => raw == NullX10 ? null : raw / 10.0;
 
+    // frames == 0 (loading, paused, minimized) stores identically to "no
+    // presenter" - both read back as an absent second on the fps series,
+    // per the fps-benchmarks plan's series-gap rule.
+    private static short ScaleFps(int? value)
+    {
+        if (value is not { } v || v <= 0)
+        {
+            return NullFps;
+        }
+        if (v >= short.MaxValue)
+        {
+            return short.MaxValue;
+        }
+        return (short)v;
+    }
+
+    private static int? UnscaleFps(short raw) => raw == NullFps ? null : raw;
+
     private static long ScaleWhole(double? value)
     {
         if (value is not { } v || !double.IsFinite(v))
@@ -269,6 +296,8 @@ internal sealed class ScalarRingStore : IDisposable
     }
 
     private static long? UnscaleWhole(long raw) => raw == NullWhole ? null : raw;
+
+    public void Clear() => _ring.Clear();
 
     public void Dispose() => _ring.Dispose();
 }

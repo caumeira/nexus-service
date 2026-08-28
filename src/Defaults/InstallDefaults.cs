@@ -39,6 +39,7 @@ public static class InstallDefaults
     public static CoolingDefaults Cooling => All.Cooling;
     public static ObsDefaults Obs => All.Obs;
     public static ScreenTimeDefaults ScreenTime => All.ScreenTime;
+    public static FpsDefaults Fps => All.Fps;
     public static CnvsDefaults Cnvs => All.Cnvs;
     public static AuthDefaults Auth => All.Auth;
 
@@ -81,6 +82,7 @@ public sealed class InstallDefaultsDocument
     public CoolingDefaults Cooling { get; set; } = new();
     public ObsDefaults Obs { get; set; } = new();
     public ScreenTimeDefaults ScreenTime { get; set; } = new();
+    public FpsDefaults Fps { get; set; } = new();
     public CnvsDefaults Cnvs { get; set; } = new();
     public AuthDefaults Auth { get; set; } = new();
 }
@@ -212,6 +214,11 @@ public sealed class ObsDefaults
 }
 
 public sealed class ScreenTimeDefaults
+{
+    public bool TrackingEnabled { get; set; } = true;
+}
+
+public sealed class FpsDefaults
 {
     public bool TrackingEnabled { get; set; } = true;
 }

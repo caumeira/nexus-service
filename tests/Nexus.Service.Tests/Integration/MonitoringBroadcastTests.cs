@@ -131,6 +131,13 @@ internal sealed class TrackingFpsProvider : IFpsProvider
         }
     }
 
+    public bool TryReadSecond(long tsSec, out int pid, out int frames)
+    {
+        pid = 0;
+        frames = 0;
+        return false;
+    }
+
     public HardwareComponent GetComponent()
     {
         ComponentReads++;

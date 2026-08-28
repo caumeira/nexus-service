@@ -9,7 +9,8 @@ namespace Nexus.Service.Monitoring.History.Binary;
 /// and QueryDecimated folds several of together into a wider decimation
 /// step.</summary>
 internal readonly record struct ScalarMinuteAgg(
-    FieldAgg Cpu, FieldAgg Mem, FieldAgg NetIn, FieldAgg NetOut, FieldAgg CpuTemp, FieldAgg DiskRead, FieldAgg DiskWrite);
+    FieldAgg Cpu, FieldAgg Mem, FieldAgg NetIn, FieldAgg NetOut, FieldAgg CpuTemp, FieldAgg DiskRead, FieldAgg DiskWrite,
+    FieldAgg Fps = default);
 
 /// <summary>
 /// The scalar minute-rollup tier: a RingFile keyed by minute-index (see
@@ -62,7 +63,10 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
     private const int DiskWriteSumOffset = DiskReadMaxOffset + sizeof(long);
     private const int DiskWriteCntOffset = DiskWriteSumOffset + sizeof(long);
     private const int DiskWriteMaxOffset = DiskWriteCntOffset + sizeof(int);
-    private const int BodyLength = DiskWriteMaxOffset + sizeof(long);
+    private const int FpsSumOffset = DiskWriteMaxOffset + sizeof(long);
+    private const int FpsCntOffset = FpsSumOffset + sizeof(int);
+    private const int FpsMaxOffset = FpsCntOffset + sizeof(int);
+    private const int BodyLength = FpsMaxOffset + sizeof(short);
 
     private readonly RingFile _ring;
 
@@ -131,14 +135,15 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
                 agg.NetOut.Avg, agg.NetOut.MaxOrNull,
                 agg.CpuTemp.Avg, agg.CpuTemp.MaxOrNull,
                 agg.DiskRead.Avg, agg.DiskRead.MaxOrNull,
-                agg.DiskWrite.Avg, agg.DiskWrite.MaxOrNull));
+                agg.DiskWrite.Avg, agg.DiskWrite.MaxOrNull,
+                agg.Fps.Avg, agg.Fps.MaxOrNull));
         }
         return result;
     }
 
     private static ScalarMinuteAgg Combine(ScalarMinuteAgg a, ScalarMinuteAgg b) => new(
         a.Cpu.Combine(b.Cpu), a.Mem.Combine(b.Mem), a.NetIn.Combine(b.NetIn), a.NetOut.Combine(b.NetOut), a.CpuTemp.Combine(b.CpuTemp),
-        a.DiskRead.Combine(b.DiskRead), a.DiskWrite.Combine(b.DiskWrite));
+        a.DiskRead.Combine(b.DiskRead), a.DiskWrite.Combine(b.DiskWrite), a.Fps.Combine(b.Fps));
 
     private static void Encode(ScalarMinuteAgg agg, Span<byte> body)
     {
@@ -169,6 +174,10 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
         BinaryPrimitives.WriteInt64LittleEndian(body[DiskWriteSumOffset..], ScaleSumWhole(agg.DiskWrite.Sum));
         BinaryPrimitives.WriteInt32LittleEndian(body[DiskWriteCntOffset..], agg.DiskWrite.Cnt);
         BinaryPrimitives.WriteInt64LittleEndian(body[DiskWriteMaxOffset..], ScaleSumWhole(agg.DiskWrite.MaxOrNull ?? 0));
+
+        BinaryPrimitives.WriteInt32LittleEndian(body[FpsSumOffset..], (int)Math.Clamp(agg.Fps.Sum, int.MinValue, int.MaxValue));
+        BinaryPrimitives.WriteInt32LittleEndian(body[FpsCntOffset..], agg.Fps.Cnt);
+        BinaryPrimitives.WriteInt16LittleEndian(body[FpsMaxOffset..], (short)Math.Clamp(agg.Fps.MaxOrNull ?? 0, 0, short.MaxValue));
     }
 
     private static ScalarMinuteAgg Decode(ReadOnlySpan<byte> body)
@@ -201,7 +210,11 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
             BinaryPrimitives.ReadInt64LittleEndian(body[DiskWriteSumOffset..]),
             BinaryPrimitives.ReadInt32LittleEndian(body[DiskWriteCntOffset..]),
             BinaryPrimitives.ReadInt64LittleEndian(body[DiskWriteMaxOffset..]));
-        return new ScalarMinuteAgg(cpu, mem, netIn, netOut, cpuTemp, diskRead, diskWrite);
+        var fps = new FieldAgg(
+            BinaryPrimitives.ReadInt32LittleEndian(body[FpsSumOffset..]),
+            BinaryPrimitives.ReadInt32LittleEndian(body[FpsCntOffset..]),
+            BinaryPrimitives.ReadInt16LittleEndian(body[FpsMaxOffset..]));
+        return new ScalarMinuteAgg(cpu, mem, netIn, netOut, cpuTemp, diskRead, diskWrite, fps);
     }
 
     // Mirrors ScalarRingStore's own whole-int clamp (a single second's net
@@ -242,6 +255,8 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
         }
         return (int)scaled;
     }
+
+    public void Clear() => _ring.Clear();
 
     public void Dispose() => _ring.Dispose();
 }

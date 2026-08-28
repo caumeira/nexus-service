@@ -87,6 +87,8 @@ public class MetricsSamplerTests
         public IReadOnlyList<ComponentTempDecimatedSlot> QueryComponentTempDecimated(long fromSec, long toSec, int stepSeconds) =>
             Array.Empty<ComponentTempDecimatedSlot>();
 
+        public int ResetAll() => 0;
+
         public void Dispose() { }
     }
 
