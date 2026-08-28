@@ -275,6 +275,24 @@ public class MetricsSamplerTests
     }
 
     [Fact]
+    public async Task Tick_LeavesAZeroFrameFpsSecond_AsAGap()
+    {
+        var fps = new SpyFpsProvider();
+        var buffer = new MetricsSampleBuffer();
+        var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), buffer, fps: fps);
+
+        var firstTick = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
+        var firstTickSec = new DateTimeOffset(firstTick).ToUnixTimeSeconds();
+        await sampler.Tick(firstTick, CancellationToken.None);
+
+        fps.Second = new FpsSecond(firstTickSec, 4321, 0);
+        await sampler.Tick(firstTick.AddSeconds(1), CancellationToken.None);
+
+        var sample = Assert.Single(buffer.PendingSnapshot(), s => s.TsSec == firstTickSec);
+        Assert.Null(sample.Fps);
+    }
+
+    [Fact]
     public async Task Tick_DoesNotFlush_BeforeTheFlushIntervalIsReached()
     {
         var source = new StubMetricsSource();

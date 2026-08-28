@@ -229,7 +229,10 @@ public sealed class MetricsSampler : IHostedService, IDisposable
 
         foreach (var second in _fps.ReadCompletedSeconds(_lastConsumedFpsSec))
         {
-            _buffer.SetFps(second.TsSec, second.Frames);
+            // A 0-frame second (paused, minimized, a non-presenting focus
+            // target) stays a gap in the history; only the recorder counts it.
+            if (second.Frames > 0)
+                _buffer.SetFps(second.TsSec, second.Frames);
             _lastConsumedFpsSec = second.TsSec;
         }
 
