@@ -17,6 +17,9 @@ public static class PanelSurfaces
     /// <summary>A user-promoted OS monitor hosting a fullscreen panel kiosk.</summary>
     public const string Monitor = "monitor";
 
+    /// <summary>Round 640x640 glass on an NZXT Kraken, driven by pushed frames.</summary>
+    public const string Kraken = "kraken";
+
     /// <summary>
     /// Surfaces that are exactly one physical panel per host. They self-register
     /// over <c>POST /panel/devices</c> (no OS displayId to key on) and rely on
@@ -28,7 +31,7 @@ public static class PanelSurfaces
     /// keyed by displayId.
     /// </summary>
     public static readonly IReadOnlySet<string> SingleInstance =
-        new HashSet<string>(StringComparer.Ordinal) { Y70, Q60 };
+        new HashSet<string>(StringComparer.Ordinal) { Y70, Q60, Kraken };
 
     public static bool IsSingleInstance(string? surface) =>
         surface is not null && SingleInstance.Contains(surface);

@@ -27,6 +27,8 @@ public sealed class KrakenHub : IDisposable
 
     private volatile bool _isConnected;
     private volatile KrakenSnapshot _snapshot = KrakenSnapshot.Empty;
+    // Last image pushed, stored unrotated so a rotation change can re-render it.
+    private byte[]? _lastLcdFrame;
 
     public KrakenHub(IKrakenLcdTransportFactory? lcdFactory = null)
     {
@@ -250,8 +252,14 @@ public sealed class KrakenHub : IDisposable
             {
                 return false;
             }
-            _snapshot = _snapshot.WithLcd(
-                Math.Clamp(brightnessPercent, 0, 100), orientationQuarterTurns & 0x03);
+            int turns = orientationQuarterTurns & 0x03;
+            bool rotated = turns != _snapshot.LcdOrientationQuarterTurns;
+            _snapshot = _snapshot.WithLcd(Math.Clamp(brightnessPercent, 0, 100), turns);
+            // The panel will not re-orient a stored image on its own.
+            if (rotated && _lastLcdFrame != null && _snapshot.DisplayMode == KrakenDisplayMode.Bucket)
+            {
+                UploadLcdFrameLocked(_lastLcdFrame, turns);
+            }
             return true;
         }
     }
@@ -337,11 +345,23 @@ public sealed class KrakenHub : IDisposable
             return false;
         }
 
-        var header = KrakenProtocol.EncodeBulkHeader(KrakenProtocol.BulkFormatRgba8888, rgba.Length);
-        int pages = KrakenProtocol.PagesFor(rgba.Length);
-        var payload = rgba.ToArray();
-
+        var source = rgba.ToArray();
         lock (_lock)
+        {
+            if (_device == null || _lcd == null)
+            {
+                return false;
+            }
+            _lastLcdFrame = source;
+            return UploadLcdFrameLocked(source, _snapshot.LcdOrientationQuarterTurns);
+        }
+    }
+
+    private bool UploadLcdFrameLocked(byte[] source, int quarterTurns)
+    {
+        var payload = KrakenProtocol.RotateRgba(source, KrakenProtocol.LcdWidth, KrakenProtocol.LcdHeight, quarterTurns);
+        var header = KrakenProtocol.EncodeBulkHeader(KrakenProtocol.BulkFormatRgba8888, payload.Length);
+        int pages = KrakenProtocol.PagesFor(payload.Length);
         {
             if (_device == null || _lcd == null)
             {

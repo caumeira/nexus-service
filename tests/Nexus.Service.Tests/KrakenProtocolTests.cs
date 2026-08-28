@@ -277,6 +277,57 @@ public class KrakenProtocolTests
     }
 
     [Fact]
+    public void RotateRgba_moves_a_corner_pixel_a_quarter_turn_at_a_time()
+    {
+        // 2x2 frame, one marked pixel in the top-left.
+        const int n = 2;
+        var src = new byte[n * n * 4];
+        src[0] = 0xAA; src[1] = 0xBB; src[2] = 0xCC; src[3] = 0x00;
+
+        int MarkedIndex(byte[] f)
+        {
+            for (int i = 0; i < f.Length; i += 4)
+            {
+                if (f[i] == 0xAA && f[i + 1] == 0xBB && f[i + 2] == 0xCC) return i / 4;
+            }
+            return -1;
+        }
+
+        Assert.Equal(0, MarkedIndex(KrakenProtocol.RotateRgba(src, n, n, 0)));
+        // Top-left travels to top-right, then bottom-right, then bottom-left.
+        Assert.Equal(1, MarkedIndex(KrakenProtocol.RotateRgba(src, n, n, 1)));
+        Assert.Equal(3, MarkedIndex(KrakenProtocol.RotateRgba(src, n, n, 2)));
+        Assert.Equal(2, MarkedIndex(KrakenProtocol.RotateRgba(src, n, n, 3)));
+    }
+
+    [Fact]
+    public void RotateRgba_four_quarter_turns_is_the_identity()
+    {
+        const int n = 4;
+        var src = new byte[n * n * 4];
+        for (int i = 0; i < src.Length; i++) src[i] = (byte)(i * 7);
+
+        var once = KrakenProtocol.RotateRgba(src, n, n, 1);
+        var twice = KrakenProtocol.RotateRgba(once, n, n, 1);
+        var thrice = KrakenProtocol.RotateRgba(twice, n, n, 1);
+        var full = KrakenProtocol.RotateRgba(thrice, n, n, 1);
+
+        Assert.Equal(src, full);
+        Assert.Equal(KrakenProtocol.RotateRgba(src, n, n, 2), twice);
+    }
+
+    [Fact]
+    public void RotateRgba_normalises_out_of_range_turns()
+    {
+        const int n = 2;
+        var src = new byte[n * n * 4];
+        src[4] = 0x42;
+
+        Assert.Equal(KrakenProtocol.RotateRgba(src, n, n, 1), KrakenProtocol.RotateRgba(src, n, n, 5));
+        Assert.Equal(KrakenProtocol.RotateRgba(src, n, n, 3), KrakenProtocol.RotateRgba(src, n, n, -1));
+    }
+
+    [Fact]
     public void IsAck_reads_byte_fourteen()
     {
         Assert.True(KrakenProtocol.IsAck(Frame(0x33, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01)));

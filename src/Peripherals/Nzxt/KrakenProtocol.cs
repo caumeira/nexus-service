@@ -338,6 +338,45 @@ internal static class KrakenProtocol
         return header;
     }
 
+    /// <summary>
+    /// Rotates a square RGBA frame by whole quarter turns. The panel does not rotate stored
+    /// bucket content: the orientation setting only affects the firmware's own readout, so a
+    /// host-pushed image has to be rotated before upload or the setting appears to do nothing.
+    /// </summary>
+    public static byte[] RotateRgba(ReadOnlySpan<byte> rgba, int width, int height, int quarterTurns)
+    {
+        int turns = ((quarterTurns % 4) + 4) % 4;
+        if (turns == 0)
+        {
+            return rgba.ToArray();
+        }
+        if (width != height)
+        {
+            throw new ArgumentException("rotation assumes a square panel", nameof(width));
+        }
+        var dst = new byte[rgba.Length];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int sx, sy;
+                switch (turns)
+                {
+                    case 1: sx = y; sy = height - 1 - x; break;
+                    case 2: sx = width - 1 - x; sy = height - 1 - y; break;
+                    default: sx = width - 1 - y; sy = x; break;
+                }
+                int from = ((sy * width) + sx) * 4;
+                int to = ((y * width) + x) * 4;
+                dst[to] = rgba[from];
+                dst[to + 1] = rgba[from + 1];
+                dst[to + 2] = rgba[from + 2];
+                dst[to + 3] = rgba[from + 3];
+            }
+        }
+        return dst;
+    }
+
     /// <summary>Pages a bucket must reserve to hold header plus payload.</summary>
     public static int PagesFor(int payloadBytes)
     {
