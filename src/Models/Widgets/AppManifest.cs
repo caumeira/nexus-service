@@ -102,6 +102,15 @@ public sealed class AppManifest
     public bool Immersive { get; set; }
 
     /// <summary>
+    /// App allows only one instance per panel. Default false: a widget may be
+    /// placed as many times as the user likes, each with its own config. Set
+    /// this when a second copy is meaningless or actively wrong - a pet that is
+    /// one creature, a controller for a single piece of hardware.
+    /// </summary>
+    [JsonPropertyName("single_instance")]
+    public bool SingleInstance { get; set; }
+
+    /// <summary>
     /// Optional device-driver block: declares a native sidecar executable the host
     /// fetches from the app store and runs. Honored only for a <b>bundled</b> app
     /// (the registry drops it from user installs); the widget facet always

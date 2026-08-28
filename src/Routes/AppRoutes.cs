@@ -379,6 +379,7 @@ public static class AppRoutes
             // copy of the same id is a deliberate user choice, not a pre-install.
             Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled && oemMatch,
             Immersive = entry.Manifest.Immersive,
+            SingleInstance = entry.Manifest.SingleInstance,
         };
     }
 }
