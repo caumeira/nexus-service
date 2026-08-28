@@ -181,6 +181,7 @@ public static class OpenRgbZoneSupport
             if (exclusions.Count > 0 && exclusions.ContainsKey(baseId))
                 continue;
             var baseKey = DeviceKeyComputer.ForOpenRgbDevice(d);
+            var conflictAppIds = Conflicts.ConflictDeviceOwnership.AppIdsForVendor(d.Vendor);
             var isSplitMotherboard = IsSplitMotherboard(d);
             var structure = BuildStructure(d, settings);
             var zones = ZoneResolution.Resolve(structure, settings);
@@ -220,6 +221,7 @@ public static class OpenRgbZoneSupport
                     CanvasRotation = NormalizeRotation(layout?.Rotation ?? 0),
                     DeviceId = baseId,
                     ZoneCustomizable = d.LedCount > 1,
+                    ConflictAppIds = new List<string>(conflictAppIds),
                 });
                 cardSlot++;
                 continue;
@@ -265,6 +267,7 @@ public static class OpenRgbZoneSupport
                         ZoneResizable = IsZoneResizable(zone.ZoneType),
                         DeviceId = baseId,
                         ZoneCustomizable = true,
+                        ConflictAppIds = new List<string>(conflictAppIds),
                     });
                     stripSlot++;
                 }
@@ -304,6 +307,7 @@ public static class OpenRgbZoneSupport
                     ZoneResizable = wholeResizable >= 0,
                     DeviceId = baseId,
                     ZoneCustomizable = true,
+                    ConflictAppIds = new List<string>(conflictAppIds),
                 });
                 if (isSplitMotherboard)
                     stripSlot++;
@@ -358,6 +362,7 @@ public static class OpenRgbZoneSupport
                     CanvasRotation = NormalizeRotation(layout?.Rotation ?? 0),
                     DeviceId = key,
                     ZoneCustomizable = false,
+                    ConflictAppIds = Conflicts.ConflictDeviceOwnership.AppIdsForVendor(snap.Vendor),
                 });
                 cardSlot++;
             }
