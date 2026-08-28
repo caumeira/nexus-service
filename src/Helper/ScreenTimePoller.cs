@@ -37,6 +37,10 @@ public sealed class ScreenTimePoller : IDisposable
     private long _sessionStartUtcMs;
     private long _lastPollUtcMs;
     private bool _wasConnected;
+    private string? _currentExePath;
+    private int _currentWinW;
+    private int _currentWinH;
+    private string? _currentMonitorDevice;
 
     public ScreenTimePoller(HelperOutbound outbound)
     {
@@ -74,7 +78,11 @@ public sealed class ScreenTimePoller : IDisposable
             }
             catch { return; }
 
-            ApplyFocus(appName, (int)pid);
+            var exePath = TryGetExePath(pid);
+            var (winW, winH) = GetClientSize(hwnd);
+            var monitorDevice = ResolveMonitorDevice(hwnd);
+
+            ApplyFocus(appName, (int)pid, exePath, winW, winH, monitorDevice);
         }
         catch { }
         finally
@@ -94,12 +102,20 @@ public sealed class ScreenTimePoller : IDisposable
         string app;
         int pid;
         long started;
+        string? exePath;
+        int winW;
+        int winH;
+        string? monitorDevice;
         lock (_lock)
         {
             if (string.IsNullOrEmpty(_currentApp)) return;
             app = _currentApp;
             pid = _currentPid;
             started = _sessionStartUtcMs;
+            exePath = _currentExePath;
+            winW = _currentWinW;
+            winH = _currentWinH;
+            monitorDevice = _currentMonitorDevice;
         }
         _ = _outbound.SendAsync(
             "screenTime.focus",
@@ -108,11 +124,15 @@ public sealed class ScreenTimePoller : IDisposable
                 App = app,
                 Pid = pid,
                 StartedUtcMs = started,
+                ExePath = exePath,
+                WinW = winW,
+                WinH = winH,
+                MonitorDevice = monitorDevice,
             },
             AppJsonContext.Default.ScreenTimeFocusPayload);
     }
 
-    private void ApplyFocus(string appName, int pid)
+    private void ApplyFocus(string appName, int pid, string? exePath, int winW, int winH, string? monitorDevice)
     {
         FireMode mode;
         string priorApp = "";
@@ -134,6 +154,10 @@ public sealed class ScreenTimePoller : IDisposable
                 _currentApp = appName;
                 _currentPid = pid;
                 _sessionStartUtcMs = now;
+                _currentExePath = exePath;
+                _currentWinW = winW;
+                _currentWinH = winH;
+                _currentMonitorDevice = monitorDevice;
                 newPid = pid;
                 newStart = now;
                 mode = string.IsNullOrEmpty(priorApp) ? FireMode.FocusOnly : FireMode.SessionAndFocus;
@@ -180,9 +204,13 @@ public sealed class ScreenTimePoller : IDisposable
                 "screenTime.focus",
                 new ScreenTimeFocusPayload
                 {
-                    App = _currentApp,
+                    App = appName,
                     Pid = newPid,
                     StartedUtcMs = newStart,
+                    ExePath = exePath,
+                    WinW = winW,
+                    WinH = winH,
+                    MonitorDevice = monitorDevice,
                 },
                 AppJsonContext.Default.ScreenTimeFocusPayload);
         }
@@ -215,10 +243,87 @@ public sealed class ScreenTimePoller : IDisposable
 
     private static long NowUtcMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
+    // PROCESS_QUERY_LIMITED_INFORMATION (not PROCESS_QUERY_INFORMATION) works
+    // across integrity levels without PROCESS_VM_READ, so it can resolve the
+    // path of an elevated or EAC-protected title this helper cannot otherwise
+    // introspect. Null on failure rather than throwing - denial is expected
+    // for some titles, not exceptional.
+    private static string? TryGetExePath(uint pid)
+    {
+        var handle = OpenProcess(ProcessQueryLimitedInformation, false, pid);
+        if (handle == IntPtr.Zero) return null;
+        try
+        {
+            var buffer = new System.Text.StringBuilder(1024);
+            var size = (uint)buffer.Capacity;
+            return QueryFullProcessImageNameW(handle, 0, buffer, ref size) ? buffer.ToString(0, (int)size) : null;
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+
+    private static (int Width, int Height) GetClientSize(IntPtr hwnd)
+    {
+        if (!GetClientRect(hwnd, out var rect)) return (0, 0);
+        return (rect.Right - rect.Left, rect.Bottom - rect.Top);
+    }
+
+    // Resolves to the same stable id space as RawDisplayInfo.Id
+    // (WindowsDisplayTopologyProvider uses the identical ResolveIdentity call
+    // on its own GetMonitorInfoW szDevice), so FpsSessionRecorder can join a
+    // session's monitor directly against a display topology query.
+    private static string? ResolveMonitorDevice(IntPtr hwnd)
+    {
+        var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+        if (monitor == IntPtr.Zero) return null;
+
+        var info = new MONITORINFOEX { cbSize = (uint)Marshal.SizeOf<MONITORINFOEX>() };
+        if (!GetMonitorInfoW(monitor, ref info)) return null;
+
+        return Nexus.Service.Platform.Displays.WindowsDisplayIdentity.ResolveIdentity(info.szDevice).Id;
+    }
+
+    private const uint ProcessQueryLimitedInformation = 0x1000;
+    private const uint MonitorDefaultToNearest = 2;
+    private const int CchDeviceName = 32;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, uint processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool QueryFullProcessImageNameW(IntPtr hProcess, uint dwFlags, System.Text.StringBuilder lpExeName, ref uint lpdwSize);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MONITORINFOEX lpmi);
+
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct MONITORINFOEX
+    {
+        public uint cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = CchDeviceName)] public string szDevice;
+    }
 }
 #endif

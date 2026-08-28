@@ -1247,7 +1247,14 @@ public static class NexusServiceCollectionExtensions
         // wins for the resolved instance).
         services.AddSingleton<ISystemAccentProvider, NullSystemAccentProvider>();
 #if WINDOWS
-        services.AddSingleton<IScreenTimeProvider, WindowsScreenTimeProvider>();
+        // Registered under its concrete type so IScreenTimeProvider and
+        // IFocusDetailsProvider resolve the same instance (one helper-envelope
+        // listener, one in-memory focus snapshot), the same pattern
+        // AddNexusMonitoringHistory uses for IMetricsHistoryStore's sibling
+        // interfaces.
+        services.AddSingleton<WindowsScreenTimeProvider>();
+        services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<WindowsScreenTimeProvider>());
+        services.AddSingleton<IFocusDetailsProvider>(sp => sp.GetRequiredService<WindowsScreenTimeProvider>());
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         // Enumeration (Get-StartApps) is per-user and empty from Session 0, so
         // route it through the user-session helper. Launch stays direct (explorer).
