@@ -23,6 +23,10 @@ public sealed class ProcessEntry
     /// <summary>"signed", "unsigned", or "unknown" (platform can't tell).
     /// Null until the lazy resolve completes. See ProcessSignatureChecker.</summary>
     public string? Signed { get; set; }
+    /// <summary>Combined disk read+write rate, bytes/sec, for this process
+    /// instance. Zero on the process's first observed tick or where the
+    /// platform call fails. Consumers aggregating by name sum it.</summary>
+    public double StorageBytesPerSec { get; set; }
 }
 
 public sealed class ProcessFrame

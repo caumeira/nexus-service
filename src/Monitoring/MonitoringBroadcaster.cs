@@ -453,6 +453,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
                 IsApp = isApp,
                 Publisher = meta?.Publisher,
                 Signed = meta?.Signed,
+                StorageBytesPerSec = p.StorageBytesPerSec,
             });
         }
 
