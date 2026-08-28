@@ -259,7 +259,7 @@ public static class LightingDevicesCatalog
     private static string CategoryFromController(string? controller, string? kind)
     {
         var c = controller ?? "";
-        if (c.Contains("Keyboard"))
+        if (c.Contains("Keyboard") || c.Contains("QMK"))
             return "keyboard";
         if (c.Contains("Mouse") && !c.Contains("Mousemat"))
             return "mouse";

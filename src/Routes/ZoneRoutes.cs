@@ -72,6 +72,9 @@ public static partial class DevicesRoutes
             if (structure is null)
                 return ApiResponse.Fail("unknown device");
 
+            if (!structure.Partitionable)
+                return ApiResponse.Fail("device does not support zone partitions");
+
             var normalized = ZoneResolution.NormalizeDefs(structure, body.Zones);
             var validation = ZonePartitionValidator.Validate(structure.Segments, normalized);
             if (!validation.Ok)
@@ -101,6 +104,9 @@ public static partial class DevicesRoutes
             var structure = topology.FindStructure(deviceId);
             if (structure is null)
                 return ApiResponse.Fail("unknown device");
+
+            if (!structure.Partitionable)
+                return ApiResponse.Fail("device does not support zone partitions");
 
             var settings = store.Load();
             if (!settings.Devices.ZonePartitions.ContainsKey(deviceId))

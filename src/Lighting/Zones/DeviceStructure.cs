@@ -63,6 +63,8 @@ public sealed class DeviceStructure
     public string DeviceKey { get; set; } = "";
     public List<StructureSegment> Segments { get; set; } = new();
     public List<DefaultZoneDef> DefaultZones { get; set; } = new();
+    /// <summary>False when the provider builds its cards and frames from a fixed list rather than <see cref="ZoneResolution.Resolve"/>; the zone routes reject partition writes for those, since the saved zones would back no card while <see cref="ZoneStateDrop"/> had already dropped the legacy one's state.</summary>
+    public bool Partitionable { get; set; } = true;
 }
 
 /// <summary>Providers with partitionable devices expose their structures through this; <see cref="ZoneTopology"/> aggregates all sources.</summary>

@@ -122,9 +122,19 @@ public static class NexusServiceCollectionExtensions
         // persisted per-event delivered state retried at boot and hourly. The
         // consent route also calls FleetEventService directly for an
         // immediate delivery attempt on a real opt_out/opt_in transition.
-        services.AddSingleton<Nexus.Service.Telemetry.IFleetEventTransport, Nexus.Service.Telemetry.FleetEventTransport>();
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            services.AddSingleton<Nexus.Service.Telemetry.IFleetEventTransport, Nexus.Service.Telemetry.FleetEventTransport>();
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Telemetry.IFleetEventTransport, Nexus.Service.Telemetry.NullFleetEventTransport>();
+        }
         services.AddSingleton<Nexus.Service.Telemetry.FleetEventService>();
-        services.AddHostedService<Nexus.Service.Telemetry.FleetTelemetryWorker>();
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            services.AddHostedService<Nexus.Service.Telemetry.FleetTelemetryWorker>();
+        }
 #if WINDOWS
         // Triggers the IFanControlProvider singleton ctor (which transitively
         // constructs LhmComputer + kicks off its background Open()) right
@@ -535,6 +545,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.Np50LightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>());
         services.AddSingleton<Nexus.Service.Lighting.Np50LightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingFrameWriter>());
 
@@ -543,6 +555,8 @@ public static class NexusServiceCollectionExtensions
         // provider routes between OpenRGB / NP50 / MiniHub / CNVS by id prefix.
         services.AddSingleton<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>());
         services.AddSingleton<Nexus.Service.Lighting.MiniHubLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingFrameWriter>());
@@ -567,6 +581,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.CnvsLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>());
         services.AddSingleton<Nexus.Service.Lighting.CnvsLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingFrameWriter>());
 
@@ -576,6 +592,8 @@ public static class NexusServiceCollectionExtensions
         // Np50IdentifyTracker.
         services.AddSingleton<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>());
         services.AddSingleton<Nexus.Service.Lighting.QSeriesLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingFrameWriter>());
@@ -1586,7 +1604,12 @@ public static class NexusServiceCollectionExtensions
         // pipeline is captured + primed in Program.cs after the app is built.
         services.AddSingleton<Nexus.Service.Relay.RelayHttpDispatcher>();
         services.AddSingleton<Nexus.Service.Relay.RelayConnectionService>();
-        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Relay.RelayConnectionService>());
+        // The singleton stays registered for the panel/ws/rtc routes; not starting it leaves
+        // _started false, so Reconcile no-ops - the relay-disabled shape. LAN pairing is unaffected.
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Relay.RelayConnectionService>());
+        }
 
         // WebRTC DataChannel direct P2P transport: STUN-only fallback-free path
         // that rides the SAME sealed framing as the relay, over data channels
@@ -1630,7 +1653,15 @@ public static class NexusServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddNexusCloud(this IServiceCollection services)
     {
-        services.AddSingleton<Nexus.Service.Cloud.ICloudApiClient, Nexus.Service.Cloud.CloudApiClient>();
+        // Routes stay mapped either way; the stand-in reports Offline instead of dialing api.hellonexus.com.
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            services.AddSingleton<Nexus.Service.Cloud.ICloudApiClient, Nexus.Service.Cloud.CloudApiClient>();
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Cloud.ICloudApiClient, Nexus.Service.Cloud.OfflineCloudApiClient>();
+        }
         services.AddSingleton<Nexus.Service.Cloud.CloudAccountService>();
         services.AddSingleton<Nexus.Service.Cloud.CloudProfileSyncService>();
         services.AddSingleton<Nexus.Service.Cloud.CloudProfileLibraryService>();

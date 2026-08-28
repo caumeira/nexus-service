@@ -51,6 +51,10 @@ public sealed class MappingCloudClient
     /// <summary>Ranked community mappings for a device key. Serves a fresh disk cache without touching the network; falls back to stale cache (Offline=true) when the registry is unreachable.</summary>
     public async Task<ListResult> GetMappingsAsync(string deviceKey, bool forceRefresh, CancellationToken ct)
     {
+        // Same shape as a machine with no network, not an error.
+        if (!Common.ClientCredential.IsOfficial)
+            return new ListResult { Offline = true };
+
         if (string.IsNullOrEmpty(deviceKey))
             return new ListResult();
 
@@ -88,6 +92,9 @@ public sealed class MappingCloudClient
     /// <summary>Publish the artifact. Returns null when the user opted out of anonymous data (publishing requires the install id) or the registry rejected/was unreachable.</summary>
     public async Task<PublishMappingResponse?> PublishAsync(MappingArtifact artifact, string name, string? description, string? authorName, CancellationToken ct)
     {
+        if (!Common.ClientCredential.IsOfficial)
+            return null;
+
         var installId = InstallIdentity.Resolve(_store);
         if (installId is null)
             return null;
@@ -147,6 +154,9 @@ public sealed class MappingCloudClient
     /// <summary>Best-effort fire of an adoption-style signal. Failures log and are dropped; signals are statistical, not transactional.</summary>
     private async Task SignalAsync(string path, Func<string, JsonContent> bodyFor, HttpMethod method, CancellationToken ct)
     {
+        if (!Common.ClientCredential.IsOfficial)
+            return;
+
         var installId = InstallIdentity.Resolve(_store);
         if (installId is null)
             return;
@@ -168,6 +178,7 @@ public sealed class MappingCloudClient
     {
         var client = _http.CreateClient();
         client.Timeout = RequestTimeout;
+        Common.ClientCredential.Apply(client);
         return client;
     }
 

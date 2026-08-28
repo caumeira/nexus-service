@@ -1,5 +1,5 @@
 {
-  "count": 1935,
+  "count": 2039,
   "devices": [
     {
       "name": "Bloody B820R",
@@ -105,6 +105,20 @@
       "pid": null,
       "controller": "ASRockSMBusController",
       "kind": "i2c"
+    },
+    {
+      "name": "AULA F75 Max",
+      "vid": "0x0C45",
+      "pid": "0x800A",
+      "controller": "AULAKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "Akko Multi-modes Keyboard-B",
+      "vid": "0x3151",
+      "pid": "0x4003",
+      "controller": "AkkoKeyboardController",
+      "kind": "hid"
     },
     {
       "name": "Dell G Series LED Controller",
@@ -1374,13 +1388,6 @@
       "kind": "hid"
     },
     {
-      "name": "Asus ROG STRIX PG32UCDM",
-      "vid": "0x0B05",
-      "pid": "0x1B2B",
-      "controller": "AsusMonitorController",
-      "kind": "hid"
-    },
-    {
       "name": "Asus ROG STRIX XG27AQDMG",
       "vid": "0x0B05",
       "pid": "0x1BA3",
@@ -1391,6 +1398,20 @@
       "name": "Asus ROG STRIX XG27UCG",
       "vid": "0x0B05",
       "pid": "0x1BB4",
+      "controller": "AsusMonitorController",
+      "kind": "hid"
+    },
+    {
+      "name": "Asus ROG SWIFT PG32UCDM",
+      "vid": "0x0B05",
+      "pid": "0x1B2B",
+      "controller": "AsusMonitorController",
+      "kind": "hid"
+    },
+    {
+      "name": "Asus ROG SWIFT PG32UCDMR",
+      "vid": "0x0B05",
+      "pid": "0x1C9B",
       "controller": "AsusMonitorController",
       "kind": "hid"
     },
@@ -2340,6 +2361,13 @@
       "kind": "hid"
     },
     {
+      "name": "Corsair K70 RGB PRO Optomechanical",
+      "vid": "0x1B1C",
+      "pid": "0x1BC6",
+      "controller": "CorsairPeripheralController",
+      "kind": "hid"
+    },
+    {
       "name": "Corsair K70 RGB RAPIDFIRE",
       "vid": "0x1B1C",
       "pid": "0x1B38",
@@ -2508,6 +2536,13 @@
       "kind": "hid"
     },
     {
+      "name": "Corsair K57 RGB (Wired)",
+      "vid": "0x1B1C",
+      "pid": null,
+      "controller": "CorsairPeripheralV2Controller",
+      "kind": "hid"
+    },
+    {
       "name": "Corsair K60 RGB PRO",
       "vid": "0x1B1C",
       "pid": null,
@@ -2667,20 +2702,6 @@
       "pid": null,
       "controller": "CorsairVengeanceController",
       "kind": "i2c"
-    },
-    {
-      "name": "Corsair K57 RGB (Wired)",
-      "vid": "0x1B1C",
-      "pid": "0x1B6E",
-      "controller": "CorsairWirelessController",
-      "kind": "hid"
-    },
-    {
-      "name": "Corsair K57 RGB (Wireless)",
-      "vid": "0x1B1C",
-      "pid": "0x1B62",
-      "controller": "CorsairWirelessController",
-      "kind": "hid"
     },
     {
       "name": "Cougar 700K EVO Gaming Keyboard",
@@ -7464,7 +7485,7 @@
       "kind": "hid"
     },
     {
-      "name": "Logitech G915 Wireless RGB Mechanical Gaming Keyboard",
+      "name": "Logitech G915 Wireless RGB Mechanical Gaming Keyboard (Receiver 2)",
       "vid": "0x046D",
       "pid": "0xC547",
       "controller": "LogitechController",
@@ -8990,6 +9011,13 @@
       "kind": "hid"
     },
     {
+      "name": "MSI Mystic Light MS_7D37",
+      "vid": "0x1462",
+      "pid": "0x7D37",
+      "controller": "MSIMysticLightController",
+      "kind": "hid"
+    },
+    {
       "name": "MSI Mystic Light MS_7D38",
       "vid": "0x1462",
       "pid": "0x7D38",
@@ -9599,13 +9627,6 @@
       "kind": "hid"
     },
     {
-      "name": "Nollie 16_OS2.1",
-      "vid": null,
-      "pid": null,
-      "controller": "NollieController",
-      "kind": "hid"
-    },
-    {
       "name": "Nollie 1CH",
       "vid": null,
       "pid": null,
@@ -9614,13 +9635,6 @@
     },
     {
       "name": "Nollie 1_OS2",
-      "vid": null,
-      "pid": null,
-      "controller": "NollieController",
-      "kind": "hid"
-    },
-    {
-      "name": "Nollie 1_OS2.1",
       "vid": null,
       "pid": null,
       "controller": "NollieController",
@@ -9662,13 +9676,6 @@
       "kind": "hid"
     },
     {
-      "name": "Nollie 32_OS2.1",
-      "vid": null,
-      "pid": null,
-      "controller": "NollieController",
-      "kind": "hid"
-    },
-    {
       "name": "Nollie 8CH",
       "vid": null,
       "pid": null,
@@ -9677,20 +9684,6 @@
     },
     {
       "name": "Nollie 8_OS2",
-      "vid": null,
-      "pid": null,
-      "controller": "NollieController",
-      "kind": "hid"
-    },
-    {
-      "name": "Nollie 8_OS2.1",
-      "vid": null,
-      "pid": null,
-      "controller": "NollieController",
-      "kind": "hid"
-    },
-    {
-      "name": "Prism 8_OS2.1",
       "vid": null,
       "pid": null,
       "controller": "NollieController",
@@ -10201,6 +10194,13 @@
       "kind": "i2c"
     },
     {
+      "name": "PowerColor Red Devil RX6700XT",
+      "vid": null,
+      "pid": null,
+      "controller": "PowerColorGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "PowerColor Red Devil RX6750XT",
       "vid": null,
       "pid": null,
@@ -10236,6 +10236,286 @@
       "kind": "i2c"
     },
     {
+      "name": "Keychron C1 Pro",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron C1 Pro 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron C1 Pro V2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron C2 Pro",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron C2 Pro 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron C2 Pro V2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron C3 Pro",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron C3 Pro 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron J2 HE 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K0 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K1 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K1 V6",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K10 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K10 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K10 V2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K11 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K13 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K15 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K17 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K2 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K2 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K2 V3",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K3 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K3 V3",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K4 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K4 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K4 V3",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K5 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K5 V2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K6 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K7 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K8 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K8 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K8 Pro",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K8 V2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron K9 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q0",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q0 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q0 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q0 Plus",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
       "name": "Keychron Q1 HE",
       "vid": null,
       "pid": null,
@@ -10243,7 +10523,441 @@
       "kind": "hid"
     },
     {
+      "name": "Keychron Q1 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q1 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q1 V1",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q1 V2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q10",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q10 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q11",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q12",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q12 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q12 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q13 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q14 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q15 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
       "name": "Keychron Q2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q2 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q2 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q3",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q3 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q3 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q3 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q4",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q4 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q5",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q5 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q5 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q6",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q6 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q6 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q6 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q60 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q65 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q7",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q8",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q8 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q9",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q9 Plus",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron S1",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V0 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V1",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V1 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V1 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V10",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V10 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V10 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V2 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V2 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V3",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V3 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V3 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V4",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V4 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V5",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V5 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V5 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V6",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V6 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V6 Ultra 8K",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V6 V2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V7",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V8",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron V8 Max",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Z2-70 Ultra 8K",
       "vid": null,
       "pid": null,
       "controller": "QMKController",
@@ -10267,6 +10981,13 @@
       "name": "Raspberry Pi 500+",
       "vid": "0x2E8A",
       "pid": "0x0011",
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "YMDK 84",
+      "vid": "0x20A0",
+      "pid": "0x422D",
       "controller": "QMKController",
       "kind": "hid"
     },
@@ -12173,6 +12894,13 @@
       "pid": null,
       "controller": "SapphireGPUController",
       "kind": "i2c"
+    },
+    {
+      "name": "SayoDevice E1",
+      "vid": "0x8089",
+      "pid": "0x0007",
+      "controller": "SayoDeviceController",
+      "kind": "hid"
     },
     {
       "name": "Seagate Firecuda HDD",

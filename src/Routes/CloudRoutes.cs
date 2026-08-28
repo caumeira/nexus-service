@@ -288,6 +288,23 @@ public static class CloudRoutes
             return Results.Text(result.Value!.Body, result.Value.ContentType, statusCode: result.StatusCode);
         }).AllowPanel();
 
+        // Read side of the same two boards. The browser cannot attach the build
+        // credential, so these reads go through the service like the writes
+        // above rather than straight to api.hellonexus.com; that also keeps them
+        // working once the API starts requiring it. Panel-reachable for the same
+        // reason the score POST is.
+        app.MapGet("/cloud/benchmarks/leaderboard", async (HttpRequest req, ICloudApiClient api, CancellationToken ct) =>
+            await ForwardGetAsync(api, "/benchmarks/leaderboard" + req.QueryString.Value, ct).ConfigureAwait(false))
+            .AllowPanel();
+
+        app.MapGet("/cloud/benchmarks/versions", async (ICloudApiClient api, CancellationToken ct) =>
+            await ForwardGetAsync(api, "/benchmarks/versions", ct).ConfigureAwait(false))
+            .AllowPanel();
+
+        app.MapGet("/cloud/games/scores", async (HttpRequest req, ICloudApiClient api, CancellationToken ct) =>
+            await ForwardGetAsync(api, "/games/scores" + req.QueryString.Value, ct).ConfigureAwait(false))
+            .AllowPanel();
+
         // Thin forwarders for the dashboard's device-management UI: same raw
         // passthrough shape as /cloud/benchmarks/submit, no local DTO, bearer
         // attached when signed in.
@@ -388,6 +405,17 @@ public static class CloudRoutes
             return Results.Ok(ApiResponse.Ok());
         }
         return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline, result.ErrorRetryAt);
+    }
+
+    /// <summary>Anonymous GET passthrough: upstream status and body relayed verbatim.</summary>
+    private static async Task<IResult> ForwardGetAsync(ICloudApiClient api, string path, CancellationToken ct)
+    {
+        var result = await api.SendRawAsync(HttpMethod.Get, path, null, null, ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
+        }
+        return Results.Text(result.Value!.Body, result.Value.ContentType, statusCode: result.StatusCode);
     }
 
     private static IResult CloudApiFailure(int statusCode, string? errorCode, string? errorMessage, bool offline, string? retryAt = null)

@@ -44,7 +44,17 @@ public sealed class ExternalToolManager : IHostedService, IToolResolver
     private readonly ConcurrentDictionary<string, Task<string?>> _resolving = new(StringComparer.Ordinal);
 
     public ExternalToolManager(IEnumerable<IToolInstallStrategy> strategies)
-        : this(strategies, new HttpClient { Timeout = TimeSpan.FromMinutes(5) }, ResolveDefaultRoot()) { }
+        : this(strategies, CreateDefaultClient(), ResolveDefaultRoot()) { }
+
+    private static HttpClient CreateDefaultClient() =>
+        new() { Timeout = TimeSpan.FromMinutes(5) };
+
+    /// <summary>Our own asset host. Vendor app manifests supply their own URLs
+    /// through this same client, so the credential is stamped per request and
+    /// only for us, never as a default header.</summary>
+    private static bool IsOurAssetHost(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && uri.Host.Equals("assets.hellonexus.com", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Test seam: inject an <see cref="HttpClient"/> and a temp cache root;
     /// defaults to the host-exe strategy.</summary>
@@ -181,7 +191,17 @@ public sealed class ExternalToolManager : IHostedService, IToolResolver
     private async Task<ToolManifest?> FetchManifestAsync(string manifestUrl, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(manifestUrl)) return null;
-        using var resp = await _http.GetAsync(manifestUrl, HttpCompletionOption.ResponseContentRead, ct);
+        // Only our own asset host is gated; a vendor app's manifest on the
+        // vendor's CDN is not ours to withhold. Local pins and already-cached
+        // downloads resolve either way.
+        if (IsOurAssetHost(manifestUrl) && !ClientCredential.IsOfficial) return null;
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, manifestUrl);
+        if (IsOurAssetHost(manifestUrl))
+        {
+            ClientCredential.Apply(request);
+        }
+        using var resp = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
         resp.EnsureSuccessStatusCode();
         await using var stream = await resp.Content.ReadAsStreamAsync(ct);
         return await JsonSerializer.DeserializeAsync(stream, ExternalToolsJsonContext.Default.ToolManifest, ct);

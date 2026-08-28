@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Common;
 using Nexus.Service.Models.Cloud;
 using Nexus.Service.Serialization;
 
@@ -312,6 +313,7 @@ public sealed class CloudApiClient : ICloudApiClient
     {
         var client = _http.CreateClient();
         client.Timeout = _requestTimeout;
+        ClientCredential.Apply(client);
         if (!string.IsNullOrEmpty(accessToken))
         {
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);

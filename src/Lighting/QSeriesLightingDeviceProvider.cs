@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using Nexus.Service.Devices;            // ILightingDeviceProvider
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Mappings;
 using Nexus.Service.Lighting.Rgb;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 using Nexus.Service.Persistence;
@@ -20,7 +22,8 @@ namespace Nexus.Service.Lighting;
 /// followed by the logo diamond, each streamed to its own port by the hub's
 /// WriteLighting.
 /// </summary>
-public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor, IOpenRgbDeviceOwner
+public sealed class QSeriesLightingDeviceProvider :
+    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource, IOpenRgbDeviceOwner
 {
     private readonly QSeriesCoolerHub _hub;
     private readonly IConfigStore _store;
@@ -79,9 +82,7 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
         var settings = _store.Load();
         resp.Devices.Add(BuildCard(
             id: id, name: CardName(_hub.Variant),
-            deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
-                Peripherals.Hyte.QSeriesCooler.QSeriesCoolerProtocol.VendorId,
-                Peripherals.Hyte.QSeriesCooler.QSeriesCoolerProtocol.ProductIdForVariant(_hub.Variant)),
+            deviceKey: DeviceKeyOf(_hub.Variant),
             firmwareLedCount: QSeriesCoolerHub.LedCount,
             settings.Devices.DisabledLightingDevices,
             settings.Devices.LightingDevicePrefs,
@@ -172,6 +173,52 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
     }
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
+
+    private static string DeviceKeyOf(string variant) => DeviceKeyComputer.ForFirstParty(
+        QSeriesCoolerProtocol.VendorId, QSeriesCoolerProtocol.ProductIdForVariant(variant));
+
+    // ── IDeviceStructureSource ──
+
+    /// <summary>One structure for the single card so the LED map editor resolves the cooler's LED space, with the panel + logo geometry as the segment's stock positions.</summary>
+    public IReadOnlyList<DeviceStructure> GetStructures()
+    {
+        if (!_hub.IsConnected || string.IsNullOrEmpty(_hub.DeviceId))
+        {
+            return Array.Empty<DeviceStructure>();
+        }
+        return new[] { BuildStructure() };
+    }
+
+    private DeviceStructure BuildStructure()
+    {
+        var id = _hub.DeviceId;
+        var name = CardName(_hub.Variant);
+        var key = DeviceKeyOf(_hub.Variant);
+        var (u, v) = BuildLedUv();
+
+        var structure = new DeviceStructure { DeviceId = id, Name = name, DeviceKey = key, Partitionable = false };
+        structure.Segments.Add(new StructureSegment
+        {
+            Index = 0,
+            Name = "Panel + Logo",
+            LedCount = QSeriesCoolerHub.LedCount,
+            FrameLedCount = QSeriesCoolerHub.LedCount,
+            Resizable = false,
+            ZoneType = "matrix",
+            DefaultU = u,
+            DefaultV = v,
+        });
+        structure.DefaultZones.Add(new DefaultZoneDef
+        {
+            Id = id,
+            Name = name,
+            RawName = "Panel + Logo",
+            DeviceKey = key,
+            LegacyZoneIndex = -1,
+            Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = QSeriesCoolerHub.LedCount } },
+        });
+        return structure;
+    }
 
     // Hold the DeviceFrame across RgbBridge rebuilds so the per-LED buffer isn't
     // re-zeroed for one tick (same reuse pattern as CNVS / NP50 / MiniHub).
