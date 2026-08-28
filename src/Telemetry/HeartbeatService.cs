@@ -34,6 +34,10 @@ public sealed class HeartbeatService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Fleet counts describe our installs only; a build we did not publish must not inflate them.
+        if (Common.ClientCredential.IsOfficial is false)
+            return;
+
         // PeriodicTimer drops drift if a beat runs long. The do/while beats once
         // at boot, then on each tick.
         using var timer = new PeriodicTimer(Interval);
@@ -83,6 +87,7 @@ public sealed class HeartbeatService : BackgroundService
 
         using var client = _http.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(10);
+        Common.ClientCredential.Apply(client);
         using var content = JsonContent.Create(
             payload, AppJsonContext.Default.HeartbeatPayload);
         using var res = await client

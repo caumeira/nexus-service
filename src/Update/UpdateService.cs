@@ -178,6 +178,14 @@ public sealed class UpdateService : BackgroundService
             return;
         }
 
+        // Housekeeping above still runs unconditionally: a machine rebuilt without
+        // a credential must still apply or clear a marker an official build staged.
+        // Only the poll loop is ours.
+        if (!Common.ClientCredential.IsOfficial)
+        {
+            return;
+        }
+
         // Beat once at startup, then every PollInterval. PeriodicTimer drops
         // drift if a check runs long.
         using var timer = new PeriodicTimer(PollInterval);
@@ -475,6 +483,12 @@ public sealed class UpdateService : BackgroundService
     /// </summary>
     public async Task<UpdateStatusResponse> CheckNowAsync(CancellationToken ct)
     {
+        // POST /update/check reaches this without passing ExecuteAsync.
+        if (!Common.ClientCredential.IsOfficial)
+        {
+            return _status;
+        }
+
         await PollAsync(ct).ConfigureAwait(false);
         return _status;
     }
@@ -488,6 +502,11 @@ public sealed class UpdateService : BackgroundService
     /// </summary>
     public (bool started, string reason) StartUpdate(string? requiredVersion, bool reopenAfter = false)
     {
+        if (!Common.ClientCredential.IsOfficial)
+        {
+            return (false, "Updates are managed outside this build.");
+        }
+
         if (_flasher.IsFlashing)
         {
             return (false, "A firmware update is in progress.");

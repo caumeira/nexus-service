@@ -122,9 +122,19 @@ public static class NexusServiceCollectionExtensions
         // persisted per-event delivered state retried at boot and hourly. The
         // consent route also calls FleetEventService directly for an
         // immediate delivery attempt on a real opt_out/opt_in transition.
-        services.AddSingleton<Nexus.Service.Telemetry.IFleetEventTransport, Nexus.Service.Telemetry.FleetEventTransport>();
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            services.AddSingleton<Nexus.Service.Telemetry.IFleetEventTransport, Nexus.Service.Telemetry.FleetEventTransport>();
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Telemetry.IFleetEventTransport, Nexus.Service.Telemetry.NullFleetEventTransport>();
+        }
         services.AddSingleton<Nexus.Service.Telemetry.FleetEventService>();
-        services.AddHostedService<Nexus.Service.Telemetry.FleetTelemetryWorker>();
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            services.AddHostedService<Nexus.Service.Telemetry.FleetTelemetryWorker>();
+        }
 #if WINDOWS
         // Triggers the IFanControlProvider singleton ctor (which transitively
         // constructs LhmComputer + kicks off its background Open()) right
@@ -1594,7 +1604,12 @@ public static class NexusServiceCollectionExtensions
         // pipeline is captured + primed in Program.cs after the app is built.
         services.AddSingleton<Nexus.Service.Relay.RelayHttpDispatcher>();
         services.AddSingleton<Nexus.Service.Relay.RelayConnectionService>();
-        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Relay.RelayConnectionService>());
+        // The singleton stays registered for the panel/ws/rtc routes; not starting it leaves
+        // _started false, so Reconcile no-ops - the relay-disabled shape. LAN pairing is unaffected.
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Relay.RelayConnectionService>());
+        }
 
         // WebRTC DataChannel direct P2P transport: STUN-only fallback-free path
         // that rides the SAME sealed framing as the relay, over data channels
@@ -1638,7 +1653,15 @@ public static class NexusServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddNexusCloud(this IServiceCollection services)
     {
-        services.AddSingleton<Nexus.Service.Cloud.ICloudApiClient, Nexus.Service.Cloud.CloudApiClient>();
+        // Routes stay mapped either way; the stand-in reports Offline instead of dialing api.hellonexus.com.
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            services.AddSingleton<Nexus.Service.Cloud.ICloudApiClient, Nexus.Service.Cloud.CloudApiClient>();
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Cloud.ICloudApiClient, Nexus.Service.Cloud.OfflineCloudApiClient>();
+        }
         services.AddSingleton<Nexus.Service.Cloud.CloudAccountService>();
         services.AddSingleton<Nexus.Service.Cloud.CloudProfileSyncService>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Cloud.CloudProfileSyncService>());

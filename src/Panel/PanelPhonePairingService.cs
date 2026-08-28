@@ -315,7 +315,9 @@ public sealed class PanelPhonePairingService
         // form so iOS hands the URL off to the installed app. When unset
         // (testing), fall back to the legacy direct LAN URL so phones on
         // the same network can still open the panel in Safari.
-        if (string.IsNullOrWhiteSpace(PublicLinkHost))
+        // hellonexus.com/r/pair is ours, so a build with no credential emits the
+        // direct LAN URL instead - the same fallback an unset host already uses.
+        if (string.IsNullOrWhiteSpace(PublicLinkHost) || !Common.ClientCredential.IsOfficial)
         {
             var scheme = HttpsPort > 0 ? "https" : "http";
             return $"{scheme}://{lanHost}:{lanPort}/panel/phone?pair={Uri.EscapeDataString(pairToken)}&machineName={Uri.EscapeDataString(machineName)}";

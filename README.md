@@ -137,6 +137,13 @@ tests/
 
 ## Build
 
+`NEXUS_CLIENT_TOKEN` (or `-p:NexusClientToken=`) carries the build credential
+minted by release CI; `~/.nexus-build/client-token` is the local fallback. Its
+presence defines `OFFICIAL_BUILD`, which is what wires up the cloud account,
+profile sync, relay, fleet telemetry, and OTA updater. A build without it -
+every public clone - is local-only: the hosted services are ours to run, and
+nothing in that binary dials them. `NEXUS_POSTHOG_KEY` is injected the same way.
+
 The project ships as a single AOT binary per OS. Windows targets `net10.0-windows10.0.19041.0` (C#/WinRT projections for GSMTC); macOS and Linux target plain `net10.0`.
 
 ```sh
