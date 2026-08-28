@@ -31,6 +31,8 @@ public sealed class RawDisplayInfo
     /// <summary>Native pixels of the current (or preferred) mode.</summary>
     public int ResolutionWidth { get; set; }
     public int ResolutionHeight { get; set; }
+    /// <summary>Current mode's refresh rate in Hz; 0 when unknown.</summary>
+    public int RefreshHz { get; set; }
     /// <summary>OS scale factor (1.5 = 150%); null when unknown.</summary>
     public double? Scale { get; set; }
     /// <summary>Physical dots-per-inch estimate; null when unknown.</summary>
