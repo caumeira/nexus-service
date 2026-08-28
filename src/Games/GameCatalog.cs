@@ -315,7 +315,12 @@ public sealed class GameCatalog
     public GameCatalog(ILogger<GameCatalog> logger)
     {
         _logger = logger;
-        RefreshNow();
+        // Off the constructor thread: GameCatalog is a constructor dependency
+        // of FpsSessionRecorder (a hosted service), so a synchronous scan
+        // here would add Steam/Epic/Ubisoft enumeration latency directly to
+        // service boot, the same reason GameSyncGameScanner's own scan runs
+        // via Task.Run rather than inline.
+        Task.Run(RefreshNow);
     }
 
     public IReadOnlyList<GameIdentity> Games => _games;
