@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Nexus.Service.Update;
 using Xunit;
 
@@ -136,6 +137,43 @@ public sealed class UpdateInstallerTests
             Assert.False(File.Exists(written[0]));
             // A non-log file in the staging dir is never touched.
             Assert.True(File.Exists(unrelated));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    // One launcher per version would otherwise accumulate alongside the
+    // installers the downloader prunes. Every other version's launcher goes;
+    // logs and the marker are left alone.
+    [Fact]
+    public void PruneStaleLaunchers_keeps_only_the_live_launcher()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "nexus-ota-cmd-prune-" + Path.GetRandomFileName());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var keep = UpdateInstaller.LauncherName("v3.0.7-beta.3");
+            File.WriteAllText(Path.Combine(dir, keep), "echo");
+            File.WriteAllText(Path.Combine(dir, UpdateInstaller.LauncherName("v3.0.7-beta.1")), "echo");
+            File.WriteAllText(Path.Combine(dir, UpdateInstaller.LauncherName("v3.0.7-beta.2")), "echo");
+            File.WriteAllText(Path.Combine(dir, UpdateInstaller.InstallLogName("v3.0.7-beta.1", 1)), "log");
+            File.WriteAllText(Path.Combine(dir, "pending-install.json"), "{}");
+            File.WriteAllText(Path.Combine(dir, "Nexus-Setup-v3.0.7-beta.3.exe"), "x");
+
+            UpdateInstaller.PruneStaleLaunchers(dir, keep);
+
+            var remaining = Directory.GetFiles(dir).Select(Path.GetFileName).OrderBy(n => n).ToArray();
+            Assert.Equal(
+                new[]
+                {
+                    "Nexus-Setup-v3.0.7-beta.3.exe",
+                    UpdateInstaller.InstallLogName("v3.0.7-beta.1", 1),
+                    "pending-install.json",
+                    keep,
+                },
+                remaining);
         }
         finally
         {

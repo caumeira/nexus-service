@@ -79,6 +79,10 @@ public static class UpdateInstaller
     internal const string InstallLogPrefix = "ota-install-";
     internal const string InstallLogGlob = InstallLogPrefix + "*.log";
 
+    // Filename prefix + glob for the per-version launcher .cmd in the staging dir.
+    internal const string LauncherPrefix = "run-ota-";
+    internal const string LauncherGlob = LauncherPrefix + "*.cmd";
+
     // How many per-attempt install logs to keep. Enough to cover the
     // failed-then-retried pattern several times over without letting the
     // staging dir grow without bound.
@@ -87,6 +91,10 @@ public static class UpdateInstaller
     // Platform-agnostic so it is unit-tested off-Windows.
     internal static string InstallLogName(string version, long stamp) =>
         $"{InstallLogPrefix}{version}-{stamp}.log";
+
+    // Platform-agnostic so it is unit-tested off-Windows.
+    internal static string LauncherName(string version) =>
+        $"{LauncherPrefix}{version}.cmd";
 
     /// <summary>
     /// Trims the completed per-attempt install logs in <paramref name="dir"/> to
@@ -118,6 +126,32 @@ public static class UpdateInstaller
             for (var i = KeepInstallLogs; i < byAge.Length; i++)
             {
                 try { File.Delete(byAge[i].Path); } catch { }
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Deletes every launcher in <paramref name="dir"/> except
+    /// <paramref name="keepFileName"/>. A launcher names one installer and
+    /// nothing else, so every other version's is dead weight once its installer
+    /// has been superseded. Runs here rather than alongside the installer prune
+    /// in <see cref="UpdateDownloader.PruneStaleInstallers"/> because only this
+    /// call site knows which launcher is live: schtasks /Run returns as soon as
+    /// the task is TRIGGERED, so a prune driven by a later download could delete
+    /// the .cmd of an install Task Scheduler has not opened yet. Install logs are
+    /// kept - they are the only record of a failed attempt.
+    /// </summary>
+    internal static void PruneStaleLaunchers(string dir, string keepFileName)
+    {
+        try
+        {
+            foreach (var f in Directory.GetFiles(dir, LauncherGlob))
+            {
+                if (!string.Equals(Path.GetFileName(f), keepFileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { File.Delete(f); } catch { }
+                }
             }
         }
         catch { }
@@ -187,7 +221,7 @@ public static class UpdateInstaller
         // pre-planted file's owner + DACL, leaving the .cmd that SYSTEM executes
         // attacker-writable for an overwrite race. A fresh file in the locked dir
         // inherits its SYSTEM-only ACL. Abort if a stale one can't be removed.
-        var cmdPath = Path.Combine(UpdateDownloader.StagingDir, $"run-ota-{version}.cmd");
+        var cmdPath = Path.Combine(UpdateDownloader.StagingDir, LauncherName(version));
         if (!TryDeleteForReplace(cmdPath))
         {
             Console.Error.WriteLine($"[ota-install] could not replace stale launcher: {cmdPath}");
@@ -195,6 +229,10 @@ public static class UpdateInstaller
         }
         File.WriteAllText(cmdPath,
             $"@echo off\r\n\"{installerPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART \"/LOG={logPath}\"\r\n");
+
+        // Only after the live launcher exists: every other one belongs to a
+        // superseded installer the downloader has already pruned.
+        PruneStaleLaunchers(UpdateDownloader.StagingDir, Path.GetFileName(cmdPath));
 
         // /ST 00:00 with the default (today) start date leaves the ONCE trigger
         // already in the past, so Task Scheduler never auto-runs it - the install
