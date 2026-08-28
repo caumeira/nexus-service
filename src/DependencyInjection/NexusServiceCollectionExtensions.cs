@@ -1598,6 +1598,13 @@ public static class NexusServiceCollectionExtensions
                     sp.GetRequiredService<Nexus.Service.Panel.Streams.StreamedPanelStore>()));
         }
 #endif
+#if WINDOWS
+        // The Kraken LCD rides the WinUSB bulk pipe, so it is Windows-only, but unlike the
+        // D213 bench board it is a shipping device and is not dev-tools gated.
+        services.AddSingleton<Nexus.Service.Panel.Streams.IStreamedPanelDiscovery>(sp =>
+            new Nexus.Service.Panel.Streams.KrakenPanelDiscovery(
+                sp.GetRequiredService<Nexus.Service.Peripherals.Nzxt.KrakenHub>()));
+#endif
         services.AddSingleton<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>(sp =>
         {
             Action? notifyOverlay = null;
