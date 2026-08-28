@@ -65,7 +65,7 @@ public class AppInstallActionsTests : IDisposable
         return ",\"driver\":{\"toolId\":\"test-tool\"" +
                ",\"match\":{\"vid\":\"1234\",\"pids\":[\"0001\"]}" +
                ",\"variants\":{\"0001\":\"v1\"}" +
-               ",\"manifestUrlBase\":\"https://assets.hellonexus.com/test-tool\"" +
+               ",\"manifestUrlBase\":\"https://cdn.vendor.example/test-tool\"" +
                ",\"filePattern\":\"*.bin\"" +
                $",\"target\":\"{target}\"" +
                pkg + "}";

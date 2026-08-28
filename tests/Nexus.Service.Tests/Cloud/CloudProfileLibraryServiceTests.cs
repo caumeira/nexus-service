@@ -91,9 +91,9 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
         Assert.True(result.Success);
         var machines = result.Value!.Machines;
         Assert.Equal(2, machines.Count);
-        var mine = Assert.Single(machines.Where(m => m.IsThisMachine));
+        var mine = Assert.Single(machines, m => m.IsThisMachine);
         Assert.Equal("THIS-MACHINE", mine.Hostname);
-        var theirs = Assert.Single(machines.Where(m => !m.IsThisMachine));
+        var theirs = Assert.Single(machines, m => !m.IsThisMachine);
         Assert.Equal("HYTEY70", theirs.Hostname);
         Assert.Equal("p-remote", Assert.Single(theirs.Profiles).ProfileId);
     }
@@ -132,7 +132,7 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
         Assert.True(result.Success);
         var manifest = _profiles.GetManifest().Profiles;
         Assert.Equal(before + 1, manifest.Count);
-        var created = Assert.Single(manifest.Where(p => p.Name == "Their Default (HYTEY70)"));
+        var created = Assert.Single(manifest, p => p.Name == "Their Default (HYTEY70)");
         Assert.Equal(0.25f, _profiles.ExportProfile(created.Id)!.Lighting.GlobalBrightness);
     }
 
@@ -213,7 +213,7 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
 
         Assert.True(result.Success);
         Assert.Equal(afterFirst, _profiles.GetManifest().Profiles.Count);
-        var entry = Assert.Single(_profiles.GetManifest().Profiles.Where(p => p.Name == "Their Default (HYTEY70)"));
+        var entry = Assert.Single(_profiles.GetManifest().Profiles, p => p.Name == "Their Default (HYTEY70)");
         Assert.Equal(0.75f, _profiles.ExportProfile(entry.Id)!.Lighting.GlobalBrightness);
     }
 
@@ -285,7 +285,7 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
         Assert.True(result.Success);
         // Same id, and no "(hostname)" suffix: this is a restore, not a copy
         // from somewhere else.
-        var entry = Assert.Single(_profiles.GetManifest().Profiles.Where(p => p.Id == "gone-local"));
+        var entry = Assert.Single(_profiles.GetManifest().Profiles, p => p.Id == "gone-local");
         Assert.Equal("Gaming", entry.Name);
         Assert.Equal(0.4f, _profiles.ExportProfile("gone-local")!.Lighting.GlobalBrightness);
     }

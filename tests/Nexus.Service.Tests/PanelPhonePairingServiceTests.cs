@@ -39,9 +39,19 @@ public class PanelPhonePairingServiceTests
 
         var qr = service.CreatePairQr();
 
+        // HttpPort rides the response either way; the query string carrying it
+        // is on hellonexus.com/r/pair, which an unofficial build never emits.
         Assert.Equal(9400, qr.HttpPort);
-        Assert.Contains("httpPort=9400", qr.Url);
-        Assert.Contains("port=9443", qr.Url);
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            Assert.Contains("httpPort=9400", qr.Url);
+            Assert.Contains("port=9443", qr.Url);
+        }
+        else
+        {
+            Assert.StartsWith("https://", qr.Url);
+            Assert.DoesNotContain("hellonexus.com", qr.Url);
+        }
     }
 
     [Fact]
@@ -60,7 +70,10 @@ public class PanelPhonePairingServiceTests
         var qr = service.CreatePairQr();
 
         Assert.Equal(9500, qr.HttpPort);
-        Assert.Contains("httpPort=9500", qr.Url);
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            Assert.Contains("httpPort=9500", qr.Url);
+        }
         Assert.DoesNotContain("httpPort=9443", qr.Url);
     }
 

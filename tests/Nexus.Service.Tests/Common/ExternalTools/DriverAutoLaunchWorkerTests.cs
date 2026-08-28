@@ -500,7 +500,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             (deviceId is null ? "" : "\"deviceId\":\"" + deviceId + "\",") +
             "\"match\":{\"vid\":\"1234\",\"pids\":[\"0001\",\"0002\",\"0003\"]}," +
             "\"variants\":{\"0001\":\"VariantA\",\"0002\":\"VariantB\",\"0003\":\"VariantC\"}," +
-            "\"manifestUrlBase\":\"https://assets.hellonexus.com/acme_cooler\"," +
+            "\"manifestUrlBase\":\"https://cdn.vendor.example/acme_cooler\"," +
             "\"filePattern\":\"MyDriver*.exe\",\"launch\":{\"session\":\"system\",\"hidden\":true}}}");
 
         var runMarker = Path.Combine(_root, "runs.txt");

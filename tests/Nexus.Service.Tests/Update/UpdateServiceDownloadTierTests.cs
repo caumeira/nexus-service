@@ -52,6 +52,14 @@ public sealed class UpdateServiceDownloadTierTests
 
         var status = await svc.CheckNowAsync(CancellationToken.None);
 
+        if (!Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            // OTA is one of ours: an unofficial build returns the untouched
+            // snapshot rather than polling, so there is no tier to report.
+            Assert.False(status.UpdateAvailable);
+            return;
+        }
+
         Assert.True(status.UpdateAvailable);
         Assert.Equal(NewerVersion, status.LatestVersion);
         Assert.Equal(AssetUrl, status.DownloadUrl);
@@ -82,7 +90,12 @@ public sealed class UpdateServiceDownloadTierTests
         // and fail into "downloading"/"failed"; "idle" proves it never started.
         Assert.Equal("idle", status.State);
         Assert.False(status.UpdateReady);
-        Assert.True(status.UpdateAvailable);
+        // An unofficial build never polls, so it has no release to offer; the
+        // no-background-stage guarantee above holds in both flavours.
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            Assert.True(status.UpdateAvailable);
+        }
     }
 
     private sealed class FakeUpdateSource : IUpdateSource

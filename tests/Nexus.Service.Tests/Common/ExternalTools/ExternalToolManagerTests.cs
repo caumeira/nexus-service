@@ -30,11 +30,14 @@ public class ExternalToolManagerTests : IDisposable
         try { Directory.Delete(Path.GetDirectoryName(_root)!, recursive: true); } catch { }
     }
 
+    // A vendor CDN, not assets.hellonexus.com: the hash/cache logic under test
+    // is host-agnostic, and our own host is credential-gated to nothing in an
+    // unofficial build (ExternalToolManager.IsOurAssetHost).
     private ExternalToolSpec Spec(string? preload = null, ToolSession session = ToolSession.System) => new(
         ToolId: "test-tool",
         Variant: "v1",
-        ManifestUrl: "https://assets.hellonexus.com/test-tool/v1/latest.json",
-        DownloadUrlBase: "https://assets.hellonexus.com/test-tool/v1",
+        ManifestUrl: "https://cdn.vendor.example/test-tool/v1/latest.json",
+        DownloadUrlBase: "https://cdn.vendor.example/test-tool/v1",
         FilePattern: "*.bin",
         Launch: new ToolLaunchOptions(Hidden: true, Session: session),
         PreloadDir: preload);
@@ -366,7 +369,7 @@ public class ExternalToolManagerTests : IDisposable
     private static string ManifestJson(string fileName, string sha256, long size) =>
         "{\"latestVersion\":\"1.0.0\",\"versions\":{\"1.0.0\":{" +
         "\"version\":\"1.0.0\",\"fileName\":\"" + fileName + "\"," +
-        "\"url\":\"https://assets.hellonexus.com/test-tool/v1/" + fileName + "\"," +
+        "\"url\":\"https://cdn.vendor.example/test-tool/v1/" + fileName + "\"," +
         "\"sha256\":\"" + sha256 + "\",\"size\":" + size + "}}}";
 
     private static string BundledPinJson(string fileName, string sha256, long size) =>
@@ -423,7 +426,7 @@ public class ExternalToolManagerTests : IDisposable
     private sealed class OfflineHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-            => throw new HttpRequestException("No such host is known. (assets.hellonexus.com:443)");
+            => throw new HttpRequestException("No such host is known. (cdn.vendor.example:443)");
     }
 
     private sealed class ExplodingHandler : HttpMessageHandler
