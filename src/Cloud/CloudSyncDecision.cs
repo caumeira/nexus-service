@@ -36,6 +36,7 @@ public enum CloudSyncAction
 ///   local exists,  cloud missing, has record   -> DeleteLocal (deleted on another machine)
 ///   local missing, cloud exists,  no record    -> Pull (new cloud profile)
 ///   local missing, cloud exists,  has record   -> DeleteRemote (deleted locally, tell the cloud)
+///   both exist,    no record                  -> Push (re-link after a sign-out; local is the source)
 ///   local clean,   cloud unchanged             -> None
 ///   local clean,   cloud moved                 -> Pull (silent LWW, cloud wins - local never diverged)
 ///   local dirty,   cloud unchanged              -> Push (silent LWW, local wins - cloud never diverged)
@@ -68,12 +69,17 @@ internal static class CloudSyncDecision
             return hasSyncRecord ? CloudSyncAction.DeleteRemote : CloudSyncAction.Pull;
         }
 
-        // Both exist. Never synced before but both already present (shouldn't
-        // normally happen - a fresh pull always records sync state - but pull
-        // rather than guess which side is newer).
+        // Both exist with no sync record: this machine has the profile and so
+        // does its backup, but the link between them is gone - the ordinary
+        // case being a sign-out and sign-in, which drops the sync records with
+        // the account. The cloud copy is a BACKUP of this machine, so the
+        // machine's own library wins and re-establishes it; pulling here would
+        // silently overwrite local work with whatever was last backed up.
+        // Restoring a backup on purpose is the import flow, which creates a
+        // new profile instead.
         if (!hasSyncRecord)
         {
-            return CloudSyncAction.Pull;
+            return CloudSyncAction.Push;
         }
 
         var localClean = string.Equals(localHash, syncedHash, System.StringComparison.Ordinal);

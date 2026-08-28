@@ -55,14 +55,17 @@ public sealed class CloudSyncDecisionTests
         Assert.Equal(CloudSyncAction.DeleteLocal, action);
     }
 
+    // Signing out drops the sync records, so this is the ordinary sign-in-again
+    // path, not a rare one. Pulling here would overwrite whatever the user did
+    // locally in the meantime with the last backup.
     [Fact]
-    public void Both_exist_but_never_synced_pulls_rather_than_guessing()
+    public void Both_exist_with_no_sync_record_pushes_so_local_wins()
     {
         var action = CloudSyncDecision.Decide(
             localExists: true, localHash: "h1",
             cloudExists: true, cloudRevision: 2,
             hasSyncRecord: false, syncedRevision: 0, syncedHash: null);
-        Assert.Equal(CloudSyncAction.Pull, action);
+        Assert.Equal(CloudSyncAction.Push, action);
     }
 
     [Fact]
