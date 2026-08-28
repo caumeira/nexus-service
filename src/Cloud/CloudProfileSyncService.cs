@@ -398,21 +398,9 @@ public sealed class CloudProfileSyncService : BackgroundService
         // missing, no record" for that id and Push it as a brand new profile,
         // duplicating "Default" on the account. Adopt the cloud library
         // wholesale instead, exactly like an account switch.
-        if (syncMap.Count == 0 && cloudRows.Count > 0 && localProfiles.Count == 1
-            && localProfiles[0].Name == "Default")
-        {
-            var bootstrapExport = _profiles.ExportProfileForSync(localProfiles[0].Id);
-            if (bootstrapExport?.Settings is not null && IsPristineDefaultContent(bootstrapExport.Settings))
-            {
-                var pulled = await PullCloudProfilesAsync(accountId, cloudRows, ct).ConfigureAwait(false);
-                if (pulled is not null)
-                {
-                    ReplaceLocalLibrary(accountId, cloudRows, pulled);
-                    _state = "idle";
-                }
-                return;
-            }
-        }
+        // No first-login bootstrap: pressing "Back up now" on a fresh machine
+        // must not replace the local library with the cloud's. Pulling another
+        // library in is the explicit import flow.
 
         var ids = new HashSet<string>(localProfiles.Select(p => p.Id), StringComparer.Ordinal);
         ids.UnionWith(cloudRows.Select(r => r.ProfileId));

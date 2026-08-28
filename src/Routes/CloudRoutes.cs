@@ -201,6 +201,12 @@ public static class CloudRoutes
             return Results.Json(result.Value, AppJsonContext.Default.CloudLibraryResponse);
         });
 
+        app.MapDelete("/cloud/profiles/{installId}/{profileId}", async (string installId, string profileId, CloudProfileLibraryService library, CancellationToken ct) =>
+        {
+            var result = await library.DeleteAsync(installId, profileId, ct).ConfigureAwait(false);
+            return CloudResult(result);
+        });
+
         app.MapPost("/cloud/profiles/import", async (CloudImportRequest body, CloudProfileLibraryService library, MultiplexHub hub, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(body.InstallId) || string.IsNullOrWhiteSpace(body.ProfileId))

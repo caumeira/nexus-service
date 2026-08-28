@@ -31,7 +31,7 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
 
         _api = new FakeCloudApiClient();
         _accounts = new CloudAccountService(_api, _store, TimeProvider.System);
-        _library = new CloudProfileLibraryService(_api, _accounts, _profiles);
+        _library = new CloudProfileLibraryService(_api, _accounts, _profiles, _store);
 
         _store.Update(s =>
         {
@@ -242,6 +242,76 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
             InstallId = "install-y70",
             ProfileId = "p-remote",
         }, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(401, result.StatusCode);
+    }
+
+    // The scenario the user described: everything backed up, delete the local
+    // profile, and the backup must survive so it can be imported back.
+    [Fact]
+    public async Task Restoring_this_machines_own_backup_keeps_the_original_id()
+    {
+        var settings = new NexusSettings();
+        settings.Lighting.GlobalBrightness = 0.4f;
+        var own = OwnId;
+        _api.OnListDevices = _ => CloudApiResult<List<CloudDeviceDto>>.Ok(new List<CloudDeviceDto>
+        {
+            new() { InstallId = own, Hostname = "THIS-MACHINE", LastSeenAt = "t0" },
+        });
+        _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
+        {
+            new() { InstallId = own, ProfileId = "gone-local", Name = "Gaming", Revision = 3, UpdatedAt = "t0" },
+        });
+        _api.OnGetProfile = (_, _, _) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
+        {
+            InstallId = own,
+            ProfileId = "gone-local",
+            Name = "Gaming",
+            Revision = 3,
+            Payload = new ProfileExport { Name = "Gaming", Settings = settings },
+        });
+
+        var result = await _library.ImportAsync(new CloudImportRequest
+        {
+            InstallId = own,
+            ProfileId = "gone-local",
+        }, CancellationToken.None);
+
+        Assert.True(result.Success);
+        // Same id, and no "(hostname)" suffix: this is a restore, not a copy
+        // from somewhere else.
+        var entry = Assert.Single(_profiles.GetManifest().Profiles.Where(p => p.Id == "gone-local"));
+        Assert.Equal("Gaming", entry.Name);
+        Assert.Equal(0.4f, _profiles.ExportProfile("gone-local")!.Lighting.GlobalBrightness);
+    }
+
+    [Fact]
+    public async Task Deleting_a_cloud_profile_calls_the_api_and_drops_its_sync_record()
+    {
+        SeedRemote("install-y70", "HYTEY70", "p-remote", new NexusSettings());
+        string? deletedInstall = null;
+        string? deletedProfile = null;
+        _api.OnDeleteProfile = (_, installId, profileId) =>
+        {
+            deletedInstall = installId;
+            deletedProfile = profileId;
+            return CloudApiResult<CloudVoid>.Ok(CloudVoid.Instance);
+        };
+
+        var result = await _library.DeleteAsync("install-y70", "p-remote", CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal("install-y70", deletedInstall);
+        Assert.Equal("p-remote", deletedProfile);
+    }
+
+    [Fact]
+    public async Task Deleting_a_cloud_profile_is_refused_when_signed_out()
+    {
+        _store.Update(s => s.Auth!.ActiveCloudAccountId = null);
+
+        var result = await _library.DeleteAsync("install-y70", "p-remote", CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(401, result.StatusCode);

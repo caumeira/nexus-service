@@ -27,12 +27,14 @@ public sealed class CloudProfileLibraryService
     private readonly ICloudApiClient _api;
     private readonly CloudAccountService _accounts;
     private readonly ProfileManager _profiles;
+    private readonly IConfigStore _store;
 
-    public CloudProfileLibraryService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles)
+    public CloudProfileLibraryService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles, IConfigStore store)
     {
         _api = api;
         _accounts = accounts;
         _profiles = profiles;
+        _store = store;
     }
 
     /// <summary>Every machine on the account with the profiles it has backed up. A machine with no profiles is still listed, so a user can see it was seen.</summary>
@@ -127,11 +129,29 @@ public sealed class CloudProfileLibraryService
             return CloudActionResult.Fail("not_found", "That profile has no payload.", 404);
         }
 
-        var hostname = await HostnameForAsync(request.InstallId, ct).ConfigureAwait(false);
         var sourceName = string.IsNullOrWhiteSpace(fetched.Value.Name) ? "Imported" : fetched.Value.Name;
+        LastImportReplacedActive = false;
+
+        // Restoring this machine's own backup keeps the original profileId and
+        // name, so the row re-links to its local profile instead of orphaning
+        // the backup and starting a second one beside it.
+        if (string.Equals(request.InstallId, _accounts.ResolveStableInstallId(), StringComparison.Ordinal))
+        {
+            try
+            {
+                var restored = _profiles.ImportProfileWithId(request.ProfileId, sourceName, settings);
+                LastImportReplacedActive = restored.Id == _profiles.ActiveProfileId;
+                return CloudActionResult.Ok();
+            }
+            catch (InvalidOperationException)
+            {
+                return CloudActionResult.Fail("profile_limit_reached", "This computer already has the maximum number of profiles.", 400);
+            }
+        }
+
+        var hostname = await HostnameForAsync(request.InstallId, ct).ConfigureAwait(false);
         var name = string.IsNullOrWhiteSpace(hostname) ? sourceName : $"{sourceName} ({hostname})";
 
-        LastImportReplacedActive = false;
         try
         {
             var entry = _profiles.ImportProfile(name, settings, request.ReplaceExisting);
@@ -148,6 +168,28 @@ public sealed class CloudProfileLibraryService
         {
             return CloudActionResult.Fail("profile_limit_reached", "This computer already has the maximum number of profiles.", 400);
         }
+    }
+
+    /// <summary>Removes a profile from the account's backup. The local profile, if any, is untouched.</summary>
+    public async Task<CloudActionResult> DeleteAsync(string installId, string profileId, CancellationToken ct)
+    {
+        if (_accounts.ActiveAccountId is not { } accountId)
+        {
+            return CloudActionResult.Fail("not_signed_in", "Sign in to use cloud profiles.", 401);
+        }
+        var result = await _accounts.WithAuthAsync(accountId, token => _api.DeleteProfileAsync(token, installId, profileId, ct), ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            return CloudActionResult.FromError(result);
+        }
+        // Drop the sync record too, or a later backup of a still-present local
+        // profile would look like an update to a row that no longer exists.
+        _store.Update(s =>
+        {
+            var rec = s.Auth?.CloudAccounts.FirstOrDefault(a => a.AccountId == accountId);
+            rec?.ProfileSync.Remove(profileId);
+        });
+        return CloudActionResult.Ok();
     }
 
     private async Task<CloudApiResult<CloudProfileDto>> FetchAsync(string installId, string profileId, CancellationToken ct)

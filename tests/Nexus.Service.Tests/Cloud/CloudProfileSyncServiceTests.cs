@@ -184,7 +184,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
     // ── delete propagation ───────────────────────────────────────────────
 
     [Fact]
-    public async Task RunSyncPass_deletes_remote_when_local_was_deleted_after_syncing()
+    public async Task RunSyncPass_keeps_the_backup_when_the_local_profile_was_deleted()
     {
         SeedAccount("acct-1", "refresh-1");
         var defaultId = _profiles.GetActiveEntry()!.Id;
@@ -202,11 +202,12 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         string? deletedProfileId = null;
         _api.OnDeleteProfile = (_, _, profileId) => { deletedProfileId = profileId; return CloudApiResult<CloudVoid>.Ok(CloudVoid.Instance); };
 
-        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
+        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None, manual: true);
 
-        Assert.Equal(deletedId, deletedProfileId);
-        Assert.Equal(1, _api.DeleteProfileCalls);
-        Assert.DoesNotContain(deletedId, _store.Load().Auth!.CloudAccounts[0].ProfileSync.Keys);
+        // Deleting locally must not destroy the backup: the user restores from
+        // it via import, or removes it deliberately from the cloud list.
+        Assert.Null(deletedProfileId);
+        Assert.Equal(0, _api.DeleteProfileCalls);
     }
 
     [Fact]
@@ -505,85 +506,32 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         Assert.Equal("Default", manifest.Profiles[0].Name);
     }
 
-    // ── first login (fresh install adopts an existing cloud library) ────
+    // ── first login (a backup never replaces the local library) ────────
 
     [Fact]
-    public async Task RunSyncPass_first_login_with_a_pristine_bootstrap_default_replaces_it_with_the_cloud_library()
+    public async Task RunSyncPass_on_a_pristine_machine_does_not_adopt_the_cloud_library()
     {
-        SeedAccount("acct-1", "refresh-1");
-        var bootstrapId = _profiles.GetActiveEntry()!.Id; // untouched since ProfileManager.Initialize created it.
-
-        var cloudSettings = new NexusSettings();
-        cloudSettings.Lighting.GlobalBrightness = 0.77f;
-        _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
-        {
-            new() { InstallId = OwnId, ProfileId = "cloud-default", Name = "Default", Revision = 3 },
-        });
-        _api.OnGetProfile = (_, _, profileId) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
-        {
-            ProfileId = profileId,
-            Name = "Default",
-            Revision = 3,
-            Payload = new ProfileExport { Name = "Default", Settings = cloudSettings },
-        });
-
-        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
-
-        // Adopted wholesale - no duplicate "Default" push, the bootstrap
-        // profile is gone and the cloud's row is the only local profile.
-        Assert.Equal(0, _api.PutProfileCalls);
-        var manifest = _profiles.GetManifest();
-        Assert.Single(manifest.Profiles);
-        Assert.Equal("cloud-default", manifest.Profiles[0].Id);
-        Assert.DoesNotContain(manifest.Profiles, p => p.Id == bootstrapId);
-        Assert.Equal(0.77f, _store.Load().Lighting.GlobalBrightness);
-        Assert.Equal("idle", _sync.GetStatus().State);
-        Assert.Equal(3, _store.Load().Auth!.CloudAccounts[0].ProfileSync["cloud-default"].Revision);
-
-        // Archived first, same safety net as an account switch.
-        Assert.True(Directory.Exists(Path.Combine(_tempDir, "profiles-archive")));
-    }
-
-    [Fact]
-    public async Task RunSyncPass_first_login_treats_the_auto_restore_seeded_bootstrap_default_as_pristine()
-    {
-        // Reproduces AutoRestoreOnStart.RestoreCooling's real seeding call,
-        // which runs ~4s after boot and can complete before a user logs in.
-        FanProfiles.SeedDefaultPresetCurves(_fans, _store);
-        _store.FlushNow();
-        Assert.True(_store.Load().Cooling.CurvesSeeded);
-        Assert.Equal(3, _store.Load().Cooling.Curves.Count);
-
         SeedAccount("acct-1", "refresh-1");
         var bootstrapId = _profiles.GetActiveEntry()!.Id;
 
-        var cloudSettings = new NexusSettings();
-        cloudSettings.Lighting.GlobalBrightness = 0.77f;
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { InstallId = OwnId, ProfileId = "cloud-default", Name = "Default", Revision = 3 },
+            new() { InstallId = OwnId, ProfileId = "cloud-default", Name = "Default", Revision = 4 },
         });
-        _api.OnGetProfile = (_, _, profileId) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
-        {
-            ProfileId = profileId,
-            Name = "Default",
-            Revision = 3,
-            Payload = new ProfileExport { Name = "Default", Settings = cloudSettings },
-        });
+        _api.OnGetProfile = (_, _, _) => throw new InvalidOperationException("a backup must never fetch a cloud profile");
+        _api.OnPutProfile = (_, _, _, _) => CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 1 });
 
-        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
+        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None, manual: true);
 
-        // Adopted wholesale even though the seeded curves diverge from a
-        // blank NexusSettings - the seeded state is still pristine.
-        Assert.Equal(0, _api.PutProfileCalls);
+        // Pressing "Back up now" on a fresh machine used to swap its whole
+        // library for the cloud's. Adopting another library is the import flow.
         var manifest = _profiles.GetManifest();
         Assert.Single(manifest.Profiles);
-        Assert.Equal("cloud-default", manifest.Profiles[0].Id);
-        Assert.DoesNotContain(manifest.Profiles, p => p.Id == bootstrapId);
+        Assert.Equal(bootstrapId, manifest.Profiles[0].Id);
     }
 
     [Fact]
-    public async Task RunSyncPass_first_login_with_a_customized_single_profile_still_merges_and_uploads_like_today()
+    public async Task RunSyncPass_uploads_the_local_profile_and_never_pulls_the_cloud_one()
     {
         SeedAccount("acct-1", "refresh-1");
         var localId = _profiles.GetActiveEntry()!.Id;
@@ -611,24 +559,16 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
             return CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 1 });
         };
 
-        // First tick pulls cloud-default immediately (Pull is never
-        // debounced) but only seeds the push debounce window for the
-        // customized local profile.
-        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
-        Assert.Equal(0, putCallsForLocalId);
-        Assert.Contains(_profiles.GetManifest().Profiles, p => p.Id == "cloud-default");
+        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None, manual: true);
 
-        _clock.Advance(TimeSpan.FromSeconds(61));
-        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
-
-        // Not replaced - the customized profile survives under its own id
-        // and gets uploaded, same as the pre-fix behavior for anything that
-        // is not a pristine, untouched bootstrap Default.
+        // The local profile is backed up; the cloud-only one is NOT pulled
+        // down. Backing up must never import, and a machine's library only
+        // grows when the user imports on purpose.
         Assert.Equal(1, putCallsForLocalId);
         var manifest = _profiles.GetManifest();
-        Assert.Equal(2, manifest.Profiles.Count);
+        Assert.Single(manifest.Profiles);
         Assert.Contains(manifest.Profiles, p => p.Id == localId);
-        Assert.Contains(manifest.Profiles, p => p.Id == "cloud-default");
+        Assert.DoesNotContain(manifest.Profiles, p => p.Id == "cloud-default");
     }
 
     [Fact]

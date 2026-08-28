@@ -26,13 +26,14 @@ public sealed class CloudSyncDecisionTests
     }
 
     [Fact]
-    public void Cloud_only_profile_pulls()
+    public void Cloud_only_profile_is_left_alone()
     {
         var action = CloudSyncDecision.Decide(
             localExists: false, localHash: null,
             cloudExists: true, cloudRevision: 3,
             hasSyncRecord: false, syncedRevision: 0, syncedHash: null);
-        Assert.Equal(CloudSyncAction.Pull, action);
+        // Bringing a cloud-only profile down is the explicit import flow now.
+        Assert.Equal(CloudSyncAction.None, action);
     }
 
     [Fact]
@@ -42,7 +43,8 @@ public sealed class CloudSyncDecisionTests
             localExists: false, localHash: null,
             cloudExists: true, cloudRevision: 5,
             hasSyncRecord: true, syncedRevision: 5, syncedHash: "h1");
-        Assert.Equal(CloudSyncAction.DeleteRemote, action);
+        // The backup outlives a locally deleted profile so it can be restored.
+        Assert.Equal(CloudSyncAction.None, action);
     }
 
     [Fact]

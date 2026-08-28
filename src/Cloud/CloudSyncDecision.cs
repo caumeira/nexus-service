@@ -35,7 +35,7 @@ public enum CloudSyncAction
 ///   local exists,  cloud missing, no record    -> Push (new local-only profile)
 ///   local exists,  cloud missing, has record   -> DeleteLocal (deleted on another machine)
 ///   local missing, cloud exists,  no record    -> Pull (new cloud profile)
-///   local missing, cloud exists,  has record   -> DeleteRemote (deleted locally, tell the cloud)
+///   local missing, cloud exists                -> None (the backup outlives the local copy; deleting a cloud profile is an explicit user action)
 ///   both exist,    no record                  -> Push (re-link after a sign-out; local is the source)
 ///   local clean,   cloud unchanged             -> None
 ///   local clean,   cloud moved                 -> Pull (silent LWW, cloud wins - local never diverged)
@@ -64,9 +64,13 @@ internal static class CloudSyncDecision
         {
             return hasSyncRecord ? CloudSyncAction.DeleteLocal : CloudSyncAction.Push;
         }
+        // Deleting a profile locally must NOT destroy its backup: the whole
+        // point of the backup is to restore from it afterwards. The cloud copy
+        // stays until the user deletes it explicitly, and the UI offers to
+        // import it back.
         if (!localExists && cloudExists)
         {
-            return hasSyncRecord ? CloudSyncAction.DeleteRemote : CloudSyncAction.Pull;
+            return CloudSyncAction.None;
         }
 
         // Both exist with no sync record: this machine has the profile and so
