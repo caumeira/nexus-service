@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Peripherals.Hyte.MiniHub;
 using Nexus.Service.Persistence;
@@ -16,7 +17,8 @@ namespace Nexus.Service.Lighting;
 /// engine; <see cref="MiniHubLightingFrameWriter"/> pushes the rendered
 /// LED bytes to the hub each tick.
 /// </summary>
-public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
+public sealed class MiniHubLightingDeviceProvider :
+    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
 {
     private readonly MiniHubHub _hub;
     private readonly IConfigStore _store;
@@ -168,6 +170,52 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
     }
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
+
+    // ── IDeviceStructureSource ──
+
+    /// <summary>One structure per port card so the LED map editor resolves the port's LED space; counts follow the same ZoneLedCounts override GetAll and BuildFrames honour.</summary>
+    public IReadOnlyList<DeviceStructure> GetStructures()
+    {
+        if (!_hub.IsConnected || string.IsNullOrEmpty(_hub.DeviceId))
+        {
+            return Array.Empty<DeviceStructure>();
+        }
+        var hubId = _hub.DeviceId;
+        var counts = _store.Load().Devices.ZoneLedCounts;
+        return new[]
+        {
+            BuildStructure($"{hubId}:port1", $"{MiniHubHub.ProductName} - Port 1 (1× RGB Fan)", "Port 1", _hub.State.Port1.LedCount, counts),
+            BuildStructure($"{hubId}:port2", $"{MiniHubHub.ProductName} - Port 2 (3× RGB Fans)", "Port 2", _hub.State.Port2.LedCount, counts),
+            BuildStructure($"{hubId}:port3", $"{MiniHubHub.ProductName} - Port 3 (LED Strip)", "Port 3", _hub.State.Port3.LedCount, counts),
+            BuildStructure($"{hubId}:port4", $"{MiniHubHub.ProductName} - Port 4 (LED Strip)", "Port 4", _hub.State.Port4.LedCount, counts),
+        };
+    }
+
+    private static DeviceStructure BuildStructure(
+        string id, string name, string rawName, int firmwareLedCount,
+        IReadOnlyDictionary<string, int> counts)
+    {
+        var ledCount = counts.TryGetValue(id, out var persisted) ? Math.Max(0, persisted) : firmwareLedCount;
+        var structure = new DeviceStructure { DeviceId = id, Name = name, Partitionable = false };
+        structure.Segments.Add(new StructureSegment
+        {
+            Index = 0,
+            Name = rawName,
+            LedCount = ledCount,
+            FrameLedCount = ledCount,
+            Resizable = true,
+            ZoneType = "linear",
+        });
+        structure.DefaultZones.Add(new DefaultZoneDef
+        {
+            Id = id,
+            Name = name,
+            RawName = rawName,
+            LegacyZoneIndex = -1,
+            Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = ledCount } },
+        });
+        return structure;
+    }
 
     // Same rationale as Np50LightingDeviceProvider._frameCache: reuse the
     // DeviceFrame instance across RgbBridge's 3 s refresh so the writer

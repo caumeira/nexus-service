@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Mappings;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Peripherals.Hyte.Cnvs;
 using Nexus.Service.Persistence;
@@ -21,7 +23,8 @@ namespace Nexus.Service.Lighting;
 /// race), so OpenRGB can't drive CNVS. This provider exposes CNVS to the
 /// engine→writer pipeline.
 /// </summary>
-public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
+public sealed class CnvsLightingDeviceProvider :
+    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
 {
     private readonly CnvsHub _hub;
     private readonly IConfigStore _store;
@@ -65,8 +68,7 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
         var settings = _store.Load();
         resp.Devices.Add(BuildCard(
             id: id, name: "HYTE CNVS",
-            deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
-                Peripherals.Hyte.Cnvs.CnvsProtocol.VendorId, _hub.ProductId),
+            deviceKey: DeviceKeyOf(_hub.ProductId),
             firmwareLedCount: CnvsHub.LedCount,
             settings.Devices.DisabledLightingDevices,
             settings.Devices.LightingDevicePrefs,
@@ -162,6 +164,42 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
     }
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
+
+    private static string DeviceKeyOf(int productId) =>
+        DeviceKeyComputer.ForFirstParty(CnvsProtocol.VendorId, productId);
+
+    // ── IDeviceStructureSource ──
+
+    /// <summary>One structure for the single card so the LED map editor resolves the mat's LED space; one fixed segment, no authored geometry, so the resolver's linear default applies.</summary>
+    public IReadOnlyList<DeviceStructure> GetStructures()
+    {
+        if (!_hub.IsConnected || string.IsNullOrEmpty(_hub.DeviceId))
+        {
+            return Array.Empty<DeviceStructure>();
+        }
+        var id = _hub.DeviceId;
+        var key = DeviceKeyOf(_hub.ProductId);
+        var structure = new DeviceStructure { DeviceId = id, Name = "HYTE CNVS", DeviceKey = key, Partitionable = false };
+        structure.Segments.Add(new StructureSegment
+        {
+            Index = 0,
+            Name = "Mat",
+            LedCount = CnvsHub.LedCount,
+            FrameLedCount = CnvsHub.LedCount,
+            Resizable = false,
+            ZoneType = "linear",
+        });
+        structure.DefaultZones.Add(new DefaultZoneDef
+        {
+            Id = id,
+            Name = "HYTE CNVS",
+            RawName = "Mat",
+            DeviceKey = key,
+            LegacyZoneIndex = -1,
+            Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = CnvsHub.LedCount } },
+        });
+        return new[] { structure };
+    }
 
     // Same frame-reuse pattern as NP50/MiniHub: hold the DeviceFrame across
     // RgbBridge.RefreshDevicesAsync rebuilds so the per-LED buffer doesn't
