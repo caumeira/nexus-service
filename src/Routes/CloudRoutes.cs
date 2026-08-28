@@ -186,6 +186,40 @@ public static class CloudRoutes
             return CloudResult(result);
         });
 
+        // The cross-machine library: every machine on the account and what it
+        // has backed up. Sync itself never pulls another machine's profile;
+        // this plus /cloud/profiles/import is the only way one machine's
+        // config reaches another, and it takes an explicit user choice.
+        app.MapGet("/cloud/profiles/library", async (CloudProfileLibraryService library, CancellationToken ct) =>
+        {
+            var result = await library.GetLibraryAsync(ct).ConfigureAwait(false);
+            if (!result.Success || result.Value is null)
+            {
+                return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
+            }
+            return Results.Json(result.Value, AppJsonContext.Default.CloudLibraryResponse);
+        });
+
+        app.MapGet("/cloud/profiles/{installId}/{profileId}/preview", async (string installId, string profileId, CloudProfileLibraryService library, CancellationToken ct) =>
+        {
+            var result = await library.GetPreviewAsync(installId, profileId, ct).ConfigureAwait(false);
+            if (!result.Success || result.Value is null)
+            {
+                return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
+            }
+            return Results.Json(result.Value, AppJsonContext.Default.CloudImportPreviewResponse);
+        });
+
+        app.MapPost("/cloud/profiles/import", async (CloudImportRequest body, CloudProfileLibraryService library, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.InstallId) || string.IsNullOrWhiteSpace(body.ProfileId))
+            {
+                return Results.BadRequest(ApiResponse.Fail("installId and profileId are required."));
+            }
+            var result = await library.ImportAsync(body, ct).ConfigureAwait(false);
+            return CloudResult(result);
+        });
+
         // Thin forwarder: the dashboard posts the benchmark result JSON as-is
         // (no local DTO) to the cloud leaderboard, authenticated with the
         // active account's bearer when signed in, anonymous when signed out.

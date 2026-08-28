@@ -1633,6 +1633,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Cloud.ICloudApiClient, Nexus.Service.Cloud.CloudApiClient>();
         services.AddSingleton<Nexus.Service.Cloud.CloudAccountService>();
         services.AddSingleton<Nexus.Service.Cloud.CloudProfileSyncService>();
+        services.AddSingleton<Nexus.Service.Cloud.CloudProfileLibraryService>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Cloud.CloudProfileSyncService>());
         services.AddHostedService<Nexus.Service.Cloud.CloudDeviceReporter>();
         return services;

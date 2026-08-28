@@ -144,6 +144,20 @@ public sealed class CloudProfileSyncService : BackgroundService
         }
     }
 
+    /// <summary>Narrows a whole-account profile listing to the rows this machine owns.</summary>
+    private List<CloudProfileSummaryDto> OwnRows(List<CloudProfileSummaryDto>? rows)
+    {
+        if (rows is null)
+        {
+            return new List<CloudProfileSummaryDto>();
+        }
+        var own = OwnInstallId();
+        return rows.Where(r => string.Equals(r.InstallId, own, StringComparison.Ordinal)).ToList();
+    }
+
+    /// <summary>This machine's id. Every row this service reads or writes is its own; another machine's rows are reachable only through the explicit import flow.</summary>
+    private string OwnInstallId() => _accounts.ResolveStableInstallId();
+
     private async Task<CloudActionResult> ResolveKeepLocalAsync(string accountId, string profileId, CloudSyncConflictDto conflict, CancellationToken ct)
     {
         var localExport = _profiles.ExportProfileForSync(profileId);
@@ -157,9 +171,8 @@ public sealed class CloudProfileSyncService : BackgroundService
             Name = conflict.Name,
             BaseRevision = conflict.CloudRevision,
             Payload = localExport,
-            InstallId = _accounts.ResolveStableInstallId(),
         };
-        var result = await _accounts.WithAuthAsync(accountId, token => _api.PutProfileAsync(token, profileId, request, ct), ct).ConfigureAwait(false);
+        var result = await _accounts.WithAuthAsync(accountId, token => _api.PutProfileAsync(token, OwnInstallId(), profileId, request, ct), ct).ConfigureAwait(false);
 
         if (result.StatusCode == 409 && result.Value is { CurrentRevision: not null })
         {
@@ -355,7 +368,12 @@ public sealed class CloudProfileSyncService : BackgroundService
             return;
         }
 
-        var cloudRows = listResult.Value ?? new List<CloudProfileSummaryDto>();
+        // The endpoint returns every machine's rows; a sync pass is a backup of
+        // THIS machine only. Another machine's profiles are never pulled
+        // automatically - they reach this library through the explicit import
+        // flow, which is what stops two machines round-tripping renames of a
+        // profile they both call "Default".
+        var cloudRows = OwnRows(listResult.Value);
         if (cloudRows.Count > ProfileManager.MaxProfiles)
         {
             // The server caps an account at MaxProfiles; a row past that is an
@@ -500,14 +518,17 @@ public sealed class CloudProfileSyncService : BackgroundService
             Name = name,
             BaseRevision = baseRevision,
             Payload = payload,
-            InstallId = _accounts.ResolveStableInstallId(),
         };
-        var result = await _accounts.WithAuthAsync(accountId, token => _api.PutProfileAsync(token, profileId, request, ct), ct).ConfigureAwait(false);
+        var result = await _accounts.WithAuthAsync(accountId, token => _api.PutProfileAsync(token, OwnInstallId(), profileId, request, ct), ct).ConfigureAwait(false);
 
         if (result.StatusCode == 409 && result.Value is { CurrentRevision: not null })
         {
             var cr = result.Value;
-            RecordConflict(profileId, name, "", cr.CurrentRevision!.Value, cr.UpdatedAt ?? "", cr.Name ?? "", cr.UpdatedByInstallId ?? "");
+            // The comparison sheet shows both sides' timestamps, so the local
+            // one has to be real rather than blank.
+            var localUpdatedAt = _profiles.GetManifest().Profiles
+                .FirstOrDefault(p => p.Id == profileId)?.UpdatedAt ?? "";
+            RecordConflict(profileId, name, localUpdatedAt, cr.CurrentRevision!.Value, cr.UpdatedAt ?? "", cr.Name ?? "", cr.UpdatedByInstallId ?? "");
             return false;
         }
         if (!result.Success || result.Value?.Revision is not { } revision)
@@ -522,7 +543,7 @@ public sealed class CloudProfileSyncService : BackgroundService
 
     private async Task PullAsync(string accountId, string profileId, CancellationToken ct)
     {
-        var result = await _accounts.WithAuthAsync(accountId, token => _api.GetProfileAsync(token, profileId, ct), ct).ConfigureAwait(false);
+        var result = await _accounts.WithAuthAsync(accountId, token => _api.GetProfileAsync(token, OwnInstallId(), profileId, ct), ct).ConfigureAwait(false);
         if (!result.Success || result.Value?.Payload?.Settings is null)
         {
             return;
@@ -547,7 +568,7 @@ public sealed class CloudProfileSyncService : BackgroundService
     /// <summary>The profile was deleted locally after having synced - tell the cloud. Leaves the sync record in place on failure so the next tick retries the delete instead of forgetting it.</summary>
     private async Task DeleteRemoteAsync(string accountId, string profileId, CancellationToken ct)
     {
-        var result = await _accounts.WithAuthAsync(accountId, token => _api.DeleteProfileAsync(token, profileId, ct), ct).ConfigureAwait(false);
+        var result = await _accounts.WithAuthAsync(accountId, token => _api.DeleteProfileAsync(token, OwnInstallId(), profileId, ct), ct).ConfigureAwait(false);
         if (!result.Success)
         {
             return;
@@ -589,9 +610,16 @@ public sealed class CloudProfileSyncService : BackgroundService
             ProfileId = profileId,
             Name = localName,
             LocalUpdatedAt = localUpdatedAt,
+            LocalHostname = Environment.MachineName,
             CloudRevision = cloudRevision,
             CloudUpdatedAt = cloudUpdatedAt,
             CloudName = cloudName,
+            // Rows are per-machine, so the writer of the cloud copy is normally
+            // this same machine (two service instances, or a settings restore).
+            // Anything else is left unnamed rather than guessed at.
+            CloudHostname = string.Equals(updatedByInstallId, OwnInstallId(), StringComparison.Ordinal)
+                ? Environment.MachineName
+                : "",
             UpdatedByInstallId = updatedByInstallId,
         };
     }
@@ -690,7 +718,7 @@ public sealed class CloudProfileSyncService : BackgroundService
                 _state = listResult.Offline ? "offline" : "error";
                 return;
             }
-            var cloudRows = listResult.Value ?? new List<CloudProfileSummaryDto>();
+            var cloudRows = OwnRows(listResult.Value);
 
             var pulled = await PullCloudProfilesAsync(toAccountId, cloudRows, ct).ConfigureAwait(false);
             if (pulled is null)
@@ -721,7 +749,7 @@ public sealed class CloudProfileSyncService : BackgroundService
         foreach (var row in cloudRows.Take(ProfileManager.MaxProfiles))
         {
             ct.ThrowIfCancellationRequested();
-            var profileResult = await _accounts.WithAuthAsync(accountId, token => _api.GetProfileAsync(token, row.ProfileId, ct), ct).ConfigureAwait(false);
+            var profileResult = await _accounts.WithAuthAsync(accountId, token => _api.GetProfileAsync(token, OwnInstallId(), row.ProfileId, ct), ct).ConfigureAwait(false);
             if (!profileResult.Success || profileResult.Value?.Payload?.Settings is null)
             {
                 _state = profileResult.Offline ? "offline" : "error";

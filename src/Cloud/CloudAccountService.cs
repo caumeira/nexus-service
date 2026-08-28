@@ -40,6 +40,31 @@ public sealed class CloudActionResult
     };
 }
 
+/// <summary>A <see cref="CloudActionResult"/> that also carries a value on success.</summary>
+public sealed class CloudActionResult<T>
+{
+    public bool Success { get; init; }
+    public int StatusCode { get; init; }
+    public string? ErrorCode { get; init; }
+    public string? ErrorMessage { get; init; }
+    public bool Offline { get; init; }
+    public T? Value { get; init; }
+
+    public static CloudActionResult<T> Ok(T value) => new() { Success = true, StatusCode = 200, Value = value };
+
+    public static CloudActionResult<T> Fail(string code, string message, int statusCode = 400) =>
+        new() { Success = false, StatusCode = statusCode, ErrorCode = code, ErrorMessage = message };
+
+    public static CloudActionResult<T> FromError<TOther>(CloudApiResult<TOther> result) => new()
+    {
+        Success = false,
+        StatusCode = result.StatusCode,
+        ErrorCode = result.ErrorCode,
+        ErrorMessage = result.ErrorMessage,
+        Offline = result.Offline,
+    };
+}
+
 public readonly record struct CloudRecoveryStatusSnapshot(string Status, bool RecoveryFresh);
 
 /// <summary>

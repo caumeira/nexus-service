@@ -41,6 +41,9 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
+    /// <summary>This machine's install id. A sync pass only ever considers rows carrying it.</summary>
+    private string OwnId => _accounts.ResolveStableInstallId();
+
     private void SeedAccount(string accountId, string refreshToken)
     {
         _store.Update(s =>
@@ -77,7 +80,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         // Cloud also moved past revision 1 in the meantime.
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { ProfileId = profileId, Name = "Default", Revision = 2, UpdatedAt = "2026-01-02T00:00:00Z", UpdatedByInstallId = "other-machine" },
+            new() { InstallId = OwnId, ProfileId = profileId, Name = "Default", Revision = 2, UpdatedAt = "2026-01-02T00:00:00Z", UpdatedByInstallId = "other-machine" },
         });
 
         await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
@@ -105,13 +108,13 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         _store.FlushNow();
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { ProfileId = profileId, Name = "Default", Revision = 2, UpdatedAt = "t", UpdatedByInstallId = "other" },
+            new() { InstallId = OwnId, ProfileId = profileId, Name = "Default", Revision = 2, UpdatedAt = "t", UpdatedByInstallId = "other" },
         });
         await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
         Assert.Single(_sync.GetStatus().Conflicts);
 
         int? capturedBaseRevision = null;
-        _api.OnPutProfile = (_, _, body) =>
+        _api.OnPutProfile = (_, _, _, body) =>
         {
             capturedBaseRevision = body.BaseRevision;
             return CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 3 });
@@ -136,14 +139,14 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         _store.FlushNow();
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { ProfileId = profileId, Name = "Default", Revision = 2, UpdatedAt = "t", UpdatedByInstallId = "other" },
+            new() { InstallId = OwnId, ProfileId = profileId, Name = "Default", Revision = 2, UpdatedAt = "t", UpdatedByInstallId = "other" },
         });
         await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
         Assert.Single(_sync.GetStatus().Conflicts);
 
         var cloudSettings = new NexusSettings();
         cloudSettings.Lighting.GlobalBrightness = 0.9f;
-        _api.OnGetProfile = (_, _) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
+        _api.OnGetProfile = (_, _, _) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
         {
             ProfileId = profileId,
             Name = "Default",
@@ -169,7 +172,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         _store.Update(s => s.Lighting.GlobalBrightness = 0.3f);
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { ProfileId = profileId, Name = "Default", Revision = 2, UpdatedAt = "t", UpdatedByInstallId = "other" },
+            new() { InstallId = OwnId, ProfileId = profileId, Name = "Default", Revision = 2, UpdatedAt = "t", UpdatedByInstallId = "other" },
         });
         await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
 
@@ -194,10 +197,10 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
 
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { ProfileId = deletedId, Name = "ToDelete", Revision = 1 },
+            new() { InstallId = OwnId, ProfileId = deletedId, Name = "ToDelete", Revision = 1 },
         });
         string? deletedProfileId = null;
-        _api.OnDeleteProfile = (_, profileId) => { deletedProfileId = profileId; return CloudApiResult<CloudVoid>.Ok(CloudVoid.Instance); };
+        _api.OnDeleteProfile = (_, _, profileId) => { deletedProfileId = profileId; return CloudApiResult<CloudVoid>.Ok(CloudVoid.Instance); };
 
         await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
 
@@ -221,7 +224,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         // "Default" has no sync record, so it decides Push, not DeleteLocal -
         // wired to fail silently so it does not interfere with the assertions.
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>());
-        _api.OnPutProfile = (_, _, _) => CloudApiResult<CloudPutProfileResult>.NetworkError("not wired");
+        _api.OnPutProfile = (_, _, _, _) => CloudApiResult<CloudPutProfileResult>.NetworkError("not wired");
 
         await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
 
@@ -240,7 +243,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         _store.Update(s => s.Auth!.CloudAccounts[0].ProfileSync[onlyId] = new CloudProfileSyncRecord { Revision = 1, LastSyncedHash = hash });
 
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>());
-        _api.OnPutProfile = (_, _, _) => CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 2 });
+        _api.OnPutProfile = (_, _, _, _) => CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 2 });
 
         await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
 
@@ -309,7 +312,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         });
 
         var pushedProfileIds = new List<string>();
-        _api.OnPutProfile = (token, profileId, _) =>
+        _api.OnPutProfile = (token, _, profileId, _) =>
         {
             Assert.Equal("access-for-from-acct", token); // the outgoing flush must authenticate as the OUTGOING account.
             pushedProfileIds.Add(profileId);
@@ -323,10 +326,10 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
             Assert.Equal("access-for-to-acct", token);
             return CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
             {
-                new() { ProfileId = "cloud-profile-1", Name = "Incoming", Revision = 5 },
+                new() { InstallId = OwnId, ProfileId = "cloud-profile-1", Name = "Incoming", Revision = 5 },
             });
         };
-        _api.OnGetProfile = (token, profileId) =>
+        _api.OnGetProfile = (token, _, profileId) =>
         {
             Assert.Equal("access-for-to-acct", token);
             Assert.Equal("cloud-profile-1", profileId);
@@ -381,7 +384,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
             RefreshToken = rt,
             Account = new CloudAccountDto { Id = rt == "refresh-from" ? "from-acct" : "to-acct", Email = "x@example.com", Username = "x", EmailVerified = true },
         });
-        _api.OnPutProfile = (_, _, _) => CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 1 });
+        _api.OnPutProfile = (_, _, _, _) => CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 1 });
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>());
 
         _sync.AnnounceSwitch("from-acct", "to-acct");
@@ -438,12 +441,12 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         });
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { ProfileId = "cloud-1", Name = "One", Revision = 1 },
-            new() { ProfileId = "cloud-2", Name = "Two", Revision = 1 },
+            new() { InstallId = OwnId, ProfileId = "cloud-1", Name = "One", Revision = 1 },
+            new() { InstallId = OwnId, ProfileId = "cloud-2", Name = "Two", Revision = 1 },
         });
         // First profile fetches fine, second fails - a partial pull must not
         // silently drop the second profile from the resulting library.
-        _api.OnGetProfile = (_, profileId) => profileId == "cloud-1"
+        _api.OnGetProfile = (_, _, profileId) => profileId == "cloud-1"
             ? CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
             {
                 ProfileId = "cloud-1", Name = "One", Revision = 1,
@@ -472,7 +475,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         });
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.NetworkError("dns failure");
         var pushTokens = new List<string>();
-        _api.OnPutProfile = (token, _, _) =>
+        _api.OnPutProfile = (token, _, _, _) =>
         {
             pushTokens.Add(token);
             return CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 1 });
@@ -514,9 +517,9 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         cloudSettings.Lighting.GlobalBrightness = 0.77f;
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { ProfileId = "cloud-default", Name = "Default", Revision = 3 },
+            new() { InstallId = OwnId, ProfileId = "cloud-default", Name = "Default", Revision = 3 },
         });
-        _api.OnGetProfile = (_, profileId) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
+        _api.OnGetProfile = (_, _, profileId) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
         {
             ProfileId = profileId,
             Name = "Default",
@@ -558,9 +561,9 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         cloudSettings.Lighting.GlobalBrightness = 0.77f;
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { ProfileId = "cloud-default", Name = "Default", Revision = 3 },
+            new() { InstallId = OwnId, ProfileId = "cloud-default", Name = "Default", Revision = 3 },
         });
-        _api.OnGetProfile = (_, profileId) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
+        _api.OnGetProfile = (_, _, profileId) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
         {
             ProfileId = profileId,
             Name = "Default",
@@ -591,9 +594,9 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         cloudSettings.Lighting.GlobalBrightness = 0.9f;
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
         {
-            new() { ProfileId = "cloud-default", Name = "Default", Revision = 3 },
+            new() { InstallId = OwnId, ProfileId = "cloud-default", Name = "Default", Revision = 3 },
         });
-        _api.OnGetProfile = (_, profileId) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
+        _api.OnGetProfile = (_, _, profileId) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
         {
             ProfileId = profileId,
             Name = "Default",
@@ -601,7 +604,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
             Payload = new ProfileExport { Name = "Default", Settings = cloudSettings },
         });
         var putCallsForLocalId = 0;
-        _api.OnPutProfile = (_, profileId, _) =>
+        _api.OnPutProfile = (_, _, profileId, _) =>
         {
             Assert.Equal(localId, profileId);
             putCallsForLocalId++;
@@ -635,7 +638,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         var bootstrapId = _profiles.GetActiveEntry()!.Id;
 
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>());
-        _api.OnPutProfile = (_, profileId, _) =>
+        _api.OnPutProfile = (_, _, profileId, _) =>
         {
             Assert.Equal(bootstrapId, profileId);
             return CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 1 });
@@ -660,7 +663,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
     {
         SeedAccount("acct-1", "refresh-1");
         _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>());
-        _api.OnPutProfile = (_, _, _) => CloudApiResult<CloudPutProfileResult>.NetworkError("dns failure");
+        _api.OnPutProfile = (_, _, _, _) => CloudApiResult<CloudPutProfileResult>.NetworkError("dns failure");
 
         // Local-only profile, no sync record yet -> Push decision. The first
         // pass only SEEDS dirtySince (a fresh debounce window starts counting
@@ -738,7 +741,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
             Account = new CloudAccountDto { Id = rt == "refresh-from" ? "from-acct" : "to-acct", Email = "x@example.com", Username = "x", EmailVerified = true },
         });
         var pushTokens = new List<string>();
-        _api.OnPutProfile = (token, _, _) =>
+        _api.OnPutProfile = (token, _, _, _) =>
         {
             pushTokens.Add(token);
             return CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 1 });
@@ -764,5 +767,48 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         Assert.All(pushTokens, t => Assert.Equal("tok-refresh-from", t));
         // The switch actually completed (not just redirected-and-stuck).
         Assert.Equal((null, null), _sync.PendingSwitch);
+    }
+
+    // ── per-machine isolation ────────────────────────────────────────────
+
+    [Fact]
+    public async Task Sync_pass_ignores_another_machines_rows()
+    {
+        SeedAccount("acct-1", "refresh-1");
+        var localCount = _profiles.GetManifest().Profiles.Count;
+        _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
+        {
+            new() { InstallId = "some-other-machine", ProfileId = "their-profile", Name = "Default", Revision = 9, UpdatedAt = "t" },
+        });
+        _api.OnGetProfile = (_, _, _) => throw new InvalidOperationException("must not fetch another machine's profile");
+
+        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
+
+        // No pull, no local library growth, and nothing to rename - which is
+        // exactly what stopped the "Default (2) (2)" duplication loop.
+        Assert.Equal(0, _api.GetProfileCalls);
+        Assert.Equal(localCount, _profiles.GetManifest().Profiles.Count);
+        Assert.Empty(_sync.GetStatus().Conflicts);
+    }
+
+    [Fact]
+    public async Task Sync_pass_addresses_its_own_install_id_when_pushing()
+    {
+        SeedAccount("acct-1", "refresh-1");
+        string? pushedInstallId = null;
+        _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>());
+        _api.OnPutProfile = (_, installId, _, _) =>
+        {
+            pushedInstallId = installId;
+            return CloudApiResult<CloudPutProfileResult>.Ok(new CloudPutProfileResult { Revision = 1 });
+        };
+
+        // First pass only starts the debounce window; the push lands on the
+        // pass after it elapses.
+        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
+        _clock.Advance(TimeSpan.FromSeconds(90));
+        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
+
+        Assert.Equal(OwnId, pushedInstallId);
     }
 }

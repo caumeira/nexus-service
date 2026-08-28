@@ -27,7 +27,7 @@ public sealed class ProfileManagerCloudTests : IDisposable
     }
 
     [Fact]
-    public void ExportProfileForSync_strips_auth_and_machine_scoped_fields()
+    public void ExportProfileForSync_carries_no_credentials_or_machine_scoped_state()
     {
         var activeId = _profiles.GetActiveEntry()!.Id;
         _store.Update(s =>
@@ -36,6 +36,11 @@ public sealed class ProfileManagerCloudTests : IDisposable
             s.PrimaryProfileId = activeId;
             s.SharedCategories = new List<string> { "lighting" };
             s.HostDisplayName = "Y70-BOX";
+            s.Steam.ApiKey = "steam-secret";
+            s.Discord.ClientSecret = "discord-secret";
+            s.HomeAssistant.Token = "hass-secret";
+            s.Obs.Password = "obs-secret";
+            s.Telemetry.InstallId = "this-machines-install-id";
         });
         _store.FlushNow();
 
@@ -43,9 +48,48 @@ public sealed class ProfileManagerCloudTests : IDisposable
 
         Assert.NotNull(export);
         Assert.NotNull(export!.Settings);
-        Assert.Null(export.Settings!.Auth);
-        Assert.Null(export.Settings.PrimaryProfileId);
-        Assert.Empty(export.Settings.SharedCategories);
+        var settings = export.Settings!;
+
+        // The export is built from the shareable categories only, so every
+        // credential block - all of which live at the NexusSettings root -
+        // is left at its default rather than copied. Asserting on the token
+        // values, not on the block being null, is what actually proves no
+        // secret leaves the machine.
+        Assert.Equal("", settings.Auth?.Token ?? "");
+        Assert.Equal("", settings.Steam.ApiKey);
+        Assert.Equal("", settings.Discord.ClientSecret);
+        Assert.Equal("", settings.HomeAssistant.Token);
+        Assert.Equal("", settings.Obs.Password);
+        Assert.Equal("", settings.AiIntegration.Token);
+
+        // Machine-scoped state must not travel either: it is never applied on
+        // the receiving side, and it made two machines permanently differ.
+        Assert.Equal("", settings.HostDisplayName);
+        Assert.Equal("", settings.Telemetry.InstallId);
+        Assert.Null(settings.PrimaryProfileId);
+        // SharedCategories is not copied, so it holds the fresh-install
+        // default rather than the source machine's ["lighting"].
+        Assert.DoesNotContain("lighting", settings.SharedCategories);
+        Assert.Equal(new NexusSettings().SharedCategories, settings.SharedCategories);
+    }
+
+    [Fact]
+    public void ExportProfileForSync_keeps_the_shareable_categories()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        _store.Update(s =>
+        {
+            s.Lighting.GlobalBrightness = 0.42f;
+            s.Cooling.GlobalSpeedModifier = 1.75;
+            s.Keeb.RotaryLeft = "custom-left";
+        });
+        _store.FlushNow();
+
+        var settings = _profiles.ExportProfileForSync(activeId)!.Settings!;
+
+        Assert.Equal(0.42f, settings.Lighting.GlobalBrightness);
+        Assert.Equal(1.75, settings.Cooling.GlobalSpeedModifier);
+        Assert.Equal("custom-left", settings.Keeb.RotaryLeft);
     }
 
     [Fact]
@@ -293,5 +337,27 @@ public sealed class ProfileManagerCloudTests : IDisposable
         Assert.Equal("Default", manifest.Profiles.Single(p => p.Id == "cloud-a").Name);
         Assert.Equal("Default (2)", manifest.Profiles.Single(p => p.Id == "cloud-b").Name);
         Assert.Equal("Default (3)", manifest.Profiles.Single(p => p.Id == "cloud-c").Name);
+    }
+
+    [Fact]
+    public void Importing_a_colliding_name_increments_the_counter_instead_of_appending()
+    {
+        // The old behaviour appended blindly, so a name round-tripping between
+        // two machines grew "Default" -> "Default (2)" -> "Default (2) (2)".
+        // Initialize() already seeded a profile called "Default".
+        var second = _profiles.ImportProfileWithId("id-a", "Default", new NexusSettings());
+        Assert.Equal("Default (2)", second.Name);
+
+        // The name that comes back from a machine that renamed it once. The
+        // counter must advance rather than a second suffix being welded on.
+        var third = _profiles.ImportProfileWithId("id-b", "Default (2)", new NexusSettings());
+        Assert.Equal("Default (3)", third.Name);
+
+        var fourth = _profiles.ImportProfileWithId("id-c", "Default (3)", new NexusSettings());
+        Assert.Equal("Default (4)", fourth.Name);
+        foreach (var entry in _profiles.GetManifest().Profiles)
+        {
+            Assert.DoesNotMatch(@"\(\d+\) \(\d+\)", entry.Name);
+        }
     }
 }

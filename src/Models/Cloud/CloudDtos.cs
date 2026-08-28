@@ -108,8 +108,22 @@ public sealed class CloudDevicePutRequest
     public string Os { get; set; } = "";
 }
 
+/// <summary>One row of GET /account/devices - the machine names behind the installIds on profile rows.</summary>
+public sealed class CloudDeviceDto
+{
+    public string InstallId { get; set; } = "";
+    public string Hostname { get; set; } = "";
+    public Dictionary<string, string> Specs { get; set; } = new();
+    public string? AppVersion { get; set; }
+    public string? Os { get; set; }
+    public bool Manual { get; set; }
+    public string LastSeenAt { get; set; } = "";
+}
+
 public sealed class CloudProfileSummaryDto
 {
+    /// <summary>The machine that owns this profile. The list endpoint returns every machine's rows; a sync pass keeps only its own.</summary>
+    public string InstallId { get; set; } = "";
     public string ProfileId { get; set; } = "";
     public string Name { get; set; } = "";
     public int Revision { get; set; }
@@ -120,6 +134,7 @@ public sealed class CloudProfileSummaryDto
 
 public sealed class CloudProfileDto
 {
+    public string InstallId { get; set; } = "";
     public string ProfileId { get; set; } = "";
     public string Name { get; set; } = "";
     public int Revision { get; set; }
@@ -134,7 +149,6 @@ public sealed class CloudPutProfileRequest
     public string Name { get; set; } = "";
     public int BaseRevision { get; set; }
     public ProfileExport? Payload { get; set; }
-    public string InstallId { get; set; } = "";
 }
 
 /// <summary>200 -> Revision set; 409 -> the CurrentRevision/UpdatedAt/UpdatedByInstallId/Name conflict fields are set instead. Both live on one type since AOT source-gen deserialization can't pick a shape dynamically.</summary>

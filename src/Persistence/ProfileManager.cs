@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Nexus.Service.Models.Profiles;
 using Nexus.Service.Platform;
@@ -19,7 +20,7 @@ public sealed class ProfileNameConflictException : Exception
     }
 }
 
-public sealed class ProfileManager : IDisposable
+public sealed partial class ProfileManager : IDisposable
 {
 
     internal const int MaxProfiles = 5;
@@ -294,12 +295,7 @@ public sealed class ProfileManager : IDisposable
 
             if (profileId == _manifest.ActiveProfileId)
             {
-                var current = CloneSettings(_store.Load());
-                current.Auth = null;
-                current.PrimaryProfileId = null;
-                current.SharedCategories = new List<string>();
-                current.AiIntegration = new AiIntegrationSettings();
-                return current;
+                return ProfileSharing.ExtractShareable(_store.Load());
             }
 
             var filePath = ProfileFilePath(profileId);
@@ -312,14 +308,7 @@ public sealed class ProfileManager : IDisposable
             {
                 var json = File.ReadAllText(filePath);
                 var settings = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings);
-                if (settings != null)
-                {
-                    settings.Auth = null;
-                    settings.PrimaryProfileId = null;
-                    settings.SharedCategories = new List<string>();
-                    settings.AiIntegration = new AiIntegrationSettings();
-                }
-                return settings;
+                return settings is null ? null : ProfileSharing.ExtractShareable(settings);
             }
             catch { return null; }
         }
@@ -653,21 +642,40 @@ public sealed class ProfileManager : IDisposable
     }
 
     /// <summary>Returns baseName, or the first "baseName (N)" variant (N starting at 2) for which isTaken returns false.</summary>
+    /// <summary>
+    /// First free "<c>name</c>", "<c>name (2)</c>", "<c>name (3)</c>"... An
+    /// existing trailing "(n)" on the input is PARSED, not appended to: a name
+    /// that already reads "Default (2)" becomes "Default (3)". Appending blindly
+    /// is what produced "Default (2) (2)" when two machines round-tripped a
+    /// renamed profile through cloud sync.
+    /// </summary>
     private static string NextAvailableName(string baseName, Func<string, bool> isTaken)
     {
         if (!isTaken(baseName))
         {
             return baseName;
         }
+
+        var stem = baseName;
         var suffix = 2;
+        var match = TrailingCounter().Match(baseName);
+        if (match.Success && int.TryParse(match.Groups[2].Value, out var parsed) && parsed >= 2)
+        {
+            stem = match.Groups[1].Value;
+            suffix = parsed + 1;
+        }
+
         string candidate;
         do
         {
-            candidate = $"{baseName} ({suffix})";
+            candidate = $"{stem} ({suffix})";
             suffix++;
         } while (isTaken(candidate));
         return candidate;
     }
+
+    [GeneratedRegex(@"^(.*?)\s*\((\d+)\)$")]
+    private static partial Regex TrailingCounter();
 
     private ProfileEntry CreateDefaultProfile()
     {
@@ -784,6 +792,81 @@ public sealed class ProfileManager : IDisposable
             // PanelDevices is hardware-scoped, not profile-scoped: do NOT
             // entries that the loaded profile JSON happens to carry into
         });
+    }
+
+    /// <summary>
+    /// Overwrites the named categories of one local profile from an imported
+    /// settings blob, leaving every other category untouched. This is the
+    /// cross-machine import primitive: the user picked another machine's
+    /// profile and chose which aspects of it to take. Returns false when the
+    /// target profile does not exist or its file cannot be read.
+    /// </summary>
+    internal bool ApplyCategoriesFromImport(string profileId, NexusSettings source, IReadOnlyList<string> categories)
+    {
+        bool reactivate;
+        lock (_lock)
+        {
+            var entry = _manifest.Profiles.FirstOrDefault(p => p.Id == profileId);
+            if (entry is null)
+            {
+                return false;
+            }
+
+            // The active profile's file lags in-memory settings until a flush,
+            // so read-modify-write would otherwise resurrect stale siblings.
+            if (profileId == _manifest.ActiveProfileId)
+            {
+                FlushActiveProfile();
+            }
+
+            var data = ReadProfileFile(profileId);
+            if (data is null)
+            {
+                return false;
+            }
+
+            var applied = false;
+            for (var i = 0; i < categories.Count; i++)
+            {
+                var category = ProfileSharing.Normalize(categories[i]);
+                if (category is null)
+                {
+                    continue;
+                }
+                ProfileSharing.ApplyCategory(data, source, category);
+                applied = true;
+            }
+            if (!applied)
+            {
+                return false;
+            }
+
+            var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
+            WriteAtomic(ProfileFilePath(profileId), json);
+            entry.UpdatedAt = DateTimeOffset.UtcNow.ToString("o");
+            SaveManifest();
+
+            reactivate = profileId == _manifest.ActiveProfileId;
+            if (reactivate)
+            {
+                LoadProfileIntoSettings(profileId);
+                _dirty = false;
+            }
+        }
+
+        // Outside the lock: the handler does hardware I/O (lighting reapply,
+        // fan enumeration), matching SwitchProfile and ImportProfileWithId.
+        if (reactivate)
+        {
+            OnProfileSwitched?.Invoke();
+        }
+        return true;
+    }
+
+    /// <summary>The id of the profile currently active, for callers that default an import target to it.</summary>
+    public string ActiveProfileId
+    {
+        get { lock (_lock) { return _manifest.ActiveProfileId; } }
     }
 
     /// <summary>Returns the raw deserialized contents of a profile file, or null if missing/corrupt. Used by sharing-aware load and copy paths.</summary>

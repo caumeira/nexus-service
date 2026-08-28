@@ -69,10 +69,11 @@ public interface ICloudApiClient
     Task<CloudApiResult<CloudVoid>> DeleteAccountAsync(string accessToken, string? currentPassword, CancellationToken ct);
     Task<CloudApiResult<CloudAvatarUploadResponse>> UploadAvatarAsync(string accessToken, byte[] bytes, string contentType, CancellationToken ct);
     Task<CloudApiResult<CloudVoid>> PutDeviceAsync(string accessToken, string installId, CloudDevicePutRequest body, CancellationToken ct);
+    Task<CloudApiResult<System.Collections.Generic.List<CloudDeviceDto>>> ListDevicesAsync(string accessToken, CancellationToken ct);
     Task<CloudApiResult<System.Collections.Generic.List<CloudProfileSummaryDto>>> ListProfilesAsync(string accessToken, CancellationToken ct);
-    Task<CloudApiResult<CloudProfileDto>> GetProfileAsync(string accessToken, string profileId, CancellationToken ct);
-    Task<CloudApiResult<CloudPutProfileResult>> PutProfileAsync(string accessToken, string profileId, CloudPutProfileRequest body, CancellationToken ct);
-    Task<CloudApiResult<CloudVoid>> DeleteProfileAsync(string accessToken, string profileId, CancellationToken ct);
+    Task<CloudApiResult<CloudProfileDto>> GetProfileAsync(string accessToken, string installId, string profileId, CancellationToken ct);
+    Task<CloudApiResult<CloudPutProfileResult>> PutProfileAsync(string accessToken, string installId, string profileId, CloudPutProfileRequest body, CancellationToken ct);
+    Task<CloudApiResult<CloudVoid>> DeleteProfileAsync(string accessToken, string installId, string profileId, CancellationToken ct);
 
     /// <summary>
     /// Forwards a raw JSON request body to <paramref name="path"/> and returns
@@ -198,6 +199,20 @@ public sealed class CloudApiClient : ICloudApiClient
     public Task<CloudApiResult<CloudVoid>> PutDeviceAsync(string accessToken, string installId, CloudDevicePutRequest body, CancellationToken ct) =>
         PutVoidAsync($"/account/devices/{Uri.EscapeDataString(installId)}", body, AppJsonContext.Default.CloudDevicePutRequest, ct, accessToken);
 
+    public async Task<CloudApiResult<System.Collections.Generic.List<CloudDeviceDto>>> ListDevicesAsync(string accessToken, CancellationToken ct)
+    {
+        try
+        {
+            using var client = CreateClient(accessToken);
+            using var res = await client.GetAsync(_baseUrl + "/account/devices", ct).ConfigureAwait(false);
+            return await ToResultAsync(res, AppJsonContext.Default.ListCloudDeviceDto, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return CloudApiResult<System.Collections.Generic.List<CloudDeviceDto>>.NetworkError(ex.Message);
+        }
+    }
+
     public async Task<CloudApiResult<System.Collections.Generic.List<CloudProfileSummaryDto>>> ListProfilesAsync(string accessToken, CancellationToken ct)
     {
         try
@@ -212,12 +227,12 @@ public sealed class CloudApiClient : ICloudApiClient
         }
     }
 
-    public async Task<CloudApiResult<CloudProfileDto>> GetProfileAsync(string accessToken, string profileId, CancellationToken ct)
+    public async Task<CloudApiResult<CloudProfileDto>> GetProfileAsync(string accessToken, string installId, string profileId, CancellationToken ct)
     {
         try
         {
             using var client = CreateClient(accessToken);
-            using var res = await client.GetAsync(_baseUrl + "/account/profiles/" + Uri.EscapeDataString(profileId), ct).ConfigureAwait(false);
+            using var res = await client.GetAsync(_baseUrl + "/account/profiles/" + Uri.EscapeDataString(installId) + "/" + Uri.EscapeDataString(profileId), ct).ConfigureAwait(false);
             return await ToResultAsync(res, AppJsonContext.Default.CloudProfileDto, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -226,13 +241,13 @@ public sealed class CloudApiClient : ICloudApiClient
         }
     }
 
-    public async Task<CloudApiResult<CloudPutProfileResult>> PutProfileAsync(string accessToken, string profileId, CloudPutProfileRequest body, CancellationToken ct)
+    public async Task<CloudApiResult<CloudPutProfileResult>> PutProfileAsync(string accessToken, string installId, string profileId, CloudPutProfileRequest body, CancellationToken ct)
     {
         try
         {
             using var client = CreateClient(accessToken);
             using var content = JsonContent.Create(body, AppJsonContext.Default.CloudPutProfileRequest);
-            using var res = await client.PutAsync(_baseUrl + "/account/profiles/" + Uri.EscapeDataString(profileId), content, ct).ConfigureAwait(false);
+            using var res = await client.PutAsync(_baseUrl + "/account/profiles/" + Uri.EscapeDataString(installId) + "/" + Uri.EscapeDataString(profileId), content, ct).ConfigureAwait(false);
             // 409 carries a meaningful conflict body, not just an error - read it like a success shape.
             if (res.StatusCode == System.Net.HttpStatusCode.Conflict)
             {
@@ -249,12 +264,12 @@ public sealed class CloudApiClient : ICloudApiClient
         }
     }
 
-    public async Task<CloudApiResult<CloudVoid>> DeleteProfileAsync(string accessToken, string profileId, CancellationToken ct)
+    public async Task<CloudApiResult<CloudVoid>> DeleteProfileAsync(string accessToken, string installId, string profileId, CancellationToken ct)
     {
         try
         {
             using var client = CreateClient(accessToken);
-            using var res = await client.DeleteAsync(_baseUrl + "/account/profiles/" + Uri.EscapeDataString(profileId), ct).ConfigureAwait(false);
+            using var res = await client.DeleteAsync(_baseUrl + "/account/profiles/" + Uri.EscapeDataString(installId) + "/" + Uri.EscapeDataString(profileId), ct).ConfigureAwait(false);
             return await ToVoidResultAsync(res, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)

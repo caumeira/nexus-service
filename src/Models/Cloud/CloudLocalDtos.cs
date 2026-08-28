@@ -96,9 +96,13 @@ public sealed class CloudSyncConflictDto
     public string ProfileId { get; set; } = "";
     public string Name { get; set; } = "";
     public string LocalUpdatedAt { get; set; } = "";
+    /// <summary>The machine holding the local copy - always this one. Named so the comparison sheet reads "HYTEY70" rather than a GUID.</summary>
+    public string LocalHostname { get; set; } = "";
     public int CloudRevision { get; set; }
     public string CloudUpdatedAt { get; set; } = "";
     public string CloudName { get; set; } = "";
+    /// <summary>Machine name behind UpdatedByInstallId; empty when the writer is not a machine this one can name, and the UI falls back to the id.</summary>
+    public string CloudHostname { get; set; } = "";
     public string UpdatedByInstallId { get; set; } = "";
 }
 
@@ -124,4 +128,59 @@ public sealed class CloudSyncResolveBody
     public string ProfileId { get; set; } = "";
     /// <summary>"local" | "cloud"</summary>
     public string Choice { get; set; } = "";
+}
+
+/// <summary>One profile belonging to some machine on the account, as the import picker lists it.</summary>
+public sealed class CloudLibraryProfileDto
+{
+    public string ProfileId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int Revision { get; set; }
+    public long SizeBytes { get; set; }
+    public string UpdatedAt { get; set; } = "";
+}
+
+/// <summary>A machine on the account, named by its reported hostname rather than its installId.</summary>
+public sealed class CloudLibraryMachineDto
+{
+    public string InstallId { get; set; } = "";
+    public string Hostname { get; set; } = "";
+    /// <summary>True for the machine serving this request; the UI hides it from the "import from" list.</summary>
+    public bool IsThisMachine { get; set; }
+    public string LastSeenAt { get; set; } = "";
+    public List<CloudLibraryProfileDto> Profiles { get; set; } = new();
+}
+
+public sealed class CloudLibraryResponse : ApiResponse
+{
+    public List<CloudLibraryMachineDto> Machines { get; set; } = new();
+}
+
+/// <summary>What one category of a remote profile holds, so the user can see what an import would bring before accepting it.</summary>
+public sealed class CloudImportCategoryDto
+{
+    public string Category { get; set; } = "";
+    public long SizeBytes { get; set; }
+    /// <summary>Metric id -> count, rendered by the web against its own localized labels.</summary>
+    public Dictionary<string, int> Metrics { get; set; } = new();
+}
+
+public sealed class CloudImportPreviewResponse : ApiResponse
+{
+    public string InstallId { get; set; } = "";
+    public string Hostname { get; set; } = "";
+    public string ProfileId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int Revision { get; set; }
+    public string UpdatedAt { get; set; } = "";
+    public List<CloudImportCategoryDto> Categories { get; set; } = new();
+}
+
+public sealed class CloudImportRequest
+{
+    public string InstallId { get; set; } = "";
+    public string ProfileId { get; set; } = "";
+    /// <summary>The LOCAL profile the selected categories overwrite. Defaults to the active profile when empty.</summary>
+    public string TargetProfileId { get; set; } = "";
+    public List<string> Categories { get; set; } = new();
 }

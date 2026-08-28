@@ -50,6 +50,27 @@ public static class ProfileSharing
         return null;
     }
 
+    /// <summary>
+    /// A settings object carrying ONLY the shareable categories, for cloud
+    /// sync payloads and cross-machine import previews. Everything else -
+    /// hardware-bound state (Y70, Devices, PanelDevices, every Panel* field),
+    /// Telemetry, and every integration credential block (Steam, Discord,
+    /// HomeAssistant, Obs, SmartLights, all mounted at the NexusSettings root)
+    /// - is left at its default, so it neither inflates the payload nor
+    /// travels off the machine. Category order matters: Dashboard writes
+    /// individual Cooling fields, so it must run after Cooling replaces the
+    /// whole block.
+    /// </summary>
+    public static NexusSettings ExtractShareable(NexusSettings source)
+    {
+        var extract = new NexusSettings();
+        for (var i = 0; i < All.Count; i++)
+        {
+            ApplyCategory(extract, source, All[i]);
+        }
+        return extract;
+    }
+
     /// <summary>Copies the named category from <paramref name="source"/> onto <paramref name="target"/>. Sibling state on target is preserved.</summary>
     public static void ApplyCategory(NexusSettings target, NexusSettings source, string category)
     {
