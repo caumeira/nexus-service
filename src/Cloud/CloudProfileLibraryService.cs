@@ -130,8 +130,14 @@ public sealed class CloudProfileLibraryService
 
         try
         {
-            var entry = _profiles.ImportProfile(name, settings);
+            _profiles.ImportProfile(name, settings, request.ReplaceExisting);
             return CloudActionResult.Ok();
+        }
+        catch (ProfileNameConflictException)
+        {
+            // The caller asks the user whether to replace, then retries with
+            // ReplaceExisting. Importing the same profile twice lands here.
+            return CloudActionResult.Fail("profile_name_taken", name, 409);
         }
         catch (InvalidOperationException)
         {

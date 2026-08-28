@@ -165,6 +165,55 @@ public sealed class CloudProfileLibraryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Importing_the_same_profile_twice_reports_a_name_conflict()
+    {
+        SeedRemote("install-y70", "HYTEY70", "p-remote", new NexusSettings());
+        var first = await _library.ImportAsync(new CloudImportRequest
+        {
+            InstallId = "install-y70",
+            ProfileId = "p-remote",
+        }, CancellationToken.None);
+        Assert.True(first.Success);
+
+        var second = await _library.ImportAsync(new CloudImportRequest
+        {
+            InstallId = "install-y70",
+            ProfileId = "p-remote",
+        }, CancellationToken.None);
+
+        // ProfileNameConflictException does not derive from
+        // InvalidOperationException, so this used to escape as a 500.
+        Assert.False(second.Success);
+        Assert.Equal("profile_name_taken", second.ErrorCode);
+        Assert.Equal(409, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task Replacing_on_conflict_overwrites_in_place_without_adding_a_profile()
+    {
+        var remote = new NexusSettings();
+        remote.Lighting.GlobalBrightness = 0.25f;
+        SeedRemote("install-y70", "HYTEY70", "p-remote", remote);
+        await _library.ImportAsync(new CloudImportRequest
+        {
+            InstallId = "install-y70", ProfileId = "p-remote",
+        }, CancellationToken.None);
+        var afterFirst = _profiles.GetManifest().Profiles.Count;
+
+        remote.Lighting.GlobalBrightness = 0.75f;
+        SeedRemote("install-y70", "HYTEY70", "p-remote", remote);
+        var result = await _library.ImportAsync(new CloudImportRequest
+        {
+            InstallId = "install-y70", ProfileId = "p-remote", ReplaceExisting = true,
+        }, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal(afterFirst, _profiles.GetManifest().Profiles.Count);
+        var entry = Assert.Single(_profiles.GetManifest().Profiles.Where(p => p.Name == "Their Default (HYTEY70)"));
+        Assert.Equal(0.75f, _profiles.ExportProfile(entry.Id)!.Lighting.GlobalBrightness);
+    }
+
+    [Fact]
     public async Task Import_reports_the_local_profile_cap()
     {
         SeedRemote("install-y70", "HYTEY70", "p-remote", new NexusSettings());

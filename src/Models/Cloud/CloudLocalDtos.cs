@@ -161,4 +161,6 @@ public sealed class CloudImportRequest
 {
     public string InstallId { get; set; } = "";
     public string ProfileId { get; set; } = "";
+    /// <summary>Set after the user answers the name-conflict prompt; overwrites the local profile of the same name in place.</summary>
+    public bool ReplaceExisting { get; set; }
 }
