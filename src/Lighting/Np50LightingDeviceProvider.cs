@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Mappings;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Peripherals.Hyte.Np50;
 using Nexus.Service.Persistence;
@@ -20,7 +22,8 @@ namespace Nexus.Service.Lighting;
 /// the shared settings store; the engine→writer pipeline
 /// (<see cref="Np50LightingFrameWriter"/>) applies them on the next frame.
 /// </summary>
-public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
+public sealed class Np50LightingDeviceProvider :
+    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
 {
     /// <summary>Number of LEDs on the NP50 hub logo strip (the firmware-controlled prefix on streaming channel 1).</summary>
     public const int LogoLedCount = 6;
@@ -263,6 +266,65 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
     }
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
+
+    // ── IDeviceStructureSource ──
+
+    /// <summary>One structure per zone card so the LED map editor resolves the zone's LED space; counts follow the same ZoneLedCounts override GetAll and BuildFrames honour.</summary>
+    public IReadOnlyList<DeviceStructure> GetStructures()
+    {
+        if (!_hub.IsConnected || string.IsNullOrEmpty(_hub.DeviceId))
+        {
+            return Array.Empty<DeviceStructure>();
+        }
+        var hubId = _hub.DeviceId;
+        var counts = _store.Load().Devices.ZoneLedCounts;
+        var structures = new List<DeviceStructure>
+        {
+            BuildStructure($"{hubId}:logo", $"{Np50Hub.ProductName} - Logo Strip", "Logo Strip",
+                LogoLedCount, "logo", counts),
+        };
+        foreach (var port in _hub.State.Ports)
+        {
+            foreach (var dev in port.Devices)
+            {
+                if (dev.LedCount <= 0) continue;
+                var rawName = $"{dev.Model} (Port {port.Index} #{dev.Index})";
+                structures.Add(BuildStructure($"{hubId}:port{port.Index}:dev{dev.Index}",
+                    $"{Np50Hub.ProductName} - {rawName}", rawName, dev.LedCount, dev.Model, counts));
+            }
+        }
+        return structures;
+    }
+
+    private static DeviceStructure BuildStructure(
+        string id, string name, string rawName, int firmwareLedCount, string keySlug,
+        IReadOnlyDictionary<string, int> counts)
+    {
+        var ledCount = counts.TryGetValue(id, out var persisted)
+            ? Math.Clamp(persisted, 0, firmwareLedCount)
+            : firmwareLedCount;
+        var key = DeviceKeyComputer.ForFirstParty(Np50Protocol.VendorId, Np50Protocol.ProductId, keySlug);
+        var structure = new DeviceStructure { DeviceId = id, Name = name, DeviceKey = key, Partitionable = false };
+        structure.Segments.Add(new StructureSegment
+        {
+            Index = 0,
+            Name = rawName,
+            LedCount = ledCount,
+            FrameLedCount = ledCount,
+            Resizable = true,
+            ZoneType = "linear",
+        });
+        structure.DefaultZones.Add(new DefaultZoneDef
+        {
+            Id = id,
+            Name = name,
+            RawName = rawName,
+            DeviceKey = key,
+            LegacyZoneIndex = -1,
+            Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = ledCount } },
+        });
+        return structure;
+    }
 
     // ── ILightingFrameContributor ──
 

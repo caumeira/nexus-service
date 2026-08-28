@@ -229,10 +229,10 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         // Non-partitionable cards (hub ports, smart lights, CNVS, Q-series)
         // are their own single-zone devices: the modal routing target is the
         // card itself and zone management stays hidden (ZoneCustomizable
-        // keeps its default false). Partition-aware providers set DeviceId
-        // and EnabledLedCount themselves; everything else resolves disables
-        // here through the identity context, on the one settings snapshot
-        // this call already loads.
+        // keeps its default false; their structures set Partitionable=false).
+        // Partition-aware providers set DeviceId and EnabledLedCount
+        // themselves; everything else resolves disables here through the
+        // identity context, on the one settings snapshot this call loads.
         var settings = _store.Load();
         var uncontrolled = settings.Devices.UncontrolledLightingDevices;
         foreach (var dev in rgb.Devices)
