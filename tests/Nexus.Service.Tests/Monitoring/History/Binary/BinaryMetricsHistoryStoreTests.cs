@@ -225,14 +225,19 @@ public class BinaryMetricsHistoryStoreTests : IDisposable
     [Fact]
     public void ResetAll_ClearsScalarHistory_AndRecordingContinuesAfterwards()
     {
+        // Real wall-clock timestamps, not small fixed constants: Append
+        // drops any sample older than ResetAll's reset stamp (see
+        // BinaryMetricsHistoryStore._resetAtUtcSec), which a hardcoded past
+        // ts would always be.
         using var store = new BinaryMetricsHistoryStore(_dir);
-        store.Append(new[] { Scalars(10, cpu: 50) }, null);
+        var nowSec = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        store.Append(new[] { Scalars(nowSec, cpu: 50) }, null);
 
         store.ResetAll();
-        Assert.Empty(store.Query(0, 100));
+        Assert.Empty(store.Query(nowSec - 5, nowSec + 200));
 
-        store.Append(new[] { Scalars(20, cpu: 70) }, null);
-        var row = Assert.Single(store.Query(0, 100));
+        store.Append(new[] { Scalars(nowSec + 100, cpu: 70) }, null);
+        var row = Assert.Single(store.Query(nowSec - 5, nowSec + 200));
         Assert.Equal(70, row.CpuPercent);
     }
 
@@ -246,9 +251,47 @@ public class BinaryMetricsHistoryStoreTests : IDisposable
         var cleared = store.BlankFpsSeries();
 
         var row = Assert.Single(store.Query(0, 100));
-        Assert.Equal(1, cleared);
+        Assert.Equal(2, cleared); // fps.ring + fps.min, both reset in full
         Assert.Null(row.Fps);
         Assert.Equal(42, row.CpuPercent);
         Assert.Equal(61, row.MemoryPercent);
+    }
+
+    [Fact]
+    public void ResetAll_ThenALateFlushOfAPreResetSample_IsDropped()
+    {
+        // Reproduces MetricsSampleBuffer replaying a sample it buffered
+        // before ResetAll ran but had not yet flushed - the sample's own ts
+        // predates the reset stamp, so Append must silently drop it rather
+        // than re-writing history the reset just cleared.
+        using var store = new BinaryMetricsHistoryStore(_dir);
+        var nowSec = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var staleSample = Scalars(nowSec - 50, cpu: 99);
+
+        store.ResetAll();
+        store.Append(new[] { staleSample }, null);
+
+        Assert.Empty(store.Query(nowSec - 100, nowSec + 100));
+    }
+
+    [Fact]
+    public void BlankFpsSeries_ClearsTheMinuteRollup_SoWideZoomStepsAlsoStopShowingFps()
+    {
+        using var store = new BinaryMetricsHistoryStore(_dir);
+        var minuteFloor = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 60 * 60;
+        store.Append(new[] { new MetricSample(minuteFloor, null, null, null, null, null,
+            Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { Fps = 60 } }, null);
+
+        var before60 = store.QueryScalarsDecimated(minuteFloor, minuteFloor + 299, stepSeconds: 60);
+        var before300 = store.QueryScalarsDecimated(minuteFloor, minuteFloor + 299, stepSeconds: 300);
+        Assert.Equal(60, Assert.Single(before60).FpsAvg);
+        Assert.Equal(60, Assert.Single(before300).FpsAvg);
+
+        store.BlankFpsSeries();
+
+        var after60 = store.QueryScalarsDecimated(minuteFloor, minuteFloor + 299, stepSeconds: 60);
+        var after300 = store.QueryScalarsDecimated(minuteFloor, minuteFloor + 299, stepSeconds: 300);
+        Assert.Null(Assert.Single(after60).FpsAvg);
+        Assert.Null(Assert.Single(after300).FpsAvg);
     }
 }

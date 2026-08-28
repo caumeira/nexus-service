@@ -17,8 +17,7 @@ internal readonly record struct ScalarReading(
     long? NetOutBytesPerSec,
     double? CpuTempC,
     long? DiskReadBytesPerSec,
-    long? DiskWriteBytesPerSec,
-    int? Fps = null);
+    long? DiskWriteBytesPerSec);
 
 /// <summary>
 /// The 1Hz scalar ring (cpu/mem/net-in/net-out/cpu-temp/disk-read/disk-write):
@@ -30,7 +29,9 @@ internal readonly record struct ScalarReading(
 /// a link or drive at or above roughly 17 Gbps stays representable instead of
 /// wrapping. Each field type has its own reserved "null" sentinel (the type's
 /// MinValue), so a source-failed reading is never confused with a genuine
-/// zero.
+/// zero. BodyLength is pinned - widening it reformats every existing
+/// scalars.ring on next boot (see RingFile's capacity/stride mismatch
+/// handling); fps has its own ring (FpsRingStore) for exactly this reason.
 /// </summary>
 internal sealed class ScalarRingStore : IDisposable
 {
@@ -45,20 +46,16 @@ internal sealed class ScalarRingStore : IDisposable
     private const int CpuOffset = DiskWriteOffset + sizeof(long);
     private const int MemOffset = CpuOffset + sizeof(short);
     private const int CpuTempOffset = MemOffset + sizeof(short);
-    private const int FpsOffset = CpuTempOffset + sizeof(short);
-    public const int BodyLength = FpsOffset + sizeof(short);
+    public const int BodyLength = CpuTempOffset + sizeof(short);
 
     private const short NullX10 = short.MinValue;
-    private const short NullFps = short.MinValue;
     private const long NullWhole = long.MinValue;
 
     private readonly RingFile _ring;
 
-    // RingFile's "one writer at a time" contract assumes a single caller
-    // over the store's lifetime (MetricsSampler's own dedicated thread);
-    // BlankFps is a second, route-triggered writer, so both writing paths
-    // serialize through this lock rather than racing WriteSlot calls
-    // against each other.
+    // RingFile assumes a single writer over its lifetime (MetricsSampler's
+    // dedicated thread); Clear is a second, route-triggered writer, so both
+    // serialize through this lock.
     private readonly object _writeLock = new();
 
     public ScalarRingStore(string path, long capacity, long initialPruneFloorSec)
@@ -181,7 +178,6 @@ internal sealed class ScalarRingStore : IDisposable
         var temp = Slots(rows, r => r.CpuTempC, fromSec, toSec, stepSeconds);
         var diskRead = Slots(rows, r => r.DiskReadBytesPerSec, fromSec, toSec, stepSeconds);
         var diskWrite = Slots(rows, r => r.DiskWriteBytesPerSec, fromSec, toSec, stepSeconds);
-        var fps = Slots(rows, r => (double?)r.Fps, fromSec, toSec, stepSeconds);
 
         var allSlots = new SortedSet<long>();
         allSlots.UnionWith(cpu.Keys);
@@ -191,7 +187,6 @@ internal sealed class ScalarRingStore : IDisposable
         allSlots.UnionWith(temp.Keys);
         allSlots.UnionWith(diskRead.Keys);
         allSlots.UnionWith(diskWrite.Keys);
-        allSlots.UnionWith(fps.Keys);
 
         var result = new List<ScalarDecimatedSlot>(allSlots.Count);
         foreach (var slot in allSlots)
@@ -204,8 +199,7 @@ internal sealed class ScalarRingStore : IDisposable
                 netOut.GetValueOrDefault(slot)?.Avg, netOut.GetValueOrDefault(slot)?.Max,
                 temp.GetValueOrDefault(slot)?.Avg, temp.GetValueOrDefault(slot)?.Max,
                 diskRead.GetValueOrDefault(slot)?.Avg, diskRead.GetValueOrDefault(slot)?.Max,
-                diskWrite.GetValueOrDefault(slot)?.Avg, diskWrite.GetValueOrDefault(slot)?.Max,
-                fps.GetValueOrDefault(slot)?.Avg, fps.GetValueOrDefault(slot)?.Max));
+                diskWrite.GetValueOrDefault(slot)?.Avg, diskWrite.GetValueOrDefault(slot)?.Max));
         }
         return result;
     }
@@ -224,7 +218,6 @@ internal sealed class ScalarRingStore : IDisposable
         BinaryPrimitives.WriteInt16LittleEndian(body[CpuOffset..], ScaleX10(s.CpuPercent));
         BinaryPrimitives.WriteInt16LittleEndian(body[MemOffset..], ScaleX10(s.MemoryPercent));
         BinaryPrimitives.WriteInt16LittleEndian(body[CpuTempOffset..], ScaleX10(s.CpuTempC));
-        BinaryPrimitives.WriteInt16LittleEndian(body[FpsOffset..], ScaleFps(s.Fps));
     }
 
     private static ScalarReading Decode(long ts, ReadOnlySpan<byte> body)
@@ -236,14 +229,12 @@ internal sealed class ScalarRingStore : IDisposable
         var cpu = BinaryPrimitives.ReadInt16LittleEndian(body[CpuOffset..]);
         var mem = BinaryPrimitives.ReadInt16LittleEndian(body[MemOffset..]);
         var cpuTemp = BinaryPrimitives.ReadInt16LittleEndian(body[CpuTempOffset..]);
-        var fps = BinaryPrimitives.ReadInt16LittleEndian(body[FpsOffset..]);
         return new ScalarReading(
             ts,
             UnscaleX10(cpu), UnscaleX10(mem),
             UnscaleWhole(netIn), UnscaleWhole(netOut),
             UnscaleX10(cpuTemp),
-            UnscaleWhole(diskRead), UnscaleWhole(diskWrite),
-            UnscaleFps(fps));
+            UnscaleWhole(diskRead), UnscaleWhole(diskWrite));
     }
 
     // Non-finite (NaN/Infinity) is treated the same as a missing reading
@@ -268,24 +259,6 @@ internal sealed class ScalarRingStore : IDisposable
     }
 
     private static double? UnscaleX10(short raw) => raw == NullX10 ? null : raw / 10.0;
-
-    // frames == 0 (loading, paused, minimized) stores identically to "no
-    // presenter" - both read back as an absent second on the fps series,
-    // per the fps-benchmarks plan's series-gap rule.
-    private static short ScaleFps(int? value)
-    {
-        if (value is not { } v || v <= 0)
-        {
-            return NullFps;
-        }
-        if (v >= short.MaxValue)
-        {
-            return short.MaxValue;
-        }
-        return (short)v;
-    }
-
-    private static int? UnscaleFps(short raw) => raw == NullFps ? null : raw;
 
     private static long ScaleWhole(double? value)
     {
@@ -313,35 +286,6 @@ internal sealed class ScalarRingStore : IDisposable
         {
             _ring.Clear();
         }
-    }
-
-    /// <summary>Rewrites every currently-stored slot with its Fps field
-    /// cleared, leaving cpu/mem/net/disk/temp fields on that same slot
-    /// untouched - DELETE /api/fps/all blanks only the fps series, not the
-    /// whole scalar ring. Returns the number of slots rewritten.</summary>
-    public int BlankFps()
-    {
-        var count = 0;
-        Span<byte> body = stackalloc byte[BodyLength];
-        lock (_writeLock)
-        {
-            for (long index = 0; index < _ring.Capacity; index++)
-            {
-                if (!_ring.TryReadSlotAtIndex(index, body, out var ts))
-                {
-                    continue;
-                }
-                if (BinaryPrimitives.ReadInt16LittleEndian(body[FpsOffset..]) == NullFps)
-                {
-                    continue;
-                }
-                BinaryPrimitives.WriteInt16LittleEndian(body[FpsOffset..], NullFps);
-                _ring.WriteSlot(ts, body);
-                count++;
-            }
-            _ring.Flush();
-        }
-        return count;
     }
 
     public void Dispose() => _ring.Dispose();

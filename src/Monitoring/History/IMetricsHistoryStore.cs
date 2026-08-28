@@ -57,8 +57,7 @@ public interface IMetricsHistoryStore : IDisposable
     /// fps session history live in separate stores and are untouched.</summary>
     int ResetAll();
 
-    /// <summary>Clears only the fps field of every stored scalar slot,
-    /// leaving cpu/mem/net/disk/temp on those same slots untouched -
+    /// <summary>Resets the fps history rings (raw + minute rollup) -
     /// DELETE /api/fps/all's history-side effect.</summary>
     int BlankFpsSeries();
 }

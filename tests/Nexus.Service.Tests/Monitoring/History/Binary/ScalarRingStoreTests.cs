@@ -34,8 +34,36 @@ public class ScalarRingStoreTests : IDisposable
         new(Path.Combine(_dir, "scalars.ring"), capacity, initialPruneFloorSec);
 
     private static MetricSample Scalars(
-        long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55, int? fps = null) =>
-        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>(), Fps: fps);
+        long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
+        new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
+
+    [Fact]
+    public void BodyLength_IsPinned_SoExistingScalarsRingFilesStayCompatible()
+    {
+        // Widening this reformats every existing scalars.ring on next boot
+        // (RingFile.CreateOrOpen treats a stride mismatch as a fresh file) -
+        // fps has its own ring (FpsRingStore) precisely so this never has to
+        // move again.
+        Assert.Equal(38, ScalarRingStore.BodyLength);
+    }
+
+    [Fact]
+    public void Reopen_AFileWrittenAtTheCurrentBodyLength_KeepsItsData()
+    {
+        var path = Path.Combine(_dir, "reopen.ring");
+        using (var store = new ScalarRingStore(path, 100, long.MinValue))
+        {
+            store.Append(new[] { Scalars(10, cpu: 42.3, mem: 61.7) });
+        }
+
+        var expectedLength = 100 * (8 + ScalarRingStore.BodyLength + 4 + 8); // capacity * (lead + body + crc + trail)
+        Assert.Equal(expectedLength, new FileInfo(path).Length);
+
+        using var reopened = new ScalarRingStore(path, 100, long.MinValue);
+        var row = Assert.Single(reopened.Query(0, 100));
+        Assert.Equal(42.3, row.CpuPercent);
+        Assert.Equal(61.7, row.MemoryPercent);
+    }
 
     [Fact]
     public void Append_ThenQuery_RoundTripsEveryField()
@@ -50,61 +78,6 @@ public class ScalarRingStoreTests : IDisposable
         Assert.Equal(12345, row.NetInBytesPerSec);
         Assert.Equal(6789, row.NetOutBytesPerSec);
         Assert.Equal(55.4, row.CpuTempC);
-    }
-
-    [Fact]
-    public void Append_AnFpsReading_RoundTrips()
-    {
-        using var store = CreateStore();
-        store.Append(new[] { Scalars(10, fps: 144) });
-
-        var row = Assert.Single(store.Query(0, 100));
-        Assert.Equal(144, row.Fps);
-    }
-
-    [Fact]
-    public void Append_FpsZero_RoundTripsAsNull_UnlikeEveryOtherScalarField()
-    {
-        // Decision: frames == 0 (loading, paused, minimized) reads as an
-        // absent second on the fps series, not as a genuine zero.
-        using var store = CreateStore();
-        store.Append(new[] { Scalars(10, fps: 0) });
-
-        var row = Assert.Single(store.Query(0, 100));
-        Assert.Null(row.Fps);
-    }
-
-    [Fact]
-    public void Append_NoFpsReading_RoundTripsAsNull()
-    {
-        using var store = CreateStore();
-        store.Append(new[] { Scalars(10) });
-
-        var row = Assert.Single(store.Query(0, 100));
-        Assert.Null(row.Fps);
-    }
-
-    [Fact]
-    public void BlankFps_ClearsOnlyFps_LeavingEveryOtherFieldOnTheSameSlotIntact()
-    {
-        using var store = CreateStore();
-        store.Append(new[] { Scalars(10, cpu: 42, fps: 144) });
-
-        var cleared = store.BlankFps();
-
-        var row = Assert.Single(store.Query(0, 100));
-        Assert.Equal(1, cleared);
-        Assert.Null(row.Fps);
-        Assert.Equal(42, row.CpuPercent);
-    }
-
-    [Fact]
-    public void BlankFps_SlotWithNoFpsReading_IsNotCounted()
-    {
-        using var store = CreateStore();
-        store.Append(new[] { Scalars(10, fps: null) });
-
-        Assert.Equal(0, store.BlankFps());
     }
 
     [Fact]
