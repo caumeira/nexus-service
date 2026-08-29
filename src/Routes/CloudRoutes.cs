@@ -305,6 +305,17 @@ public static class CloudRoutes
             await ForwardGetAsync(api, "/games/scores" + req.QueryString.Value, ct).ConfigureAwait(false))
             .AllowPanel();
 
+        // Community FPS estimates: the dashboard resolves its rig to a signature
+        // then fetches the per-game table. Same browser-cannot-sign reason to
+        // proxy as the boards above.
+        app.MapGet("/cloud/fps/signature", async (HttpRequest req, ICloudApiClient api, CancellationToken ct) =>
+            await ForwardGetAsync(api, "/fps/signature" + req.QueryString.Value, ct).ConfigureAwait(false))
+            .AllowPanel();
+
+        app.MapGet("/cloud/fps/table/{sigKey}", async (string sigKey, ICloudApiClient api, CancellationToken ct) =>
+            await ForwardGetAsync(api, "/fps/table/" + Uri.EscapeDataString(sigKey), ct).ConfigureAwait(false))
+            .AllowPanel();
+
         // Thin forwarders for the dashboard's device-management UI: same raw
         // passthrough shape as /cloud/benchmarks/submit, no local DTO, bearer
         // attached when signed in.
