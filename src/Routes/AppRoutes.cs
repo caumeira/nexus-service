@@ -61,6 +61,7 @@ public static class AppRoutes
             var response = new AppInstalledListingResponse();
             foreach (var entry in registry.All())
             {
+                if (IsOemHidden(entry, oemInfo)) continue;
                 response.Apps.Add(BuildListing(entry, oemInfo));
             }
             return Results.Json(response, AppJsonContext.Default.AppInstalledListingResponse);
@@ -70,6 +71,7 @@ public static class AppRoutes
         {
             if (!AppIds.IsValid(id)) return Results.NotFound();
             if (!registry.TryGet(id, out var entry)) return Results.NotFound();
+            if (IsOemHidden(entry, oemInfo)) return Results.NotFound();
             return Results.Json(BuildListing(entry, oemInfo), AppJsonContext.Default.AppInstalledListing);
         }).AllowPanel();
 
@@ -380,6 +382,17 @@ public static class AppRoutes
         if (path.Contains("..", StringComparison.Ordinal)) return false;
         if (path.StartsWith('/') || path.StartsWith('\\')) return false;
         return true;
+    }
+
+    // A bundled app whose manifest carries an oem manufacturer gate is an
+    // OEM-exclusive bake-in: it stays out of the listing entirely (nav, app
+    // picker) on hardware whose SMBIOS manufacturer does not match. A user
+    // copy of the same id is a deliberate install and is never hidden.
+    private static bool IsOemHidden(AppEntry entry, OemInfo oemInfo)
+    {
+        if (entry.Source != AppInstallPaths.Source.Bundled) return false;
+        return entry.Manifest.Oem?.Manufacturer is { Count: > 0 } manufacturers
+            && !oemInfo.Matches(manufacturers);
     }
 
     private static AppInstalledListing BuildListing(AppEntry entry, OemInfo oemInfo)

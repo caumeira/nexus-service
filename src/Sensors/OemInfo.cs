@@ -26,11 +26,14 @@ public sealed class OemInfo
     public string? Family => _fields.Value.Family;
 
     /// <summary>Case-insensitive, trimmed match against the detected manufacturer.</summary>
-    public bool Matches(IEnumerable<string> candidates)
+    public bool Matches(IEnumerable<string> candidates) => Matches(Manufacturer, candidates);
+
+    /// <summary>Case-insensitive, trimmed match of <paramref name="detected"/>
+    /// against any candidate. Pure so the OEM gate is testable without SMBIOS.</summary>
+    public static bool Matches(string? detected, IEnumerable<string> candidates)
     {
-        var m = Manufacturer;
-        if (string.IsNullOrWhiteSpace(m)) return false;
-        var trimmed = m.Trim();
+        if (string.IsNullOrWhiteSpace(detected)) return false;
+        var trimmed = detected.Trim();
         foreach (var candidate in candidates)
         {
             if (string.Equals(trimmed, candidate?.Trim(), StringComparison.OrdinalIgnoreCase))
