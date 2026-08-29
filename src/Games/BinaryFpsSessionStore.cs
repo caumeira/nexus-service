@@ -212,6 +212,63 @@ public sealed class BinaryFpsSessionStore : IDisposable
         }
     }
 
+    /// <summary>Every session with UploadState Pending, oldest first, capped
+    /// at max - the FIFO order lets a large backlog drain across successive
+    /// hourly batches instead of the newest sessions perpetually crowding
+    /// out the oldest.</summary>
+    public IReadOnlyList<FpsSessionRecord> QueryPendingForUpload(int max)
+    {
+        lock (_lock)
+        {
+            var result = new List<FpsSessionRecord>();
+            foreach (var month in ExistingMonths().OrderBy(m => m, StringComparer.Ordinal))
+            {
+                foreach (var raw in ReadMonth(month).Where(r => r.UploadState == FpsUploadState.Pending).OrderBy(r => r.StartedUtcMs))
+                {
+                    result.Add(ToRecord(raw));
+                    if (result.Count >= max)
+                    {
+                        return result;
+                    }
+                }
+            }
+            return result;
+        }
+    }
+
+    /// <summary>Rewrites the UploadState of every session in ids, across
+    /// whichever month segments hold them. A no-op id (already gone, or
+    /// never existed) is silently ignored.</summary>
+    public void MarkUploadState(IEnumerable<Guid> ids, FpsUploadState state)
+    {
+        var idSet = new HashSet<Guid>(ids);
+        if (idSet.Count == 0)
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            foreach (var month in ExistingMonths())
+            {
+                var records = ReadMonth(month);
+                var changed = false;
+                for (var i = 0; i < records.Count; i++)
+                {
+                    if (idSet.Contains(records[i].Id))
+                    {
+                        records[i] = records[i] with { UploadState = state };
+                        changed = true;
+                    }
+                }
+                if (changed)
+                {
+                    RewriteMonth(month, records);
+                }
+            }
+        }
+    }
+
     public int DeleteAll()
     {
         lock (_lock)

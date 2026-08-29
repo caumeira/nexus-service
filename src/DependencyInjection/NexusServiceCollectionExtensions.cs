@@ -414,6 +414,15 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Games.FpsSessionRecorder>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.FpsSessionRecorder>());
+
+        // Uploads pending fps sessions to nexus-api, consent-gated the same
+        // way fleet telemetry is; skipped entirely in an unofficial build
+        // since the ingest endpoint requires the signed client credential.
+        if (Nexus.Service.Common.ClientCredential.IsOfficial)
+        {
+            services.AddSingleton<Nexus.Service.Games.IFpsUploadTransport, Nexus.Service.Games.FpsUploadTransport>();
+            services.AddHostedService<Nexus.Service.Games.FpsUploadWorker>();
+        }
 #endif
         return services;
     }

@@ -407,6 +407,89 @@ public class BinaryFpsSessionStoreTests : IDisposable
     }
 
     [Fact]
+    public void QueryPendingForUpload_ReturnsOnlyPendingSessions_OldestFirst()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        var older = Session(startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000);
+        var newer = Session(startedUtcMs: NowUtcMs + 1_000_000, endedUtcMs: NowUtcMs + 1_600_000);
+        store.Append(older);
+        store.Append(newer);
+        store.MarkUploadState(new[] { newer.Id }, FpsUploadState.Sent);
+
+        var pending = store.QueryPendingForUpload(10);
+
+        var row = Assert.Single(pending);
+        Assert.Equal(older.Id, row.Id);
+    }
+
+    [Fact]
+    public void QueryPendingForUpload_RespectsMax()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        for (var i = 0; i < 5; i++)
+        {
+            store.Append(Session(startedUtcMs: NowUtcMs + i * 1000, endedUtcMs: NowUtcMs + i * 1000 + 600_000));
+        }
+
+        Assert.Equal(3, store.QueryPendingForUpload(3).Count);
+    }
+
+    [Fact]
+    public void MarkUploadState_RoundTripsAcrossReopen()
+    {
+        FpsSessionRecord record;
+        using (var store = new BinaryFpsSessionStore(_dir))
+        {
+            record = Session();
+            store.Append(record);
+            store.MarkUploadState(new[] { record.Id }, FpsUploadState.Sent);
+        }
+
+        using var reopened = new BinaryFpsSessionStore(_dir);
+        var stored = Assert.Single(reopened.QuerySessions(record.GameKey, 10));
+        Assert.Equal(FpsUploadState.Sent, stored.UploadState);
+        Assert.Empty(reopened.QueryPendingForUpload(10));
+    }
+
+    [Fact]
+    public void MarkUploadState_AcrossTwoMonths_UpdatesBoth()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        var thisMonth = Session(startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000);
+        var lastMonth = Session(startedUtcMs: PreviousMonthUtcMs, endedUtcMs: PreviousMonthUtcMs + 600_000);
+        store.Append(thisMonth);
+        store.Append(lastMonth);
+
+        store.MarkUploadState(new[] { thisMonth.Id, lastMonth.Id }, FpsUploadState.Rejected);
+
+        Assert.Empty(store.QueryPendingForUpload(10));
+        Assert.All(store.QuerySessions(thisMonth.GameKey, 10), r => Assert.Equal(FpsUploadState.Rejected, r.UploadState));
+    }
+
+    [Fact]
+    public void MarkUploadState_UnknownId_IsANoOp()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        var record = Session();
+        store.Append(record);
+
+        store.MarkUploadState(new[] { Guid.NewGuid() }, FpsUploadState.Sent);
+
+        Assert.Single(store.QueryPendingForUpload(10));
+    }
+
+    [Fact]
+    public void MarkUploadState_EmptyIdList_IsANoOp()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session());
+
+        store.MarkUploadState(Array.Empty<Guid>(), FpsUploadState.Sent);
+
+        Assert.Single(store.QueryPendingForUpload(10));
+    }
+
+    [Fact]
     public void Reopen_SeesSessionsPersistedByThePreviousInstance()
     {
         using (var store = new BinaryFpsSessionStore(_dir))

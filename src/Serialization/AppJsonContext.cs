@@ -1002,6 +1002,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Telemetry.FleetEventPayload))]
 [JsonSerializable(typeof(Nexus.Service.Telemetry.FleetEventSpecs))]
 
+// Fps session upload batch posted to nexus-api.
+[JsonSerializable(typeof(Nexus.Service.Games.FpsUploadPayload))]
+[JsonSerializable(typeof(Nexus.Service.Games.FpsUploadHardware))]
+[JsonSerializable(typeof(Nexus.Service.Games.FpsUploadSession))]
+
 // Phone-as-webcam control surface.
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStartRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStatusResponse))]
