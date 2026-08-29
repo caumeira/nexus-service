@@ -10,10 +10,13 @@ namespace Nexus.Service.Store;
 /// Read-only passthrough to the cloud store catalog.
 /// </summary>
 /// <remarks>
-/// The dashboard cannot call the cloud API directly: the service serves it under
-/// a <c>connect-src 'self'</c> CSP, so a cross-origin fetch is blocked in the
-/// browser. Server-side calls have no such limit, so the catalog is proxied
-/// here rather than widening the policy.
+/// The catalog is proxied so its media can be. The CSP the service serves the
+/// dashboard under allows the catalog fetch itself (<c>connect-src</c> lists
+/// api.hellonexus.com) but not the imagery: <c>img-src</c> has no entry for
+/// assets.hellonexus.com, so a screenshot loaded straight from the bucket is
+/// blocked. Passing the listing through here is what makes rewriting those URLs
+/// onto a same-origin route possible, and a panel with no route off the LAN
+/// reaches the catalog for free.
 ///
 /// Only the client's own facts are forwarded (its version, whether the surface
 /// has a pointer), so the catalog can answer with versions this machine can
