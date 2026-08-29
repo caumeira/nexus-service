@@ -34,6 +34,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<LedPositionOverride>))]
 [JsonSerializable(typeof(Dictionary<string, List<LedPositionOverride>>))]
 [JsonSerializable(typeof(OpenRgbDetectorExclusion))]
+[JsonSerializable(typeof(OpenRgbManualDevices))]
+[JsonSerializable(typeof(QmkOpenRgbDeviceEntry))]
+[JsonSerializable(typeof(E131DeviceEntry))]
 [JsonSerializable(typeof(Dictionary<string, OpenRgbDetectorExclusion>))]
 // Zones model - device partitions and segment-local LED overrides.
 [JsonSerializable(typeof(ZoneDef))]

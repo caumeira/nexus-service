@@ -186,7 +186,15 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// unconditionally with no check for an existing controller, so the dedupe
     /// has to happen here.
     /// </summary>
-    private static readonly string[] DisabledDetectors = { "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub", "NZXT Kraken 2024 ELITE Series RGB", "HID LampArray Device" };
+    private static readonly string[] DisabledDetectors = {
+        "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub",
+        "NZXT Kraken 2024 ELITE Series RGB", "HID LampArray Device",
+        // Nollie controllers are driven natively; names match the
+        // REGISTER_HID_DETECTOR strings in openrgb-headless.
+        "Nollie 32CH", "Nollie 16CH", "Nollie 8CH", "Nollie 1CH", "Nollie 28 12", "Nollie 28 L1",
+        "Nollie 28 L2", "Nollie 32_OS2", "Nollie 16_OS2", "Nollie 8_OS2", "Nollie 1_OS2",
+        "Nollie 32_OS2_1", "Nollie 16_OS2_1", "Nollie 8_OS2_1", "Prism8 8_OS2_1", "Nollie 1_OS2_1",
+    };
 
     /// <summary>
     /// Detector names the user excluded by turning Nexus Control off for every
@@ -461,6 +469,15 @@ public sealed class OpenRgbProcessManager : IDisposable
             // or the user excluded. Re-asserted on every (re)launch so a
             // supervisor restart can't run an instance that re-grabs them.
             EnsureDetectorOverrides(configDir, ResolvePlaceholderDetectors());
+
+            // Registrations for hardware no detector can match on its own (QMK
+            // boards, E1.31 devices). Re-asserted per launch for the same
+            // reason as the overrides above.
+            if (_store is not null)
+            {
+                try { OpenRgbManualDeviceConfig.Write(configDir, _store.Load().Devices.OpenRgbManualDevices); }
+                catch (Exception ex) { ServiceLog.Warn($"[openrgb-proc] manual-device write skipped: {ex.GetType().Name}: {ex.Message}"); }
+            }
 
             // The MSBuild Content copy (and tar/zip round-trips) drop the
             // executable bit on Linux/macOS - restore it or Process.Start fails

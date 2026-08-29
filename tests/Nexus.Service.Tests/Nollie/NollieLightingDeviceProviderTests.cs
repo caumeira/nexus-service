@@ -1,0 +1,261 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Nexus.Service.Lighting;
+using Nexus.Service.Peripherals.Hid;
+using Nexus.Service.Peripherals.Nollie;
+using Nexus.Service.Persistence;
+using Xunit;
+
+namespace Nexus.Service.Tests.Nollie;
+
+/// <summary>
+/// Card emission and the LED-count declaration. The protocol reports no count,
+/// so every channel stays resizable and the persisted user value is the only
+/// source for how long a strip is.
+/// </summary>
+public class NollieLightingDeviceProviderTests
+{
+    private readonly NollieHub _hub = new();
+    private readonly InMemoryConfigStore _store = new();
+    private readonly NollieLightingDeviceProvider _provider;
+
+    public NollieLightingDeviceProviderTests()
+    {
+        _provider = new NollieLightingDeviceProvider(_hub, _store, new Np50IdentifyTracker());
+    }
+
+    private NollieController Attach(int vid, int pid, string serial)
+    {
+        var spec = NollieProtocol.Lookup(vid, pid)!;
+        var controller = new NollieController(new FakeHidDevice(vid, pid, $"path-{serial}", serial), spec);
+        _hub.Attach(controller);
+        return controller;
+    }
+
+    [Fact]
+    public void GetAll_is_empty_with_nothing_attached()
+    {
+        Assert.Empty(_provider.GetAll().Devices);
+        Assert.False(_provider.IsConnected);
+    }
+
+    [Fact]
+    public void Emits_one_card_per_channel()
+    {
+        Attach(0x16D5, 0x2A16, "SIXTEEN");
+        var devices = _provider.GetAll().Devices;
+        Assert.Equal(16, devices.Count);
+        Assert.Equal("Nollie 16_OS2_1 - Channel 1", devices[0].Name);
+        Assert.Equal("Nollie 16_OS2_1 - Channel 16", devices[15].Name);
+    }
+
+    /// <summary>Four single-channel controllers is the shape the reporting user has.</summary>
+    [Fact]
+    public void Namespaces_cards_per_controller_so_identical_models_do_not_collide()
+    {
+        Attach(0x16D5, 0x2A01, "AAA");
+        Attach(0x16D5, 0x2A01, "BBB");
+        var ids = _provider.GetAll().Devices.Select(d => d.Id).ToArray();
+        Assert.Equal(2, ids.Length);
+        Assert.Equal(ids.Length, ids.Distinct().Count());
+        Assert.Contains("nollie-s-AAA:ch0", ids);
+        Assert.Contains("nollie-s-BBB:ch0", ids);
+    }
+
+    [Fact]
+    public void Every_channel_is_resizable()
+    {
+        Attach(0x16D5, 0x2A16, "SIXTEEN");
+        Assert.All(_provider.GetAll().Devices, d => Assert.True(d.ZoneResizable));
+    }
+
+    [Fact]
+    public void Channel_led_count_is_zero_until_declared()
+    {
+        Attach(0x16D5, 0x2A16, "SIXTEEN");
+        Assert.All(_provider.GetAll().Devices, d => Assert.Equal(0, d.LedCount));
+    }
+
+    [Fact]
+    public void SetZoneLedCount_persists_and_surfaces_on_the_card()
+    {
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, 2), 42);
+
+        var card = _provider.GetAll().Devices.Single(d => d.ZoneIndex == 2);
+        Assert.Equal(42, card.LedCount);
+        Assert.Equal(42, _store.Load().Devices.ZoneLedCounts[card.Id]);
+    }
+
+    [Fact]
+    public void SetZoneLedCount_clamps_to_the_controller_ceiling()
+    {
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        var id = NollieLightingDeviceProvider.ChannelId(c.DeviceId, 0);
+        _provider.SetZoneLedCount(id, 99_999);
+        Assert.Equal(256, _store.Load().Devices.ZoneLedCounts[id]);
+    }
+
+    [Fact]
+    public void SetZoneLedCount_ignores_a_negative_count_and_an_unknown_id()
+    {
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, 0), -5);
+        _provider.SetZoneLedCount("nollie-s-GHOST:ch0", 30);
+        _provider.SetZoneLedCount($"{c.DeviceId}:ch99", 30);
+        Assert.Empty(_store.Load().Devices.ZoneLedCounts);
+    }
+
+    /// <summary>A count persisted above the ceiling (older build, edited file) is clamped on read, never trusted raw.</summary>
+    [Fact]
+    public void Oversized_persisted_count_is_clamped_when_read()
+    {
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        var id = NollieLightingDeviceProvider.ChannelId(c.DeviceId, 0);
+        _store.Update(s => s.Devices.ZoneLedCounts[id] = 5000);
+        Assert.Equal(256, _provider.GetAll().Devices.Single(d => d.Id == id).LedCount);
+    }
+
+    [Fact]
+    public void Structures_expose_one_resizable_segment_per_channel()
+    {
+        var c = Attach(0x16D5, 0x2A01, "ONE");
+        _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, 0), 12);
+
+        var structures = _provider.GetStructures();
+        var s = Assert.Single(structures);
+        var seg = Assert.Single(s.Segments);
+        Assert.True(seg.Resizable);
+        Assert.Equal(12, seg.LedCount);
+        Assert.Equal(12, seg.FrameLedCount);
+        Assert.Equal("linear", seg.ZoneType);
+    }
+
+    [Fact]
+    public void Frames_match_the_declared_counts_and_get_contiguous_indices()
+    {
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, 0), 10);
+        _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, 1), 20);
+
+        var frames = _provider.BuildFrames(startingIndex: 5);
+        Assert.Equal(16, frames.Count);
+        for (var i = 0; i < frames.Count; i++) Assert.Equal(5 + i, frames[i].Index);
+        Assert.Equal(10, frames[0].LedCount);
+        Assert.Equal(20, frames[1].LedCount);
+        Assert.Equal(0, frames[2].LedCount);
+    }
+
+    /// <summary>A frame instance is reused across refreshes so the writer never sees a blank frame for one tick.</summary>
+    [Fact]
+    public void Frames_are_reused_when_shape_is_unchanged()
+    {
+        var c = Attach(0x16D5, 0x2A01, "ONE");
+        _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, 0), 8);
+        var first = _provider.BuildFrames(0)[0];
+        var second = _provider.BuildFrames(0)[0];
+        Assert.Same(first, second);
+    }
+
+    [Fact]
+    public void Detaching_drops_the_cards()
+    {
+        var c = Attach(0x16D5, 0x2A01, "ONE");
+        Assert.Single(_provider.GetAll().Devices);
+        _hub.Detach(c.DeviceId);
+        Assert.Empty(_provider.GetAll().Devices);
+        Assert.False(_provider.IsConnected);
+    }
+
+    [Fact]
+    public void Controller_without_a_serial_falls_back_to_a_path_derived_id()
+    {
+        var spec = NollieProtocol.Lookup(0x16D5, 0x2A01)!;
+        var controller = new NollieController(new FakeHidDevice(0x16D5, 0x2A01, @"\\?\hid#vid_16d5", serial: null), spec);
+        Assert.StartsWith("nollie-p-", controller.DeviceId, StringComparison.Ordinal);
+    }
+
+    /// <summary>A resize must notify, or the bridge never rebuilds frames at the new length.</summary>
+    [Fact]
+    public void SetZoneLedCount_raises_DevicesChanged()
+    {
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        _provider.OnHubStateUpdated();
+
+        var fired = 0;
+        _provider.DevicesChanged += () => fired++;
+        _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, 0), 30);
+        Assert.Equal(1, fired);
+
+        // Same value again is not a change.
+        _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, 0), 30);
+        Assert.Equal(1, fired);
+    }
+
+    /// <summary>
+    /// Cards must leave DeviceId empty so the composite fills DeviceId AND
+    /// EnabledLedCount. Setting DeviceId claims partition-awareness, and the
+    /// composite then skips EnabledLedCount, leaving it 0 - which the web's
+    /// isCardFullyParked reads as "every LED disabled", hiding all but one card
+    /// per device and blanking the LED map.
+    /// </summary>
+    [Fact]
+    public void Cards_leave_DeviceId_for_the_composite_to_fill()
+    {
+        Attach(0x16D5, 0x2A16, "SIXTEEN");
+        Assert.All(_provider.GetAll().Devices, d => Assert.Equal("", d.DeviceId));
+    }
+
+    /// <summary>Zone management stays hidden: cards come from a fixed per-channel list, not a resolvable partition.</summary>
+    [Fact]
+    public void Cards_are_not_zone_customizable()
+    {
+        Attach(0x16D5, 0x2A16, "SIXTEEN");
+        Assert.All(_provider.GetAll().Devices, d => Assert.False(d.ZoneCustomizable));
+    }
+
+    [Fact]
+    public void Structures_are_not_partitionable()
+    {
+        Attach(0x16D5, 0x2A16, "SIXTEEN");
+        Assert.All(_provider.GetStructures(), s => Assert.False(s.Partitionable));
+    }
+
+    /// <summary>A declared count must reach the card, or the LED map has nothing to draw.</summary>
+    [Fact]
+    public void Declared_count_surfaces_on_every_channel_card()
+    {
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        for (var ch = 0; ch < 16; ch++)
+        {
+            _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, ch), 60);
+        }
+        var cards = _provider.GetAll().Devices;
+        Assert.Equal(16, cards.Count);
+        Assert.All(cards, d => Assert.Equal(60, d.LedCount));
+    }
+
+    internal sealed class FakeHidDevice : IHidDevice
+    {
+        public FakeHidDevice(int vid, int pid, string path, string? serial)
+        { VendorId = vid; ProductId = pid; Path = path; Serial = serial; }
+
+        public List<byte[]> Writes { get; } = new();
+        public int VendorId { get; }
+        public int ProductId { get; }
+        public string Path { get; }
+        public string? Serial { get; }
+        public int UsagePage => NollieProtocol.VendorUsagePage;
+        public int Usage => NollieProtocol.VendorUsage;
+        public bool WriteResult { get; set; } = true;
+
+        public bool Write(ReadOnlySpan<byte> report) { Writes.Add(report.ToArray()); return WriteResult; }
+        public bool SetFeature(ReadOnlySpan<byte> report) => throw new NotSupportedException();
+        public bool GetFeature(Span<byte> buffer) => throw new NotSupportedException();
+        public bool GetInputReport(Span<byte> buffer) => throw new NotSupportedException();
+        public bool SetOutputReport(ReadOnlySpan<byte> report) => throw new NotSupportedException();
+        public int Read(Span<byte> buffer, int timeoutMs) => throw new NotSupportedException();
+        public void Dispose() { }
+    }
+}

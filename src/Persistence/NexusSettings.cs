@@ -1005,6 +1005,42 @@ public sealed class DevicesSettings
     /// detector denylist + placeholder_only list in the daemon's OpenRGB.json.
     /// </summary>
     public Dictionary<string, OpenRgbDetectorExclusion> OpenRgbDetectorExclusions { get; set; } = new();
+
+    /// <summary>Devices OpenRGB cannot auto-detect and only finds through a user registration in its own config; written into the daemon's OpenRGB.json at launch.</summary>
+    public OpenRgbManualDevices OpenRgbManualDevices { get; set; } = new();
+}
+
+/// <summary>
+/// Registrations the bundled daemon needs because the hardware advertises
+/// nothing a detector can match on: a QMK-OpenRGB board answers only on the
+/// vid/pid the user flashed, and an E1.31 device is a bare IP. OpenRGB's own
+/// GUI stores the same two lists, so <see cref="Nexus.Service.Lighting.Rgb.OpenRgbConfigImport"/>
+/// can adopt a user's existing config wholesale.
+/// </summary>
+public sealed class OpenRgbManualDevices
+{
+    public List<QmkOpenRgbDeviceEntry> Qmk { get; set; } = new();
+    public List<E131DeviceEntry> E131 { get; set; } = new();
+}
+
+/// <summary>One QMK-OpenRGB keyboard. Ids are hex strings without a prefix, matching what OpenRGB parses with std::stoi(s, 0, 16).</summary>
+public sealed class QmkOpenRgbDeviceEntry
+{
+    public string Name { get; set; } = "";
+    public string UsbVid { get; set; } = "";
+    public string UsbPid { get; set; } = "";
+}
+
+/// <summary>One E1.31 / WLED device. Field names and defaults mirror E131ControllerDetect.cpp.</summary>
+public sealed class E131DeviceEntry
+{
+    public string Name { get; set; } = "";
+    public string Ip { get; set; } = "";
+    public int NumLeds { get; set; }
+    public int StartUniverse { get; set; } = 1;
+    public int StartChannel { get; set; } = 1;
+    public int KeepaliveTime { get; set; }
+    public int UniverseSize { get; set; } = 512;
 }
 
 /// <summary>Identity snapshot of an OpenRGB device taken when its detector was excluded.</summary>

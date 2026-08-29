@@ -453,3 +453,76 @@ public sealed class LedPreviewLayoutBody
     public int LedCount { get; set; }
     public List<LedPreviewPosition> Leds { get; set; } = new();
 }
+
+/// <summary>Registrations for hardware OpenRGB can only find when told it exists.</summary>
+public sealed class OpenRgbManualDevicesResponse : ApiResponse
+{
+    public List<QmkDeviceDto> Qmk { get; set; } = new();
+    public List<E131DeviceDto> E131 { get; set; } = new();
+    /// <summary>Where an existing OpenRGB install would keep its config on this OS.</summary>
+    public string ImportSourcePath { get; set; } = "";
+    /// <summary>True when that file exists, so the UI can offer the import without probing.</summary>
+    public bool ImportSourceAvailable { get; set; }
+}
+
+public sealed class QmkDeviceDto
+{
+    public string Name { get; set; } = "";
+    public string UsbVid { get; set; } = "";
+    public string UsbPid { get; set; } = "";
+}
+
+public sealed class E131DeviceDto
+{
+    public string Name { get; set; } = "";
+    public string Ip { get; set; } = "";
+    public int NumLeds { get; set; }
+    public int StartUniverse { get; set; } = 1;
+    public int StartChannel { get; set; } = 1;
+    public int KeepaliveTime { get; set; }
+    public int UniverseSize { get; set; } = 512;
+}
+
+public sealed class AddQmkDeviceBody
+{
+    public string Name { get; set; } = "";
+    public string UsbVid { get; set; } = "";
+    public string UsbPid { get; set; } = "";
+}
+
+public sealed class AddE131DeviceBody
+{
+    public string Name { get; set; } = "";
+    public string Ip { get; set; } = "";
+    public int NumLeds { get; set; }
+    public int StartUniverse { get; set; } = 1;
+    public int StartChannel { get; set; } = 1;
+    public int KeepaliveTime { get; set; }
+    public int UniverseSize { get; set; } = 512;
+}
+
+public sealed class RemoveManualDeviceBody
+{
+    /// <summary>"qmk" or "e131".</summary>
+    public string Kind { get; set; } = "";
+    /// <summary>QMK: the vid. E1.31: the ip.</summary>
+    public string Key { get; set; } = "";
+    /// <summary>QMK: the pid. E1.31: the start universe.</summary>
+    public string Key2 { get; set; } = "";
+}
+
+/// <summary>Outcome of adopting an existing OpenRGB install's registrations.</summary>
+public sealed class ImportOpenRgbConfigResponse : ApiResponse
+{
+    public bool SourceFound { get; set; }
+    public string Path { get; set; } = "";
+    public int Added { get; set; }
+    public int QmkSeen { get; set; }
+    public int E131Seen { get; set; }
+}
+
+public sealed class ImportOpenRgbConfigBody
+{
+    /// <summary>Optional override; blank uses this OS's default OpenRGB config location.</summary>
+    public string Path { get; set; } = "";
+}
