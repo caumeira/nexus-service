@@ -125,8 +125,6 @@ public sealed class NollieLightingDeviceProvider :
                     ZoneIndex = ch,
                     ZoneType = "linear",
                     ZoneResizable = true,
-                    DeviceId = controller.DeviceId,
-                    ZoneCustomizable = true,
                 });
                 slot++;
             }
@@ -154,7 +152,7 @@ public sealed class NollieLightingDeviceProvider :
                 var ledCount = DeclaredLedCount(counts, id, controller.Spec);
                 var name = $"{controller.Spec.Name} - {NollieProtocol.ChannelName(ch)}";
                 var key = ChannelKey(controller, ch);
-                var structure = new DeviceStructure { DeviceId = id, Name = name, DeviceKey = key };
+                var structure = new DeviceStructure { DeviceId = id, Name = name, DeviceKey = key, Partitionable = false };
                 structure.Segments.Add(new StructureSegment
                 {
                     Index = 0,

@@ -193,6 +193,49 @@ public class NollieLightingDeviceProviderTests
         Assert.Equal(1, fired);
     }
 
+    /// <summary>
+    /// Cards must leave DeviceId empty so the composite fills DeviceId AND
+    /// EnabledLedCount. Setting DeviceId claims partition-awareness, and the
+    /// composite then skips EnabledLedCount, leaving it 0 - which the web's
+    /// isCardFullyParked reads as "every LED disabled", hiding all but one card
+    /// per device and blanking the LED map.
+    /// </summary>
+    [Fact]
+    public void Cards_leave_DeviceId_for_the_composite_to_fill()
+    {
+        Attach(0x16D5, 0x2A16, "SIXTEEN");
+        Assert.All(_provider.GetAll().Devices, d => Assert.Equal("", d.DeviceId));
+    }
+
+    /// <summary>Zone management stays hidden: cards come from a fixed per-channel list, not a resolvable partition.</summary>
+    [Fact]
+    public void Cards_are_not_zone_customizable()
+    {
+        Attach(0x16D5, 0x2A16, "SIXTEEN");
+        Assert.All(_provider.GetAll().Devices, d => Assert.False(d.ZoneCustomizable));
+    }
+
+    [Fact]
+    public void Structures_are_not_partitionable()
+    {
+        Attach(0x16D5, 0x2A16, "SIXTEEN");
+        Assert.All(_provider.GetStructures(), s => Assert.False(s.Partitionable));
+    }
+
+    /// <summary>A declared count must reach the card, or the LED map has nothing to draw.</summary>
+    [Fact]
+    public void Declared_count_surfaces_on_every_channel_card()
+    {
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        for (var ch = 0; ch < 16; ch++)
+        {
+            _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, ch), 60);
+        }
+        var cards = _provider.GetAll().Devices;
+        Assert.Equal(16, cards.Count);
+        Assert.All(cards, d => Assert.Equal(60, d.LedCount));
+    }
+
     internal sealed class FakeHidDevice : IHidDevice
     {
         public FakeHidDevice(int vid, int pid, string path, string? serial)
