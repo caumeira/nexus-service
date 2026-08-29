@@ -48,9 +48,12 @@ public sealed class KrakenPanelDiscovery : IStreamedPanelDiscovery
                     CssWidth = KrakenProtocol.LcdWidth,
                     CssHeight = KrakenProtocol.LcdHeight,
                     Dpr = 1.0,
-                    // Measured ceiling is ~2.3 fps: 1.6 MB a frame over a pipe that
-                    // accepts ~4 MB/s. Producing above it just grows the queue.
-                    Fps = 2,
+                    // The device is the ceiling at ~2.3 fps: a 1.6 MB frame over a pipe
+                    // that accepts 4.0 MB/s however it is chunked (measured 64 KiB to
+                    // 2 MiB, all 4.0). Asking for 3 keeps the pipe saturated and lets the
+                    // queue trim, so the panel shows the freshest frame the device can
+                    // take rather than idling between paced sends.
+                    Fps = 3,
                     Codec = StreamCodec.RawBgra,
                 },
             },

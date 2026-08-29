@@ -39,7 +39,12 @@ public sealed class StreamSession
         PanelDeviceId = panelDeviceId;
         // Enough queue to absorb a transport blip while resuming near-live;
         // when even the newest GOP exceeds it, resync from the next IDR.
-        _maxQueuedFrames = Math.Max(30, info.Profile.Fps * 2);
+        // Raw frames are every one a keyframe and megabytes each, and the device
+        // is the ceiling: queueing them buys nothing but latency, so hold a single
+        // frame of slack and let the trim keep the newest.
+        _maxQueuedFrames = info.Profile.Codec == StreamCodec.RawBgra
+            ? 2
+            : Math.Max(30, info.Profile.Fps * 2);
     }
 
     public string SessionId { get; }

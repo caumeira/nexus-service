@@ -7,8 +7,9 @@ namespace Nexus.Service.Peripherals.Nzxt;
 
 /// <summary>
 /// Owns the Kraken's HID control channel and its WinUSB bulk pipe, and serializes every
-/// exchange. All I/O happens under <c>_lock</c>; callers outside the worker thread read
-/// <see cref="Snapshot"/> without blocking.
+/// exchange. HID I/O happens under <c>_lock</c>; the LCD's bulk pixel writes run outside it
+/// under <c>_lcdTransferLock</c>, since they use a different endpoint. Callers outside the
+/// worker thread read <see cref="Snapshot"/> without blocking.
 /// </summary>
 public sealed class KrakenHub : IDisposable
 {
@@ -20,6 +21,10 @@ public sealed class KrakenHub : IDisposable
     private const int BulkChunkBytes = 64 * 1024;
 
     private readonly object _lock = new();
+    // Serialises whole LCD transfers with each other. The stream path holds this across a
+    // frame while taking _lock only for the short HID steps, so the ~414 ms of pixels does
+    // not block the lighting writer: pixels ride the bulk endpoint, colours ride HID.
+    private readonly object _lcdTransferLock = new();
     private readonly IKrakenLcdTransportFactory? _lcdFactory;
     private IHidDevice? _device;
     private IKrakenLcdTransport? _lcd;
@@ -476,39 +481,84 @@ public sealed class KrakenHub : IDisposable
             return false;
         }
         var source = rgba.ToArray();
-        lock (_lock)
+        lock (_lcdTransferLock)
         {
-            if (_device == null || _lcd == null)
+            int target;
+            byte[] payload;
+            IKrakenLcdTransport lcd;
+            lock (_lock)
             {
-                return false;
+                if (_device == null || _lcd == null)
+                {
+                    return false;
+                }
+                if (!_streamReady && !PrepareStreamBucketsLocked())
+                {
+                    return false;
+                }
+                lcd = _lcd;
+                target = _streamActiveBucket == 0 ? 1 : 0;
+                payload = KrakenProtocol.RotateRgba(
+                    source, KrakenProtocol.LcdWidth, KrakenProtocol.LcdHeight, _snapshot.LcdOrientationQuarterTurns);
+                var start = ExchangeLocked(
+                    KrakenProtocol.EncodeStartTransfer(target), 0x37, 0x01, CommandReadTimeoutMs);
+                if (start == null || !KrakenProtocol.IsAck(start))
+                {
+                    _streamReady = false;
+                    return false;
+                }
             }
-            if (!_streamReady && !PrepareStreamBucketsLocked())
+
+            // Bulk endpoint only, outside _lock: HID commands for lighting and telemetry
+            // keep flowing while the pixels stream, which is what lets an animation run at
+            // its own rate instead of waiting a whole frame for the pipe.
+            if (!WriteBulkPayload(lcd, payload))
             {
+                lock (_lock) { _streamReady = false; }
                 return false;
             }
 
-            int target = _streamActiveBucket == 0 ? 1 : 0;
-            var payload = KrakenProtocol.RotateRgba(
-                source, KrakenProtocol.LcdWidth, KrakenProtocol.LcdHeight, _snapshot.LcdOrientationQuarterTurns);
-            if (!WriteBucketLocked(target, payload))
+            lock (_lock)
             {
-                // Re-allocate next call: a rejected transfer usually means the bucket
-                // table no longer matches what this hub believes.
-                _streamReady = false;
-                return false;
+                if (_device == null)
+                {
+                    return false;
+                }
+                ExchangeLocked(KrakenProtocol.EncodeEndTransfer(), 0x37, 0x02, CommandReadTimeoutMs);
+                var activate = ExchangeLocked(
+                    KrakenProtocol.EncodeSetDisplayMode(KrakenDisplayMode.Bucket, target), 0x39, 0x01, CommandReadTimeoutMs);
+                if (activate == null || !KrakenProtocol.IsAck(activate))
+                {
+                    // Re-allocate next call: a rejected transfer usually means the bucket
+                    // table no longer matches what this hub believes.
+                    _streamReady = false;
+                    return false;
+                }
+                _streamActiveBucket = target;
+                _snapshot = _snapshot.WithDisplayMode(KrakenDisplayMode.Bucket);
+                return true;
             }
-
-            var activate = ExchangeLocked(
-                KrakenProtocol.EncodeSetDisplayMode(KrakenDisplayMode.Bucket, target), 0x39, 0x01, CommandReadTimeoutMs);
-            if (activate == null || !KrakenProtocol.IsAck(activate))
-            {
-                _streamReady = false;
-                return false;
-            }
-            _streamActiveBucket = target;
-            _snapshot = _snapshot.WithDisplayMode(KrakenDisplayMode.Bucket);
-            return true;
         }
+    }
+
+    /// <summary>Header then pixels on the bulk endpoint; takes no lock of its own.</summary>
+    private static bool WriteBulkPayload(IKrakenLcdTransport lcd, byte[] payload)
+    {
+        var header = KrakenProtocol.EncodeBulkHeader(KrakenProtocol.BulkFormatRgba8888, payload.Length);
+        // The header must be its own bulk transfer; concatenating corrupts the upload.
+        if (!lcd.Write(header))
+        {
+            return false;
+        }
+        for (int offset = 0; offset < payload.Length; offset += BulkChunkBytes)
+        {
+            int len = Math.Min(BulkChunkBytes, payload.Length - offset);
+            if (!lcd.Write(payload.AsSpan(offset, len)))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>Clears the bucket table and reserves two non-overlapping frame slots.</summary>
@@ -547,19 +597,9 @@ public sealed class KrakenHub : IDisposable
         {
             return false;
         }
-        var header = KrakenProtocol.EncodeBulkHeader(KrakenProtocol.BulkFormatRgba8888, payload.Length);
-        // The header must be its own bulk transfer; concatenating corrupts the upload.
-        if (!_lcd.Write(header))
+        if (!WriteBulkPayload(_lcd, payload))
         {
             return false;
-        }
-        for (int offset = 0; offset < payload.Length; offset += BulkChunkBytes)
-        {
-            int len = Math.Min(BulkChunkBytes, payload.Length - offset);
-            if (!_lcd.Write(payload.AsSpan(offset, len)))
-            {
-                return false;
-            }
         }
         ExchangeLocked(KrakenProtocol.EncodeEndTransfer(), 0x37, 0x02, CommandReadTimeoutMs);
         return true;
