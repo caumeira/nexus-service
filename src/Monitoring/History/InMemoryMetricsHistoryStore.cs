@@ -74,9 +74,10 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
             var temp = Slots(rows, s => s.CpuTempC, fromSec, toSec, stepSeconds);
             var diskRead = Slots(rows, s => s.DiskReadBytesPerSec, fromSec, toSec, stepSeconds);
             var diskWrite = Slots(rows, s => s.DiskWriteBytesPerSec, fromSec, toSec, stepSeconds);
+            var fps = Slots(rows, s => (double?)s.Fps, fromSec, toSec, stepSeconds);
 
             var allSlots = new SortedSet<long>(cpu.Keys.Concat(mem.Keys).Concat(netIn.Keys).Concat(netOut.Keys)
-                .Concat(temp.Keys).Concat(diskRead.Keys).Concat(diskWrite.Keys));
+                .Concat(temp.Keys).Concat(diskRead.Keys).Concat(diskWrite.Keys).Concat(fps.Keys));
             var result = new List<ScalarDecimatedSlot>(allSlots.Count);
             foreach (var slot in allSlots)
             {
@@ -88,7 +89,8 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
                     netOut.GetValueOrDefault(slot)?.Avg, netOut.GetValueOrDefault(slot)?.Max,
                     temp.GetValueOrDefault(slot)?.Avg, temp.GetValueOrDefault(slot)?.Max,
                     diskRead.GetValueOrDefault(slot)?.Avg, diskRead.GetValueOrDefault(slot)?.Max,
-                    diskWrite.GetValueOrDefault(slot)?.Avg, diskWrite.GetValueOrDefault(slot)?.Max));
+                    diskWrite.GetValueOrDefault(slot)?.Avg, diskWrite.GetValueOrDefault(slot)?.Max,
+                    fps.GetValueOrDefault(slot)?.Avg, fps.GetValueOrDefault(slot)?.Max));
             }
             return result;
         }
@@ -254,6 +256,36 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         IReadOnlyList<MetricSample> rows, Func<MetricSample, double?> selector, long fromSec, long toSec, int stepSeconds) =>
         MetricsDecimation.Decimate(rows.Select(s => new MetricSamplePoint(s.TsSec, selector(s))), fromSec, toSec, stepSeconds)
             .ToDictionary(p => p.T);
+
+    public int ResetAll()
+    {
+        lock (_lock)
+        {
+            var count = _rows.Count + _appTicks.Count;
+            _rows.Clear();
+            _appTicks.Clear();
+            return count;
+        }
+    }
+
+    public int BlankFpsSeries()
+    {
+        lock (_lock)
+        {
+            var count = 0;
+            var keys = _rows.Keys.ToList();
+            foreach (var ts in keys)
+            {
+                if (_rows[ts].Fps is null)
+                {
+                    continue;
+                }
+                _rows[ts] = _rows[ts] with { Fps = null };
+                count++;
+            }
+            return count;
+        }
+    }
 
     public void Upsert(string capability, string appId, long startUtcSec, long? endUtcSec)
     {

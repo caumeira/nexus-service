@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Nexus.Service.Auth;
+using Nexus.Service.Models;
 using Nexus.Service.Models.Widgets;
 using Nexus.Service.Sensors;
 using Nexus.Service.Serialization;
@@ -101,6 +103,49 @@ public static class AppRoutes
         {
             var result = installer.Install(body.Id ?? "");
             return Results.Json(result, AppJsonContext.Default.AppInstallResponse);
+        }).AllowPanel();
+
+        // Catalog passthrough. The dashboard is served under connect-src 'self',
+        // so it cannot reach the cloud API itself; these hand back its JSON
+        // verbatim rather than widening the CSP.
+        app.MapGet("/apps-api/store/apps",
+            async (Nexus.Service.Store.StoreCatalogProxy proxy, HttpContext http, CancellationToken ct) =>
+        {
+            var body = await proxy.ListAsync(
+                http.Request.Query["nexusVersion"], ParseTouch(http), ct);
+            return body is null
+                ? Results.Json(ApiResponse.Fail("catalog unavailable"), AppJsonContext.Default.ApiResponse, statusCode: 503)
+                : Results.Content(body, "application/json");
+        }).AllowPanel();
+
+        app.MapGet("/apps-api/store/apps/{appId}",
+            async (string appId, Nexus.Service.Store.StoreCatalogProxy proxy, HttpContext http, CancellationToken ct) =>
+        {
+            var body = await proxy.DetailAsync(appId, http.Request.Query["nexusVersion"], ParseTouch(http), ct);
+            return body is null
+                ? Results.Json(ApiResponse.Fail("not found"), AppJsonContext.Default.ApiResponse, statusCode: 404)
+                : Results.Content(body, "application/json");
+        }).AllowPanel();
+
+        // Media rides through the service because the dashboard's img-src is
+        // 'self'; a cross-origin asset host renders as a broken image.
+        app.MapGet("/apps-api/store/media/{**path}",
+            async (string path, Nexus.Service.Store.StoreCatalogProxy proxy, CancellationToken ct) =>
+        {
+            var media = await proxy.MediaAsync(path, ct);
+            return media is null
+                ? Results.NotFound()
+                : Results.Bytes(media.Value.bytes, media.Value.contentType);
+        }).AllowPanel();
+
+        // Install one version from the asset CDN. Distinct path from the
+        // sideload route above: that one activates a bundled app, this one
+        // downloads a versioned artifact.
+        app.MapPost("/apps-api/store/install",
+            async (StoreInstallRequest body, Nexus.Service.Store.StoreInstaller installer, CancellationToken ct) =>
+        {
+            var result = await installer.InstallAsync(body, ct);
+            return Results.Json(result, AppJsonContext.Default.StoreInstallResponse);
         }).AllowPanel();
 
         app.MapPost("/apps-api/uninstall", (AppInstallRequest body, AppInstaller installer) =>
@@ -378,6 +423,16 @@ public static class AppRoutes
             // Preinstall is an OEM bake-in honored only for bundled apps; a user
             // copy of the same id is a deliberate user choice, not a pre-install.
             Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled && oemMatch,
+            Immersive = entry.Manifest.Immersive,
+            SingleInstance = entry.Manifest.SingleInstance,
         };
+    }
+
+    /// <summary>Only an explicit false narrows the catalog; absent means unknown.</summary>
+    private static bool? ParseTouch(HttpContext http)
+    {
+        var raw = http.Request.Query["touch"].ToString();
+        if (string.IsNullOrEmpty(raw)) return null;
+        return raw != "false" && raw != "0";
     }
 }

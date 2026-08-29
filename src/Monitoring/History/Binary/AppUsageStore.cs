@@ -400,6 +400,29 @@ internal sealed class AppUsageStore : IDisposable
         list.Add((ts, apps));
     }
 
+    /// <summary>Deletes every day segment across every metric kind. Returns
+    /// the number of .seg files removed. AppNameDictionary/AppLocalIdMap
+    /// mappings are left in place - cheap metadata, harmless to keep.</summary>
+    public int ClearAll()
+    {
+        var removed = 0;
+        foreach (var kind in AllKinds)
+        {
+            var dir = KindDir(kind);
+            if (!Directory.Exists(dir))
+            {
+                continue;
+            }
+            foreach (var file in Directory.GetFiles(dir, "*.seg"))
+            {
+                TryDelete(file);
+                TryDelete(Path.ChangeExtension(file, ".ids"));
+                removed++;
+            }
+        }
+        return removed;
+    }
+
     private void DeleteDaysBefore(long cutoffDay)
     {
         foreach (var kind in AllKinds)

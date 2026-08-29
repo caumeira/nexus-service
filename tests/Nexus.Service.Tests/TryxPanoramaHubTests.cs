@@ -145,6 +145,12 @@ public class TryxPanoramaHubTests
             Sensors = Sensors,
         };
 
+        public bool TryReadCurrentFps(out double fps)
+        {
+            fps = 0;
+            return false;
+        }
+
         public void Dispose() { }
     }
 

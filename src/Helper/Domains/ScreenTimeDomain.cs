@@ -24,6 +24,16 @@ public sealed class ScreenTimeFocusPayload
     public string App { get; set; } = "";
     public int Pid { get; set; }
     public long StartedUtcMs { get; set; }
+
+    /// <summary>Full path via QueryFullProcessImageName (PROCESS_QUERY_LIMITED_INFORMATION);
+    /// null when denied (EAC-protected titles, elevated processes).</summary>
+    public string? ExePath { get; set; }
+    /// <summary>Foreground window's client area, from GetClientRect.</summary>
+    public int WinW { get; set; }
+    public int WinH { get; set; }
+    /// <summary>Stable monitor id (WindowsDisplayIdentity's id space, same as
+    /// RawDisplayInfo.Id) for the foreground window's monitor.</summary>
+    public string? MonitorDevice { get; set; }
 }
 
 // JSON source-gen registration lives in src/Serialization/AppJsonContext.cs.

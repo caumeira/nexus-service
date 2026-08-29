@@ -72,6 +72,7 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
                     {
                         entry.ResolutionWidth = (int)mode.dmPelsWidth;
                         entry.ResolutionHeight = (int)mode.dmPelsHeight;
+                        entry.RefreshHz = (int)mode.dmDisplayFrequency;
                         entry.Orientation = DisplayOrientations.FromDmdo(mode.dmDisplayOrientation);
                     }
                     else

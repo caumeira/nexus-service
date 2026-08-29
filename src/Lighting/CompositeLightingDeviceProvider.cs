@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Models.Devices;
+using Nexus.Service.Peripherals.Nzxt;
 using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Lighting;
@@ -68,6 +69,15 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _smart    = smart;
         _store    = store;
         _engine   = engine;
+    }
+
+    /// <summary>Points the cards a first-party provider emits for third-party hardware at the handler whose gate claims that hardware; the conflict UI folds them into the handler's row. OpenRGB cards carry competing-app ids instead, resolved by vendor string in <see cref="Rgb.OpenRgbZoneSupport.BuildCards"/>.</summary>
+    private static void TagControlHandler(List<LightingDevice> cards, string handlerId)
+    {
+        foreach (var card in cards)
+        {
+            card.ControlHandlerId = handlerId;
+        }
     }
 
     public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _lianLiWireless.IsConnected || _corsair.IsConnected || _strimer.IsConnected || _galahad2.IsConnected || _kraken.IsConnected || _smart.IsConnected;
@@ -201,36 +211,42 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         if (lianLi.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || lianLi.IsInit;
+            TagControlHandler(lianLi.Devices, "lianli");
             rgb.Devices.AddRange(lianLi.Devices);
         }
         var lianLiWireless = _lianLiWireless.GetAll();
         if (lianLiWireless.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || lianLiWireless.IsInit;
+            TagControlHandler(lianLiWireless.Devices, "lianli-wireless");
             rgb.Devices.AddRange(lianLiWireless.Devices);
         }
         var corsair = _corsair.GetAll();
         if (corsair.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || corsair.IsInit;
+            TagControlHandler(corsair.Devices, "corsair");
             rgb.Devices.AddRange(corsair.Devices);
         }
         var strimer = _strimer.GetAll();
         if (strimer.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || strimer.IsInit;
+            TagControlHandler(strimer.Devices, "strimer");
             rgb.Devices.AddRange(strimer.Devices);
         }
         var galahad2 = _galahad2.GetAll();
         if (galahad2.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || galahad2.IsInit;
+            TagControlHandler(galahad2.Devices, "lianli-aio");
             rgb.Devices.AddRange(galahad2.Devices);
         }
         var kraken = _kraken.GetAll();
         if (kraken.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || kraken.IsInit;
+            TagControlHandler(kraken.Devices, KrakenHub.DeviceId);
             rgb.Devices.AddRange(kraken.Devices);
         }
         var smartLights = _smart.GetAll();

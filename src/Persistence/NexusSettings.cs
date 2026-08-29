@@ -40,6 +40,7 @@ public sealed class NexusSettings
     public UiSettings Ui { get; set; } = new();
     public UnitsSettings Units { get; set; } = new();
     public ScreenTimeSettings ScreenTime { get; set; } = new();
+    public FpsSettings Fps { get; set; } = new();
     public ObsSettings Obs { get; set; } = new();
     /// <summary>Per-app volume mixer: remembered levels and named presets. NOT profile-scoped (absent from ProfileManager.CloneSettings): which apps are loud is a property of this workstation, not of a lighting/cooling persona.</summary>
     public AudioMixerSettings AudioMixer { get; set; } = new();
@@ -248,6 +249,12 @@ public sealed class ScreenTimeSettings
 {
     /// <summary>When false, providers stop writing new focus sessions to the store. Reads of existing history continue to work.</summary>
     public bool TrackingEnabled { get; set; } = InstallDefaults.ScreenTime.TrackingEnabled;
+}
+
+public sealed class FpsSettings
+{
+    /// <summary>When false, capture stops entirely: no fps history series, no game sessions, no upload. Reads of existing history continue to work.</summary>
+    public bool TrackingEnabled { get; set; } = InstallDefaults.Fps.TrackingEnabled;
 }
 
 public sealed class ObsSettings

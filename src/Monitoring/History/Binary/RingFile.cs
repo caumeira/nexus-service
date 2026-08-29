@@ -209,6 +209,15 @@ internal sealed unsafe class RingFile : IDisposable
         return ring;
     }
 
+    /// <summary>Reformats every slot to unwritten and drops the prune floor -
+    /// a full data reset that keeps the file open and ready for the next
+    /// WriteSlot, unlike CreateOrOpen's delete-and-recreate path.</summary>
+    public void Clear()
+    {
+        FormatAllSlots();
+        PruneFloorSec = UnwrittenStamp;
+    }
+
     private void FormatAllSlots()
     {
         for (long index = 0; index < Capacity; index++)

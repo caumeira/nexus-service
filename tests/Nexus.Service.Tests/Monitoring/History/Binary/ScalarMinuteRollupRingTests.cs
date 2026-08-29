@@ -39,6 +39,12 @@ public class ScalarMinuteRollupRingTests : IDisposable
         new(new FieldAgg(sum, cnt, max), FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty, FieldAgg.Empty);
 
     [Fact]
+    public void BodyLength_IsPinned_SoExistingScalarsMinFilesStayCompatible()
+    {
+        Assert.Equal(110, ScalarMinuteRollupRing.BodyLength);
+    }
+
+    [Fact]
     public void RebuildMinute_ThenQueryDecimated_RoundTrips()
     {
         using var ring = CreateRing();
