@@ -89,6 +89,13 @@ public sealed class WindowsKrakenLcdTransport : IKrakenLcdTransport
         var buffer = data.ToArray();
         lock (_ioLock)
         {
+            // Re-check inside the lock: the check above can pass while Dispose is waiting
+            // on _ioLock, and by the time we get it WinUsb_Free has already run. Writing
+            // through a freed handle is an access violation, not an exception.
+            if (_disposed)
+            {
+                return false;
+            }
             return WriteOverlappedLocked(buffer);
         }
     }

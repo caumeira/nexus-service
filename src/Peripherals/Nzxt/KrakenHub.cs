@@ -294,6 +294,9 @@ public sealed class KrakenHub : IDisposable
     public bool SetLcdBacklight(int brightnessPercent, int orientationQuarterTurns)
     {
         var report = KrakenProtocol.EncodeSetBacklight(brightnessPercent, orientationQuarterTurns);
+        // A rotation re-uploads the stored frame, which is a full bulk transfer, so this
+        // takes the transfer lock first - same order as PushStreamFrame, never the reverse.
+        lock (_lcdTransferLock)
         lock (_lock)
         {
             if (_device == null || !_device.Write(report))
@@ -334,15 +337,6 @@ public sealed class KrakenHub : IDisposable
     public bool SetLighting(byte channelId, KrakenColorMode mode, KrakenAnimationSpeed speed, ReadOnlySpan<byte> rgbColors, bool forward = true)
     {
         var report = KrakenProtocol.EncodeColors(channelId, mode, speed, rgbColors, forward);
-        lock (_lock)
-        {
-            return _device != null && _device.Write(report);
-        }
-    }
-
-    public bool SetFixedColor(byte channelId, byte r, byte g, byte b)
-    {
-        var report = KrakenProtocol.EncodeFixedColor(channelId, r, g, b);
         lock (_lock)
         {
             return _device != null && _device.Write(report);
@@ -447,6 +441,7 @@ public sealed class KrakenHub : IDisposable
         }
 
         var source = rgba.ToArray();
+        lock (_lcdTransferLock)
         lock (_lock)
         {
             if (_device == null || _lcd == null)
@@ -461,15 +456,15 @@ public sealed class KrakenHub : IDisposable
 
     private bool UploadLcdFrameLocked(byte[] source, int quarterTurns)
     {
+        var lcd = _lcd;
+        if (_device == null || lcd == null)
+        {
+            return false;
+        }
         var payload = KrakenProtocol.RotateRgba(source, KrakenProtocol.LcdWidth, KrakenProtocol.LcdHeight, quarterTurns);
         var header = KrakenProtocol.EncodeBulkHeader(KrakenProtocol.BulkFormatRgba8888, payload.Length);
         int pages = KrakenProtocol.PagesFor(payload.Length);
         {
-            if (_device == null || _lcd == null)
-            {
-                return false;
-            }
-
             // Releases the active bucket so it becomes deletable.
             ExchangeLocked(KrakenProtocol.EncodeSetDisplayMode(KrakenDisplayMode.Liquid, 0), 0x39, 0x01, CommandReadTimeoutMs);
             for (int i = 0; i < KrakenProtocol.BucketCount; i++)
@@ -494,14 +489,14 @@ public sealed class KrakenHub : IDisposable
 
             // The header must be its own bulk transfer; concatenating it with the pixels
             // corrupts the upload without any error being reported.
-            if (!_lcd.Write(header))
+            if (!lcd.Write(header))
             {
                 return false;
             }
             for (int offset = 0; offset < payload.Length; offset += BulkChunkBytes)
             {
                 int len = Math.Min(BulkChunkBytes, payload.Length - offset);
-                if (!_lcd.Write(payload.AsSpan(offset, len)))
+                if (!lcd.Write(payload.AsSpan(offset, len)))
                 {
                     ServiceLog.Warn($"[nzxt-kraken] LCD bulk write failed at offset {offset}");
                     return false;
@@ -638,26 +633,6 @@ public sealed class KrakenHub : IDisposable
         }
         _streamActiveBucket = -1;
         _streamReady = true;
-        return true;
-    }
-
-    /// <summary>Transfers one already-rotated frame into a prepared bucket.</summary>
-    private bool WriteBucketLocked(int bucket, byte[] payload)
-    {
-        if (_device == null || _lcd == null)
-        {
-            return false;
-        }
-        var start = ExchangeLocked(KrakenProtocol.EncodeStartTransfer(bucket), 0x37, 0x01, CommandReadTimeoutMs);
-        if (start == null || !KrakenProtocol.IsAck(start))
-        {
-            return false;
-        }
-        if (!WriteBulkPayload(_lcd, payload))
-        {
-            return false;
-        }
-        ExchangeLocked(KrakenProtocol.EncodeEndTransfer(), 0x37, 0x02, CommandReadTimeoutMs);
         return true;
     }
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Peripherals.Nzxt;
 using Xunit;
@@ -117,7 +118,9 @@ public class KrakenProtocolTests
         Assert.Equal(KrakenProtocol.ReportLength, KrakenProtocol.EncodeSetDisplayMode(KrakenDisplayMode.Liquid, 0).Length);
         Assert.Equal(KrakenProtocol.ReportLength, KrakenProtocol.EncodeDeleteBucket(3).Length);
         Assert.Equal(KrakenProtocol.ReportLength, KrakenProtocol.EncodeSetupBucket(0, 0, 1601).Length);
-        Assert.Equal(KrakenProtocol.ReportLength, KrakenProtocol.EncodeFixedColor(0b001, 1, 2, 3).Length);
+        Assert.Equal(
+            KrakenProtocol.ReportLength,
+            KrakenProtocol.EncodeColors(0b001, KrakenColorMode.Fixed, KrakenAnimationSpeed.Normal, new byte[] { 1, 2, 3 }, forward: true).Length);
         Assert.All(KrakenProtocol.EncodeDirectColors(0b010, new byte[] { 1, 2, 3 }),
             r => Assert.Equal(KrakenProtocol.ReportLength, r.Length));
     }
@@ -166,9 +169,11 @@ public class KrakenProtocolTests
     }
 
     [Fact]
-    public void EncodeFixedColor_writes_grb_not_rgb()
+    public void EncodeColors_writes_grb_not_rgb()
     {
-        var report = KrakenProtocol.EncodeFixedColor(KrakenProtocol.ColorChannelRing, r: 0x11, g: 0x22, b: 0x33);
+        var report = KrakenProtocol.EncodeColors(
+            KrakenProtocol.ColorChannelRing, KrakenColorMode.Fixed, KrakenAnimationSpeed.Normal,
+            new byte[] { 0x11, 0x22, 0x33 }, forward: true);
 
         Assert.Equal(0x2A, report[0]);
         Assert.Equal(0x04, report[1]);
@@ -360,6 +365,74 @@ public class KrakenProtocolTests
 
         Assert.Equal(KrakenProtocol.RotateRgba(src, n, n, 1), KrakenProtocol.RotateRgba(src, n, n, 5));
         Assert.Equal(KrakenProtocol.RotateRgba(src, n, n, 3), KrakenProtocol.RotateRgba(src, n, n, -1));
+    }
+
+    [Fact]
+    public void EncodeColors_reads_the_speed_row_the_animation_names()
+    {
+        // Spectrum wave is speed scale 2; liquidctl's row runs 0x015E slowest to 0x0050
+        // fastest, and the two bytes sit at 5 and 6 little-endian.
+        var slowest = KrakenProtocol.EncodeColors(
+            KrakenProtocol.ColorChannelRing, KrakenColorMode.SpectrumWave,
+            KrakenAnimationSpeed.Slowest, ReadOnlySpan<byte>.Empty, forward: true);
+        var fastest = KrakenProtocol.EncodeColors(
+            KrakenProtocol.ColorChannelRing, KrakenColorMode.SpectrumWave,
+            KrakenAnimationSpeed.Fastest, ReadOnlySpan<byte>.Empty, forward: true);
+
+        Assert.Equal(0x5E, slowest[5]);
+        Assert.Equal(0x01, slowest[6]);
+        Assert.Equal(0x50, fastest[5]);
+        Assert.Equal(0x00, fastest[6]);
+    }
+
+    [Fact]
+    public void EncodeColors_reads_the_high_speed_rows_too()
+    {
+        // Scales 3, 4, 7 and 8 were missing from the table; tai chi is scale 7 and
+        // loading is scale 8, whose row is flat at 0x0014 for every speed.
+        var taiChi = KrakenProtocol.EncodeColors(
+            KrakenProtocol.ColorChannelRing, KrakenColorMode.TaiChi,
+            KrakenAnimationSpeed.Slowest, new byte[] { 1, 2, 3 }, forward: true);
+        var loadingSlow = KrakenProtocol.EncodeColors(
+            KrakenProtocol.ColorChannelRing, KrakenColorMode.Loading,
+            KrakenAnimationSpeed.Slowest, new byte[] { 1, 2, 3 }, forward: true);
+        var loadingFast = KrakenProtocol.EncodeColors(
+            KrakenProtocol.ColorChannelRing, KrakenColorMode.Loading,
+            KrakenAnimationSpeed.Fastest, new byte[] { 1, 2, 3 }, forward: true);
+
+        Assert.Equal(0x32, taiChi[5]);
+        Assert.Equal(0x00, taiChi[6]);
+        Assert.Equal(0x14, loadingSlow[5]);
+        Assert.Equal(0x14, loadingFast[5]);
+    }
+
+    [Fact]
+    public void EncodeColors_pins_the_water_cooler_colour_count_to_one()
+    {
+        const int footer = 7 + (16 * 3);
+        // Water cooler is handed two colours but the count byte must still read 1.
+        var report = KrakenProtocol.EncodeColors(
+            KrakenProtocol.ColorChannelRing, KrakenColorMode.WaterCooler,
+            KrakenAnimationSpeed.Normal, new byte[] { 1, 2, 3, 4, 5, 6 }, forward: true);
+
+        Assert.Equal(1, report[footer + 1]);
+        // Both colours still reach the report; only the count is pinned.
+        Assert.Equal(2, report[7]);
+        Assert.Equal(5, report[10]);
+    }
+
+    [Fact]
+    public void Effects_catalogue_ids_are_unique_and_resolvable()
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var effect in KrakenEffects.All)
+        {
+            Assert.True(ids.Add(effect.Id), $"duplicate effect id {effect.Id}");
+            Assert.Same(effect, KrakenEffects.Find(effect.Id));
+            Assert.True(effect.MinColors <= effect.MaxColors);
+        }
+        Assert.Null(KrakenEffects.Find("nope"));
+        Assert.Null(KrakenEffects.Find(null));
     }
 
     [Fact]

@@ -205,15 +205,6 @@ internal static class KrakenProtocol
     }
 
     /// <summary>
-    /// Fixed-colour lighting for one channel. Colours go on the wire as GRB, not RGB.
-    /// </summary>
-    public static byte[] EncodeFixedColor(byte channelId, byte r, byte g, byte b)
-    {
-        Span<byte> one = stackalloc byte[3] { r, g, b };
-        return EncodeColors(channelId, KrakenColorMode.Fixed, KrakenAnimationSpeed.Normal, one, forward: true);
-    }
-
-    /// <summary>
     /// Per-LED or animated lighting. <paramref name="rgbColors"/> is packed RGB triplets,
     /// at most <see cref="MaxColors"/> of them; this method performs the RGB to GRB swap.
     /// </summary>
@@ -627,7 +618,6 @@ public readonly record struct KrakenColorMode(
     byte BackwardBase = 0x00,
     byte? ColorCountOverride = null)
 {
-    public static readonly KrakenColorMode Off = new(0x00, 0, 0x00, 0x03);
     public static readonly KrakenColorMode Fixed = new(0x00, 0, 0x00, 0x03);
     public static readonly KrakenColorMode Fading = new(0x01, 1, 0x08, 0x03);
     public static readonly KrakenColorMode SpectrumWave = new(0x02, 2, 0x00, 0x03);

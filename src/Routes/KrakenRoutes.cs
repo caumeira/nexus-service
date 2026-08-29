@@ -206,7 +206,10 @@ public static partial class DevicesRoutes
                 return Results.Conflict(ApiResponse.Fail("kraken not connected"));
             }
 
-            var channelIndex = IndexOfChannel(hub, body.Channel);
+            // One snapshot for both the lookup and the channel id: re-reading hub.Snapshot
+            // lets a detach empty the list between them and index past the end.
+            var channels = hub.Snapshot.Channels;
+            var channelIndex = IndexOfChannel(channels, body.Channel);
             if (channelIndex < 0)
             {
                 return Results.BadRequest(ApiResponse.Fail("unknown channel"));
@@ -238,7 +241,7 @@ public static partial class DevicesRoutes
             }
 
             var speed = (KrakenAnimationSpeed)Math.Clamp(body.Speed, 0, 4);
-            var channelId = hub.Snapshot.Channels[channelIndex].ChannelId;
+            var channelId = channels[channelIndex].ChannelId;
             if (!hub.SetLighting(channelId, effect.Mode, speed, rgb, body.Forward))
             {
                 return Results.Problem("Failed to write the animation to the cooler.");
@@ -260,10 +263,9 @@ public static partial class DevicesRoutes
         });
     }
 
-    private static int IndexOfChannel(KrakenHub hub, string? zoneId)
+    private static int IndexOfChannel(IReadOnlyList<KrakenLightingChannel> channels, string? zoneId)
     {
-        var count = hub.Snapshot.Channels.Count;
-        for (var i = 0; i < count; i++)
+        for (var i = 0; i < channels.Count; i++)
         {
             if (string.Equals(KrakenHub.ZoneIdForChannelIndex(i), zoneId, StringComparison.Ordinal))
             {

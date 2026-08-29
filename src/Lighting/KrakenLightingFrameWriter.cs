@@ -86,7 +86,13 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
     private void Tick()
     {
         if (!_gates.Lighting) return;
-        if (!_hub.IsConnected) return;
+        if (!_hub.IsConnected)
+        {
+            // Drop the de-dupe cache: after a re-attach the cooler is showing whatever its
+            // firmware kept, so an unchanged payload still has to be written once.
+            _lastPushed.Clear();
+            return;
+        }
         var devices = _engine.Devices;
         if (devices.Length == 0) return;
 
