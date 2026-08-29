@@ -25,6 +25,8 @@ public sealed class AppInstalledListing
     public string? DefaultSize { get; set; }
     public string Source { get; set; } = ""; // "user" | "bundled"
     public bool Preinstalled { get; set; }   // OEM bake-in: active at first boot, no user install
+    public bool Immersive { get; set; }      // widget opts into the panel's fullscreen view
+    public bool SingleInstance { get; set; } // only one instance per panel
 }
 
 public sealed class AppInstalledListingResponse

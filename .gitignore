@@ -58,5 +58,5 @@ builds/
 # VS/dotnet test result artifacts (regenerated; metadata leaks personal paths)
 **/TestResults/
 
-# Local dev worktree symlink (nexus-apps), kept per-machine, never committed.
+# Local dev worktree symlink for the bundled app payload, kept per-machine, never committed.
 .worktrees/
