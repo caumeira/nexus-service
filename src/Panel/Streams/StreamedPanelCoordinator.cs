@@ -182,6 +182,25 @@ public sealed class StreamedPanelCoordinator : BackgroundService
             _notifyOverlay?.Invoke();
     }
 
+    /// <summary>
+    /// Panel record ids currently owned by a live stream session. GET /panel/devices
+    /// stamps these so the dashboard can list a streamed panel: it is backed by neither a
+    /// curated device nor a display, so nothing else marks it as present and editable.
+    /// </summary>
+    public HashSet<string> LivePanelDeviceIds()
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        lock (_lock)
+        {
+            foreach (var ds in _bySerial.Values)
+            {
+                if (!ds.Session.Closed)
+                    ids.Add(ds.Session.PanelDeviceId);
+            }
+        }
+        return ids;
+    }
+
     public StreamAssignmentsResponse GetAssignments()
     {
         var response = new StreamAssignmentsResponse();
@@ -200,6 +219,7 @@ public sealed class StreamedPanelCoordinator : BackgroundService
                     Dpr = p.Dpr,
                     Fps = p.Fps,
                     BitrateKbps = p.BitrateKbps,
+                    Codec = p.Codec == StreamCodec.RawBgra ? "rawBgra" : "h264",
                 });
             }
         }

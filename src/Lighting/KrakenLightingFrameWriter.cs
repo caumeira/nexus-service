@@ -1,0 +1,223 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lifecycle;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Peripherals.Nzxt;
+using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
+
+namespace Nexus.Service.Lighting;
+
+/// <summary>
+/// Pushes engine output to the Kraken's RGB channels, one per-LED write per channel per
+/// tick. Same shape as <see cref="MiniHubLightingFrameWriter"/>.
+///
+/// The tick is slower than the MiniHub's 30 Hz: each channel costs three 512-byte HID
+/// reports, and the cooler shares that pipe with telemetry polling and any LCD upload.
+/// Unchanged frames are skipped so a static look costs nothing.
+/// </summary>
+public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
+{
+    private const int TickPeriodMs = 50;
+    private const int IdentifyFlashHalfPeriodMs = 250;
+
+    private readonly LightingEngine _engine;
+    private readonly KrakenHub _hub;
+    private readonly IConfigStore _store;
+    private readonly Np50IdentifyTracker _identify;
+    private readonly FeatureGates _gates;
+    private CancellationTokenSource? _cts;
+    private Task? _loop;
+
+    // Last bytes pushed per zone, so an unchanged frame is not re-sent.
+    private readonly Dictionary<string, byte[]> _lastPushed = new();
+    private readonly HashSet<string> _missingFrame = new();
+
+    public KrakenLightingFrameWriter(
+        LightingEngine engine, KrakenHub hub, IConfigStore store, Np50IdentifyTracker identify, FeatureGates? gates = null)
+    {
+        _engine = engine;
+        _hub = hub;
+        _store = store;
+        _identify = identify;
+        _gates = gates ?? FeatureGates.AllEnabled;
+    }
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _cts = new CancellationTokenSource();
+        _loop = Task.Run(() => RunAsync(_cts.Token));
+        return Task.CompletedTask;
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _cts?.Cancel();
+        if (_loop is not null)
+        {
+            try { await _loop.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken); }
+            catch { /* shutdown best-effort */ }
+        }
+        _cts?.Dispose();
+        _cts = null;
+        _loop = null;
+    }
+
+    public void Dispose() => StopAsync(default).GetAwaiter().GetResult();
+
+    private async Task RunAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(TickPeriodMs));
+        while (!ct.IsCancellationRequested)
+        {
+            try { Tick(); }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[nzxt-kraken-lighting-writer] tick exception: {ex.GetType().Name}: {ex.Message}");
+            }
+            try { if (!await timer.WaitForNextTickAsync(ct).ConfigureAwait(false)) break; }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    private void Tick()
+    {
+        if (!_gates.Lighting) return;
+        if (!_hub.IsConnected)
+        {
+            // Drop the de-dupe cache: after a re-attach the cooler is showing whatever its
+            // firmware kept, so an unchanged payload still has to be written once.
+            _lastPushed.Clear();
+            return;
+        }
+        var devices = _engine.Devices;
+        if (devices.Length == 0) return;
+
+        var settings = _store.Load();
+        var disabled = settings.Devices.DisabledLightingDevices;
+        var uncontrolled = settings.Devices.UncontrolledLightingDevices;
+        var prefs = settings.Devices.LightingDevicePrefs;
+        var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
+        var nowTicks = DateTime.UtcNow.Ticks;
+
+        var channels = _hub.Snapshot.Channels;
+        for (int i = 0; i < channels.Count; i++)
+        {
+            var zoneId = KrakenHub.ZoneIdForChannelIndex(i);
+
+            // Left uncontrolled means "hands off": stop pushing so the cooler keeps running
+            // whatever firmware animation it was set to.
+            bool isUncontrolled = false;
+            for (var u = 0; u < uncontrolled.Count; u++)
+            {
+                if (uncontrolled[u] == zoneId) { isUncontrolled = true; break; }
+            }
+            if (isUncontrolled)
+            {
+                _lastPushed.Remove(zoneId);
+                continue;
+            }
+
+            PushZone(devices, zoneId, channels[i], disabled, prefs, globalBrightness, nowTicks);
+        }
+    }
+
+    private void PushZone(
+        DeviceFrame[] devices, string zoneId, KrakenLightingChannel channel,
+        IReadOnlyList<string> disabled,
+        IReadOnlyDictionary<string, LightingDevicePreference> prefs,
+        float globalBrightness, long nowTicks)
+    {
+        DeviceFrame? frame = null;
+        for (var i = 0; i < devices.Length; i++)
+        {
+            if (devices[i].Id == zoneId) { frame = devices[i]; break; }
+        }
+        if (frame is null)
+        {
+            // Without an engine frame this zone is unreachable - no canvas colour and no
+            // identify flash. Logged on the transition only; it means the bridge has not
+            // picked up this contributor.
+            if (_missingFrame.Add(zoneId))
+            {
+                ServiceLog.Warn($"[nzxt-kraken-lighting-writer] no engine frame for {zoneId}");
+            }
+            return;
+        }
+        _missingFrame.Remove(zoneId);
+
+        var ledCount = Math.Min(frame.LedCount, KrakenProtocol.MaxDirectColors);
+        if (ledCount <= 0)
+        {
+            return;
+        }
+
+        var brightnessMul = ComputeBrightnessMul(zoneId, disabled, prefs, globalBrightness);
+        var hasIdentify = _identify.TryGetActive(zoneId, nowTicks, out var startTicks);
+
+        var payload = new byte[ledCount * 3];
+        if (hasIdentify)
+        {
+            var elapsedMs = (nowTicks - startTicks) / TimeSpan.TicksPerMillisecond;
+            byte v = (elapsedMs / IdentifyFlashHalfPeriodMs) % 2 == 0 ? (byte)255 : (byte)0;
+            payload.AsSpan().Fill(v);
+        }
+        else if (brightnessMul > 0.0)
+        {
+            var src = frame.LedBytes;
+            for (var i = 0; i < ledCount; i++)
+            {
+                var off = i * 3;
+                if (off + 2 >= src.Length) break;
+                if (brightnessMul >= 0.999)
+                {
+                    payload[off] = src[off];
+                    payload[off + 1] = src[off + 1];
+                    payload[off + 2] = src[off + 2];
+                }
+                else
+                {
+                    payload[off] = (byte)(src[off] * brightnessMul);
+                    payload[off + 1] = (byte)(src[off + 1] * brightnessMul);
+                    payload[off + 2] = (byte)(src[off + 2] * brightnessMul);
+                }
+            }
+        }
+
+        if (_lastPushed.TryGetValue(zoneId, out var previous)
+            && previous.Length == payload.Length
+            && previous.AsSpan().SequenceEqual(payload))
+        {
+            return;
+        }
+
+        if (_hub.SetDirectColors(channel.ChannelId, payload))
+        {
+            _lastPushed[zoneId] = payload;
+        }
+        else
+        {
+            // Force a re-push next tick rather than leaving a stale "already sent" entry.
+            _lastPushed.Remove(zoneId);
+        }
+    }
+
+    private static double ComputeBrightnessMul(
+        string id,
+        IReadOnlyList<string> disabled,
+        IReadOnlyDictionary<string, LightingDevicePreference> prefs,
+        float globalBrightness)
+    {
+        for (var i = 0; i < disabled.Count; i++)
+        {
+            if (disabled[i] == id) return 0.0;
+        }
+        int devBrightness;
+        try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }
+        catch (InvalidOperationException) { devBrightness = 100; }
+        return Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
+    }
+}
