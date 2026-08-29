@@ -183,6 +183,107 @@ public class OpenRgbManualDevicesTests
         Assert.Equal(0, OpenRgbConfigImport.Merge(into, imported));
     }
 
+    // ── Hostile input ──
+
+    /// <summary>
+    /// RegisterQMKDetectors does std::stoi(s, 0, 16) inside
+    /// ProcessDynamicDetectors, which has no try/catch, so a malformed id
+    /// terminates the daemon on every launch. Nothing malformed may be written.
+    /// </summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData("ZZZZ")]
+    [InlineData("12345")]
+    [InlineData("34 34")]
+    [InlineData("0x")]
+    public void Unparseable_hex_ids_never_reach_the_config(string bad)
+    {
+        var dir = NewDir();
+        var devices = new OpenRgbManualDevices();
+        devices.Qmk.Add(new QmkOpenRgbDeviceEntry { Name = "bad", UsbVid = bad, UsbPid = "0660" });
+        devices.Qmk.Add(new QmkOpenRgbDeviceEntry { Name = "good", UsbVid = "3434", UsbPid = "0660" });
+
+        OpenRgbManualDeviceConfig.Write(dir, devices);
+
+        var arr = (JsonArray)ReadConfig(dir)["QMKOpenRGBDevices"]!["devices"]!;
+        var kept = Assert.Single(arr);
+        Assert.Equal("good", (string)kept!["name"]!);
+    }
+
+    [Fact]
+    public void Import_drops_entries_the_daemon_could_not_parse()
+    {
+        var path = WriteSource(
+            "{ \"QMKOpenRGBDevices\": { \"devices\": [" +
+            "{ \"name\": \"bad\", \"usb_vid\": \"nope\", \"usb_pid\": \"0660\" }," +
+            "{ \"name\": \"good\", \"usb_vid\": \"3434\", \"usb_pid\": \"0660\" } ] } }");
+
+        var result = OpenRgbConfigImport.Read(path);
+
+        Assert.Equal("good", Assert.Single(result.Qmk).Name);
+        Assert.Equal(1, result.Skipped);
+    }
+
+    /// <summary>Both detectors read "name" as a std::string after a bare contains() check, so a JSON null throws in the daemon.</summary>
+    [Fact]
+    public void A_null_name_is_written_as_an_empty_string()
+    {
+        var dir = NewDir();
+        var devices = new OpenRgbManualDevices();
+        devices.Qmk.Add(new QmkOpenRgbDeviceEntry { Name = null!, UsbVid = "3434", UsbPid = "0660" });
+        devices.E131.Add(new E131DeviceEntry { Name = null!, Ip = "10.0.0.5" });
+
+        OpenRgbManualDeviceConfig.Write(dir, devices);
+
+        var root = ReadConfig(dir);
+        Assert.Equal("", (string)root["QMKOpenRGBDevices"]!["devices"]![0]!["name"]!);
+        Assert.Equal("", (string)root["E131Devices"]!["devices"]![0]!["name"]!);
+    }
+
+    /// <summary>E131Device stores these unsigned and divides by universe_size; a negative or zero value would wrap or spin the detector.</summary>
+    [Fact]
+    public void E131_numerics_are_clamped_to_what_the_controller_can_hold()
+    {
+        var dir = NewDir();
+        var devices = new OpenRgbManualDevices();
+        devices.E131.Add(new E131DeviceEntry
+        {
+            Name = "evil", Ip = "10.0.0.5", NumLeds = -1,
+            StartUniverse = 0, StartChannel = -5, UniverseSize = 0,
+        });
+
+        OpenRgbManualDeviceConfig.Write(dir, devices);
+
+        var e = (JsonObject)ReadConfig(dir)["E131Devices"]!["devices"]![0]!;
+        Assert.Equal(0, (int)e["num_leds"]!);
+        Assert.Equal(1, (int)e["start_universe"]!);
+        Assert.Equal(1, (int)e["start_channel"]!);
+        Assert.True((int)e["universe_size"]! >= 1);
+    }
+
+    /// <summary>The daemon rewrites this file with nlohmann, which orders keys alphabetically; a text compare would rewrite on every launch.</summary>
+    [Fact]
+    public void A_reordered_section_is_not_treated_as_a_change()
+    {
+        var dir = NewDir();
+        var devices = new OpenRgbManualDevices();
+        devices.Qmk.Add(new QmkOpenRgbDeviceEntry { Name = "K", UsbVid = "3434", UsbPid = "0660" });
+        OpenRgbManualDeviceConfig.Write(dir, devices);
+
+        var path = Path.Combine(dir, "OpenRGB.json");
+        var root = (JsonObject)JsonNode.Parse(File.ReadAllText(path))!;
+        root["QMKOpenRGBDevices"] = new JsonObject
+        {
+            ["devices"] = new JsonArray((JsonNode)new JsonObject
+            {
+                ["name"] = "K", ["usb_pid"] = "0660", ["usb_vid"] = "3434",
+            }),
+        };
+        File.WriteAllText(path, root.ToJsonString());
+
+        Assert.False(OpenRgbManualDeviceConfig.Write(dir, devices));
+    }
+
     [Fact]
     public void Default_source_path_points_at_an_openrgb_config()
     {

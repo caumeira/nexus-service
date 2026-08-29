@@ -17,6 +17,12 @@ namespace Nexus.Service.Lighting.Rgb;
 /// </summary>
 public static class OpenRgbConfigImport
 {
+    /// <summary>Ceiling for a source config; a real one is a few KB.</summary>
+    public const long MaxSourceBytes = 8 * 1024 * 1024;
+
+    /// <summary>The only filename an import will read, so a supplied path cannot point at arbitrary files.</summary>
+    public const string SourceFileName = "OpenRGB.json";
+
     /// <summary>Where the OpenRGB GUI keeps its config per OS.</summary>
     public static string DefaultSourcePath()
     {
@@ -39,6 +45,8 @@ public static class OpenRgbConfigImport
         public string Path { get; set; } = "";
         public List<QmkOpenRgbDeviceEntry> Qmk { get; set; } = new();
         public List<E131DeviceEntry> E131 { get; set; } = new();
+        /// <summary>Entries the daemon could not have parsed, dropped rather than imported.</summary>
+        public int Skipped { get; set; }
     }
 
     /// <summary>Parses the two registration sections out of an OpenRGB.json. A missing or malformed file yields an empty result rather than throwing.</summary>
@@ -48,6 +56,14 @@ public static class OpenRgbConfigImport
         try
         {
             if (!File.Exists(path)) return result;
+            // An OpenRGB config is a few KB; the cap stops a pointed path from
+            // reading something enormous into the service.
+            var info = new FileInfo(path);
+            if (info.Length > MaxSourceBytes)
+            {
+                Nexus.Service.Platform.ServiceLog.Warn($"[openrgb-import] {path} is {info.Length} bytes, over the {MaxSourceBytes} cap");
+                return result;
+            }
             if (JsonNode.Parse(File.ReadAllText(path)) is not JsonObject root) return result;
             result.Found = true;
 
@@ -56,14 +72,18 @@ public static class OpenRgbConfigImport
                 foreach (var node in qmk)
                 {
                     if (node is not JsonObject o) continue;
-                    var vid = Str(o, "usb_vid");
-                    var pid = Str(o, "usb_pid");
-                    if (string.IsNullOrWhiteSpace(vid) || string.IsNullOrWhiteSpace(pid)) continue;
+                    var vid = OpenRgbManualDeviceConfig.NormalizeHex(Str(o, "usb_vid"));
+                    var pid = OpenRgbManualDeviceConfig.NormalizeHex(Str(o, "usb_pid"));
+                    if (!OpenRgbManualDeviceConfig.IsValidHexId(vid) || !OpenRgbManualDeviceConfig.IsValidHexId(pid))
+                    {
+                        result.Skipped++;
+                        continue;
+                    }
                     result.Qmk.Add(new QmkOpenRgbDeviceEntry
                     {
                         Name = Str(o, "name"),
-                        UsbVid = OpenRgbManualDeviceConfig.NormalizeHex(vid),
-                        UsbPid = OpenRgbManualDeviceConfig.NormalizeHex(pid),
+                        UsbVid = vid,
+                        UsbPid = pid,
                     });
                 }
             }
@@ -75,7 +95,7 @@ public static class OpenRgbConfigImport
                     if (node is not JsonObject o) continue;
                     var ip = Str(o, "ip");
                     if (string.IsNullOrWhiteSpace(ip)) continue;
-                    result.E131.Add(new E131DeviceEntry
+                    result.E131.Add(OpenRgbManualDeviceConfig.Sanitize(new E131DeviceEntry
                     {
                         Name = Str(o, "name"),
                         Ip = ip,
@@ -84,7 +104,7 @@ public static class OpenRgbConfigImport
                         StartChannel = Int(o, "start_channel", 1),
                         KeepaliveTime = Int(o, "keepalive_time", 0),
                         UniverseSize = Int(o, "universe_size", 512),
-                    });
+                    }));
                 }
             }
         }

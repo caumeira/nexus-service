@@ -54,10 +54,12 @@ public static partial class DevicesRoutes
             }
             var vid = OpenRgbManualDeviceConfig.NormalizeHex(body.UsbVid);
             var pid = OpenRgbManualDeviceConfig.NormalizeHex(body.UsbPid);
-            if (!IsHex(vid) || !IsHex(pid))
+            if (!OpenRgbManualDeviceConfig.IsValidHexId(vid) || !OpenRgbManualDeviceConfig.IsValidHexId(pid))
             {
                 return Results.BadRequest(ApiResponse.Fail("usb_vid and usb_pid must be hex, e.g. 3434 and 0660"));
             }
+            var name = body.Name ?? "";
+            var changed = false;
             store.Update(s =>
             {
                 var list = s.Devices.OpenRgbManualDevices.Qmk;
@@ -66,13 +68,15 @@ public static partial class DevicesRoutes
                     if (string.Equals(e.UsbVid, vid, StringComparison.OrdinalIgnoreCase)
                         && string.Equals(e.UsbPid, pid, StringComparison.OrdinalIgnoreCase))
                     {
-                        e.Name = body.Name;
+                        changed = e.Name != name;
+                        e.Name = name;
                         return;
                     }
                 }
-                list.Add(new QmkOpenRgbDeviceEntry { Name = body.Name, UsbVid = vid, UsbPid = pid });
+                list.Add(new QmkOpenRgbDeviceEntry { Name = name, UsbVid = vid, UsbPid = pid });
+                changed = true;
             });
-            bridge?.BounceForManualDevices();
+            if (changed) bridge?.BounceForManualDevices();
             return Results.Ok(ApiResponse.Ok());
         });
 
@@ -82,60 +86,77 @@ public static partial class DevicesRoutes
             {
                 return Results.BadRequest(ApiResponse.Fail("ip is required"));
             }
+            var entry = OpenRgbManualDeviceConfig.Sanitize(new E131DeviceEntry
+            {
+                Name = body.Name ?? "", Ip = body.Ip, NumLeds = body.NumLeds,
+                StartUniverse = body.StartUniverse, StartChannel = body.StartChannel,
+                KeepaliveTime = body.KeepaliveTime, UniverseSize = body.UniverseSize,
+            });
+            var changed = false;
             store.Update(s =>
             {
                 var list = s.Devices.OpenRgbManualDevices.E131;
-                foreach (var e in list)
+                for (var i = 0; i < list.Count; i++)
                 {
-                    if (string.Equals(e.Ip, body.Ip, StringComparison.OrdinalIgnoreCase) && e.StartUniverse == body.StartUniverse)
+                    var e = list[i];
+                    if (string.Equals(e.Ip, entry.Ip, StringComparison.OrdinalIgnoreCase) && e.StartUniverse == entry.StartUniverse)
                     {
-                        e.Name = body.Name;
-                        e.NumLeds = body.NumLeds;
-                        e.StartChannel = body.StartChannel;
-                        e.KeepaliveTime = body.KeepaliveTime;
-                        e.UniverseSize = body.UniverseSize;
+                        changed = e.Name != entry.Name || e.NumLeds != entry.NumLeds
+                            || e.StartChannel != entry.StartChannel || e.KeepaliveTime != entry.KeepaliveTime
+                            || e.UniverseSize != entry.UniverseSize;
+                        list[i] = entry;
                         return;
                     }
                 }
-                list.Add(new E131DeviceEntry
-                {
-                    Name = body.Name, Ip = body.Ip, NumLeds = body.NumLeds,
-                    StartUniverse = body.StartUniverse, StartChannel = body.StartChannel,
-                    KeepaliveTime = body.KeepaliveTime, UniverseSize = body.UniverseSize,
-                });
+                list.Add(entry);
+                changed = true;
             });
-            bridge?.BounceForManualDevices();
+            if (changed) bridge?.BounceForManualDevices();
             return Results.Ok(ApiResponse.Ok());
         });
 
         app.MapPost("/devices/openrgb/manual-devices/remove", (RemoveManualDeviceBody body, IConfigStore store, RgbBridge? bridge) =>
         {
+            var key = body.Key ?? "";
+            var key2 = body.Key2 ?? "";
+            var removed = 0;
             store.Update(s =>
             {
                 var devices = s.Devices.OpenRgbManualDevices;
                 if (string.Equals(body.Kind, "qmk", StringComparison.OrdinalIgnoreCase))
                 {
-                    var vid = OpenRgbManualDeviceConfig.NormalizeHex(body.Key);
-                    var pid = OpenRgbManualDeviceConfig.NormalizeHex(body.Key2);
-                    devices.Qmk.RemoveAll(e =>
+                    var vid = OpenRgbManualDeviceConfig.NormalizeHex(key);
+                    var pid = OpenRgbManualDeviceConfig.NormalizeHex(key2);
+                    removed = devices.Qmk.RemoveAll(e =>
                         string.Equals(e.UsbVid, vid, StringComparison.OrdinalIgnoreCase)
                         && string.Equals(e.UsbPid, pid, StringComparison.OrdinalIgnoreCase));
                 }
                 else if (string.Equals(body.Kind, "e131", StringComparison.OrdinalIgnoreCase))
                 {
-                    _ = int.TryParse(body.Key2, out var universe);
-                    devices.E131.RemoveAll(e =>
-                        string.Equals(e.Ip, body.Key, StringComparison.OrdinalIgnoreCase)
-                        && (body.Key2.Length == 0 || e.StartUniverse == universe));
+                    _ = int.TryParse(key2, out var universe);
+                    removed = devices.E131.RemoveAll(e =>
+                        string.Equals(e.Ip, key, StringComparison.OrdinalIgnoreCase)
+                        && (key2.Length == 0 || e.StartUniverse == universe));
                 }
             });
-            bridge?.BounceForManualDevices();
+            if (removed > 0) bridge?.BounceForManualDevices();
             return Results.Ok(ApiResponse.Ok());
         });
 
         app.MapPost("/devices/openrgb/manual-devices/import", (ImportOpenRgbConfigBody body, IConfigStore store, RgbBridge? bridge) =>
         {
-            var path = string.IsNullOrWhiteSpace(body.Path) ? OpenRgbConfigImport.DefaultSourcePath() : body.Path;
+            var path = OpenRgbConfigImport.DefaultSourcePath();
+            if (!string.IsNullOrWhiteSpace(body.Path))
+            {
+                // An override picks a different OpenRGB install, not an
+                // arbitrary file: the service runs elevated, so a free-form
+                // path would read anything it is pointed at.
+                if (!string.Equals(System.IO.Path.GetFileName(body.Path), OpenRgbConfigImport.SourceFileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return Results.BadRequest(ApiResponse.Fail($"path must end in {OpenRgbConfigImport.SourceFileName}"));
+                }
+                path = body.Path;
+            }
             var imported = OpenRgbConfigImport.Read(path);
             var added = 0;
             if (imported.Found)
@@ -154,13 +175,4 @@ public static partial class DevicesRoutes
         });
     }
 
-    private static bool IsHex(string s)
-    {
-        if (s.Length == 0 || s.Length > 4) return false;
-        foreach (var c in s)
-        {
-            if (!Uri.IsHexDigit(c)) return false;
-        }
-        return true;
-    }
 }
