@@ -944,6 +944,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<AppCatalogEntry>))]
 [JsonSerializable(typeof(AppInstallRequest))]
 [JsonSerializable(typeof(AppInstallResponse))]
+[JsonSerializable(typeof(StoreInstallRequest))]
+[JsonSerializable(typeof(StoreInstallResponse))]
 [JsonSerializable(typeof(AppCodeSessionResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.OpenUrlRequest))]
 // Widgets - settings
@@ -1037,6 +1039,10 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlFanDto[]))]
 // Lian Li Galahad II Trinity AIO.
 [JsonSerializable(typeof(Nexus.Service.Routes.Galahad2StateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.KrakenStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.KrakenLcdRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.KrakenFirmwareLightingResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.KrakenFirmwareLightingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Galahad2LightingResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Galahad2LightingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Galahad2ModeInfoDto))]
@@ -1108,6 +1114,15 @@ namespace Nexus.Service.Serialization;
 // Privacy access sessions (GET /monitoring/privacy)
 [JsonSerializable(typeof(Nexus.Service.Routes.PrivacySessionWire))]
 [JsonSerializable(typeof(Nexus.Service.Routes.PrivacyAccessResponse))]
+
+// Fps sessions (GET/POST /api/fps/tracking, DELETE /api/fps/all,
+// GET /api/fps/games, GET /api/fps/games/{gameKey}/sessions)
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsGameDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsGamesResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionOverviewDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionsOverviewResponse))]
 
 // Monitoring timeline events (GET/POST/DELETE /monitoring/events)
 [JsonSerializable(typeof(Nexus.Service.Routes.MonitoringEventDto))]

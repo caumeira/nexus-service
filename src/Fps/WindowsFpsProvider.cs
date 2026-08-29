@@ -317,6 +317,24 @@ public sealed class WindowsFpsProvider : IFpsProvider
         }
     }
 
+    // Reads the same fields GetComponent()'s fps/current sensor reads, so
+    // the stored history series and the live sensor always agree.
+    public bool TryReadCurrentFps(out double fps)
+    {
+        lock (_gate)
+        {
+            var isFresh = _cts is not null && _hasValue
+                && (DateTime.UtcNow - _lastPresentUtc).TotalMilliseconds <= StaleFrameMs;
+            if (isFresh)
+            {
+                fps = _fps;
+                return true;
+            }
+        }
+        fps = 0;
+        return false;
+    }
+
     private void HandleTraceFailure(Exception ex)
     {
         CancellationTokenSource? cts;

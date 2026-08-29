@@ -115,6 +115,30 @@ public class OpenRgbZoneCardsTests
     }
 
     [Fact]
+    public void Cards_carry_the_competing_app_ids_for_their_vendor()
+    {
+        var mouse = Mouse();
+        mouse.Vendor = "Corsair";
+        var mb = Motherboard();
+        mb.Vendor = "Gigabyte";
+
+        var resp = OpenRgbZoneSupport.BuildCards(new[] { mb, mouse }, new NexusSettings(), isInit: true);
+
+        // Every zone card of the split motherboard resolves to the same apps.
+        foreach (var card in resp.Devices.FindAll(d => d.ParentDeviceId == "openrgb-s-MB01"))
+        {
+            Assert.Contains("gigabyte-rgb-fusion", card.ConflictAppIds);
+            Assert.DoesNotContain("icue", card.ConflictAppIds);
+        }
+        var mouseCard = resp.Devices.Find(d => d.Id == "openrgb-s-MS01")!;
+        Assert.Contains("icue", mouseCard.ConflictAppIds);
+        Assert.Contains("signalrgb", mouseCard.ConflictAppIds);
+
+        var zones = resp.Devices.FindAll(d => d.ParentDeviceId == "openrgb-s-MB01");
+        Assert.NotSame(zones[0].ConflictAppIds, zones[1].ConflictAppIds);
+    }
+
+    [Fact]
     public void Zero_led_whole_device_card_is_dropped()
     {
         var resp = OpenRgbZoneSupport.BuildCards(new[] { PhantomDevice(), Mouse() }, new NexusSettings(), isInit: true);

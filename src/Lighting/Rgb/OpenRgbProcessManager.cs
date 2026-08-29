@@ -168,7 +168,13 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// <c>REGISTER_*_DETECTOR</c> strings in nexus-rgb/openrgb-headless verbatim
     /// (HYTEKeyboardControllerDetect.cpp -> "HYTE Keeb TKL";
     /// LianLiControllerDetect.cpp -> "Lian Li Uni Hub - SL Infinity";
-    /// CorsairICueLinkControllerDetect.cpp -> "Corsair iCUE Link System Hub").
+    /// CorsairICueLinkControllerDetect.cpp -> "Corsair iCUE Link System Hub";
+    /// NZXTHue2ControllerDetect.cpp -> "NZXT Kraken 2024 ELITE Series RGB").
+    /// The Kraken is the same raw-HID case as the keeb: OpenRGB's Hue 2 controller
+    /// opens the cooler's vendor HID interface, which is the one KrakenHub drives,
+    /// and the two stacks then interleave writes on the same pipe. OpenRGB also
+    /// reads its fan chain as zero LEDs (its accessory table has no 0x1B entry),
+    /// so nothing is lost by keeping it off.
     /// Unknown names in this list are ignored, so disabling the iCUE Link detector
     /// is a safe no-op on bundled builds that predate that controller.
     ///
@@ -181,7 +187,8 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// has to happen here.
     /// </summary>
     private static readonly string[] DisabledDetectors = {
-        "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub", "HID LampArray Device",
+        "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub",
+        "NZXT Kraken 2024 ELITE Series RGB", "HID LampArray Device",
         // Nollie controllers are driven natively; names match the
         // REGISTER_HID_DETECTOR strings in openrgb-headless.
         "Nollie 32CH", "Nollie 16CH", "Nollie 8CH", "Nollie 1CH", "Nollie 28 12", "Nollie 28 L1",

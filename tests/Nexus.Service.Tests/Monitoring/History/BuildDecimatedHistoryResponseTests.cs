@@ -31,6 +31,24 @@ public class BuildDecimatedHistoryResponseTests
     }
 
     [Fact]
+    public void BuildDecimatedHistoryResponse_FpsSlot_ProducesTheFpsSeries()
+    {
+        var dbScalars = new[] { new ScalarDecimatedSlot(
+            1000, null, null, null, null, null, null, null, null, null, null, null, null, null, null, FpsAvg: 60, FpsMax: 90) };
+
+        var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(
+            dbScalars, Array.Empty<GpuDecimatedSlot>(), Array.Empty<FanDecimatedSlot>(), Array.Empty<ComponentTempDecimatedSlot>(), Array.Empty<MetricSample>(),
+            fromSec: 1000, toSec: 1000, stepSeconds: 600, seriesFilter: new HashSet<string> { "fps" }, gpuAdapterLuids: NoLuids);
+
+        var fps = Assert.Single(response.Series);
+        Assert.Equal("fps", fps.Id);
+        Assert.Equal("fps", fps.Kind);
+        var point = Assert.Single(fps.Points);
+        Assert.Equal(60, point.Avg);
+        Assert.Equal(90, point.Max);
+    }
+
+    [Fact]
     public void BuildDecimatedHistoryResponse_ReportsStepSecondsAndRetentionDays()
     {
         var response = MonitoringHistoryRoutes.BuildDecimatedHistoryResponse(

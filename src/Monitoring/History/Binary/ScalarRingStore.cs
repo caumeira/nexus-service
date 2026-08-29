@@ -29,7 +29,9 @@ internal readonly record struct ScalarReading(
 /// a link or drive at or above roughly 17 Gbps stays representable instead of
 /// wrapping. Each field type has its own reserved "null" sentinel (the type's
 /// MinValue), so a source-failed reading is never confused with a genuine
-/// zero.
+/// zero. BodyLength is pinned - widening it reformats every existing
+/// scalars.ring on next boot (see RingFile's capacity/stride mismatch
+/// handling); fps has its own ring (FpsRingStore) for exactly this reason.
 /// </summary>
 internal sealed class ScalarRingStore : IDisposable
 {
@@ -50,6 +52,11 @@ internal sealed class ScalarRingStore : IDisposable
     private const long NullWhole = long.MinValue;
 
     private readonly RingFile _ring;
+
+    // RingFile assumes a single writer over its lifetime (MetricsSampler's
+    // dedicated thread); Clear is a second, route-triggered writer, so both
+    // serialize through this lock.
+    private readonly object _writeLock = new();
 
     public ScalarRingStore(string path, long capacity, long initialPruneFloorSec)
     {
@@ -78,13 +85,16 @@ internal sealed class ScalarRingStore : IDisposable
 
     public void Append(IReadOnlyList<MetricSample> samples)
     {
-        Span<byte> body = stackalloc byte[BodyLength];
-        foreach (var s in samples)
+        lock (_writeLock)
         {
-            Encode(s, body);
-            _ring.WriteSlot(s.TsSec, body);
+            Span<byte> body = stackalloc byte[BodyLength];
+            foreach (var s in samples)
+            {
+                Encode(s, body);
+                _ring.WriteSlot(s.TsSec, body);
+            }
+            _ring.Flush();
         }
-        _ring.Flush();
     }
 
     /// <summary>Reconstructs every reading with ts in [fromSec, toSec],
@@ -269,6 +279,14 @@ internal sealed class ScalarRingStore : IDisposable
     }
 
     private static long? UnscaleWhole(long raw) => raw == NullWhole ? null : raw;
+
+    public void Clear()
+    {
+        lock (_writeLock)
+        {
+            _ring.Clear();
+        }
+    }
 
     public void Dispose() => _ring.Dispose();
 }

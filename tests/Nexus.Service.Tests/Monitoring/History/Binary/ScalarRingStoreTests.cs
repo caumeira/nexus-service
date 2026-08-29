@@ -33,8 +33,37 @@ public class ScalarRingStoreTests : IDisposable
     private ScalarRingStore CreateStore(long capacity = 100, long initialPruneFloorSec = long.MinValue) =>
         new(Path.Combine(_dir, "scalars.ring"), capacity, initialPruneFloorSec);
 
-    private static MetricSample Scalars(long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
+    private static MetricSample Scalars(
+        long ts, double? cpu = 50, double? mem = 60, double? netIn = 1000, double? netOut = 500, double? cpuTemp = 55) =>
         new(ts, cpu, mem, netIn, netOut, cpuTemp, Array.Empty<GpuReading>(), Array.Empty<FanReading>());
+
+    [Fact]
+    public void BodyLength_IsPinned_SoExistingScalarsRingFilesStayCompatible()
+    {
+        // Widening this reformats every existing scalars.ring on next boot
+        // (RingFile.CreateOrOpen treats a stride mismatch as a fresh file) -
+        // fps has its own ring (FpsRingStore) precisely so this never has to
+        // move again.
+        Assert.Equal(38, ScalarRingStore.BodyLength);
+    }
+
+    [Fact]
+    public void Reopen_AFileWrittenAtTheCurrentBodyLength_KeepsItsData()
+    {
+        var path = Path.Combine(_dir, "reopen.ring");
+        using (var store = new ScalarRingStore(path, 100, long.MinValue))
+        {
+            store.Append(new[] { Scalars(10, cpu: 42.3, mem: 61.7) });
+        }
+
+        var expectedLength = 100 * (8 + ScalarRingStore.BodyLength + 4 + 8); // capacity * (lead + body + crc + trail)
+        Assert.Equal(expectedLength, new FileInfo(path).Length);
+
+        using var reopened = new ScalarRingStore(path, 100, long.MinValue);
+        var row = Assert.Single(reopened.Query(0, 100));
+        Assert.Equal(42.3, row.CpuPercent);
+        Assert.Equal(61.7, row.MemoryPercent);
+    }
 
     [Fact]
     public void Append_ThenQuery_RoundTripsEveryField()

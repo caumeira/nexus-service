@@ -21,7 +21,7 @@ namespace Nexus.Service.Activity;
 /// (a stale current session falls off when the helper sends focus="" or
 /// the session ages past tracking horizons).
 /// </summary>
-public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
+public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IFocusDetailsProvider, IDisposable
 {
     private readonly IScreenTimeStore _store;
     private readonly IConfigStore _config;
@@ -31,8 +31,13 @@ public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
     private string _currentApp = "";
     private int _currentPid;
     private long _sessionStartUtcMs;
+    private string? _currentExePath;
+    private int _currentWinW;
+    private int _currentWinH;
+    private string? _currentMonitorDevice;
 
     public event Action? FocusChanged;
+    public event Action<FocusSessionEnded>? SessionEnded;
 
     public WindowsScreenTimeProvider(IScreenTimeStore store, IConfigStore config, HelperRegistry helper)
     {
@@ -53,6 +58,14 @@ public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
                         if (env.Payload is null) return;
                         var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.ScreenTimeSessionPayload);
                         if (p is null) return;
+                        // The payload carries no pid: the helper sends this
+                        // envelope before the matching "screenTime.focus" for
+                        // a pid change (or, for an idle split, with no
+                        // accompanying focus envelope at all), so _currentPid
+                        // still holds the ending session's pid at this point.
+                        int endedPid;
+                        lock (_lock) { endedPid = _currentPid; }
+                        SessionEnded?.Invoke(new FocusSessionEnded(endedPid, p.App, p.StartedUtcMs, p.EndedUtcMs));
                         if (!IsTrackingEnabled()) return;
                         _store.RecordSession(p.App, null, p.StartedUtcMs, p.EndedUtcMs);
                         break;
@@ -69,6 +82,10 @@ public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
                             _currentApp = p.App;
                             _currentPid = p.Pid;
                             _sessionStartUtcMs = p.StartedUtcMs;
+                            _currentExePath = p.ExePath;
+                            _currentWinW = p.WinW;
+                            _currentWinH = p.WinH;
+                            _currentMonitorDevice = p.MonitorDevice;
                         }
                         if (changed) FocusChanged?.Invoke();
                         break;
@@ -93,6 +110,16 @@ public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
                 Name = _currentApp,
                 Today = ToDuration(elapsed),
             };
+        }
+    }
+
+    public FocusDetails? GetCurrentFocusDetails()
+    {
+        lock (_lock)
+        {
+            if (string.IsNullOrEmpty(_currentApp)) return null;
+            return new FocusDetails(
+                _currentPid, _currentApp, _sessionStartUtcMs, _currentExePath, _currentWinW, _currentWinH, _currentMonitorDevice);
         }
     }
 

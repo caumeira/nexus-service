@@ -161,6 +161,10 @@ public static class InstallDefaultsRoutes
                 {
                     TrackingEnabled = s.ScreenTime.TrackingEnabled,
                 },
+                Fps = new FpsDefaults
+                {
+                    TrackingEnabled = s.Fps.TrackingEnabled,
+                },
                 Cnvs = new CnvsDefaults
                 {
                     PlayAnimation = s.Devices.Cnvs.PlayAnimation,

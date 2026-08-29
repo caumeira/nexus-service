@@ -131,6 +131,12 @@ internal sealed class TrackingFpsProvider : IFpsProvider
         }
     }
 
+    public bool TryReadCurrentFps(out double fps)
+    {
+        fps = 0;
+        return false;
+    }
+
     public HardwareComponent GetComponent()
     {
         ComponentReads++;

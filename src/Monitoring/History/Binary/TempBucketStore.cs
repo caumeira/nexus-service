@@ -188,6 +188,18 @@ internal sealed class TempBucketStore : IDisposable
         return (int)scaled;
     }
 
+    /// <summary>Reformats every registered bucket key's ring to empty; key
+    /// registration itself is untouched. Returns the number of ring files
+    /// cleared.</summary>
+    public int Clear()
+    {
+        foreach (var ring in _rings)
+        {
+            ring.Clear();
+        }
+        return _rings.Length;
+    }
+
     public void Dispose()
     {
         foreach (var ring in _rings)

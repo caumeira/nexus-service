@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Models.Devices;
+using Nexus.Service.Peripherals.Nzxt;
 using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Lighting;
@@ -30,6 +31,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly StrimerLightingDeviceProvider _strimer;
     private readonly Galahad2LightingDeviceProvider _galahad2;
     private readonly NollieLightingDeviceProvider _nollie;
+    private readonly KrakenLightingDeviceProvider _kraken;
     private readonly Nexus.Service.Lighting.Smart.SmartLightProvider _smart;
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
@@ -48,6 +50,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         StrimerLightingDeviceProvider strimer,
         Galahad2LightingDeviceProvider galahad2,
         NollieLightingDeviceProvider nollie,
+        KrakenLightingDeviceProvider kraken,
         Nexus.Service.Lighting.Smart.SmartLightProvider smart,
         IConfigStore store,
         LightingEngine engine)
@@ -65,12 +68,22 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _strimer  = strimer;
         _galahad2 = galahad2;
         _nollie   = nollie;
+        _kraken   = kraken;
         _smart    = smart;
         _store    = store;
         _engine   = engine;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _lianLiWireless.IsConnected || _corsair.IsConnected || _strimer.IsConnected || _galahad2.IsConnected || _nollie.IsConnected || _smart.IsConnected;
+    /// <summary>Points the cards a first-party provider emits for third-party hardware at the handler whose gate claims that hardware; the conflict UI folds them into the handler's row. OpenRGB cards carry competing-app ids instead, resolved by vendor string in <see cref="Rgb.OpenRgbZoneSupport.BuildCards"/>.</summary>
+    private static void TagControlHandler(List<LightingDevice> cards, string handlerId)
+    {
+        foreach (var card in cards)
+        {
+            card.ControlHandlerId = handlerId;
+        }
+    }
+
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _lianLiWireless.IsConnected || _corsair.IsConnected || _strimer.IsConnected || _galahad2.IsConnected || _nollie.IsConnected || _kraken.IsConnected || _smart.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -163,6 +176,11 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
                     d.Name.Contains("Nollie", StringComparison.OrdinalIgnoreCase) ||
                     d.Name.Contains("Prism8", StringComparison.OrdinalIgnoreCase));
             }
+            if (_kraken.IsConnected)
+            {
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("Kraken", StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         var hub = _np50.GetAll();
@@ -211,31 +229,43 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         if (lianLi.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || lianLi.IsInit;
+            TagControlHandler(lianLi.Devices, "lianli");
             rgb.Devices.AddRange(lianLi.Devices);
         }
         var lianLiWireless = _lianLiWireless.GetAll();
         if (lianLiWireless.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || lianLiWireless.IsInit;
+            TagControlHandler(lianLiWireless.Devices, "lianli-wireless");
             rgb.Devices.AddRange(lianLiWireless.Devices);
         }
         var corsair = _corsair.GetAll();
         if (corsair.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || corsair.IsInit;
+            TagControlHandler(corsair.Devices, "corsair");
             rgb.Devices.AddRange(corsair.Devices);
         }
         var strimer = _strimer.GetAll();
         if (strimer.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || strimer.IsInit;
+            TagControlHandler(strimer.Devices, "strimer");
             rgb.Devices.AddRange(strimer.Devices);
         }
         var galahad2 = _galahad2.GetAll();
         if (galahad2.Devices.Count > 0)
         {
             rgb.IsInit = rgb.IsInit || galahad2.IsInit;
+            TagControlHandler(galahad2.Devices, "lianli-aio");
             rgb.Devices.AddRange(galahad2.Devices);
+        }
+        var kraken = _kraken.GetAll();
+        if (kraken.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || kraken.IsInit;
+            TagControlHandler(kraken.Devices, KrakenHub.DeviceId);
+            rgb.Devices.AddRange(kraken.Devices);
         }
         var smartLights = _smart.GetAll();
         if (smartLights.Devices.Count > 0)
@@ -308,6 +338,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         var corsairIds    = new List<string>(ids.Count);
         var strimerIds    = new List<string>(ids.Count);
         var galahad2Ids   = new List<string>(ids.Count);
+        var krakenIds     = new List<string>(ids.Count);
         var smartLightIds = new List<string>(ids.Count);
         foreach (var id in ids)
         {
@@ -322,6 +353,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             else if (IsCorsairId(id))   corsairIds.Add(id);
             else if (IsStrimerId(id))   strimerIds.Add(id);
             else if (IsGalahad2Id(id))  galahad2Ids.Add(id);
+            else if (IsKrakenId(id))    krakenIds.Add(id);
             else if (_smart.Owns(id))   smartLightIds.Add(id);
             else                        rgbIds.Add(id);
         }
@@ -337,6 +369,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         if (corsairIds.Count > 0)    _corsair.SetDisabled(corsairIds);
         if (strimerIds.Count > 0)    _strimer.SetDisabled(strimerIds);
         if (galahad2Ids.Count > 0)   _galahad2.SetDisabled(galahad2Ids);
+        if (krakenIds.Count > 0)     _kraken.SetDisabled(krakenIds);
         if (smartLightIds.Count > 0) _smart.SetDisabled(smartLightIds);
     }
 
@@ -360,6 +393,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         : IsStrimerId(id)    ? _strimer
         : IsGalahad2Id(id)   ? _galahad2
         : IsNollieId(id)     ? _nollie
+        : IsKrakenId(id)     ? _kraken
         : _smart.Owns(id)    ? _smart
         : _openRgb;
 
@@ -398,4 +432,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
 
     private static bool IsGalahad2Id(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("lianli-aio:", StringComparison.Ordinal);
+
+    private static bool IsKrakenId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("nzxt-kraken:", StringComparison.Ordinal);
 }

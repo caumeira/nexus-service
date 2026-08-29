@@ -31,6 +31,12 @@ public sealed class ConflictAppDefinition
 
     /// <summary>Windows service names to stop, in order, when ending this app - for apps whose background service holds the hardware. Empty for most.</summary>
     public string[] WindowsServiceNames { get; init; } = Array.Empty<string>();
+
+    /// <summary>OpenRGB vendor strings (substring, case-insensitive) whose devices this app drives. Empty for apps that map to no OpenRGB device.</summary>
+    public string[] Vendors { get; init; } = Array.Empty<string>();
+
+    /// <summary>True for universal RGB apps that drive every OpenRGB device regardless of vendor.</summary>
+    public bool ClaimsAllRgb { get; init; }
 }
 
 public static class ConflictAppCatalog
@@ -47,6 +53,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "hyte-nexus-2",
+            ClaimsAllRgb = true,
             DisplayName = "HYTE Nexus 2",
             Category = "lighting",
             ProcessNames = new[] { "HYTE Nexus", "HYTE.Nexus.Service" },
@@ -60,6 +67,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "nzxt-cam",
+            Vendors = new[] { "NZXT" },
             DisplayName = "NZXT CAM",
             Category = "lighting",
             ProcessNames = new[] { "NZXT CAM", "CAM", "NZXT CAM Beta", "NZXT CAM Service", "NZXTCAM" },
@@ -80,6 +88,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "signalrgb",
+            ClaimsAllRgb = true,
             DisplayName = "SignalRGB",
             Category = "lighting",
             ProcessNames = new[] { "SignalRgb", "SignalRgbLauncher", "SignalRgbService", "SignalRgb.Service" },
@@ -89,6 +98,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "openrgb",
+            ClaimsAllRgb = true,
             DisplayName = "OpenRGB",
             Category = "lighting",
             // Nexus bundles its own headless OpenRGB subprocess (see nexus-rgb). A
@@ -111,6 +121,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "armoury-crate",
+            Vendors = new[] { "ASUS" },
             DisplayName = "ASUS Armoury Crate",
             Category = "lighting",
             ProcessNames = new[] { "ArmouryCrate", "ArmouryCrate.Service", "ArmouryCrate.UserSessionHelper", "ArmourySocketServer", "Armoury Crate" },
@@ -118,6 +129,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "asus-lighting-service",
+            Vendors = new[] { "ASUS" },
             DisplayName = "ASUS Lighting Service",
             Category = "lighting",
             ProcessNames = new[] { "LightingService" },
@@ -125,6 +137,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "aura-sync",
+            Vendors = new[] { "ASUS" },
             DisplayName = "ASUS Aura Sync",
             Category = "lighting",
             ProcessNames = new[] { "AuraSync", "AsusAura" },
@@ -141,6 +154,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "asrock-rgb-sync",
+            Vendors = new[] { "ASRock" },
             DisplayName = "ASRock RGB Sync",
             Category = "lighting",
             ProcessNames = new[] { "ASRRGBLED" },
@@ -148,6 +162,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "asrock-polychrome",
+            Vendors = new[] { "ASRock" },
             DisplayName = "ASRock Polychrome RGB",
             Category = "lighting",
             ProcessNames = new[] { "AsrPolychromeRGB" },
@@ -164,6 +179,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "msi-mystic-light",
+            Vendors = new[] { "MSI" },
             DisplayName = "MSI Mystic Light",
             Category = "lighting",
             ProcessNames = new[] { "Mystic_Light", "MysticLight", "MysticLight_x64" },
@@ -171,6 +187,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "msi-center",
+            Vendors = new[] { "MSI" },
             DisplayName = "MSI Center",
             Category = "lighting",
             ProcessNames = new[] { "MSI.CentralServer", "MSI Center" },
@@ -178,6 +195,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "msi-gaming-center",
+            Vendors = new[] { "MSI" },
             DisplayName = "MSI Gaming Center",
             Category = "lighting",
             ProcessNames = new[] { "GCC" },
@@ -192,6 +210,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "msi-led-keeper",
+            Vendors = new[] { "MSI" },
             DisplayName = "MSI LED Keeper",
             Category = "lighting",
             ProcessNames = new[] { "LedKeeper", "LEDKeeper2" },
@@ -222,6 +241,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "gigabyte-rgb-fusion",
+            Vendors = new[] { "Gigabyte" },
             DisplayName = "Gigabyte RGB Fusion",
             Category = "lighting",
             ProcessNames = new[] { "RGBFusion", "RGBFusion2.0", "RGB Fusion" },
@@ -245,6 +265,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "icue",
+            Vendors = new[] { "Corsair" },
             DisplayName = "Corsair iCUE",
             Category = "lighting",
             ProcessNames = new[]
@@ -267,6 +288,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "razer-synapse",
+            Vendors = new[] { "Razer" },
             DisplayName = "Razer Synapse",
             Category = "peripherals",
             ProcessNames = new[] { "Razer Synapse 3", "RzSynapse", "Razer Synapse Service", "RazerCentralService", "Razer Central" },
@@ -274,6 +296,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "razer-chroma-sdk",
+            Vendors = new[] { "Razer" },
             DisplayName = "Razer Chroma SDK",
             Category = "lighting",
             ProcessNames = new[] { "Razer Chroma SDK Service" },
@@ -283,6 +306,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "logitech-ghub",
+            Vendors = new[] { "Logitech" },
             DisplayName = "Logitech G HUB",
             Category = "peripherals",
             ProcessNames = new[] { "lghub", "lghub_agent", "lghub_system_tray", "logi_overlay" },
@@ -292,6 +316,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "lian-li-l-connect",
+            Vendors = new[] { "Lian Li" },
             DisplayName = "Lian Li L-Connect",
             Category = "lighting",
             ProcessNames = new[] { "L-Connect 3", "L-Connect", "LConnect3", "LConnect" },
@@ -320,6 +345,7 @@ public static class ConflictAppCatalog
             // StreamDeckRoutes surfaces as conflictAppId, so the two never
             // drift apart.
             Id = StreamDeckHandler.ElgatoConflictAppId,
+            Vendors = new[] { "Elgato" },
             DisplayName = "Elgato Stream Deck",
             Category = "peripherals",
             ProcessNames = new[] { "StreamDeck" },
@@ -329,6 +355,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "glorious-core",
+            Vendors = new[] { "Glorious" },
             DisplayName = "Glorious Core",
             Category = "peripherals",
             ProcessNames = new[] { "Glorious Core" },
@@ -343,6 +370,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "steelseries-engine",
+            Vendors = new[] { "SteelSeries" },
             DisplayName = "SteelSeries Engine",
             Category = "peripherals",
             ProcessNames = new[] { "SteelSeriesEngine" },
@@ -350,6 +378,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "steelseries-gg",
+            Vendors = new[] { "SteelSeries" },
             DisplayName = "SteelSeries GG",
             Category = "peripherals",
             ProcessNames = new[] { "SteelSeriesGG", "SteelSeriesGGClient" },
@@ -357,6 +386,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "steelseries-prism",
+            Vendors = new[] { "SteelSeries" },
             DisplayName = "SteelSeries Prism",
             Category = "lighting",
             ProcessNames = new[] { "SteelSeriesPrism" },
@@ -364,6 +394,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "roccat-swarm",
+            Vendors = new[] { "ROCCAT" },
             DisplayName = "ROCCAT Swarm",
             Category = "peripherals",
             ProcessNames = new[] { "ROCCAT_Swarm", "ROCCAT_Swarm_Monitor", "ROCCAT_dev_service" },
@@ -371,6 +402,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "xpg-prime",
+            Vendors = new[] { "XPG", "ADATA" },
             DisplayName = "XPG Prime",
             Category = "lighting",
             ProcessNames = new[] { "XPG-Prime" },
@@ -380,6 +412,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "evga-precision-x1",
+            Vendors = new[] { "EVGA" },
             DisplayName = "EVGA Precision X1",
             Category = "monitoring",
             ProcessNames = new[] { "PrecisionX_x64" },
@@ -403,6 +436,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "thermaltake-itake",
+            Vendors = new[] { "Thermaltake" },
             DisplayName = "Thermaltake iTAKE Engine",
             Category = "lighting",
             ProcessNames = new[] { "TT iTAKE Engine" },
@@ -410,6 +444,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "thermaltake-rgb-plus",
+            Vendors = new[] { "Thermaltake" },
             DisplayName = "Thermaltake RGB Plus",
             Category = "lighting",
             // TTRGBPlusGUI = real binary (the upstream Nexus registry has a
@@ -428,6 +463,7 @@ public static class ConflictAppCatalog
         new()
         {
             Id = "cooler-master-plus",
+            Vendors = new[] { "Cooler Master" },
             DisplayName = "Cooler Master MasterPlus+",
             Category = "lighting",
             ProcessNames = new[] { "CoolerMasterPlus" },

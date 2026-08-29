@@ -37,7 +37,8 @@ internal readonly record struct ScalarMinuteAgg(
 /// single second's own reading uses. Sum/max fields carry no null sentinel of
 /// their own: Cnt==0 already means "no reading this minute" (FieldAgg's own
 /// convention), so a sum/max value stored alongside a zero count is never
-/// read back.
+/// read back. BodyLength is pinned for the same reason ScalarRingStore's is -
+/// fps has its own minute-rollup ring (FpsMinuteRollupRing).
 /// </summary>
 internal sealed class ScalarMinuteRollupRing : IDisposable
 {
@@ -62,7 +63,7 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
     private const int DiskWriteSumOffset = DiskReadMaxOffset + sizeof(long);
     private const int DiskWriteCntOffset = DiskWriteSumOffset + sizeof(long);
     private const int DiskWriteMaxOffset = DiskWriteCntOffset + sizeof(int);
-    private const int BodyLength = DiskWriteMaxOffset + sizeof(long);
+    internal const int BodyLength = DiskWriteMaxOffset + sizeof(long);
 
     private readonly RingFile _ring;
 
@@ -242,6 +243,8 @@ internal sealed class ScalarMinuteRollupRing : IDisposable
         }
         return (int)scaled;
     }
+
+    public void Clear() => _ring.Clear();
 
     public void Dispose() => _ring.Dispose();
 }

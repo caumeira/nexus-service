@@ -40,6 +40,7 @@ public sealed class NexusSettings
     public UiSettings Ui { get; set; } = new();
     public UnitsSettings Units { get; set; } = new();
     public ScreenTimeSettings ScreenTime { get; set; } = new();
+    public FpsSettings Fps { get; set; } = new();
     public ObsSettings Obs { get; set; } = new();
     /// <summary>Per-app volume mixer: remembered levels and named presets. NOT profile-scoped (absent from ProfileManager.CloneSettings): which apps are loud is a property of this workstation, not of a lighting/cooling persona.</summary>
     public AudioMixerSettings AudioMixer { get; set; } = new();
@@ -248,6 +249,12 @@ public sealed class ScreenTimeSettings
 {
     /// <summary>When false, providers stop writing new focus sessions to the store. Reads of existing history continue to work.</summary>
     public bool TrackingEnabled { get; set; } = InstallDefaults.ScreenTime.TrackingEnabled;
+}
+
+public sealed class FpsSettings
+{
+    /// <summary>When false, capture stops entirely: no fps history series, no game sessions, no upload. Reads of existing history continue to work.</summary>
+    public bool TrackingEnabled { get; set; } = InstallDefaults.Fps.TrackingEnabled;
 }
 
 public sealed class ObsSettings
@@ -902,6 +909,17 @@ public sealed class TryxSettings
     public List<int> InstalledCloudIds { get; set; } = new();
 }
 
+/// <summary>One NZXT Kraken channel's firmware animation. <see cref="Colors"/> holds
+/// "#rrggbb" entries in the order the animation reads them.</summary>
+public sealed class KrakenFirmwareLighting
+{
+    public string Effect { get; set; } = "fixed";
+    /// <summary>0 slowest to 4 fastest, matching the cooler's five animation speeds.</summary>
+    public int Speed { get; set; } = 2;
+    public bool Forward { get; set; } = true;
+    public List<string> Colors { get; set; } = new();
+}
+
 public sealed class DevicesSettings
 {
     public List<string> DisabledLightingDevices { get; set; } = new();
@@ -912,6 +930,12 @@ public sealed class DevicesSettings
     /// <summary>Handler ids the user explicitly opted into (Nexus Control on). Overrides the brand default; a third-party handler absent here stays off.</summary>
     public List<string> NexusControlEnabled { get; set; } = new();
     public Dictionary<string, LightingDevicePreference> LightingDevicePrefs { get; set; } = new();
+    /// <summary>
+    /// Firmware animation last written to each NZXT Kraken RGB channel, keyed by zone id.
+    /// The cooler keeps playing it whenever Nexus is not driving that zone, but offers no
+    /// way to read it back, so the last write is remembered here to seed the settings UI.
+    /// </summary>
+    public Dictionary<string, KrakenFirmwareLighting> KrakenFirmwareLighting { get; set; } = new();
     /// <summary>LEGACY (pre-v6, per-card key). Read only by the one-time schema migration that moves entries into <see cref="DeviceLedOverrides"/>; empty afterward. Do not write.</summary>
     public Dictionary<string, List<LedPositionOverride>> LedMapOverrides { get; set; } = new();
     /// <summary>LEGACY (pre-v6, per-card key). Migration source for <see cref="DeviceAspectRatios"/>; empty afterward. Do not write.</summary>

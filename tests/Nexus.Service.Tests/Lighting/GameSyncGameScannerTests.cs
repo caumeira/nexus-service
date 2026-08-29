@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
+using Nexus.Service.Games;
 using Nexus.Service.Lighting;
 using Nexus.Service.Models.Lighting;
 
@@ -153,7 +154,7 @@ public class GameSyncGameScannerTests
             ("Cyberpunk 2077", dir, "steam", ""),
         };
 
-        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+        var result = InstalledGameCollectors.DedupeByInstallDir(candidates);
 
         Assert.Single(result);
         Assert.Equal("steam", result[0].Store);
@@ -168,7 +169,7 @@ public class GameSyncGameScannerTests
             ("Dead Cells", @"C:\games\deadcells", "steam", ""),
         };
 
-        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+        var result = InstalledGameCollectors.DedupeByInstallDir(candidates);
 
         Assert.Single(result);
         Assert.Equal("steam", result[0].Store);
@@ -191,7 +192,7 @@ public class GameSyncGameScannerTests
             ("Game", dir, storeB, ""),
         };
 
-        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+        var result = InstalledGameCollectors.DedupeByInstallDir(candidates);
 
         Assert.Single(result);
         Assert.Equal(expectedWinner, result[0].Store);
@@ -206,7 +207,7 @@ public class GameSyncGameScannerTests
             ("Game B", @"C:\Games\GameB", "epic", ""),
         };
 
-        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+        var result = InstalledGameCollectors.DedupeByInstallDir(candidates);
 
         Assert.Equal(2, result.Count);
     }
@@ -222,7 +223,7 @@ public class GameSyncGameScannerTests
             ("Cyberpunk 2077", "c:/Games/Cyberpunk2077", "steam", ""),
         };
 
-        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+        var result = InstalledGameCollectors.DedupeByInstallDir(candidates);
 
         Assert.Single(result);
         Assert.Equal("steam", result[0].Store);

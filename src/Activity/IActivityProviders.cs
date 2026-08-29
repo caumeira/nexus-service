@@ -15,6 +15,32 @@ public interface IScreenTimeProvider
     event Action? FocusChanged;
 }
 
+/// <summary>Foreground window details beyond FocusSession's web-facing shape
+/// (app name, pid, elapsed durations): the exe path, client size, and owning
+/// monitor a game session needs to resolve catalog identity and a display
+/// snapshot. Windows-only (only WindowsScreenTimeProvider implements it);
+/// consumers resolve it optionally via DI.</summary>
+public interface IFocusDetailsProvider
+{
+    FocusDetails? GetCurrentFocusDetails();
+
+    /// <summary>Raised when the current focus session ends (pid change, idle
+    /// split, or helper disconnect flush) - the same boundary
+    /// IScreenTimeStore.RecordSession persists, so a consumer never needs
+    /// parallel session-boundary logic of its own.</summary>
+    event Action<FocusSessionEnded>? SessionEnded;
+}
+
+/// <summary>Snapshot of the currently focused window. ExePath/MonitorDevice
+/// are null when the helper could not resolve them (access denied, no
+/// helper connected).</summary>
+public sealed record FocusDetails(
+    int Pid, string App, long StartedUtcMs, string? ExePath, int WinW, int WinH, string? MonitorDevice);
+
+/// <summary>A focus session that just closed, matching the boundary
+/// IScreenTimeStore.RecordSession persists for (App, StartedUtcMs, EndedUtcMs).</summary>
+public sealed record FocusSessionEnded(int Pid, string App, long StartedUtcMs, long EndedUtcMs);
+
 public interface IAppDetectionProvider
 {
     IReadOnlyList<Detected> GetDetected();

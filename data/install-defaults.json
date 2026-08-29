@@ -239,6 +239,10 @@
     "trackingEnabled": true
   },
 
+  "fps": {
+    "trackingEnabled": true
+  },
+
   "cnvs": {
     "playAnimation": true,
     "playWhenPCOff": false

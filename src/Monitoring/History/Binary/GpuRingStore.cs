@@ -352,6 +352,22 @@ internal sealed class GpuRingStore : IDisposable
         return (int)scaled;
     }
 
+    /// <summary>Reformats every registered entity's second and minute rings
+    /// to empty; entity registration itself is untouched. Returns the number
+    /// of ring files cleared.</summary>
+    public int Clear()
+    {
+        foreach (var ring in _secondRings)
+        {
+            ring.Clear();
+        }
+        foreach (var ring in _minuteRings)
+        {
+            ring.Clear();
+        }
+        return _secondRings.Length + _minuteRings.Length;
+    }
+
     public void Dispose()
     {
         foreach (var ring in _secondRings)

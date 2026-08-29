@@ -261,9 +261,23 @@ public static class PanelRoutes
             return Results.File(path, WallpaperContentTypeFor(path));
         }).AllowPanel();
 
-        app.MapGet("/panel/devices", (PanelDeviceRegistry registry, Platform.Displays.DisplayTopologyService topology) =>
+        app.MapGet("/panel/devices", (
+            PanelDeviceRegistry registry,
+            Platform.Displays.DisplayTopologyService topology,
+            Nexus.Service.Panel.Streams.StreamedPanelCoordinator streams) =>
         {
             var devices = registry.List().ToList();
+            // Streamed panels (Kraken LCD, D213) have no curated device and no display
+            // behind them, so the list is the only place their presence can be reported.
+            var streamed = streams.LivePanelDeviceIds();
+            if (streamed.Count > 0)
+            {
+                foreach (var device in devices)
+                {
+                    if (streamed.Contains(device.Id))
+                        device.Streamed = true;
+                }
+            }
             // displayAttached is response-only state for display-bound records
             // (promoted monitors): false hides the row while the monitor is
             // unplugged, null = topology unknown (no helper), so the UI keeps

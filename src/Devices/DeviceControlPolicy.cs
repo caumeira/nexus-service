@@ -23,6 +23,7 @@ public static class DeviceControlPolicy
         ["strimer"] = "lian-li-l-connect",
         ["corsair"] = "icue",
         ["tryx"] = "tryx-kanali",
+        ["nzxt-kraken"] = "nzxt-cam",
         ["streamdeck"] = StreamDeckHandler.ElgatoConflictAppId,
     };
 
