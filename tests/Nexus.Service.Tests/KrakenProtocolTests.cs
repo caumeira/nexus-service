@@ -121,8 +121,9 @@ public class KrakenProtocolTests
         Assert.Equal(
             KrakenProtocol.ReportLength,
             KrakenProtocol.EncodeColors(0b001, KrakenColorMode.Fixed, KrakenAnimationSpeed.Normal, new byte[] { 1, 2, 3 }, forward: true).Length);
-        Assert.All(KrakenProtocol.EncodeDirectColors(0b010, new byte[] { 1, 2, 3 }),
-            r => Assert.Equal(KrakenProtocol.ReportLength, r.Length));
+        Assert.Equal(
+            KrakenProtocol.ReportLength,
+            KrakenProtocol.EncodeChannelColors(0b010, new byte[] { 1, 2, 3 }).Length);
     }
 
     [Fact]
@@ -204,45 +205,36 @@ public class KrakenProtocolTests
     }
 
     [Fact]
-    public void EncodeDirectColors_emits_table_latch_and_apply_in_order()
+    public void EncodeChannelColors_addresses_the_channel_and_swaps_to_grb()
     {
         var rgb = new byte[] { 0xAA, 0xBB, 0xCC, 0x10, 0x20, 0x30 };
 
-        var reports = KrakenProtocol.EncodeDirectColors(KrakenProtocol.ColorChannelFans, rgb);
+        var report = KrakenProtocol.EncodeChannelColors(KrakenProtocol.ColorChannelFans, rgb);
 
-        Assert.Equal(3, reports.Length);
-
-        Assert.Equal(0x22, reports[0][0]);
-        Assert.Equal(0x10, reports[0][1]);
-        Assert.Equal(KrakenProtocol.ColorChannelFans, reports[0][2]);
-        // GRB swap on both colours.
-        Assert.Equal(new byte[] { 0xBB, 0xAA, 0xCC, 0x20, 0x10, 0x30 }, reports[0][4..10]);
+        Assert.Equal(0x26, report[0]);
+        Assert.Equal(0x14, report[1]);
+        // The channel id rides both bytes.
+        Assert.Equal(KrakenProtocol.ColorChannelFans, report[2]);
+        Assert.Equal(KrakenProtocol.ColorChannelFans, report[3]);
+        Assert.Equal(new byte[] { 0xBB, 0xAA, 0xCC, 0x20, 0x10, 0x30 }, report[4..10]);
         // Unused slots stay zero so stale colours cannot linger.
-        Assert.Equal(0, reports[0][10]);
-
-        Assert.Equal(0x22, reports[1][0]);
-        Assert.Equal(0x11, reports[1][1]);
-
-        Assert.Equal(0x22, reports[2][0]);
-        Assert.Equal(0xA0, reports[2][1]);
-        Assert.Equal(0x01, reports[2][4]);
+        Assert.Equal(0, report[10]);
     }
 
     [Fact]
-    public void EncodeDirectColors_moves_the_21st_colour_onto_the_second_report()
+    public void EncodeChannelColors_keeps_the_whole_ring_in_one_report()
     {
-        // The firmware reads 20 colours per report and discards the rest, so a 24-LED
-        // ring lit past index 19 stays dark unless the tail rides the 0x11 report.
-        var rgb = new byte[KrakenProtocol.MaxDirectColors * 3];
-        rgb[22 * 3] = 0x11;       // R
-        rgb[(22 * 3) + 1] = 0x22; // G
-        rgb[(22 * 3) + 2] = 0x33; // B
+        // The tail of the ring used to ride a second report and came out dark; LED 23
+        // sits at 11 o'clock, which is where that showed.
+        var rgb = new byte[24 * 3];
+        rgb[23 * 3] = 0x11;       // R
+        rgb[(23 * 3) + 1] = 0x22; // G
+        rgb[(23 * 3) + 2] = 0x33; // B
 
-        var reports = KrakenProtocol.EncodeDirectColors(KrakenProtocol.ColorChannelRing, rgb);
+        var report = KrakenProtocol.EncodeChannelColors(KrakenProtocol.ColorChannelRing, rgb);
 
-        Assert.All(reports[0][4..], b => Assert.Equal(0, b));
-        // Colour 22 is the third slot of the second report, GRB on the wire.
-        Assert.Equal(new byte[] { 0x22, 0x11, 0x33 }, reports[1][10..13]);
+        var slot = 4 + (23 * 3);
+        Assert.Equal(new byte[] { 0x22, 0x11, 0x33 }, report[slot..(slot + 3)]);
     }
 
     [Fact]
@@ -262,18 +254,16 @@ public class KrakenProtocolTests
     }
 
     [Fact]
-    public void EncodeDirectColors_drops_colours_past_the_channel_limit()
+    public void EncodeChannelColors_drops_colours_past_the_channel_limit()
     {
         var rgb = new byte[(KrakenProtocol.MaxDirectColors + 5) * 3];
         rgb.AsSpan().Fill(0x7F);
 
-        // The last accepted colour is the 20th slot of the second report; everything
-        // past the channel limit is dropped rather than wrapping.
-        var second = KrakenProtocol.EncodeDirectColors(0b001, rgb)[1];
+        var report = KrakenProtocol.EncodeChannelColors(0b001, rgb);
 
-        var lastSlot = 4 + (19 * 3);
-        Assert.Equal(0x7F, second[lastSlot]);
-        Assert.Equal(0, second[lastSlot + 3]);
+        var lastSlot = 4 + ((KrakenProtocol.MaxDirectColors - 1) * 3);
+        Assert.Equal(0x7F, report[lastSlot]);
+        Assert.Equal(0, report[lastSlot + 3]);
     }
 
     [Fact]

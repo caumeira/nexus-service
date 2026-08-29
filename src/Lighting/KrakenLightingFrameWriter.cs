@@ -15,13 +15,16 @@ namespace Nexus.Service.Lighting;
 /// Pushes engine output to the Kraken's RGB channels, one per-LED write per channel per
 /// tick. Same shape as <see cref="MiniHubLightingFrameWriter"/>.
 ///
-/// The tick is slower than the MiniHub's 30 Hz: each channel costs three 512-byte HID
-/// reports, and the cooler shares that pipe with telemetry polling and any LCD upload.
-/// Unchanged frames are skipped so a static look costs nothing.
+/// One 512-byte HID report per channel per tick. Unchanged frames are skipped so a static
+/// look costs nothing, which matters because the cooler shares this pipe with telemetry
+/// polling and any LCD upload.
 /// </summary>
 public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
 {
-    private const int TickPeriodMs = 50;
+    // One 512-byte report per channel per tick, so the push costs ~0.14 ms and the
+    // engine's own 60 Hz is the limit worth matching. The three-report sequence this
+    // replaced cost 0.62 ms plus a 3 ms wait for a reject that never meant anything.
+    private const int TickPeriodMs = 16;
     private const int IdentifyFlashHalfPeriodMs = 250;
 
     private readonly LightingEngine _engine;

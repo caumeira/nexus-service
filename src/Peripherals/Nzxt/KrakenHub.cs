@@ -16,9 +16,6 @@ public sealed class KrakenHub : IDisposable
     private const int ConnectReadTimeoutMs = 1000;
     private const int CommandReadTimeoutMs = 700;
     private const int PollReadTimeoutMs = 250;
-    // Long enough to catch the NAK for a per-LED write (measured under a millisecond)
-    // and short enough to fit inside the lighting writer's tick.
-    private const int DirectRejectWindowMs = 3;
 
     // Bulk pixel data goes out in chunks; 64 KiB measured ~13 MB/s on the bench unit.
     private const int BulkChunkBytes = 64 * 1024;
@@ -344,81 +341,17 @@ public sealed class KrakenHub : IDisposable
     }
 
     /// <summary>
-    /// Drives every LED on a channel individually. The three reports are written back to
-    /// back under the lock so no other command can interleave between the colour table and
-    /// the command that applies it.
-    /// </summary>
-    /// <summary>
-    /// Sets every LED on a channel. This firmware rejects a per-LED write every few
-    /// frames (a NAK echoing 0x22) and applies the rejected one only in part - the
-    /// tail of the chain keeps its old colour, which on the pump ring is a dark arc
-    /// where the second report's LEDs sit. Re-sending a rejected frame once always
-    /// lands it: bench-measured 3-5 rejects per 20 frames, 0 surviving a retry.
+    /// Sets every LED on a channel with one report. The firmware applies it on arrival, so
+    /// there is no latch, no apply command, and nothing to wait for; the NAK this answers
+    /// with carries no information (it answers writes that visibly land).
     /// </summary>
     public bool SetDirectColors(byte channelId, ReadOnlySpan<byte> rgbColors)
     {
-        var reports = KrakenProtocol.EncodeDirectColors(channelId, rgbColors);
+        var report = KrakenProtocol.EncodeChannelColors(channelId, rgbColors);
         lock (_lock)
         {
-            if (_device == null)
-            {
-                return false;
-            }
-            for (int attempt = 0; attempt < 2; attempt++)
-            {
-                foreach (var report in reports)
-                {
-                    if (!_device.Write(report))
-                    {
-                        return false;
-                    }
-                }
-                if (!AwaitDirectRejectionLocked())
-                {
-                    return true;
-                }
-            }
-            return true;
+            return _device != null && _device.Write(report);
         }
-    }
-
-    /// <summary>
-    /// True when the device rejected the direct-colour write just sent. The NAK lands
-    /// asynchronously, within about a millisecond; status reports arriving in the same
-    /// window are folded in rather than dropped.
-    /// </summary>
-    private bool AwaitDirectRejectionLocked()
-    {
-        if (_device == null)
-        {
-            return false;
-        }
-        var buf = new byte[KrakenProtocol.ReportLength];
-        var deadline = Environment.TickCount64 + DirectRejectWindowMs;
-        var rejected = false;
-        while (Environment.TickCount64 < deadline)
-        {
-            int n = _device.Read(buf, 0);
-            if (n <= 0)
-            {
-                continue;
-            }
-            var span = buf.AsSpan(0, n);
-            if (KrakenProtocol.IsDirectRejection(span))
-            {
-                rejected = true;
-                continue;
-            }
-            if (KrakenProtocol.IsStatusReply(span))
-            {
-                var reading = KrakenProtocol.DecodeStatus(span);
-                if (reading.HasValue)
-                {
-                    _snapshot = _snapshot.WithReading(reading.Value);
-                }
-            }
-        }
-        return rejected;
     }
 
     /// <summary>
