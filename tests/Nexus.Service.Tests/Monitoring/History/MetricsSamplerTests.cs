@@ -274,6 +274,19 @@ public class MetricsSamplerTests
     }
 
     [Fact]
+    public async Task Tick_FreshButSubOneFps_LeavesTheSampleAsAGap()
+    {
+        var fps = new SpyFpsProvider { CurrentFps = 0.4 };
+        var buffer = new MetricsSampleBuffer();
+        var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), buffer, fps: fps);
+
+        await sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc), CancellationToken.None);
+
+        var sample = Assert.Single(buffer.PendingSnapshot());
+        Assert.Null(sample.Fps);
+    }
+
+    [Fact]
     public async Task Tick_NoFreshFps_LeavesTheSampleAsAGap()
     {
         var fps = new SpyFpsProvider { CurrentFps = null };

@@ -221,7 +221,13 @@ public sealed class MetricsSampler : IHostedService, IDisposable
         var sample = await _source.SampleAsync(tsSec, ct).ConfigureAwait(false);
         if (IsFpsTrackingEnabled() && _fps.TryReadCurrentFps(out var currentFps))
         {
-            sample = sample with { Fps = (int)Math.Round(Math.Max(0, currentFps)) };
+            // A fresh reading can still round below 1 (the 50-present window
+            // draining while a paused target redraws sparsely). Leave those a
+            // gap, matching FpsSessionRecorder's IsValidFrameCount gate, rather
+            // than writing a spurious 0 dip into the series.
+            var fps = (int)Math.Round(Math.Max(0, currentFps));
+            if (fps >= 1)
+                sample = sample with { Fps = fps };
         }
         _buffer.Append(sample);
         _tickCount++;
