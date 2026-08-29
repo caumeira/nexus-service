@@ -378,9 +378,13 @@ public sealed class KrakenLightingDeviceProvider :
     /// </summary>
     internal static (float x, float y, float w, float h) DefaultKrakenLayout(int slot, int circles = 1)
     {
-        const float Y = 366f;
-        const float Side = 120f;
-        const float Gap = 20f;
+        // Sized against the 1000x600 effect canvas: a footprint this size spans
+        // enough of it that an animation varies ACROSS the LEDs. A small box
+        // samples one patch of the effect, which lights every LED the same
+        // colour and reads as a static tint that drifts rather than an animation.
+        const float Y = 340f;
+        const float Side = 200f;
+        const float Gap = 40f;
         const float BaseX = 40f;
         var s = Math.Max(0, slot);
         var c = Math.Max(1, circles);
