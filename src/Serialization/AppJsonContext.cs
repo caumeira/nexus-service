@@ -944,6 +944,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<AppCatalogEntry>))]
 [JsonSerializable(typeof(AppInstallRequest))]
 [JsonSerializable(typeof(AppInstallResponse))]
+[JsonSerializable(typeof(StoreInstallRequest))]
+[JsonSerializable(typeof(StoreInstallResponse))]
 [JsonSerializable(typeof(AppCodeSessionResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.OpenUrlRequest))]
 // Widgets - settings
