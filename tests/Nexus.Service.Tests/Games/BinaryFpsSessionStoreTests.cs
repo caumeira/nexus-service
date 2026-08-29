@@ -21,6 +21,7 @@ public class BinaryFpsSessionStoreTests : IDisposable
     // so a fixture timestamped years in the past is deleted the instant it
     // is written.
     private static readonly long NowUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    private static readonly long PreviousMonthUtcMs = DateTimeOffset.UtcNow.AddMonths(-1).ToUnixTimeMilliseconds();
 
     private static FpsSessionRecord Session(
         string gameKey = "steam:1091500", string name = "Cyberpunk 2077", string store = "steam",
@@ -158,6 +159,71 @@ public class BinaryFpsSessionStoreTests : IDisposable
         Assert.Equal(2, deleted);
         Assert.Empty(store.QuerySessions("steam:1091500", 10));
         Assert.Empty(store.QueryGameSummaries());
+    }
+
+    [Fact]
+    public void DeleteSession_OneOfThreeInAMonth_KeepsTheOtherTwoReadableAfterReopen()
+    {
+        FpsSessionRecord first, second, third;
+        using (var store = new BinaryFpsSessionStore(_dir))
+        {
+            first = Session(startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000);
+            second = Session(startedUtcMs: NowUtcMs + 1_000_000, endedUtcMs: NowUtcMs + 1_600_000);
+            third = Session(startedUtcMs: NowUtcMs + 2_000_000, endedUtcMs: NowUtcMs + 2_600_000);
+            store.Append(first);
+            store.Append(second);
+            store.Append(third);
+
+            Assert.Equal(1, store.DeleteSession(second.Id));
+        }
+
+        using var reopened = new BinaryFpsSessionStore(_dir);
+        var remaining = reopened.QuerySessions("steam:1091500", 10);
+
+        Assert.Equal(2, remaining.Count);
+        Assert.Contains(remaining, r => r.Id == first.Id);
+        Assert.Contains(remaining, r => r.Id == third.Id);
+        Assert.DoesNotContain(remaining, r => r.Id == second.Id);
+    }
+
+    [Fact]
+    public void DeleteSession_UnknownId_ReturnsZero_AndLeavesExistingSessionsIntact()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session());
+
+        var deleted = store.DeleteSession(Guid.NewGuid());
+
+        Assert.Equal(0, deleted);
+        Assert.Single(store.QuerySessions("steam:1091500", 10));
+    }
+
+    [Fact]
+    public void DeleteGame_AcrossTwoMonths_RemovesEverySessionForThatGameOnly()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session(startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000));
+        store.Append(Session(startedUtcMs: PreviousMonthUtcMs, endedUtcMs: PreviousMonthUtcMs + 600_000));
+        store.Append(Session(gameKey: "epic:otherb", name: "Other Game", store: "epic",
+            startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000));
+
+        var deleted = store.DeleteGame("steam:1091500");
+
+        Assert.Equal(2, deleted);
+        Assert.Empty(store.QuerySessions("steam:1091500", 10));
+        Assert.Single(store.QuerySessions("epic:otherb", 10));
+    }
+
+    [Fact]
+    public void DeleteGame_UnknownGameKey_ReturnsZero()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session());
+
+        var deleted = store.DeleteGame("steam:does-not-exist");
+
+        Assert.Equal(0, deleted);
+        Assert.Single(store.QuerySessions("steam:1091500", 10));
     }
 
     [Fact]

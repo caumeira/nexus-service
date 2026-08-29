@@ -85,6 +85,18 @@ public static class FpsRoutes
                 .ToList();
             return Results.Ok(new FpsSessionsOverviewResponse { Sessions = sessions });
         }).AllowPanel();
+
+        app.MapDelete("/api/fps/sessions/{id}", (string id, BinaryFpsSessionStore store) =>
+        {
+            if (!Guid.TryParse(id, out var sessionId))
+            {
+                return Results.BadRequest(ApiResponse.Fail("id must be a valid guid"));
+            }
+            return Results.Ok(new DeleteResponse { Deleted = store.DeleteSession(sessionId) });
+        });
+
+        app.MapDelete("/api/fps/games/{gameKey}", (string gameKey, BinaryFpsSessionStore store) =>
+            new DeleteResponse { Deleted = store.DeleteGame(Uri.UnescapeDataString(gameKey)) });
     }
 
     internal static FpsGameDto ToGameDto(FpsGameSummary s) => new()

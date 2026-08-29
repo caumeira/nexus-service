@@ -224,6 +224,89 @@ public sealed class BinaryFpsSessionStore : IDisposable
         }
     }
 
+    /// <summary>Deletes exactly one session by id. Returns 1 if found and
+    /// removed, 0 if no session with that id exists in any month
+    /// segment.</summary>
+    public int DeleteSession(Guid id)
+    {
+        lock (_lock)
+        {
+            foreach (var month in ExistingMonths())
+            {
+                var records = ReadMonth(month);
+                var index = records.FindIndex(r => r.Id == id);
+                if (index < 0)
+                {
+                    continue;
+                }
+                records.RemoveAt(index);
+                RewriteMonth(month, records);
+                return 1;
+            }
+            return 0;
+        }
+    }
+
+    /// <summary>Deletes every session for gameKey, across every month
+    /// segment that holds one. Returns the number of sessions removed; 0
+    /// for an unknown gameKey. The GameDictionary entry itself is left in
+    /// place - it is cheap metadata, and no segment will reference it once
+    /// this returns.</summary>
+    public int DeleteGame(string gameKey)
+    {
+        lock (_lock)
+        {
+            if (_games.TryGetId(gameKey) is not { } gameId)
+            {
+                return 0;
+            }
+
+            var removed = 0;
+            foreach (var month in ExistingMonths())
+            {
+                var records = ReadMonth(month);
+                var survivors = records.Where(r => r.GameId != gameId).ToList();
+                var removedThisMonth = records.Count - survivors.Count;
+                if (removedThisMonth == 0)
+                {
+                    continue;
+                }
+                removed += removedThisMonth;
+                RewriteMonth(month, survivors);
+            }
+            return removed;
+        }
+    }
+
+    // Rewrites a month segment from scratch with exactly survivors (deletes
+    // the file outright if that leaves nothing) - the same temp-file-then-move
+    // shape BinaryScreenTimeStore.RewriteDay uses for the same reason: a
+    // crash mid-write leaves the original file intact rather than a
+    // partially-rewritten one.
+    private void RewriteMonth(string month, List<RawRecord> survivors)
+    {
+        var path = SegPath(month);
+        if (survivors.Count == 0)
+        {
+            TryDelete(path);
+            return;
+        }
+
+        var tmp = path + ".tmp";
+        using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+        {
+            Span<byte> buf = stackalloc byte[RecordLength];
+            foreach (var r in survivors)
+            {
+                EncodeRaw(r, buf[..RecordBodyLength]);
+                BinaryPrimitives.WriteUInt32LittleEndian(buf.Slice(RecordBodyLength, 4), Crc32.Compute(buf[..RecordBodyLength]));
+                fs.Write(buf);
+            }
+            fs.Flush(flushToDisk: true);
+        }
+        File.Move(tmp, path, overwrite: true);
+    }
+
     public void Dispose() => _games.Dispose();
 
     private void MaybePrune()
@@ -367,6 +450,55 @@ public sealed class BinaryFpsSessionStore : IDisposable
         if (r.Fullscreen) flags |= FlagFullscreen;
         if (r.Capped) flags |= FlagCapped;
         body[offset] = flags;
+        offset += 1;
+        BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(offset, 2), (ushort)Math.Clamp(r.CapValue, 0, ushort.MaxValue));
+        offset += 2;
+        BinaryPrimitives.WriteUInt64LittleEndian(body.Slice(offset, 8), r.HardwareHash);
+        offset += 8;
+        body[offset] = (byte)r.UploadState;
+    }
+
+    // Same field layout as Encode, sourced from an already-decoded RawRecord
+    // (GameId and Flags are already the on-disk int/byte, not the
+    // FpsSessionRecord/gameId pair Encode packs) - used to rewrite a month
+    // segment's surviving records after a delete.
+    private static void EncodeRaw(RawRecord r, Span<byte> body)
+    {
+        var offset = 0;
+        r.Id.TryWriteBytes(body.Slice(offset, 16));
+        offset += 16;
+        BinaryPrimitives.WriteInt32LittleEndian(body.Slice(offset, 4), r.GameId);
+        offset += 4;
+        BinaryPrimitives.WriteInt64LittleEndian(body.Slice(offset, 8), r.StartedUtcMs);
+        offset += 8;
+        BinaryPrimitives.WriteInt64LittleEndian(body.Slice(offset, 8), r.EndedUtcMs);
+        offset += 8;
+        BinaryPrimitives.WriteInt32LittleEndian(body.Slice(offset, 4), r.FocusedSec);
+        offset += 4;
+        BinaryPrimitives.WriteInt32LittleEndian(body.Slice(offset, 4), r.ValidSec);
+        offset += 4;
+        BinaryPrimitives.WriteInt64LittleEndian(body.Slice(offset, 8), r.Frames);
+        offset += 8;
+        BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(offset, 2), (ushort)Math.Clamp(r.MinFps, 0, ushort.MaxValue));
+        offset += 2;
+        BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(offset, 2), (ushort)Math.Clamp(r.MaxFps, 0, ushort.MaxValue));
+        offset += 2;
+        for (var i = 0; i < FpsHistogram.BucketCount; i++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(body.Slice(offset, 4), r.Hist[i]);
+            offset += 4;
+        }
+        BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(offset, 2), (ushort)Math.Clamp(r.DispW, 0, ushort.MaxValue));
+        offset += 2;
+        BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(offset, 2), (ushort)Math.Clamp(r.DispH, 0, ushort.MaxValue));
+        offset += 2;
+        BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(offset, 2), (ushort)Math.Clamp(r.RefreshHz, 0, ushort.MaxValue));
+        offset += 2;
+        BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(offset, 2), (ushort)Math.Clamp(r.WinW, 0, ushort.MaxValue));
+        offset += 2;
+        BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(offset, 2), (ushort)Math.Clamp(r.WinH, 0, ushort.MaxValue));
+        offset += 2;
+        body[offset] = r.Flags;
         offset += 1;
         BinaryPrimitives.WriteUInt16LittleEndian(body.Slice(offset, 2), (ushort)Math.Clamp(r.CapValue, 0, ushort.MaxValue));
         offset += 2;
