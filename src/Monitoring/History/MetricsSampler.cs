@@ -59,11 +59,6 @@ public sealed class MetricsSampler : IHostedService, IDisposable
     // IFpsProvider.SetDemand's multi-source contract.
     private const string FpsDemandSource = "history";
 
-    // This sampler's own cursor into IFpsProvider.ReadCompletedSeconds -
-    // each caller tracks its own, so this and FpsSessionRecorder never
-    // race or double-count the same second.
-    private long _lastConsumedFpsSec = long.MinValue;
-
     public MetricsSampler(
         ISensorProvider sensors, IMetricsSource source, MetricsSampleBuffer buffer,
         IMetricsHistoryStore store,
@@ -224,17 +219,12 @@ public sealed class MetricsSampler : IHostedService, IDisposable
 
         var tsSec = new DateTimeOffset(nowUtc).ToUnixTimeSeconds();
         var sample = await _source.SampleAsync(tsSec, ct).ConfigureAwait(false);
+        if (IsFpsTrackingEnabled() && _fps.TryReadCurrentFps(out var currentFps))
+        {
+            sample = sample with { Fps = (int)Math.Round(Math.Max(0, currentFps)) };
+        }
         _buffer.Append(sample);
         _tickCount++;
-
-        foreach (var second in _fps.ReadCompletedSeconds(_lastConsumedFpsSec))
-        {
-            // A 0-frame second (paused, minimized, a non-presenting focus
-            // target) stays a gap in the history; only the recorder counts it.
-            if (second.Frames > 0)
-                _buffer.SetFps(second.TsSec, second.Frames);
-            _lastConsumedFpsSec = second.TsSec;
-        }
 
         if (_tickCount % MetricsHistory.AppSampleIntervalSeconds == 0)
         {
@@ -310,21 +300,26 @@ public sealed class MetricsSampler : IHostedService, IDisposable
     }
 
     // Holds the fps capture demand while the local-data switch is on and
-    // something is focused; FpsSessionRecorder consumes the same
-    // IFpsProvider.TryReadSecond feed while a catalog game holds focus,
-    // riding this demand rather than managing a second one.
+    // something is focused; FpsSessionRecorder rides the same demand while a
+    // catalog game holds focus rather than managing a second one.
     private void UpdateFpsDemand()
     {
         bool wanted;
         try
         {
-            wanted = (_config.Load().Fps?.TrackingEnabled ?? true) && _screenTime.GetCurrentSession() is not null;
+            wanted = IsFpsTrackingEnabled() && _screenTime.GetCurrentSession() is not null;
         }
         catch
         {
             wanted = false;
         }
         _fps.SetDemand(FpsDemandSource, wanted);
+    }
+
+    private bool IsFpsTrackingEnabled()
+    {
+        try { return _config.Load().Fps?.TrackingEnabled ?? true; }
+        catch { return true; }
     }
 
     private void MaybeWarn(Exception ex)

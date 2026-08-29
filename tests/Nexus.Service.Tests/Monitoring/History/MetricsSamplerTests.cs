@@ -61,12 +61,20 @@ public class MetricsSamplerTests
     private sealed class SpyFpsProvider : IFpsProvider
     {
         public List<bool> DemandCalls { get; } = new();
-        public FpsSecond? Second { get; set; }
+        public double? CurrentFps { get; set; }
 
         public void SetDemand(string source, bool wanted) => DemandCalls.Add(wanted);
 
-        public IReadOnlyList<FpsSecond> ReadCompletedSeconds(long afterTsSec) =>
-            Second is { } s && s.TsSec > afterTsSec ? new[] { s } : Array.Empty<FpsSecond>();
+        public bool TryReadCurrentFps(out double fps)
+        {
+            if (CurrentFps is { } value)
+            {
+                fps = value;
+                return true;
+            }
+            fps = 0;
+            return false;
+        }
 
         public HardwareComponent GetComponent() => new() { Id = "fps", Name = "FPS", Sensors = new List<HardwareSensor>() };
         public void Dispose() { }
@@ -253,42 +261,43 @@ public class MetricsSamplerTests
     }
 
     [Fact]
-    public async Task Tick_FoldsACompletedFpsSecond_IntoTheAlreadyBufferedSampleForThatSecond()
+    public async Task Tick_SamplesTheCurrentFps_IntoTheSameTicksSample()
     {
-        // Fps arrives on its own lagged cadence (IFpsProvider.ReadCompletedSeconds),
-        // so it lands one tick after the scalar sample for that same ts was
-        // already buffered, via MetricsSampleBuffer.SetFps rather than a
-        // fresh Append.
-        var fps = new SpyFpsProvider();
+        var fps = new SpyFpsProvider { CurrentFps = 144 };
         var buffer = new MetricsSampleBuffer();
         var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), buffer, fps: fps);
 
-        var firstTick = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
-        var firstTickSec = new DateTimeOffset(firstTick).ToUnixTimeSeconds();
-        await sampler.Tick(firstTick, CancellationToken.None);
+        await sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc), CancellationToken.None);
 
-        fps.Second = new FpsSecond(firstTickSec, 4321, 144);
-        await sampler.Tick(firstTick.AddSeconds(1), CancellationToken.None);
-
-        var sample = Assert.Single(buffer.PendingSnapshot(), s => s.TsSec == firstTickSec);
+        var sample = Assert.Single(buffer.PendingSnapshot());
         Assert.Equal(144, sample.Fps);
     }
 
     [Fact]
-    public async Task Tick_LeavesAZeroFrameFpsSecond_AsAGap()
+    public async Task Tick_NoFreshFps_LeavesTheSampleAsAGap()
     {
-        var fps = new SpyFpsProvider();
+        var fps = new SpyFpsProvider { CurrentFps = null };
         var buffer = new MetricsSampleBuffer();
         var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), buffer, fps: fps);
 
-        var firstTick = new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc);
-        var firstTickSec = new DateTimeOffset(firstTick).ToUnixTimeSeconds();
-        await sampler.Tick(firstTick, CancellationToken.None);
+        await sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc), CancellationToken.None);
 
-        fps.Second = new FpsSecond(firstTickSec, 4321, 0);
-        await sampler.Tick(firstTick.AddSeconds(1), CancellationToken.None);
+        var sample = Assert.Single(buffer.PendingSnapshot());
+        Assert.Null(sample.Fps);
+    }
 
-        var sample = Assert.Single(buffer.PendingSnapshot(), s => s.TsSec == firstTickSec);
+    [Fact]
+    public async Task Tick_TrackingDisabled_LeavesTheSampleAsAGap_EvenWithAFreshFps()
+    {
+        var fps = new SpyFpsProvider { CurrentFps = 144 };
+        var config = new FakeConfigStore();
+        config.Update(s => s.Fps.TrackingEnabled = false);
+        var buffer = new MetricsSampleBuffer();
+        var sampler = CreateSampler(new StubMetricsSource(), new RecordingMetricsHistoryStore(), buffer, fps: fps, config: config);
+
+        await sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 10, DateTimeKind.Utc), CancellationToken.None);
+
+        var sample = Assert.Single(buffer.PendingSnapshot());
         Assert.Null(sample.Fps);
     }
 

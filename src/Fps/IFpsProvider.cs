@@ -2,12 +2,6 @@ using Nexus.Service.Models.Sensors;
 
 namespace Nexus.Service.Fps;
 
-/// <summary>One completed second's frame count for the pid that was being
-/// tracked. Frames is 0 when the target had no presents that second (still
-/// focused, nothing drawn - loading, paused, minimized), distinct from the
-/// second never appearing at all (no target existed then).</summary>
-public readonly record struct FpsSecond(long TsSec, int Pid, int Frames);
-
 public interface IFpsProvider : IDisposable
 {
     /// <summary>Registers or clears one named source's demand for capture. Capture
@@ -16,13 +10,12 @@ public interface IFpsProvider : IDisposable
     void SetDemand(string source, bool wanted);
     HardwareComponent GetComponent();
 
-    /// <summary>Every completed second with ts &gt; afterTsSec, oldest first.
-    /// A second counts as completed once wall-clock time has moved far enough
-    /// past it that any in-flight ETW delivery for it must already have
-    /// arrived; it never depends on a later present arriving to close it, so
-    /// a paused or minimized target still reports its 0-frame seconds. Each
-    /// caller tracks its own afterTsSec (the last ts it consumed) rather than
-    /// the provider tracking per-caller cursors, so independent 1Hz callers
-    /// never race or double-count. Empty when capture is not running.</summary>
-    IReadOnlyList<FpsSecond> ReadCompletedSeconds(long afterTsSec);
+    /// <summary>The instantaneous fps from the same rolling-window calculator
+    /// GetComponent()'s fps/current sensor reads - accurate because it only
+    /// needs inter-present spacing, unlike counting presents into wall-clock
+    /// seconds (DxgKrnl delivers presents in delayed/batched ETW flushes, so
+    /// a wall-clock bucket can lose frames to a later batch permanently).
+    /// False when capture is not running, no target pid is set, or the last
+    /// present is older than the staleness window; fps is 0 in that case.</summary>
+    bool TryReadCurrentFps(out double fps);
 }

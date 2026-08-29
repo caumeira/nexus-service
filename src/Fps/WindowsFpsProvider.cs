@@ -45,10 +45,6 @@ public sealed class WindowsFpsProvider : IFpsProvider
     private DateTime _nextStartAllowedUtc = DateTime.MinValue;
     private DateTime _lastErrorLoggedUtc = DateTime.MinValue;
 
-    private const int CompletedRingSize = 8;
-    private const int CompletionLagSec = 2;
-    private readonly CompletedSecondsRing _completedSeconds = new(CompletedRingSize, CompletionLagSec);
-
     public WindowsFpsProvider(IScreenTimeProvider screenTime)
     {
         _screenTime = screenTime;
@@ -230,11 +226,6 @@ public sealed class WindowsFpsProvider : IFpsProvider
                         _fps = 0;
                         _hasValue = false;
                         _lastPresentUtc = DateTime.MinValue;
-                        _completedSeconds.Reset();
-                        if (target.Pid > 0)
-                        {
-                            _completedSeconds.StartTracking(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-                        }
                     }
                 }
 
@@ -323,26 +314,25 @@ public sealed class WindowsFpsProvider : IFpsProvider
             _fps = _calculator.AddFrameTicks(data.TimeStamp.Ticks);
             _hasValue = _calculator.Count >= 2;
             _lastPresentUtc = DateTime.UtcNow;
-
-            _completedSeconds.RecordFrame(new DateTimeOffset(data.TimeStamp).ToUnixTimeSeconds());
         }
     }
 
-    public IReadOnlyList<FpsSecond> ReadCompletedSeconds(long afterTsSec)
+    // Reads the same fields GetComponent()'s fps/current sensor reads, so
+    // the stored history series and the live sensor always agree.
+    public bool TryReadCurrentFps(out double fps)
     {
         lock (_gate)
         {
-            if (_cts is null)
+            var isFresh = _cts is not null && _hasValue
+                && (DateTime.UtcNow - _lastPresentUtc).TotalMilliseconds <= StaleFrameMs;
+            if (isFresh)
             {
-                return Array.Empty<FpsSecond>();
+                fps = _fps;
+                return true;
             }
-
-            var pid = _targetPid;
-            return _completedSeconds
-                .ReadCompleted(afterTsSec, DateTimeOffset.UtcNow.ToUnixTimeSeconds())
-                .Select(r => new FpsSecond(r.TsSec, pid, r.Frames))
-                .ToList();
         }
+        fps = 0;
+        return false;
     }
 
     private void HandleTraceFailure(Exception ex)
@@ -377,7 +367,6 @@ public sealed class WindowsFpsProvider : IFpsProvider
         _hasValue = false;
         _lastPresentUtc = DateTime.MinValue;
         _calculator.Reset();
-        _completedSeconds.Reset();
     }
 
     private static async Task IgnoreFaults(Task? task)

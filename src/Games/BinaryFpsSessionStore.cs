@@ -8,7 +8,9 @@ public enum FpsUploadState : byte { Pending = 0, Sent = 1, Rejected = 2 }
 
 /// <summary>One completed, persisted game session summary - the fixed-size
 /// record BinaryFpsSessionStore reads and writes. Hist must be exactly
-/// FpsHistogram.BucketCount long.</summary>
+/// FpsHistogram.BucketCount long. Frames is the sum of ValidSec once-per-
+/// second fps samples (Frames/ValidSec is the session's average fps), not a
+/// count of individual presents.</summary>
 public sealed record FpsSessionRecord(
     Guid Id, string GameKey, string GameName, string Store,
     long StartedUtcMs, long EndedUtcMs, int FocusedSec, int ValidSec, long Frames,

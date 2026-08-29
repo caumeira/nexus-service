@@ -24,29 +24,6 @@ public class MetricsSampleBufferTests
     }
 
     [Fact]
-    public void SetFps_UpdatesAnAlreadyBufferedSample_LeavingOtherFieldsIntact()
-    {
-        var buffer = new MetricsSampleBuffer();
-        buffer.Append(Sample(1000, cpu: 42));
-
-        buffer.SetFps(1000, 144);
-
-        var sample = Assert.Single(buffer.PendingSnapshot());
-        Assert.Equal(144, sample.Fps);
-        Assert.Equal(42, sample.CpuPercent);
-    }
-
-    [Fact]
-    public void SetFps_NoBufferedSampleForThatTs_IsANoOp()
-    {
-        var buffer = new MetricsSampleBuffer();
-
-        buffer.SetFps(1000, 144);
-
-        Assert.Empty(buffer.PendingSnapshot());
-    }
-
-    [Fact]
     public void PendingSnapshot_ReturnsOldestFirst()
     {
         var buffer = new MetricsSampleBuffer();

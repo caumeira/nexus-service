@@ -14,10 +14,10 @@ namespace Nexus.Service.Games;
 /// <summary>
 /// Follows the helper's own focus session with no boundary logic of its own:
 /// its 1Hz poll loop opens a session whenever nothing is open and the
-/// current focus resolves to a catalog game (start = now), consumes
-/// IFpsProvider.ReadCompletedSeconds for per-second frames, and closes on a
-/// matching IFocusDetailsProvider.SessionEnded (pid match only) or a
-/// mid-session display mode change.
+/// current focus resolves to a catalog game (start = now), samples
+/// IFpsProvider.TryReadCurrentFps once per tick, and closes on a matching
+/// IFocusDetailsProvider.SessionEnded (pid match only) or a mid-session
+/// display mode change.
 ///
 /// IFocusDetailsProvider.SessionEnded is raised synchronously from the
 /// helper pipe's read loop, so its handler only enqueues the event and
@@ -43,7 +43,6 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
     private readonly ConcurrentQueue<FocusSessionEnded> _pendingEnds = new();
     private TrackedSession? _open;
     private int _modeCheckCounter;
-    private long _lastConsumedFpsSec = long.MinValue;
     private CancellationTokenSource? _cts;
     private Task? _pollTask;
 
@@ -153,29 +152,36 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         }
     }
 
+    // Samples the same rolling-window fps TryReadCurrentFps exposes for the
+    // fps/current sensor, once per tick, instead of counting presents into
+    // wall-clock-second buckets - DxgKrnl delivers presents in delayed,
+    // batched ETW flushes, so a bucket that already advanced past a second
+    // loses any frame arriving in a later batch for it.
     private void AccumulateFpsForOpenSession(TrackedSession open)
     {
-        foreach (var second in _fps.ReadCompletedSeconds(_lastConsumedFpsSec))
+        if (!_fps.TryReadCurrentFps(out var currentFps))
         {
-            _lastConsumedFpsSec = second.TsSec;
-            if (second.Pid != open.Pid || !FpsSessionRules.IsValidFrameCount(second.Frames))
-            {
-                continue;
-            }
+            return;
+        }
 
-            lock (_lock)
+        var fps = (int)Math.Round(Math.Max(0, currentFps));
+        if (!FpsSessionRules.IsValidFrameCount(fps))
+        {
+            return;
+        }
+
+        lock (_lock)
+        {
+            if (!ReferenceEquals(_open, open))
             {
-                if (!ReferenceEquals(_open, open))
-                {
-                    return;
-                }
-                open.ValidSec++;
-                open.Frames += second.Frames;
-                FpsHistogram.AddSample(open.Hist, second.Frames);
-                ExactFpsCounts.Add(open.ExactCounts, second.Frames);
-                open.MinFps = Math.Min(open.MinFps, second.Frames);
-                open.MaxFps = Math.Max(open.MaxFps, second.Frames);
+                return;
             }
+            open.ValidSec++;
+            open.Frames += fps;
+            FpsHistogram.AddSample(open.Hist, fps);
+            ExactFpsCounts.Add(open.ExactCounts, fps);
+            open.MinFps = Math.Min(open.MinFps, fps);
+            open.MaxFps = Math.Max(open.MaxFps, fps);
         }
     }
 
@@ -359,6 +365,8 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         public int WinH { get; init; }
         public ulong HardwareHash { get; init; }
         public int ValidSec;
+        // Sum of once-per-second sampled fps values, not a present count -
+        // see FpsSessionRecord.Frames.
         public long Frames;
         public uint[] Hist { get; } = new uint[FpsHistogram.BucketCount];
         public uint[] ExactCounts { get; } = new uint[ExactFpsCounts.MaxFps + 1];

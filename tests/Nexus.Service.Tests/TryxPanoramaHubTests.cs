@@ -145,7 +145,11 @@ public class TryxPanoramaHubTests
             Sensors = Sensors,
         };
 
-        public IReadOnlyList<FpsSecond> ReadCompletedSeconds(long afterTsSec) => Array.Empty<FpsSecond>();
+        public bool TryReadCurrentFps(out double fps)
+        {
+            fps = 0;
+            return false;
+        }
 
         public void Dispose() { }
     }
