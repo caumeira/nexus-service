@@ -534,6 +534,9 @@ public sealed class RgbBridge : IDisposable
     /// </summary>
     public void ForceRescan() => BounceSubprocess("user-rescan");
 
+    /// <summary>Restarts the daemon so it re-reads OpenRGB.json; manual device registrations are only picked up at launch.</summary>
+    public void BounceForManualDevices() => BounceSubprocess("manual-devices");
+
     /// <summary>
     /// Queue a motherboard ARGB zone resize. Applied via OpenRGB's RESIZEZONE
     /// opcode on the next refresh pass under the refresh semaphore, so it never

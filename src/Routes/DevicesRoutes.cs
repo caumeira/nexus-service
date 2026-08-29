@@ -19,6 +19,7 @@ public static partial class DevicesRoutes
         MapDeviceSettingsEndpoints(app);
         MapLightingDevicesEndpoints(app);
         MapZoneEndpoints(app);
+        MapOpenRgbManualDeviceEndpoints(app);
         MapMappingEndpoints(app);
         MapSmartLightsEndpoints(app);
         MapHomeAssistantEndpoints(app);

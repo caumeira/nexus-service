@@ -456,6 +456,15 @@ public sealed class OpenRgbProcessManager : IDisposable
             // supervisor restart can't run an instance that re-grabs them.
             EnsureDetectorOverrides(configDir, ResolvePlaceholderDetectors());
 
+            // Registrations for hardware no detector can match on its own (QMK
+            // boards, E1.31 devices). Re-asserted per launch for the same
+            // reason as the overrides above.
+            if (_store is not null)
+            {
+                try { OpenRgbManualDeviceConfig.Write(configDir, _store.Load().Devices.OpenRgbManualDevices); }
+                catch (Exception ex) { ServiceLog.Warn($"[openrgb-proc] manual-device write skipped: {ex.GetType().Name}: {ex.Message}"); }
+            }
+
             // The MSBuild Content copy (and tar/zip round-trips) drop the
             // executable bit on Linux/macOS - restore it or Process.Start fails
             // with EACCES and RGB silently never comes up.
