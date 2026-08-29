@@ -399,6 +399,10 @@ internal static class KrakenProtocol
         return report.Length > 1 && report[0] == requestReportId + 1 && report[1] == subCommand;
     }
 
+    /// <summary>True when this report is the NAK for a per-LED colour write (report 0x22).</summary>
+    public static bool IsDirectRejection(ReadOnlySpan<byte> report) =>
+        report.Length > 14 && report[0] == ReportNak && report[14] == ReportDirect;
+
     public static bool IsAck(ReadOnlySpan<byte> report) =>
         report.Length > ReplyPayloadOffset && report[ReplyPayloadOffset] == AckOk;
 
