@@ -32,7 +32,7 @@ public class MonitoringHistoryRouteResponseTests
     }
 
     [Fact]
-    public void BuildHistoryResponse_AlwaysIncludesTheSevenFixedScalarSeries_WhenUnfiltered()
+    public void BuildHistoryResponse_AlwaysIncludesTheEightFixedScalarSeries_WhenUnfiltered()
     {
         var db = new[] { Scalars(0) };
 
@@ -46,6 +46,35 @@ public class MonitoringHistoryRouteResponseTests
         Assert.Contains("disk-read", ids);
         Assert.Contains("disk-write", ids);
         Assert.Contains("cpu-temp", ids);
+        Assert.Contains("fps", ids);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_FpsSeries_HasCorrectKindAndName()
+    {
+        var db = new[] { new MetricSample(0, null, null, null, null, null,
+            Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { Fps = 60 } };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 10, 600, null, NoLuids);
+
+        var fpsSeries = response.Series.Single(s => s.Id == "fps");
+        Assert.Equal("fps", fpsSeries.Kind);
+        Assert.Equal("FPS", fpsSeries.Name);
+        var point = Assert.Single(fpsSeries.Points);
+        Assert.Equal(60, point.Avg);
+    }
+
+    [Fact]
+    public void BuildHistoryResponse_SeriesFilter_fps_ReturnsOnlyFps()
+    {
+        var db = new[] { new MetricSample(0, 50, 60, 1000, 500, 55,
+            Array.Empty<GpuReading>(), Array.Empty<FanReading>()) { Fps = 60 } };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(
+            db, Array.Empty<MetricSample>(), 0, 10, 600, new HashSet<string> { "fps" }, NoLuids);
+
+        var series = Assert.Single(response.Series);
+        Assert.Equal("fps", series.Id);
     }
 
     [Fact]

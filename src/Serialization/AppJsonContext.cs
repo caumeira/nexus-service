@@ -1111,6 +1111,15 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.PrivacySessionWire))]
 [JsonSerializable(typeof(Nexus.Service.Routes.PrivacyAccessResponse))]
 
+// Fps sessions (GET/POST /api/fps/tracking, DELETE /api/fps/all,
+// GET /api/fps/games, GET /api/fps/games/{gameKey}/sessions)
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsGameDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsGamesResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionOverviewDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.FpsSessionsOverviewResponse))]
+
 // Monitoring timeline events (GET/POST/DELETE /monitoring/events)
 [JsonSerializable(typeof(Nexus.Service.Routes.MonitoringEventDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.MonitoringEventsResponse))]

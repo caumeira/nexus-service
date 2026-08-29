@@ -44,7 +44,8 @@ public sealed record MetricSample(
     string? CpuName = null,
     IReadOnlyList<ComponentTempReading>? ComponentTemps = null,
     double? DiskReadBytesPerSec = null,
-    double? DiskWriteBytesPerSec = null)
+    double? DiskWriteBytesPerSec = null,
+    int? Fps = null)
 {
     public IReadOnlyList<ComponentTempReading> ComponentTemps { get; init; } = ComponentTemps ?? Array.Empty<ComponentTempReading>();
 }

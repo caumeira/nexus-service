@@ -58,6 +58,8 @@ public class DiagnosticsAlertServiceTests
         public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs) => Array.Empty<TemperatureBucketRow>();
         public IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds) => Array.Empty<FanDecimatedSlot>();
         public IReadOnlyList<ComponentTempDecimatedSlot> QueryComponentTempDecimated(long fromSec, long toSec, int stepSeconds) => Array.Empty<ComponentTempDecimatedSlot>();
+        public int ResetAll() => 0;
+        public int BlankFpsSeries() => 0;
         public void Dispose() { }
     }
 

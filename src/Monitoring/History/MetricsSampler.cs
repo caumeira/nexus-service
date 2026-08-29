@@ -3,7 +3,10 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Activity;
+using Nexus.Service.Fps;
 using Nexus.Service.Lifecycle;
+using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -37,6 +40,9 @@ public sealed class MetricsSampler : IHostedService, IDisposable
     private readonly IAppUsageSource _appSource;
     private readonly AppSampleBuffer _appBuffer;
     private readonly IAppUsageHistoryStore _appStore;
+    private readonly IFpsProvider _fps;
+    private readonly IScreenTimeProvider _screenTime;
+    private readonly IConfigStore _config;
 
     private readonly CancellationTokenSource _stopCts = new();
     private Thread? _thread;
@@ -49,10 +55,15 @@ public sealed class MetricsSampler : IHostedService, IDisposable
     // the pre-toggle tail exactly once instead of on every later tick.
     private bool _monitoringWasEnabled = true;
 
+    // Demand source id this sampler holds on IFpsProvider - see
+    // IFpsProvider.SetDemand's multi-source contract.
+    private const string FpsDemandSource = "history";
+
     public MetricsSampler(
         ISensorProvider sensors, IMetricsSource source, MetricsSampleBuffer buffer,
         IMetricsHistoryStore store,
         IAppUsageSource appSource, AppSampleBuffer appBuffer, IAppUsageHistoryStore appStore,
+        IFpsProvider fps, IScreenTimeProvider screenTime, IConfigStore config,
         FeatureGates? gates = null)
     {
         _sensors = sensors;
@@ -62,6 +73,9 @@ public sealed class MetricsSampler : IHostedService, IDisposable
         _appSource = appSource;
         _appBuffer = appBuffer;
         _appStore = appStore;
+        _fps = fps;
+        _screenTime = screenTime;
+        _config = config;
         _gates = gates ?? FeatureGates.AllEnabled;
     }
 
@@ -184,6 +198,11 @@ public sealed class MetricsSampler : IHostedService, IDisposable
 
     internal async Task Tick(DateTime nowUtc, CancellationToken ct)
     {
+        // Independent of the Monitoring feature gate below: FpsSessionRecorder
+        // rides this same demand to capture game sessions, which must keep
+        // working even with the Monitoring history pillar off.
+        UpdateFpsDemand();
+
         if (!_gates.Monitoring)
         {
             // Enabled->disabled edge: persist the pre-toggle tail once, then
@@ -200,6 +219,16 @@ public sealed class MetricsSampler : IHostedService, IDisposable
 
         var tsSec = new DateTimeOffset(nowUtc).ToUnixTimeSeconds();
         var sample = await _source.SampleAsync(tsSec, ct).ConfigureAwait(false);
+        if (IsFpsTrackingEnabled() && _fps.TryReadCurrentFps(out var currentFps))
+        {
+            // A fresh reading can still round below 1 (the 50-present window
+            // draining while a paused target redraws sparsely). Leave those a
+            // gap, matching FpsSessionRecorder's IsValidFrameCount gate, rather
+            // than writing a spurious 0 dip into the series.
+            var fps = (int)Math.Round(Math.Max(0, currentFps));
+            if (fps >= 1)
+                sample = sample with { Fps = fps };
+        }
         _buffer.Append(sample);
         _tickCount++;
 
@@ -274,6 +303,29 @@ public sealed class MetricsSampler : IHostedService, IDisposable
             ServiceLog.Warn($"[metrics-sampler] app flush failed: {ex.Message}");
             _appBuffer.TrimToRetentionCap(new DateTimeOffset(nowUtc).ToUnixTimeSeconds());
         }
+    }
+
+    // Holds the fps capture demand while the local-data switch is on and
+    // something is focused; FpsSessionRecorder rides the same demand while a
+    // catalog game holds focus rather than managing a second one.
+    private void UpdateFpsDemand()
+    {
+        bool wanted;
+        try
+        {
+            wanted = IsFpsTrackingEnabled() && _screenTime.GetCurrentSession() is not null;
+        }
+        catch
+        {
+            wanted = false;
+        }
+        _fps.SetDemand(FpsDemandSource, wanted);
+    }
+
+    private bool IsFpsTrackingEnabled()
+    {
+        try { return _config.Load().Fps?.TrackingEnabled ?? true; }
+        catch { return true; }
     }
 
     private void MaybeWarn(Exception ex)

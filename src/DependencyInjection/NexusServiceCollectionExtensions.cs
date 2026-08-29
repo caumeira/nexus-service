@@ -394,6 +394,22 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Per-game fps session recording. GameCatalog and
+    /// BinaryFpsSessionStore are registered on every platform so GET
+    /// /api/fps/games still answers off Windows; only FpsSessionRecorder
+    /// (needs IFocusDetailsProvider) is platform-gated.</summary>
+    public static IServiceCollection AddNexusFps(this IServiceCollection services)
+    {
+        services.AddSingleton<Nexus.Service.Games.GameCatalog>();
+        services.AddSingleton(_ => new Nexus.Service.Games.BinaryFpsSessionStore(
+            System.IO.Path.Combine(NexusDataPaths.DatabaseDir(), "fps")));
+#if WINDOWS
+        services.AddSingleton<Nexus.Service.Games.FpsSessionRecorder>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.FpsSessionRecorder>());
+#endif
+        return services;
+    }
+
     public static IServiceCollection AddNexusLighting(this IServiceCollection services)
     {
         services.AddSingleton<Nexus.Service.Lighting.StaticDeviceEffectTracker>();
@@ -1247,7 +1263,14 @@ public static class NexusServiceCollectionExtensions
         // wins for the resolved instance).
         services.AddSingleton<ISystemAccentProvider, NullSystemAccentProvider>();
 #if WINDOWS
-        services.AddSingleton<IScreenTimeProvider, WindowsScreenTimeProvider>();
+        // Registered under its concrete type so IScreenTimeProvider and
+        // IFocusDetailsProvider resolve the same instance (one helper-envelope
+        // listener, one in-memory focus snapshot), the same pattern
+        // AddNexusMonitoringHistory uses for IMetricsHistoryStore's sibling
+        // interfaces.
+        services.AddSingleton<WindowsScreenTimeProvider>();
+        services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<WindowsScreenTimeProvider>());
+        services.AddSingleton<IFocusDetailsProvider>(sp => sp.GetRequiredService<WindowsScreenTimeProvider>());
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         // Enumeration (Get-StartApps) is per-user and empty from Session 0, so
         // route it through the user-session helper. Launch stays direct (explorer).

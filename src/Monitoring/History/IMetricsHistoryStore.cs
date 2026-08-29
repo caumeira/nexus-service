@@ -50,6 +50,16 @@ public interface IMetricsHistoryStore : IDisposable
     /// MetricsHistory.TempBucketMinutes), read from the 90-day temp_buckets
     /// rollup - see QueryTemperatureBuckets.</summary>
     IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs);
+
+    /// <summary>Resets every scalar/gpu/fan/component-temp/temp-bucket/app-usage
+    /// series this store owns back to empty, recording continues on the next
+    /// Append. Returns the number of files/segments reset. Screen time and
+    /// fps session history live in separate stores and are untouched.</summary>
+    int ResetAll();
+
+    /// <summary>Resets the fps history rings (raw + minute rollup) -
+    /// DELETE /api/fps/all's history-side effect.</summary>
+    int BlankFpsSeries();
 }
 
 /// <summary>One bucket for one temperature component. BucketUtcMs is the
@@ -74,7 +84,8 @@ public readonly record struct ScalarDecimatedSlot(
     double? NetOutAvg, double? NetOutMax,
     double? CpuTempAvg, double? CpuTempMax,
     double? DiskReadAvg = null, double? DiskReadMax = null,
-    double? DiskWriteAvg = null, double? DiskWriteMax = null);
+    double? DiskWriteAvg = null, double? DiskWriteMax = null,
+    double? FpsAvg = null, double? FpsMax = null);
 
 /// <summary>One GPU's slot-aggregated load/temperature.</summary>
 public readonly record struct GpuDecimatedSlot(
