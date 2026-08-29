@@ -311,6 +311,10 @@ public sealed class HomeAssistantSettings
 public sealed class UiSettings
 {
     public bool ShowConflictAlerts { get; set; } = true;
+    /// <summary>Shut down every catalog conflict app except the opted-out ones, once, at service start. Off by default - terminating another vendor's app is destructive, so it stays opt-in.</summary>
+    public bool AutoKillConflictsAtStartup { get; set; }
+    /// <summary>Catalog ids the user opted OUT of the startup shutdown. Stored as exclusions, not as an allow-list, so an app added to the catalog later is covered without a settings migration. Non-null so a profile that never wrote one sends an empty list rather than nothing, which the client would merge as "keep whatever the last profile had".</summary>
+    public List<string> ConflictAutoKillExclusions { get; set; } = new();
     /// <summary>True once the web has auto-placed the OEM app onto the dashboard.</summary>
     public bool OemAppSeeded { get; set; }
     /// <summary>Sidebar pinned-app tail (app keys / app:&lt;id&gt; placement types),
@@ -330,6 +334,8 @@ public sealed class UiSettings
 public sealed class UiSettingsPatch
 {
     public bool? ShowConflictAlerts { get; set; }
+    public bool? AutoKillConflictsAtStartup { get; set; }
+    public List<string>? ConflictAutoKillExclusions { get; set; }
     public bool? OemAppSeeded { get; set; }
     public List<string>? PinnedSidebarApps { get; set; }
     public string? LightingDashboardMode { get; set; }

@@ -94,6 +94,8 @@ public static class ProfileSharing
                 target.Panel.DashboardLayout = source.Panel.DashboardLayout;
                 target.Overlay = source.Overlay;
                 target.Ui.ShowConflictAlerts = source.Ui.ShowConflictAlerts;
+                target.Ui.AutoKillConflictsAtStartup = source.Ui.AutoKillConflictsAtStartup;
+                target.Ui.ConflictAutoKillExclusions = source.Ui.ConflictAutoKillExclusions;
                 break;
             case Device:
                 target.StreamDeck = source.StreamDeck;
@@ -125,6 +127,8 @@ public static class ProfileSharing
                 target.Panel.DashboardLayout = null;
                 target.Overlay = new OverlaySettings();
                 target.Ui.ShowConflictAlerts = true;
+                target.Ui.AutoKillConflictsAtStartup = false;
+                target.Ui.ConflictAutoKillExclusions = new();
                 break;
             case Device:
                 target.StreamDeck = new StreamDeckSettings();

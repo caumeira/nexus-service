@@ -66,6 +66,13 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Conflicts.ConflictWatcher>());
         services.AddSingleton<Nexus.Service.Conflicts.IConflictDetector>(
             sp => sp.GetRequiredService<Nexus.Service.Conflicts.ConflictWatcher>());
+        // Opt-in one-shot startup shutdown of detected conflicting apps.
+        // Registered after the watcher so its scan is served by the same
+        // singleton the rest of the service reads, and as a singleton in its
+        // own right so the Windows tray bootstrap can subscribe to its
+        // AppsTerminated event.
+        services.AddSingleton<Nexus.Service.Conflicts.ConflictStartupShutdown>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Conflicts.ConflictStartupShutdown>());
         return services;
     }
 

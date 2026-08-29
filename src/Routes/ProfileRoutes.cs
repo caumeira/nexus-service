@@ -509,6 +509,8 @@ public static class ProfileRoutes
                 if (body.Ui is { } ui)
                 {
                     if (ui.ShowConflictAlerts.HasValue) s.Ui.ShowConflictAlerts = ui.ShowConflictAlerts.Value;
+                    if (ui.AutoKillConflictsAtStartup.HasValue) s.Ui.AutoKillConflictsAtStartup = ui.AutoKillConflictsAtStartup.Value;
+                    if (ui.ConflictAutoKillExclusions is not null) s.Ui.ConflictAutoKillExclusions = ui.ConflictAutoKillExclusions;
                     if (ui.OemAppSeeded.HasValue) s.Ui.OemAppSeeded = ui.OemAppSeeded.Value;
                     if (ui.PinnedSidebarApps is not null) s.Ui.PinnedSidebarApps = ui.PinnedSidebarApps;
                     if (ui.LightingDashboardMode is "simple" or "advanced") s.Ui.LightingDashboardMode = ui.LightingDashboardMode;

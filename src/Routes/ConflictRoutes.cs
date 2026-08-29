@@ -1,9 +1,5 @@
-using System;
-using Nexus.Service.Activity;
 using Nexus.Service.Conflicts;
-using Nexus.Service.Models;
 using Nexus.Service.Models.Conflicts;
-using Nexus.Service.Platform.Windows;
 
 namespace Nexus.Service.Routes;
 
@@ -28,6 +24,25 @@ public static class ConflictRoutes
             return Results.Ok(response);
         });
 
+        // Every app the catalog knows about, running or not - what the
+        // settings modal lists so a user can opt an app out of the startup
+        // shutdown before it has ever been detected. Names the app only;
+        // the process/service names it resolves to stay server-side.
+        app.MapGet("/conflicts/catalog", () =>
+        {
+            var response = new GetConflictCatalogResponse();
+            foreach (var def in ConflictAppCatalog.All)
+            {
+                response.Apps.Add(new ConflictCatalogApp
+                {
+                    Id = def.Id,
+                    DisplayName = def.DisplayName,
+                    Category = def.Category,
+                });
+            }
+            return Results.Ok(response);
+        });
+
         // Terminate every running process matching the catalog entry for
         // <c>body.Id</c>, then stop any Windows services it lists (for apps
         // whose background service re-grabs the hardware). We never trust a
@@ -49,52 +64,16 @@ public static class ConflictRoutes
             // Measured, not inferred: ProcessKiller.Kill reports that it FOUND
             // processes, its own Kill being swallowed, and StopService counts an
             // already-stopped service as success.
-            var runningBefore = AnyProcessRunning(def);
-
-            // Services first: these entries exist because the service restarts
-            // the app's processes, so killing those first lets a live service
-            // relaunch them inside ProcessKiller's exit wait. Stopping first
-            // also means the process pass reaps a host still in STOP_PENDING.
-            if (OperatingSystem.IsWindows())
-            {
-                foreach (var svc in def.WindowsServiceNames)
-                {
-                    WindowsServiceController.StopService(svc);
-                }
-            }
-
-            foreach (var name in def.ProcessNames)
-            {
-                ProcessKiller.Kill(name);
-            }
-
-            var runningAfter = AnyProcessRunning(def);
-            var killed = runningBefore && !runningAfter;
+            var outcome = ConflictKiller.Kill(def);
 
             return Results.Ok(new KillConflictResponse
             {
                 Error = false,
-                Msg = !runningBefore ? "No matching process"
-                    : runningAfter ? "Still running"
+                Msg = !outcome.RunningBefore ? "No matching process"
+                    : outcome.RunningAfter ? "Still running"
                     : "Killed",
-                Killed = killed,
+                Killed = outcome.Killed,
             });
         });
-    }
-
-    /// <summary>Whether any process this catalog entry names is running; the oracle for whether a kill did anything.</summary>
-    private static bool AnyProcessRunning(ConflictAppDefinition def)
-    {
-        foreach (var name in def.ProcessNames)
-        {
-            try
-            {
-                var procs = System.Diagnostics.Process.GetProcessesByName(name);
-                foreach (var p in procs) p.Dispose();
-                if (procs.Length > 0) return true;
-            }
-            catch { /* an unreadable process list is not evidence of absence */ }
-        }
-        return false;
     }
 }

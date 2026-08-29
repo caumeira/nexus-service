@@ -106,7 +106,14 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubd
 ; Windows Start search indexes - the previous http:// .url never surfaced.
 ; Inno writes the Start-menu copy natively (no PowerShell dependency); --install
 ; re-asserts the same {group}\Nexus.lnk and clears the legacy .url shortcuts.
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "Open the Nexus dashboard"
+; AppUserModelID must match Platform.Windows.ToastNotifications.AppUserModelId.
+; An unpackaged app gets no interactive toast without a Start-menu shortcut
+; carrying this id, and the failure is silent - Windows accepts the toast and
+; never draws it. This shortcut is also where the toast's attribution icon
+; comes from (measured): the registry IconUri under
+; HKCU\Software\Classes\AppUserModelId is NOT read for it, so an unstamped
+; .lnk shows the generic placeholder no matter what that value says.
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "Open the Nexus dashboard"; AppUserModelID: "HelloNexus.Nexus"
 ; Desktop icon gated on the "Create a desktop shortcut" checkbox rendered on the
 ; directory page (DesktopIconChecked in [Code]). A [Tasks] entry would instead
 ; add a separate "Select Additional Tasks" wizard page. The check is also false
