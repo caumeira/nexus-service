@@ -290,6 +290,122 @@ public class BinaryFpsSessionStoreTests : IDisposable
         Assert.Equal(2, sessions.Count);
     }
 
+    private static long UtcMsForLocalDate(DateOnly localDate, int hour = 12)
+    {
+        var local = new DateTime(localDate.Year, localDate.Month, localDate.Day, hour, 0, 0, DateTimeKind.Local);
+        return new DateTimeOffset(local).ToUnixTimeMilliseconds();
+    }
+
+    [Fact]
+    public void DeleteRange_MidRangeDay_KeepsEarlierAndLaterSessionsReadableAfterReopen()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var yesterday = today.AddDays(-1);
+        var tomorrow = today.AddDays(1);
+
+        FpsSessionRecord earlier, middle, later;
+        using (var store = new BinaryFpsSessionStore(_dir))
+        {
+            earlier = Session(startedUtcMs: UtcMsForLocalDate(yesterday), endedUtcMs: UtcMsForLocalDate(yesterday) + 600_000);
+            middle = Session(startedUtcMs: UtcMsForLocalDate(today), endedUtcMs: UtcMsForLocalDate(today) + 600_000);
+            later = Session(startedUtcMs: UtcMsForLocalDate(tomorrow), endedUtcMs: UtcMsForLocalDate(tomorrow) + 600_000);
+            store.Append(earlier);
+            store.Append(middle);
+            store.Append(later);
+
+            Assert.Equal(1, store.DeleteRange(today, today));
+        }
+
+        using var reopened = new BinaryFpsSessionStore(_dir);
+        var remaining = reopened.QuerySessions("steam:1091500", 10);
+
+        Assert.Equal(2, remaining.Count);
+        Assert.Contains(remaining, r => r.Id == earlier.Id);
+        Assert.Contains(remaining, r => r.Id == later.Id);
+        Assert.DoesNotContain(remaining, r => r.Id == middle.Id);
+    }
+
+    [Fact]
+    public void DeleteRange_SpanningTwoMonths_RemovesSessionsInBothMonths()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        var thisMonth = Session(startedUtcMs: NowUtcMs, endedUtcMs: NowUtcMs + 600_000);
+        var lastMonth = Session(startedUtcMs: PreviousMonthUtcMs, endedUtcMs: PreviousMonthUtcMs + 600_000);
+        store.Append(thisMonth);
+        store.Append(lastMonth);
+
+        var from = DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeMilliseconds(PreviousMonthUtcMs).ToLocalTime().Date).AddDays(-1);
+        var to = DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeMilliseconds(NowUtcMs).ToLocalTime().Date).AddDays(1);
+
+        var deleted = store.DeleteRange(from, to);
+
+        Assert.Equal(2, deleted);
+        Assert.Empty(store.QuerySessions("steam:1091500", 10));
+    }
+
+    [Fact]
+    public void DeleteRange_FromAfterTo_ReturnsZero()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session());
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var deleted = store.DeleteRange(today, today.AddDays(-1));
+
+        Assert.Equal(0, deleted);
+        Assert.Single(store.QuerySessions("steam:1091500", 10));
+    }
+
+    [Fact]
+    public void DeleteRange_NoSessionsInRange_ReturnsZero()
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session());
+
+        var farFuture = DateOnly.FromDateTime(DateTime.Now).AddYears(1);
+        var deleted = store.DeleteRange(farFuture, farFuture.AddDays(1));
+
+        Assert.Equal(0, deleted);
+        Assert.Single(store.QuerySessions("steam:1091500", 10));
+    }
+
+    [Fact]
+    public void DeleteRange_SessionsExactlyOnFromAndToBoundaries_AreBothIncluded()
+    {
+        var from = DateOnly.FromDateTime(DateTime.Now);
+        var to = from.AddDays(2);
+        var outside = from.AddDays(3);
+
+        using var store = new BinaryFpsSessionStore(_dir);
+        var onFrom = Session(startedUtcMs: UtcMsForLocalDate(from), endedUtcMs: UtcMsForLocalDate(from) + 600_000);
+        var onTo = Session(startedUtcMs: UtcMsForLocalDate(to), endedUtcMs: UtcMsForLocalDate(to) + 600_000);
+        var afterTo = Session(startedUtcMs: UtcMsForLocalDate(outside), endedUtcMs: UtcMsForLocalDate(outside) + 600_000);
+        store.Append(onFrom);
+        store.Append(onTo);
+        store.Append(afterTo);
+
+        var deleted = store.DeleteRange(from, to);
+
+        Assert.Equal(2, deleted);
+        var remaining = store.QuerySessions("steam:1091500", 10);
+        Assert.Single(remaining);
+        Assert.Equal(afterTo.Id, remaining[0].Id);
+    }
+
+    [Theory]
+    [InlineData("0001-01-01", "0001-01-02")]
+    [InlineData("9999-12-30", "9999-12-31")]
+    public void DeleteRange_NearDateOnlyBounds_DoesNotThrow(string fromStr, string toStr)
+    {
+        using var store = new BinaryFpsSessionStore(_dir);
+        store.Append(Session());
+
+        var deleted = store.DeleteRange(DateOnly.Parse(fromStr), DateOnly.Parse(toStr));
+
+        Assert.Equal(0, deleted);
+        Assert.Single(store.QuerySessions("steam:1091500", 10));
+    }
+
     [Fact]
     public void Reopen_SeesSessionsPersistedByThePreviousInstance()
     {
