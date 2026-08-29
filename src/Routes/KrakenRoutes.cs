@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Nexus.Service.Models;
 using Nexus.Service.Peripherals.Nzxt;
+using Nexus.Service.Persistence;
 using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
@@ -146,6 +147,151 @@ public static partial class DevicesRoutes
                 ? Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse)
                 : Results.BadRequest(ApiResponse.Fail("lcd upload rejected by device"));
         });
+
+        // GET /devices/nzxt-kraken/firmware-lighting - the animations the cooler can play
+        // on its own, plus what was last written to each channel. The cooler cannot be
+        // asked what it is playing, so the per-channel values come from settings.
+        app.MapGet("/devices/nzxt-kraken/firmware-lighting", (KrakenHub hub, IConfigStore store) =>
+        {
+            var settings = store.Load();
+            var saved = settings.Devices.KrakenFirmwareLighting;
+            var uncontrolled = settings.Devices.UncontrolledLightingDevices;
+
+            var effects = new KrakenEffectDto[KrakenEffects.All.Length];
+            for (var i = 0; i < KrakenEffects.All.Length; i++)
+            {
+                var e = KrakenEffects.All[i];
+                effects[i] = new KrakenEffectDto
+                {
+                    Id = e.Id,
+                    MinColors = e.MinColors,
+                    MaxColors = e.MaxColors,
+                    Directional = e.Directional,
+                };
+            }
+
+            var snap = hub.Snapshot;
+            var channels = new KrakenFirmwareChannelDto[snap.Channels.Count];
+            for (var i = 0; i < snap.Channels.Count; i++)
+            {
+                var zoneId = KrakenHub.ZoneIdForChannelIndex(i);
+                saved.TryGetValue(zoneId, out var cfg);
+                channels[i] = new KrakenFirmwareChannelDto
+                {
+                    Id = zoneId,
+                    AccessoryName = snap.Channels[i].AccessoryName,
+                    Effect = cfg?.Effect ?? "fixed",
+                    Speed = cfg?.Speed ?? 2,
+                    Forward = cfg?.Forward ?? true,
+                    Colors = cfg?.Colors?.ToArray() ?? new[] { "#ff0000" },
+                    NexusDriven = !uncontrolled.Contains(zoneId),
+                };
+            }
+
+            return Results.Json(
+                new KrakenFirmwareLightingResponse
+                {
+                    IsConnected = hub.IsConnected,
+                    Effects = effects,
+                    Channels = channels,
+                },
+                AppJsonContext.Default.KrakenFirmwareLightingResponse);
+        });
+
+        // PUT /devices/nzxt-kraken/firmware-lighting - write one channel's animation.
+        app.MapPut("/devices/nzxt-kraken/firmware-lighting", (KrakenFirmwareLightingRequest body, KrakenHub hub, IConfigStore store) =>
+        {
+            if (!hub.IsConnected)
+            {
+                return Results.Conflict(ApiResponse.Fail("kraken not connected"));
+            }
+
+            var channelIndex = IndexOfChannel(hub, body.Channel);
+            if (channelIndex < 0)
+            {
+                return Results.BadRequest(ApiResponse.Fail("unknown channel"));
+            }
+
+            var effect = KrakenEffects.Find(body.Effect);
+            if (effect is null)
+            {
+                return Results.BadRequest(ApiResponse.Fail($"unknown effect '{body.Effect}'"));
+            }
+
+            var hex = body.Colors ?? Array.Empty<string>();
+            if (hex.Length < effect.MinColors || hex.Length > Math.Max(effect.MaxColors, effect.MinColors))
+            {
+                return Results.BadRequest(ApiResponse.Fail(
+                    $"effect '{effect.Id}' takes {effect.MinColors} to {effect.MaxColors} colours, got {hex.Length}"));
+            }
+
+            var rgb = new byte[hex.Length * 3];
+            for (var i = 0; i < hex.Length; i++)
+            {
+                if (!TryParseHexColor(hex[i], out var r, out var g, out var b))
+                {
+                    return Results.BadRequest(ApiResponse.Fail($"colour '{hex[i]}' is not #rrggbb"));
+                }
+                rgb[i * 3] = r;
+                rgb[i * 3 + 1] = g;
+                rgb[i * 3 + 2] = b;
+            }
+
+            var speed = (KrakenAnimationSpeed)Math.Clamp(body.Speed, 0, 4);
+            var channelId = hub.Snapshot.Channels[channelIndex].ChannelId;
+            if (!hub.SetLighting(channelId, effect.Mode, speed, rgb, body.Forward))
+            {
+                return Results.Problem("Failed to write the animation to the cooler.");
+            }
+
+            var zoneId = KrakenHub.ZoneIdForChannelIndex(channelIndex);
+            store.Update(s =>
+            {
+                s.Devices.KrakenFirmwareLighting[zoneId] = new KrakenFirmwareLighting
+                {
+                    Effect = effect.Id,
+                    Speed = (int)speed,
+                    Forward = body.Forward,
+                    Colors = new List<string>(hex),
+                };
+            });
+
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+        });
+    }
+
+    private static int IndexOfChannel(KrakenHub hub, string? zoneId)
+    {
+        var count = hub.Snapshot.Channels.Count;
+        for (var i = 0; i < count; i++)
+        {
+            if (string.Equals(KrakenHub.ZoneIdForChannelIndex(i), zoneId, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static bool TryParseHexColor(string? input, out byte r, out byte g, out byte b)
+    {
+        r = g = b = 0;
+        var text = input?.Trim();
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+        if (text[0] == '#')
+        {
+            text = text.Substring(1);
+        }
+        if (text.Length != 6)
+        {
+            return false;
+        }
+        return byte.TryParse(text.AsSpan(0, 2), System.Globalization.NumberStyles.HexNumber, null, out r)
+            && byte.TryParse(text.AsSpan(2, 2), System.Globalization.NumberStyles.HexNumber, null, out g)
+            && byte.TryParse(text.AsSpan(4, 2), System.Globalization.NumberStyles.HexNumber, null, out b);
     }
 }
 
@@ -179,4 +325,40 @@ public sealed class KrakenLcdRequest
     public int? Brightness { get; set; }
     public int? Orientation { get; set; }
     public string? Mode { get; set; }
+}
+
+public sealed class KrakenEffectDto
+{
+    public string Id { get; set; } = "";
+    public int MinColors { get; set; }
+    public int MaxColors { get; set; }
+    public bool Directional { get; set; }
+}
+
+public sealed class KrakenFirmwareChannelDto
+{
+    public string Id { get; set; } = "";
+    public string AccessoryName { get; set; } = "";
+    public string Effect { get; set; } = "";
+    public int Speed { get; set; }
+    public bool Forward { get; set; }
+    public string[] Colors { get; set; } = Array.Empty<string>();
+    /// <summary>True while Nexus still pushes frames to this channel, which overrides the animation.</summary>
+    public bool NexusDriven { get; set; }
+}
+
+public sealed class KrakenFirmwareLightingResponse
+{
+    public bool IsConnected { get; set; }
+    public KrakenEffectDto[] Effects { get; set; } = Array.Empty<KrakenEffectDto>();
+    public KrakenFirmwareChannelDto[] Channels { get; set; } = Array.Empty<KrakenFirmwareChannelDto>();
+}
+
+public sealed class KrakenFirmwareLightingRequest
+{
+    public string Channel { get; set; } = "";
+    public string Effect { get; set; } = "";
+    public int Speed { get; set; } = 2;
+    public bool Forward { get; set; } = true;
+    public string[]? Colors { get; set; }
 }

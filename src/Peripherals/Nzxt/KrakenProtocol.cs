@@ -247,7 +247,7 @@ internal static class KrakenProtocol
 
         // Direction rides the same byte as the animation's own base value: backward adds 2.
         report[FooterOffset] = (byte)(mode.BackwardBase + (forward ? 0x00 : 0x02));
-        report[FooterOffset + 1] = (byte)colorCount;
+        report[FooterOffset + 1] = mode.ColorCountOverride ?? (byte)colorCount;
         report[FooterOffset + 2] = mode.ModeRelated;
         report[FooterOffset + 3] = StaticValueFor(channelId);
         report[FooterOffset + 4] = mode.LedSize;
@@ -570,45 +570,24 @@ internal static class KrakenProtocol
     // liquidctl _SPEED_VALUE: per animation scale, five timings slowest..fastest.
     private static Timing SpeedTiming(int scale, KrakenAnimationSpeed speed)
     {
-        int i = (int)speed;
-        return scale switch
-        {
-            0 => new Timing(0x32, 0x00),
-            1 => i switch
-            {
-                0 => new Timing(0x50, 0x00),
-                1 => new Timing(0x3C, 0x00),
-                2 => new Timing(0x28, 0x00),
-                3 => new Timing(0x14, 0x00),
-                _ => new Timing(0x0A, 0x00),
-            },
-            2 => i switch
-            {
-                0 => new Timing(0x5E, 0x01),
-                1 => new Timing(0x2C, 0x01),
-                2 => new Timing(0xFA, 0x00),
-                3 => new Timing(0x96, 0x00),
-                _ => new Timing(0x50, 0x00),
-            },
-            5 => i switch
-            {
-                0 => new Timing(0x19, 0x00),
-                1 => new Timing(0x14, 0x00),
-                2 => new Timing(0x0F, 0x00),
-                3 => new Timing(0x07, 0x00),
-                _ => new Timing(0x04, 0x00),
-            },
-            6 => i switch
-            {
-                0 => new Timing(0x28, 0x00),
-                1 => new Timing(0x1E, 0x00),
-                2 => new Timing(0x14, 0x00),
-                3 => new Timing(0x0A, 0x00),
-                _ => new Timing(0x04, 0x00),
-            },
-            _ => new Timing(0x32, 0x00),
-        };
+        var row = SpeedRows[Math.Clamp(scale, 0, SpeedRows.Length - 1)];
+        return row[Math.Clamp((int)speed, 0, row.Length - 1)];
     }
+
+    // liquidctl's _SPEED_VALUE: one row per animation speed scale, five entries per row
+    // running slowest to fastest. The scale an animation uses is part of its definition.
+    private static readonly Timing[][] SpeedRows =
+    {
+        new[] { new Timing(0x32, 0x00), new Timing(0x32, 0x00), new Timing(0x32, 0x00), new Timing(0x32, 0x00), new Timing(0x32, 0x00) },
+        new[] { new Timing(0x50, 0x00), new Timing(0x3C, 0x00), new Timing(0x28, 0x00), new Timing(0x14, 0x00), new Timing(0x0A, 0x00) },
+        new[] { new Timing(0x5E, 0x01), new Timing(0x2C, 0x01), new Timing(0xFA, 0x00), new Timing(0x96, 0x00), new Timing(0x50, 0x00) },
+        new[] { new Timing(0x40, 0x06), new Timing(0x14, 0x05), new Timing(0xE8, 0x03), new Timing(0x20, 0x03), new Timing(0x58, 0x02) },
+        new[] { new Timing(0x20, 0x03), new Timing(0xBC, 0x02), new Timing(0xF4, 0x01), new Timing(0x90, 0x01), new Timing(0x2C, 0x01) },
+        new[] { new Timing(0x19, 0x00), new Timing(0x14, 0x00), new Timing(0x0F, 0x00), new Timing(0x07, 0x00), new Timing(0x04, 0x00) },
+        new[] { new Timing(0x28, 0x00), new Timing(0x1E, 0x00), new Timing(0x14, 0x00), new Timing(0x0A, 0x00), new Timing(0x04, 0x00) },
+        new[] { new Timing(0x32, 0x00), new Timing(0x28, 0x00), new Timing(0x1E, 0x00), new Timing(0x14, 0x00), new Timing(0x0A, 0x00) },
+        new[] { new Timing(0x14, 0x00), new Timing(0x14, 0x00), new Timing(0x14, 0x00), new Timing(0x14, 0x00), new Timing(0x14, 0x00) },
+    };
 }
 
 /// <summary>What the Kraken's LCD is currently showing.</summary>
@@ -645,22 +624,86 @@ public readonly record struct KrakenColorMode(
     int SpeedScale,
     byte ModeRelated,
     byte LedSize,
-    byte BackwardBase = 0x00)
+    byte BackwardBase = 0x00,
+    byte? ColorCountOverride = null)
 {
     public static readonly KrakenColorMode Off = new(0x00, 0, 0x00, 0x03);
     public static readonly KrakenColorMode Fixed = new(0x00, 0, 0x00, 0x03);
     public static readonly KrakenColorMode Fading = new(0x01, 1, 0x08, 0x03);
     public static readonly KrakenColorMode SpectrumWave = new(0x02, 2, 0x00, 0x03);
+    public static readonly KrakenColorMode Marquee = new(0x03, 2, 0x00, 0x03, 0x04);
     public static readonly KrakenColorMode CoveringMarquee = new(0x04, 2, 0x00, 0x03, 0x04);
+    public static readonly KrakenColorMode Alternating = new(0x05, 3, 0x00, 0x03);
     public static readonly KrakenColorMode Pulse = new(0x06, 5, 0x08, 0x03);
     public static readonly KrakenColorMode Breathing = new(0x07, 6, 0x08, 0x03);
+    public static readonly KrakenColorMode Candle = new(0x08, 0, 0x00, 0x03);
     public static readonly KrakenColorMode StarryNight = new(0x09, 5, 0x01, 0x03, 0x01);
     public static readonly KrakenColorMode RainbowFlow = new(0x0B, 2, 0x00, 0x03);
     public static readonly KrakenColorMode SuperRainbow = new(0x0C, 2, 0x00, 0x03);
     public static readonly KrakenColorMode RainbowPulse = new(0x0D, 2, 0x00, 0x03);
     public static readonly KrakenColorMode TaiChi = new(0x0E, 7, 0x05, 0x03);
-    public static readonly KrakenColorMode WaterCooler = new(0x0F, 6, 0x05, 0x03);
+
+    // Water cooler is handed two colours but the count byte must still read 1, or the
+    // firmware plays it as a two-colour alternation instead of the cooling sweep.
+    public static readonly KrakenColorMode WaterCooler = new(0x0F, 6, 0x05, 0x03, 0x00, 0x01);
     public static readonly KrakenColorMode Loading = new(0x10, 8, 0x04, 0x03);
+}
+
+/// <summary>
+/// One firmware animation as the API names it. <see cref="MinColors"/> and
+/// <see cref="MaxColors"/> bound the palette the animation reads; an animation that
+/// generates its own colours takes none. <see cref="Directional"/> says whether the
+/// animation travels, and so whether reversing it means anything.
+/// </summary>
+public sealed record KrakenEffect(
+    string Id,
+    KrakenColorMode Mode,
+    int MinColors,
+    int MaxColors,
+    bool Directional);
+
+/// <summary>
+/// The firmware animations the cooler plays on its own. Ids match the web client's
+/// effect list; the set mirrors NZXT CAM's own menu for this generation, minus the
+/// audio- and temperature-reactive entries, which CAM drives from the host.
+/// </summary>
+public static class KrakenEffects
+{
+    public static readonly KrakenEffect[] All =
+    {
+        new("fixed", KrakenColorMode.Fixed, 1, 1, false),
+        new("fading", KrakenColorMode.Fading, 1, 8, false),
+        new("spectrumWave", KrakenColorMode.SpectrumWave, 0, 0, true),
+        new("marquee", KrakenColorMode.Marquee, 1, 1, true),
+        new("coveringMarquee", KrakenColorMode.CoveringMarquee, 1, 8, true),
+        new("alternating", KrakenColorMode.Alternating, 1, 2, false),
+        new("pulse", KrakenColorMode.Pulse, 1, 8, false),
+        new("breathing", KrakenColorMode.Breathing, 1, 8, false),
+        new("candle", KrakenColorMode.Candle, 1, 1, false),
+        new("starryNight", KrakenColorMode.StarryNight, 1, 1, true),
+        new("rainbowFlow", KrakenColorMode.RainbowFlow, 0, 0, true),
+        new("superRainbow", KrakenColorMode.SuperRainbow, 0, 0, true),
+        new("rainbowPulse", KrakenColorMode.RainbowPulse, 0, 0, true),
+        new("taiChi", KrakenColorMode.TaiChi, 1, 2, false),
+        new("waterCooler", KrakenColorMode.WaterCooler, 2, 2, false),
+        new("loading", KrakenColorMode.Loading, 1, 1, false),
+    };
+
+    public static KrakenEffect? Find(string? id)
+    {
+        if (string.IsNullOrEmpty(id))
+        {
+            return null;
+        }
+        foreach (var effect in All)
+        {
+            if (string.Equals(effect.Id, id, StringComparison.Ordinal))
+            {
+                return effect;
+            }
+        }
+        return null;
+    }
 }
 
 public readonly record struct KrakenReading(
