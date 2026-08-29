@@ -100,6 +100,14 @@ public sealed class PanelDeviceRecord
     /// topology is unknown. Never persisted (null on stored records).
     /// </summary>
     public bool? DisplayAttached { get; set; }
+    /// <summary>
+    /// Route-computed on GET /panel/devices: true while a streamed-panel
+    /// session owns this record (a Kraken LCD, a D213 board). Such a record is
+    /// backed by neither a curated handler nor a promoted monitor, so this is
+    /// the only thing that tells the dashboard it is a live, editable panel.
+    /// Never persisted (null on stored records).
+    /// </summary>
+    public bool? Streamed { get; set; }
 }
 
 /// <summary>

@@ -31,6 +31,7 @@ public static partial class DevicesRoutes
         MapLianLiEndpoints(app);
         MapLianLiTlEndpoints(app);
         MapGalahad2Endpoints(app);
+        MapKrakenEndpoints(app);
         MapCorsairEndpoints(app);
         MapCorsairLcdEndpoints(app);
         MapStrimerEndpoints(app);

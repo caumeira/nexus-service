@@ -176,6 +176,8 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.KrakenCoolingProvider.IsKrakenId, sp.GetRequiredService<Nexus.Service.Cooling.KrakenCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.Slv3CoolingProvider.IsSlv3Id, sp.GetRequiredService<Nexus.Service.Cooling.Slv3CoolingProvider>())));
@@ -198,6 +200,8 @@ public static class NexusServiceCollectionExtensions
                 Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.KrakenCoolingProvider.IsKrakenId, sp.GetRequiredService<Nexus.Service.Cooling.KrakenCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
@@ -230,6 +234,8 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.KrakenCoolingProvider.IsKrakenId, sp.GetRequiredService<Nexus.Service.Cooling.KrakenCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.Slv3CoolingProvider.IsSlv3Id, sp.GetRequiredService<Nexus.Service.Cooling.Slv3CoolingProvider>())));
@@ -251,6 +257,8 @@ public static class NexusServiceCollectionExtensions
                 Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.KrakenCoolingProvider.IsKrakenId, sp.GetRequiredService<Nexus.Service.Cooling.KrakenCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
@@ -590,6 +598,19 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.SmartHubLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingFrameWriter>());
 
+        // Nollie: multi-channel ARGB controllers driven natively over HID.
+        // Several attach at once, so the hub holds a set. Channels are always
+        // resizable - the protocol reports no LED count.
+        services.AddSingleton<Nexus.Service.Peripherals.Nollie.NollieHub>();
+        services.AddSingleton<Nexus.Service.Lighting.NollieLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.NollieLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingFrameWriter>());
+        services.AddHostedService<Nexus.Service.Peripherals.Nollie.NollieConnectionWorker>();
+
         // CNVS lighting: CnvsHub owns COM7 (not OpenRGB). This provider
         // surfaces the 50-LED zone to the lighting engine and the writer pushes
         // 30 Hz LED frames to the hub. Reuses Np50IdentifyTracker (shared
@@ -780,6 +801,26 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingFrameWriter>());
         services.AddHostedService<Nexus.Service.Peripherals.Galahad2.Galahad2ConnectionWorker>();
 
+        // NZXT Kraken Elite V2: HID control + WinUSB bulk LCD, cooling + per-LED lighting.
+#if WINDOWS
+        services.AddSingleton<Nexus.Service.Peripherals.Nzxt.IKrakenLcdTransportFactory,
+                              Nexus.Service.Peripherals.Nzxt.WindowsKrakenLcdTransportFactory>();
+        services.AddSingleton(sp => new Nexus.Service.Peripherals.Nzxt.KrakenHub(
+            sp.GetRequiredService<Nexus.Service.Peripherals.Nzxt.IKrakenLcdTransportFactory>()));
+#else
+        // No bulk pipe off Windows: HID control still works, LCD upload reports unavailable.
+        services.AddSingleton(_ => new Nexus.Service.Peripherals.Nzxt.KrakenHub(null));
+#endif
+        services.AddSingleton<Nexus.Service.Cooling.KrakenCoolingProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.KrakenLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.KrakenLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.KrakenLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.KrakenLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.KrakenLightingFrameWriter>());
+        services.AddHostedService<Nexus.Service.Peripherals.Nzxt.KrakenConnectionWorker>();
+
         // Corsair iCUE LINK System Hub: HID connection worker + lighting + cooling.
         // Auto-detects the daisy chain; no composition (each device is one fixed zone).
         services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkHub>();
@@ -851,6 +892,8 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.KrakenLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
@@ -870,6 +913,8 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.KrakenLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
@@ -887,6 +932,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiTlHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiWirelessHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Galahad2Handler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.KrakenHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CorsairLinkHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.StrimerHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.TryxHandler>();
@@ -1594,6 +1640,13 @@ public static class NexusServiceCollectionExtensions
                 new Nexus.Service.Panel.Streams.D213PanelDiscovery(
                     sp.GetRequiredService<Nexus.Service.Panel.Streams.StreamedPanelStore>()));
         }
+#endif
+#if WINDOWS
+        // The Kraken LCD rides the WinUSB bulk pipe, so it is Windows-only, but unlike the
+        // D213 bench board it is a shipping device and is not dev-tools gated.
+        services.AddSingleton<Nexus.Service.Panel.Streams.IStreamedPanelDiscovery>(sp =>
+            new Nexus.Service.Panel.Streams.KrakenPanelDiscovery(
+                sp.GetRequiredService<Nexus.Service.Peripherals.Nzxt.KrakenHub>()));
 #endif
         services.AddSingleton<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>(sp =>
         {

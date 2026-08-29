@@ -1,0 +1,347 @@
+using System;
+using System.Collections.Generic;
+using Nexus.Service.Devices;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Mappings;
+using Nexus.Service.Lighting.Zones;
+using Nexus.Service.Models.Devices;
+using Nexus.Service.Peripherals.Nollie;
+using Nexus.Service.Persistence;
+
+namespace Nexus.Service.Lighting;
+
+/// <summary>
+/// One card per ARGB channel of every attached Nollie controller, mirroring
+/// <see cref="SmartHubLightingDeviceProvider"/>. The protocol has no read
+/// command, so a channel's LED count is always the user's declaration, capped
+/// at <see cref="NollieDevice.MaxLedsPerChannel"/>. Ids are namespaced per
+/// controller (<c>{deviceId}:ch{index}</c>) because several commonly share a
+/// machine.
+/// </summary>
+public sealed class NollieLightingDeviceProvider :
+    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
+{
+    private readonly NollieHub _hub;
+    private readonly IConfigStore _store;
+    private readonly Np50IdentifyTracker _identify;
+    private string _lastSignature = "";
+
+    public NollieLightingDeviceProvider(NollieHub hub, IConfigStore store, Np50IdentifyTracker identify)
+    {
+        _hub = hub;
+        _store = store;
+        _identify = identify;
+    }
+
+    public bool IsConnected => _hub.IsConnected;
+
+    public event Action? DevicesChanged;
+
+    public void OnHubStateUpdated()
+    {
+        var sig = BuildSignature();
+        if (sig == _lastSignature) return;
+        _lastSignature = sig;
+        try { DevicesChanged?.Invoke(); } catch { /* swallow subscriber failures */ }
+    }
+
+    /// <summary>Covers declared counts, not just the attached set: a resize must fire DevicesChanged so the bridge rebuilds frames at the new length.</summary>
+    private string BuildSignature()
+    {
+        var controllers = _hub.Controllers;
+        if (controllers.Count == 0) return "disconnected";
+        var counts = _store.Load().Devices.ZoneLedCounts;
+        var sb = new System.Text.StringBuilder();
+        foreach (var c in controllers)
+        {
+            sb.Append(c.DeviceId).Append(':').Append(c.Spec.Channels).Append('=');
+            for (var ch = 0; ch < c.Spec.Channels; ch++)
+            {
+                sb.Append(DeclaredLedCount(counts, ChannelId(c.DeviceId, ch), c.Spec)).Append(',');
+            }
+            sb.Append('|');
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Card id for one channel of one controller.</summary>
+    public static string ChannelId(string deviceId, int cardIndex) => $"{deviceId}:ch{cardIndex}";
+
+    /// <summary>Persisted user declaration clamped to the controller's ceiling; 0 until set, as the firmware reports no count.</summary>
+    public static int DeclaredLedCount(IReadOnlyDictionary<string, int> counts, string id, NollieDevice spec)
+        => counts.TryGetValue(id, out var persisted)
+            ? Math.Clamp(persisted, 0, spec.MaxLedsPerChannel)
+            : 0;
+
+    public GetLightingDevicesResponse GetAll()
+    {
+        var resp = new GetLightingDevicesResponse { IsInit = true };
+        var controllers = _hub.Controllers;
+        if (controllers.Count == 0) return resp;
+
+        var settings = _store.Load();
+        var disabled = settings.Devices.DisabledLightingDevices;
+        var prefs = settings.Devices.LightingDevicePrefs;
+        var layouts = settings.Lighting.DeviceLayouts;
+        var counts = settings.Devices.ZoneLedCounts;
+        var slot = 0;
+
+        foreach (var controller in controllers)
+        {
+            for (var ch = 0; ch < controller.Spec.Channels; ch++)
+            {
+                var id = ChannelId(controller.DeviceId, ch);
+                var ledCount = DeclaredLedCount(counts, id, controller.Spec);
+                var isOn = true;
+                for (var i = 0; i < disabled.Count; i++) if (disabled[i] == id) { isOn = false; break; }
+                var brightness = 100;
+                var hue = 0f;
+                var saturation = 1f;
+                if (prefs.TryGetValue(id, out var pref))
+                {
+                    brightness = pref.Brightness; hue = pref.Hue; saturation = pref.Saturation;
+                }
+                var (defX, defY, defW, defH) = DefaultNollieLayout(slot);
+                layouts.TryGetValue(id, out var layout);
+
+                resp.Devices.Add(new LightingDevice
+                {
+                    Id = id,
+                    DeviceKey = ChannelKey(controller, ch),
+                    Name = $"{controller.Spec.Name} - {NollieProtocol.ChannelName(ch)}",
+                    Type = "ledstrip",
+                    IconType = "strip",
+                    LedsOn = isOn,
+                    Brightness = brightness,
+                    Hue = hue,
+                    Saturation = saturation,
+                    LedCount = ledCount,
+                    CanvasX = layout?.X ?? defX,
+                    CanvasY = layout?.Y ?? defY,
+                    CanvasW = layout?.W ?? defW,
+                    CanvasH = layout?.H ?? defH,
+                    CanvasRotation = NormalizeRotation(layout?.Rotation ?? 0),
+                    ParentDeviceId = controller.DeviceId,
+                    ZoneIndex = ch,
+                    ZoneType = "linear",
+                    ZoneResizable = true,
+                });
+                slot++;
+            }
+        }
+        return resp;
+    }
+
+    private static string ChannelKey(NollieController controller, int cardIndex)
+        => DeviceKeyComputer.ForFirstParty(controller.Spec.VendorId, controller.Spec.ProductId, $"ch{cardIndex}");
+
+    // ── IDeviceStructureSource ──
+
+    public IReadOnlyList<DeviceStructure> GetStructures()
+    {
+        var controllers = _hub.Controllers;
+        if (controllers.Count == 0) return Array.Empty<DeviceStructure>();
+
+        var counts = _store.Load().Devices.ZoneLedCounts;
+        var structures = new List<DeviceStructure>();
+        foreach (var controller in controllers)
+        {
+            for (var ch = 0; ch < controller.Spec.Channels; ch++)
+            {
+                var id = ChannelId(controller.DeviceId, ch);
+                var ledCount = DeclaredLedCount(counts, id, controller.Spec);
+                var name = $"{controller.Spec.Name} - {NollieProtocol.ChannelName(ch)}";
+                var key = ChannelKey(controller, ch);
+                var structure = new DeviceStructure { DeviceId = id, Name = name, DeviceKey = key, Partitionable = false };
+                structure.Segments.Add(new StructureSegment
+                {
+                    Index = 0,
+                    Name = NollieProtocol.ChannelName(ch),
+                    LedCount = ledCount,
+                    FrameLedCount = ledCount,
+                    Resizable = true,
+                    ZoneType = "linear",
+                });
+                structure.DefaultZones.Add(new DefaultZoneDef
+                {
+                    Id = id,
+                    Name = name,
+                    RawName = NollieProtocol.ChannelName(ch),
+                    DeviceKey = key,
+                    LegacyZoneIndex = -1,
+                    Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = ledCount } },
+                });
+                structures.Add(structure);
+            }
+        }
+        return structures;
+    }
+
+    // ── ILightingDeviceProvider ──
+
+    public void SetDisabled(IReadOnlyList<string> ids) => _store.Update(s =>
+        s.Devices.DisabledLightingDevices = new List<string>(ids));
+
+    public void SetPower(string id, bool on) => _store.Update(s =>
+    {
+        var current = s.Devices.DisabledLightingDevices;
+        if (on)
+        {
+            if (!current.Contains(id)) return;
+            var next = new List<string>(current.Count);
+            foreach (var x in current) if (x != id) next.Add(x);
+            s.Devices.DisabledLightingDevices = next;
+        }
+        else
+        {
+            if (current.Contains(id)) return;
+            var next = new List<string>(current.Count + 1);
+            next.AddRange(current); next.Add(id);
+            s.Devices.DisabledLightingDevices = next;
+        }
+    });
+
+    public void SetBrightness(string id, int brightness) => _store.Update(s =>
+    {
+        if (!s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref))
+        { pref = new LightingDevicePreference(); s.Devices.LightingDevicePrefs[id] = pref; }
+        pref.Brightness = Math.Clamp(brightness, 0, 100);
+    });
+
+    public void SetHue(string id, float hue) => _store.Update(s =>
+    {
+        if (!s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref))
+        { pref = new LightingDevicePreference(); s.Devices.LightingDevicePrefs[id] = pref; }
+        pref.Hue = hue;
+    });
+
+    public void SetSaturation(string id, float saturation) => _store.Update(s =>
+    {
+        if (!s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref))
+        { pref = new LightingDevicePreference(); s.Devices.LightingDevicePrefs[id] = pref; }
+        pref.Saturation = saturation;
+    });
+
+    /// <summary>Clamps to the controller's ceiling; an unknown id is ignored so a stale card cannot write a phantom entry.</summary>
+    public void SetZoneLedCount(string id, int count)
+    {
+        if (count < 0) return;
+        if (!TryResolve(id, out var controller, out _)) return;
+        var clamped = Math.Min(count, controller.Spec.MaxLedsPerChannel);
+        _store.Update(s => s.Devices.ZoneLedCounts[id] = clamped);
+        PushLedCountHandshake(controller);
+        OnHubStateUpdated();
+    }
+
+    /// <summary>Re-declares every channel count to the one controller whose firmware takes the handshake.</summary>
+    private void PushLedCountHandshake(NollieController controller)
+    {
+        if (!controller.Spec.WantsLedCountHandshake) return;
+        var counts = _store.Load().Devices.ZoneLedCounts;
+        var perChannel = new int[controller.Spec.Channels];
+        for (var ch = 0; ch < perChannel.Length; ch++)
+        {
+            perChannel[ch] = DeclaredLedCount(counts, ChannelId(controller.DeviceId, ch), controller.Spec);
+        }
+        controller.SendLedCounts(perChannel);
+    }
+
+    public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
+
+    /// <summary>Resolves a card id back to its controller and channel index.</summary>
+    public bool TryResolve(string id, out NollieController controller, out int cardIndex)
+    {
+        controller = null!;
+        cardIndex = -1;
+        if (string.IsNullOrEmpty(id)) return false;
+        var sep = id.LastIndexOf(":ch", StringComparison.Ordinal);
+        if (sep <= 0) return false;
+        if (!int.TryParse(id.AsSpan(sep + 3), out var ch) || ch < 0) return false;
+        var found = _hub.Find(id[..sep]);
+        if (found is null || ch >= found.Spec.Channels) return false;
+        controller = found;
+        cardIndex = ch;
+        return true;
+    }
+
+    // ── ILightingFrameContributor ──
+
+    // Reuse DeviceFrame instances across a refresh so the writer never sees a
+    // fresh zero-filled frame for one tick and blanks a channel (same rationale
+    // as the MiniHub / NP50 / Smart Hub providers).
+    private readonly Dictionary<string, DeviceFrame> _frameCache = new(StringComparer.Ordinal);
+
+    public IReadOnlyList<DeviceFrame> BuildFrames(int startingIndex)
+    {
+        var controllers = _hub.Controllers;
+        if (controllers.Count == 0) return Array.Empty<DeviceFrame>();
+
+        var settings = _store.Load();
+        var layouts = settings.Lighting.DeviceLayouts;
+        var counts = settings.Devices.ZoneLedCounts;
+        var frames = new List<DeviceFrame>();
+        var idx = startingIndex;
+        var slot = 0;
+
+        foreach (var controller in controllers)
+        {
+            for (var ch = 0; ch < controller.Spec.Channels; ch++)
+            {
+                var id = ChannelId(controller.DeviceId, ch);
+                var ledCount = DeclaredLedCount(counts, id, controller.Spec);
+                var (defX, defY, defW, defH) = DefaultNollieLayout(slot++);
+                layouts.TryGetValue(id, out var layout);
+                var rot = NormalizeRotation(layout?.Rotation ?? 0);
+                var thisIdx = idx++;
+
+                if (_frameCache.TryGetValue(id, out var existing)
+                    && existing.Index == thisIdx
+                    && existing.LedCount == ledCount)
+                {
+                    existing.X = layout?.X ?? defX;
+                    existing.Y = layout?.Y ?? defY;
+                    existing.W = layout?.W ?? defW;
+                    existing.H = layout?.H ?? defH;
+                    existing.Rotation = rot;
+                    frames.Add(existing);
+                    continue;
+                }
+
+                var frame = new DeviceFrame(
+                    index: thisIdx, id: id, ledCount: ledCount,
+                    x: layout?.X ?? defX, y: layout?.Y ?? defY,
+                    w: layout?.W ?? defW, h: layout?.H ?? defH, rotation: rot);
+                _frameCache[id] = frame;
+                frames.Add(frame);
+            }
+        }
+
+        if (_frameCache.Count > frames.Count)
+        {
+            var live = new HashSet<string>(frames.Count, StringComparer.Ordinal);
+            foreach (var f in frames) live.Add(f.Id);
+            var stale = new List<string>();
+            foreach (var k in _frameCache.Keys) if (!live.Contains(k)) stale.Add(k);
+            foreach (var k in stale) _frameCache.Remove(k);
+        }
+        return frames;
+    }
+
+    private static int NormalizeRotation(int rotation) => (((rotation % 360) + 360) % 360);
+
+    /// <summary>Grid of strip cards; wraps into rows since a 32-channel board contributes 32 cards.</summary>
+    internal static (float x, float y, float w, float h) DefaultNollieLayout(int slot)
+    {
+        const float W = 200f;
+        const float H = 50f;
+        const float GapX = 220f;
+        const float GapY = 70f;
+        const float BaseX = 40f;
+        const float BaseY = 40f;
+        const int Cols = 4;
+        // No row wrap: cards keep descending so a second controller's channels
+        // never land exactly on the first's. The canvas scrolls.
+        var s = slot < 0 ? 0 : slot;
+        return (BaseX + (s % Cols) * GapX, BaseY + (s / Cols) * GapY, W, H);
+    }
+}

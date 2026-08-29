@@ -909,6 +909,17 @@ public sealed class TryxSettings
     public List<int> InstalledCloudIds { get; set; } = new();
 }
 
+/// <summary>One NZXT Kraken channel's firmware animation. <see cref="Colors"/> holds
+/// "#rrggbb" entries in the order the animation reads them.</summary>
+public sealed class KrakenFirmwareLighting
+{
+    public string Effect { get; set; } = "fixed";
+    /// <summary>0 slowest to 4 fastest, matching the cooler's five animation speeds.</summary>
+    public int Speed { get; set; } = 2;
+    public bool Forward { get; set; } = true;
+    public List<string> Colors { get; set; } = new();
+}
+
 public sealed class DevicesSettings
 {
     public List<string> DisabledLightingDevices { get; set; } = new();
@@ -919,6 +930,12 @@ public sealed class DevicesSettings
     /// <summary>Handler ids the user explicitly opted into (Nexus Control on). Overrides the brand default; a third-party handler absent here stays off.</summary>
     public List<string> NexusControlEnabled { get; set; } = new();
     public Dictionary<string, LightingDevicePreference> LightingDevicePrefs { get; set; } = new();
+    /// <summary>
+    /// Firmware animation last written to each NZXT Kraken RGB channel, keyed by zone id.
+    /// The cooler keeps playing it whenever Nexus is not driving that zone, but offers no
+    /// way to read it back, so the last write is remembered here to seed the settings UI.
+    /// </summary>
+    public Dictionary<string, KrakenFirmwareLighting> KrakenFirmwareLighting { get; set; } = new();
     /// <summary>LEGACY (pre-v6, per-card key). Read only by the one-time schema migration that moves entries into <see cref="DeviceLedOverrides"/>; empty afterward. Do not write.</summary>
     public Dictionary<string, List<LedPositionOverride>> LedMapOverrides { get; set; } = new();
     /// <summary>LEGACY (pre-v6, per-card key). Migration source for <see cref="DeviceAspectRatios"/>; empty afterward. Do not write.</summary>

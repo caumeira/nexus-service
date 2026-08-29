@@ -280,6 +280,77 @@ public sealed class BinaryFpsSessionStore : IDisposable
         }
     }
 
+    /// <summary>Deletes every session whose StartedUtcMs, converted to the
+    /// service's local calendar date, falls in [from, to] inclusive. Returns
+    /// the number of sessions removed.</summary>
+    public int DeleteRange(DateOnly from, DateOnly to)
+    {
+        lock (_lock)
+        {
+            var deleted = 0;
+            foreach (var month in MonthsPossiblyOverlappingLocalRange(from, to))
+            {
+                var records = ReadMonth(month);
+                var survivors = records.Where(r => !IsInLocalDateRange(r.StartedUtcMs, from, to)).ToList();
+                var removedThisMonth = records.Count - survivors.Count;
+                if (removedThisMonth == 0)
+                {
+                    continue;
+                }
+                deleted += removedThisMonth;
+                RewriteMonth(month, survivors);
+            }
+            return deleted;
+        }
+    }
+
+    private static bool IsInLocalDateRange(long startedUtcMs, DateOnly from, DateOnly to)
+    {
+        var localDate = DateOnly.FromDateTime(DateTimeOffset.FromUnixTimeMilliseconds(startedUtcMs).ToLocalTime().Date);
+        return localDate >= from && localDate <= to;
+    }
+
+    // A session's UTC month segment can differ from its local calendar
+    // date's month by one in either direction near a month boundary, so this
+    // pads one month on each side of [from, to] rather than computing the
+    // exact UTC offset.
+    private IEnumerable<string> MonthsPossiblyOverlappingLocalRange(DateOnly from, DateOnly to)
+    {
+        var existing = new HashSet<string>(ExistingMonths(), StringComparer.Ordinal);
+
+        var fromUtc = new DateTime(from.Year, from.Month, from.Day, 0, 0, 0, DateTimeKind.Local).ToUniversalTime();
+        var toUtc = new DateTime(to.Year, to.Month, to.Day, 0, 0, 0, DateTimeKind.Local).ToUniversalTime();
+
+        var cursor = ClampedMonthStart(fromUtc.Year, fromUtc.Month, -1);
+        var toMonthKeyPadded = ClampedMonthStart(toUtc.Year, toUtc.Month, 1).ToString(DateFormat);
+
+        // Bounds an inverted or pathologically wide range; the route
+        // validates to >= from, but DeleteRange must stay safe on its own.
+        for (var iterations = 0; iterations < 2400; iterations++)
+        {
+            var key = cursor.ToString(DateFormat);
+            if (existing.Contains(key))
+            {
+                yield return key;
+            }
+            if (string.CompareOrdinal(key, toMonthKeyPadded) >= 0)
+            {
+                yield break;
+            }
+            cursor = cursor.AddMonths(1);
+        }
+    }
+
+    // DateTime.AddMonths throws past year 1 or year 9999; a DateOnly at
+    // either edge is reachable through the public route, so this clamps to
+    // the nearest valid month instead.
+    private static DateTime ClampedMonthStart(int year, int month, int monthOffset)
+    {
+        const int MaxMonthIndex = (9999 - 1) * 12 + 11;
+        var index = Math.Clamp((year - 1) * 12 + (month - 1) + monthOffset, 0, MaxMonthIndex);
+        return new DateTime(index / 12 + 1, index % 12 + 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    }
+
     // Rewrites a month segment from scratch with exactly survivors (deletes
     // the file outright if that leaves nothing) - the same temp-file-then-move
     // shape BinaryScreenTimeStore.RewriteDay uses for the same reason: a

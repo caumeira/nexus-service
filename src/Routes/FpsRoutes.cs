@@ -46,6 +46,15 @@ public static class FpsRoutes
             return new DeleteResponse { Deleted = deleted };
         });
 
+        app.MapDelete("/api/fps/range", (string from, string to, BinaryFpsSessionStore store) =>
+        {
+            if (!DateOnly.TryParse(from, out var f) || !DateOnly.TryParse(to, out var t) || t < f)
+            {
+                return Results.BadRequest(ApiResponse.Fail("invalid date range"));
+            }
+            return Results.Ok(new DeleteResponse { Deleted = store.DeleteRange(f, t) });
+        });
+
         app.MapGet("/api/fps/games", (BinaryFpsSessionStore store) =>
         {
             if (!OperatingSystem.IsWindows())

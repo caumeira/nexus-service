@@ -17,6 +17,9 @@ public sealed class StreamAssignmentDto
     public double Dpr { get; set; } = 1.0;
     public int Fps { get; set; } = 60;
     public int BitrateKbps { get; set; } = 8000;
+
+    /// <summary>"h264" (default) or "rawBgra"; picks the overlay's frame sink.</summary>
+    public string Codec { get; set; } = "h264";
 }
 
 public sealed class StreamAssignmentsResponse

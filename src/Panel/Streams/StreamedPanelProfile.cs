@@ -3,6 +3,19 @@ using Nexus.Service.Models.Panel;
 
 namespace Nexus.Service.Panel.Streams;
 
+/// <summary>Wire format the overlay produces for a streamed panel.</summary>
+public enum StreamCodec
+{
+    /// <summary>H.264 Annex-B access units, for transports fronting a video decoder.</summary>
+    H264 = 0,
+
+    /// <summary>
+    /// Whole uncompressed BGRA frames, for glass that takes a framebuffer directly.
+    /// Costs orders of magnitude more bytes, so it only suits a small, slow panel.
+    /// </summary>
+    RawBgra = 1,
+}
+
 /// <summary>
 /// Render + encode parameters for one streamed panel device kind. The
 /// profile is the headless-config source of truth: it stamps the panel
@@ -25,6 +38,9 @@ public sealed class StreamedPanelProfile
     public double Dpr { get; init; } = 1.0;
     public int Fps { get; init; } = 60;
     public int BitrateKbps { get; init; } = 8000;
+
+    /// <summary>BitrateKbps is ignored when this is not <see cref="StreamCodec.H264"/>.</summary>
+    public StreamCodec Codec { get; init; } = StreamCodec.H264;
 
     public const int MaxWriteBatchFrames = 8;
 
