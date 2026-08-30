@@ -156,13 +156,14 @@ public sealed class StrimerLightingFrameWriter : IHostedService, IDisposable
             _hub.SendEffectCommit(zone, StrimerProtocol.ModeDirect, speedByte, dirByte, brightnessByte);
         }
 
-        // GPU: 6 segments, 27 LEDs each.
+        // GPU: 4 or 6 segments depending on the harness, 27 LEDs each.
         var gpuStructure = structures[1];
         var gpuZones     = ZoneResolution.Resolve(gpuStructure, settings);
         SegmentFrameComposer.EnsureBuffers(gpuStructure, ref _gpuSegBuf);
         SegmentFrameComposer.Compose(
             gpuStructure, gpuZones, devices, disabled, uncontrolled, prefs, globalBrightness, 1.0, nowTicks, _identify, _gpuSegBuf);
-        for (var s = 0; s < StrimerProtocol.GpuZoneCount; s++)
+        var gpuZoneCount = StrimerProtocol.NormalizeGpuZoneCount(settings.Devices.StrimerGpuZones);
+        for (var s = 0; s < gpuZoneCount; s++)
         {
             if (uncontrolled.Count > 0 && uncontrolled.Contains($"strimer:gpu:z{s}")) continue;
             var zone = StrimerProtocol.GpuZone(s);
@@ -171,7 +172,7 @@ public sealed class StrimerLightingFrameWriter : IHostedService, IDisposable
             _hub.SendEffectCommit(zone, StrimerProtocol.ModeDirect, speedByte, dirByte, brightnessByte);
         }
 
-        _hub.SendApplyLatch();
+        _hub.SendApplyLatch(gpuZoneCount);
     }
 
     // Writes RGB values from src into _ledBuf as R,G,B. StrimerProtocol.WriteColorData

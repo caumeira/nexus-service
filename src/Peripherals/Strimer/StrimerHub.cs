@@ -61,12 +61,16 @@ public sealed class StrimerHub : IDisposable
         }
     }
 
-    public bool SendApplyLatch()
+    /// <summary>
+    /// Latches the frame. The zone mask has to match the attached GPU harness, so the caller
+    /// passes the count it actually drove rather than this assuming all twelve zones exist.
+    /// </summary>
+    public bool SendApplyLatch(int gpuZoneCount = StrimerProtocol.GpuZoneCount)
     {
         lock (_lock)
         {
             if (_device == null) return false;
-            return WriteCommand(StrimerProtocol.BuildApplyLatch());
+            return WriteCommand(StrimerProtocol.BuildApplyLatch(gpuZoneCount));
         }
     }
 

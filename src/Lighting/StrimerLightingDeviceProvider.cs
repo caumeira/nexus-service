@@ -282,7 +282,7 @@ public sealed class StrimerLightingDeviceProvider :
             Name      = "Strimer 8-Pin GPU",
             DeviceKey = gpuKey,
         };
-        for (var s = 0; s < StrimerProtocol.GpuZoneCount; s++)
+        for (var s = 0; s < StrimerProtocol.NormalizeGpuZoneCount(_store.Load().Devices.StrimerGpuZones); s++)
         {
             gpu.Segments.Add(new StructureSegment
             {

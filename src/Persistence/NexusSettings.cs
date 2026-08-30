@@ -953,6 +953,13 @@ public sealed class DevicesSettings
     /// index-stability rules in <see cref="Nexus.Service.Lighting.Zones.ZonePartitionValidator"/>.
     /// </summary>
     public Dictionary<string, List<ZoneDef>> ZonePartitions { get; set; } = new();
+
+    /// <summary>
+    /// GPU zones on the attached Strimer harness: 6 for the triple 8-pin (the default) or 4
+    /// for the dual. The controller reports nothing that distinguishes them, so this is the
+    /// user's choice; a wrong value stretches the LED map over a strip that is not there.
+    /// </summary>
+    public int StrimerGpuZones { get; set; } = Nexus.Service.Peripherals.Strimer.StrimerProtocol.GpuZoneCount;
     /// <summary>
     /// Per-LED user overrides keyed by device id, each local to a hardware
     /// segment so they survive any re-partition. Replaces the per-card

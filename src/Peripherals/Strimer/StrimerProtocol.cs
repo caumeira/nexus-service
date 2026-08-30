@@ -17,10 +17,26 @@ public static class StrimerProtocol
 
     public const int ZoneCount       = 12;
     public const int AtxZoneCount    = 6;
+
+    /// <summary>
+    /// GPU zones on the triple 8-pin harness, and the default: 6 x 27 = 162 LEDs.
+    /// </summary>
     public const int GpuZoneCount    = 6;
+
+    /// <summary>
+    /// The dual 8-pin harness is the same 27-LED zones, but only four of them (108 LEDs).
+    /// Driving it as six leaves two zones addressing hardware that is not there and stretches
+    /// the LED map across a strip a third longer than the physical one.
+    /// </summary>
+    public const int GpuZoneCountDual = 4;
+
     public const int AtxLedsPerZone  = 20;
     public const int GpuLedsPerZone  = 27;
     public const int MaxLedsPerZone  = 27;
+
+    /// <summary>Clamps a configured GPU zone count to one of the two harnesses.</summary>
+    public static int NormalizeGpuZoneCount(int zones) =>
+        zones == GpuZoneCountDual ? GpuZoneCountDual : GpuZoneCount;
 
     // Wire byte for Direct/per-LED host-driven mode.
     public const byte ModeDirect = 0x01;
@@ -58,10 +74,20 @@ public static class StrimerProtocol
         };
     }
 
-    // One apply-latch per full update cycle after all 12 zones.
-    public static byte[] BuildApplyLatch()
+    /// <summary>
+    /// One apply-latch per full update cycle. Byte 2/3 are a big-endian bitmask of the zones
+    /// the controller should light: bits 0..5 are the 24-pin ATX zones and bits 6.. the GPU
+    /// harness, so a triple harness latches 0x0FFF and a dual one 0x03FF. Claiming zones that
+    /// are not attached is what a fixed 0x0FFF did.
+    /// </summary>
+    public static byte[] BuildApplyLatch(int gpuZoneCount = GpuZoneCount)
     {
-        return new byte[] { 0xE0, 0x2C, 0x0F, 0xFF, 0x00, 0x00, 0x00, 0x00 };
+        var gpu = NormalizeGpuZoneCount(gpuZoneCount);
+        var mask = ((1 << AtxZoneCount) - 1) | (((1 << gpu) - 1) << AtxZoneCount);
+        return new byte[]
+        {
+            ReportId, 0x2C, (byte)((mask >> 8) & 0xFF), (byte)(mask & 0xFF), 0x00, 0x00, 0x00, 0x00,
+        };
     }
 
     // 24-Pin ATX hardware zone for segment index seg (0-5).
