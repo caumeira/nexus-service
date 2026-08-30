@@ -166,6 +166,7 @@ internal sealed class FakeY70Provider : IY70Provider
     public void SetBrightness(int brightness) => LastBrightness = brightness;
     public bool GetToggle() => false;
     public void SetToggle(bool toggle) => LastToggle = toggle;
+    public void SetGameModeScreenOff(bool screenOff) { }
     public bool IsRotated() => false;
 }
 

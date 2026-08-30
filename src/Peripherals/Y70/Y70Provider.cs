@@ -112,7 +112,18 @@ public sealed class Y70Provider : IY70Provider, IDisposable
 
     public void SetToggle(bool screenOff)
     {
-        var screenOn = !screenOff;
+        DriveScreenPower(!screenOff);
+        _store.Update(s => s.Y70.ScreenOff = screenOff);
+    }
+
+    /// <summary>Drives screen power without persisting; screenOff=false restores the stored preference, so a panel the user switched off by hand stays off.</summary>
+    public void SetGameModeScreenOff(bool screenOff)
+    {
+        DriveScreenPower(!screenOff && !_store.Load().Y70.ScreenOff);
+    }
+
+    private void DriveScreenPower(bool screenOn)
+    {
         if (TouchVariantKnown)
         {
             // Reference Y70TouchDevice.TurnScreenBrightnessOff: power rides
@@ -149,7 +160,6 @@ public sealed class Y70Provider : IY70Provider, IDisposable
         {
             DdcSetPower(screenOn);
         }
-        _store.Update(s => s.Y70.ScreenOff = screenOff);
     }
 
     // Set when a Touch screen-off fell back to DDC standby (serial link

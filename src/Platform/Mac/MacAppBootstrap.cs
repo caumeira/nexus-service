@@ -81,7 +81,7 @@ internal static class MacAppBootstrap
                 var body = notice.FolderPath is { } folder
                     ? $"{notice.Text} Saved to {AbbreviateHome(folder)}."
                     : notice.Text;
-                MacNotify.Send(notice.Title, body);
+                Nexus.Service.Notifications.NotificationGate.SendOrHold(() => MacNotify.Send(notice.Title, body));
             }
             catch { /* best-effort */ }
         };
@@ -89,7 +89,7 @@ internal static class MacAppBootstrap
         var diagAlerts = app.Services.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
         diagAlerts.AlertNeedsAttention += notice =>
         {
-            try { MacNotify.Send(notice.Title, notice.Text); }
+            try { Nexus.Service.Notifications.NotificationGate.SendOrHold(() => MacNotify.Send(notice.Title, notice.Text)); }
             catch { /* best-effort */ }
         };
 

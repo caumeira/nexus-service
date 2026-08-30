@@ -122,7 +122,7 @@ internal static class TrayBootstrap
         var pairing = app.Services.GetRequiredService<PanelPhonePairingService>();
         pairing.PairRequestNeedsAttention += notice =>
         {
-            try { TrayIcon.ShowPairBalloon(notice.DeviceLabel); }
+            try { Nexus.Service.Notifications.NotificationGate.SendOrHold(() => TrayIcon.ShowPairBalloon(notice.DeviceLabel)); }
             catch { /* best-effort */ }
         };
         pairing.PairRequestResolved += () =>
@@ -136,7 +136,7 @@ internal static class TrayBootstrap
         var inbox = app.Services.GetRequiredService<Nexus.Service.Transfer.TransferInbox>();
         inbox.TransferNeedsAttention += notice =>
         {
-            try { TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, notice.FolderPath); }
+            try { Nexus.Service.Notifications.NotificationGate.SendOrHold(() => TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, notice.FolderPath)); }
             catch { /* best-effort */ }
         };
 
@@ -145,7 +145,7 @@ internal static class TrayBootstrap
         var diagAlerts = app.Services.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
         diagAlerts.AlertNeedsAttention += notice =>
         {
-            try { TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, null, Nexus.Service.Diagnostics.DiagnosticsAlertService.AlertPath(notice.Kind)); }
+            try { Nexus.Service.Notifications.NotificationGate.SendOrHold(() => TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, null, Nexus.Service.Diagnostics.DiagnosticsAlertService.AlertPath(notice.Kind))); }
             catch { /* best-effort */ }
         };
     }

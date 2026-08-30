@@ -193,7 +193,8 @@ public sealed class UpdateService : BackgroundService
         {
             try
             {
-                await PollAsync(stoppingToken).ConfigureAwait(false);
+                if (!Nexus.Service.Games.GameModeNetworkGate.IsHeld)
+                    await PollAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

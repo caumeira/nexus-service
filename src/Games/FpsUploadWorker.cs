@@ -50,7 +50,8 @@ internal sealed class FpsUploadWorker : BackgroundService
         {
             try
             {
-                await RunPendingUploadsAsync(stoppingToken).ConfigureAwait(false);
+                if (!GameModeNetworkGate.IsHeld)
+                    await RunPendingUploadsAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

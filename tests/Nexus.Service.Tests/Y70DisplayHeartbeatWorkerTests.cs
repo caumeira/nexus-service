@@ -171,6 +171,7 @@ public class Y70DisplayHeartbeatWorkerTests
         public void SetBrightness(int brightness) { }
         public bool GetToggle() => false;
         public void SetToggle(bool toggle) { }
+        public void SetGameModeScreenOff(bool screenOff) { }
         public bool IsRotated() => true;
     }
 

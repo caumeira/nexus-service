@@ -17,7 +17,7 @@ public class NotificationGateTests
         NotificationGate.TryHold(() => { sent.Add("b"); return Task.CompletedTask; }, out _);
         Assert.Empty(sent);
 
-        await NotificationGate.ReleaseAsync();
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonOnboarding);
         Assert.Equal(new[] { "a", "b" }, sent);
     }
 
@@ -46,7 +46,7 @@ public class NotificationGateTests
         Assert.Equal(0, NotificationGate.HeldCount);
 
         // And nothing was queued for a later release either.
-        await NotificationGate.ReleaseAsync();
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonOnboarding);
         Assert.Equal(0, sends);
     }
 
@@ -58,7 +58,7 @@ public class NotificationGateTests
         NotificationGate.TryHold(() => throw new System.InvalidOperationException("boom"), out _);
         NotificationGate.TryHold(() => { sent.Add("after"); return Task.CompletedTask; }, out _);
 
-        await NotificationGate.ReleaseAsync();
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonOnboarding);
         Assert.Equal(new[] { "after" }, sent);
     }
 
@@ -68,8 +68,8 @@ public class NotificationGateTests
         NotificationGate.ResetForTests();
         var count = 0;
         NotificationGate.TryHold(() => { count++; return Task.CompletedTask; }, out _);
-        await NotificationGate.ReleaseAsync();
-        await NotificationGate.ReleaseAsync();
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonOnboarding);
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonOnboarding);
         Assert.Equal(1, count);
     }
 
@@ -84,6 +84,51 @@ public class NotificationGateTests
         NotificationGate.Initialize(onboardingComplete: false);
         Assert.False(NotificationGate.IsOpen);
         Assert.True(NotificationGate.TryHold(() => Task.CompletedTask, out _));
+    }
+
+    [Fact]
+    public async Task TwoReasonsBothHaveToClearBeforeAnythingGoesOut()
+    {
+        NotificationGate.ResetForTests();
+        NotificationGate.Hold(NotificationGate.ReasonGameMode);
+        var sent = 0;
+        NotificationGate.TryHold(() => { sent++; return Task.CompletedTask; }, out _);
+
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonOnboarding);
+        Assert.Equal(0, sent);
+        Assert.False(NotificationGate.IsOpen);
+
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonGameMode);
+        Assert.Equal(1, sent);
+        Assert.True(NotificationGate.IsOpen);
+    }
+
+    [Fact]
+    public async Task GameModeHoldsOnAnAlreadyOnboardedInstall()
+    {
+        NotificationGate.ResetForTests();
+        NotificationGate.Initialize(onboardingComplete: true);
+        NotificationGate.Hold(NotificationGate.ReasonGameMode);
+
+        var sent = 0;
+        Assert.True(NotificationGate.TryHold(() => { sent++; return Task.CompletedTask; }, out _));
+        Assert.Equal(0, sent);
+
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonGameMode);
+        Assert.Equal(1, sent);
+    }
+
+    [Fact]
+    public async Task ReleasingAReasonThatWasNeverHeldDoesNotFlush()
+    {
+        NotificationGate.ResetForTests();
+        NotificationGate.Initialize(onboardingComplete: true);
+        NotificationGate.Hold(NotificationGate.ReasonGameMode);
+        var sent = 0;
+        NotificationGate.TryHold(() => { sent++; return Task.CompletedTask; }, out _);
+
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonOnboarding);
+        Assert.Equal(0, sent);
     }
 
     [Fact]

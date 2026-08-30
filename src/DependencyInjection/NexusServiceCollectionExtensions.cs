@@ -418,6 +418,19 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Games.GameCatalog>();
         services.AddSingleton(_ => new Nexus.Service.Games.BinaryFpsSessionStore(
             System.IO.Path.Combine(NexusDataPaths.DatabaseDir(), "fps")));
+
+        // Every platform: the automatic trigger is Windows-only, the manual state is not.
+        services.AddSingleton<Nexus.Service.Games.GameModeState>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.GameModeState>());
+        services.AddSingleton(sp => new Nexus.Service.Games.GameModeEffects(
+            sp.GetRequiredService<Nexus.Service.Games.GameModeState>(),
+            sp.GetRequiredService<IConfigStore>(),
+            sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>(),
+            sp.GetRequiredService<Nexus.Service.Peripherals.Y70.IY70Provider>(),
+            sp.GetRequiredService<Nexus.Service.Panel.PanelKioskLauncher>(),
+            sp.GetService<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>(),
+            sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()));
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.GameModeEffects>());
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Games.FpsSessionRecorder>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.FpsSessionRecorder>());

@@ -160,7 +160,8 @@ public sealed class LinuxTrayService : IHostedService
         LinuxNotify.Send(notice.Title, body);
     }
 
-    private void OnDiagnosticsAlert(DiagnosticsAlertNotice notice) => LinuxNotify.Send(notice.Title, notice.Text);
+    private void OnDiagnosticsAlert(DiagnosticsAlertNotice notice) =>
+        Nexus.Service.Notifications.NotificationGate.SendOrHold(() => LinuxNotify.Send(notice.Title, notice.Text));
 
     private static string AbbreviateHome(string path)
     {

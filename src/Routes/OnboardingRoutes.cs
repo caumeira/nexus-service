@@ -41,7 +41,7 @@ internal static class OnboardingRoutes
             // A skip completes both flags at once; releasing here covers it.
             if (store.Load().LightingOnboardingCompleted)
             {
-                _ = Nexus.Service.Notifications.NotificationGate.ReleaseAsync();
+                _ = Nexus.Service.Notifications.NotificationGate.ReleaseAsync(Nexus.Service.Notifications.NotificationGate.ReasonOnboarding);
             }
             return Results.Ok(Status(store));
         }).LocalhostOnly();
@@ -57,7 +57,7 @@ internal static class OnboardingRoutes
             store.Update(s => s.LightingOnboardingCompleted = true);
             // Last server-side step: anything held while the screens owned the
             // display goes out now.
-            _ = Nexus.Service.Notifications.NotificationGate.ReleaseAsync();
+            _ = Nexus.Service.Notifications.NotificationGate.ReleaseAsync(Nexus.Service.Notifications.NotificationGate.ReasonOnboarding);
             return Results.Ok(Status(store));
         }).LocalhostOnly();
 

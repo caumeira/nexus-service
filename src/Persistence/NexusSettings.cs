@@ -41,6 +41,7 @@ public sealed class NexusSettings
     public UnitsSettings Units { get; set; } = new();
     public ScreenTimeSettings ScreenTime { get; set; } = new();
     public FpsSettings Fps { get; set; } = new();
+    public GameModeSettings GameMode { get; set; } = new();
     public ObsSettings Obs { get; set; } = new();
     /// <summary>Per-app volume mixer: remembered levels and named presets. NOT profile-scoped (absent from ProfileManager.CloneSettings): which apps are loud is a property of this workstation, not of a lighting/cooling persona.</summary>
     public AudioMixerSettings AudioMixer { get; set; } = new();
@@ -255,6 +256,40 @@ public sealed class FpsSettings
 {
     /// <summary>When false, capture stops entirely: no fps history series, no game sessions, no upload. Reads of existing history continue to work.</summary>
     public bool TrackingEnabled { get; set; } = InstallDefaults.Fps.TrackingEnabled;
+}
+
+/// <summary>
+/// Game Mode: while a tracked game runs (or the user switches it on), native
+/// notifications are queued instead of shown and background cloud egress is
+/// deferred. The two panel actions are opt-in because they change what the
+/// hardware is doing, not just what Nexus sends.
+/// </summary>
+public sealed class GameModeSettings
+{
+    /// <summary>"auto" (activate while a tracked game runs), "on" (stay active
+    /// until switched off), "off" (never activate). One field rather than an
+    /// enable flag plus an override, so "enabled but overridden off" cannot be
+    /// expressed two ways.</summary>
+    public string State { get; set; } = "auto";
+
+    /// <summary>Queue native notifications and release them on exit.</summary>
+    public bool HoldNotifications { get; set; } = true;
+
+    /// <summary>Defer background cloud egress (telemetry, fps upload, OTA
+    /// polling, device inventory). User-initiated network work is unaffected.</summary>
+    public bool HoldBackgroundNetwork { get; set; } = true;
+
+    /// <summary>Put every Nexus-driven panel display to sleep. Applied as a
+    /// transient override; the persisted per-device ScreenOff is never written.</summary>
+    public bool TurnPanelDisplaysOff { get; set; }
+
+    /// <summary>Stop rendering panels Nexus draws itself (kiosk windows and
+    /// streamed panels).</summary>
+    public bool StopPanelRendering { get; set; }
+
+    /// <summary>How long Game Mode stays active after the last tracked game
+    /// exits, so a crash-and-relaunch does not flap every effect.</summary>
+    public int ExitGraceSeconds { get; set; } = 30;
 }
 
 public sealed class ObsSettings

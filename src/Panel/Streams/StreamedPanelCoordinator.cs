@@ -201,11 +201,26 @@ public sealed class StreamedPanelCoordinator : BackgroundService
         return ids;
     }
 
+    /// <summary>Suppresses assignments while Game Mode asks for rendering to stop; the overlay closes its render hosts on the empty list and rebuilds them when it returns.</summary>
+    public void SetRenderingPaused(bool paused)
+    {
+        lock (_lock)
+        {
+            if (_renderingPaused == paused) return;
+            _renderingPaused = paused;
+        }
+        _notifyOverlay?.Invoke();
+    }
+
+    private bool _renderingPaused;
+
     public StreamAssignmentsResponse GetAssignments()
     {
         var response = new StreamAssignmentsResponse();
         lock (_lock)
         {
+            if (_renderingPaused) return response;
+
             foreach (var ds in _bySerial.Values)
             {
                 if (ds.Session.Closed) continue;

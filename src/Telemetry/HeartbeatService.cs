@@ -45,7 +45,8 @@ public sealed class HeartbeatService : BackgroundService
         {
             try
             {
-                await BeatAsync(stoppingToken).ConfigureAwait(false);
+                if (!Nexus.Service.Games.GameModeNetworkGate.IsHeld)
+                    await BeatAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

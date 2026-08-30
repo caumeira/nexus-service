@@ -41,7 +41,8 @@ internal sealed class TelemetryFlushService : BackgroundService
         {
             try
             {
-                await FlushAsync(stoppingToken).ConfigureAwait(false);
+                if (!Nexus.Service.Games.GameModeNetworkGate.IsHeld)
+                    await FlushAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

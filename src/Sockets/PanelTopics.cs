@@ -68,6 +68,22 @@ public static class PanelTopics
     /// </summary>
     public const string Update = "update";
 
+    /// <summary>
+    /// Game Mode activated or deactivated, or its settings changed.
+    /// Subscribers refetch GET /api/game-mode so the top bar chip appears and
+    /// clears without polling.
+    /// </summary>
+    public const string GameMode = "gameMode";
+
+    public static void BroadcastGameMode(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(GameMode))
+            return;
+        var frame = new Models.Games.GameModeChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(GameMode, frame, AppJsonContext.Default.GameModeChangedFrame);
+        _ = hub.BroadcastTopicAsync(GameMode, env);
+    }
+
     public static void BroadcastUpdate(MultiplexHub hub)
     {
         if (!hub.TopicHasSubscribers(Update))
