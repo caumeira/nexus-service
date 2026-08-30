@@ -67,6 +67,14 @@ internal static class Slv3WinUsbInterop
         IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength,
         out uint lengthTransferred, IntPtr overlapped);
 
+    // Pointer overload, matching the write side: an overlapped read needs a pinned buffer
+    // and a real OVERLAPPED pointer, which the byte[] overload cannot express.
+    [DllImport("winusb.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool WinUsb_ReadPipe(
+        IntPtr interfaceHandle, byte pipeId, IntPtr buffer, uint bufferLength,
+        out uint lengthTransferred, IntPtr overlapped);
+
     [DllImport("winusb.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool WinUsb_SetPipePolicy(

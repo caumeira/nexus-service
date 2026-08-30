@@ -1,17 +1,16 @@
 using System;
 
-namespace Nexus.Service.Peripherals.Nzxt;
+namespace Nexus.Service.Peripherals.PixelFormats;
 
 /// <summary>
-/// Packs a 4-byte-per-pixel frame into little-endian RGB565, the only format the 2023
-/// Kraken (0x300E) decodes - its firmware has no Q565 decoder, and its 240x240 panel is
-/// small enough that 115,200 uncompressed bytes a frame is not the problem it would be at
-/// 640x640.
+/// Packs a 4-byte-per-pixel frame into little-endian RGB565. Two unrelated panels want it:
+/// the 2023 NZXT Kraken (0x300E), whose firmware has no Q565 decoder, and Thermalright's
+/// Frozen Warframe Pro. Small panels both, so an uncompressed frame is affordable.
 ///
-/// Rotation rides the read index for the same reason it does in <see cref="Q565Encoder"/>:
-/// the panel does not re-orient what the host sends it.
+/// Rotation rides the read index rather than costing a separate pass: no panel that takes
+/// this format re-orients what the host sends it.
 /// </summary>
-internal static class Rgb565Encoder
+public static class Rgb565Encoder
 {
     public static int EncodedLength(int width, int height) => width * height * 2;
 

@@ -261,6 +261,22 @@ public static class LightingDevicesCatalog
         Native("NZXT",    "Kraken Z3",              "aio",      "0x1E71", "0x3008", screen: true),
         Native("NZXT",    "Kraken X3",              "aio",      "0x1E71", "0x2007"),
         Native("NZXT",    "Kraken X3 RGB",          "aio",      "0x1E71", "0x2014"),
+
+        // JPEG-over-HID cooler LCDs - PIDs from src/Peripherals/JpegPanels/JpegPanelModel.cs.
+        // Screen only: Nexus drives the glass on these, not their RGB. None has been run
+        // against hardware, so they ship with Nexus Control off by default.
+        Native("Lian Li",    "Galahad II LCD",      "aio",      "0x0416", "0x7395", screen: true, rgb: false),
+        Native("Corsair",    "XC7 RGB Elite LCD",   "aio",      "0x1B1C", "0x0C42", screen: true, rgb: false),
+        Native("Corsair",    "Elite Capellix LCD",  "aio",      "0x1B1C", "0x0C39", screen: true, rgb: false),
+        Native("Corsair",    "Elite Capellix LCD",  "aio",      "0x1B1C", "0x0C33", screen: true, rgb: false),
+        Native("ID-Cooling", "FX-LCD",              "aio",      "0x2000", "0x3000", screen: true, rgb: false),
+        Native("ASRock",     "AIO LCD",             "aio",      "0x26CE", "0x0A10", screen: true, rgb: false),
+
+        // Bulk-pipe cooler LCDs - drivers in src/Peripherals/BulkPanels/. Reachable only
+        // where Windows has bound WinUSB, and likewise untested.
+        Native("Thermalright", "Vision LCD",        "aio",      "0x87AD", "0x70DB", screen: true, rgb: false),
+        Native("ASUS",       "Ryujin LCD",          "aio",      "0x0B05", "0x1AA2", screen: true, rgb: false),
+        Native("Lian Li",    "Universal Screen 8.8","light",    "0x1CBE", "0xA088", screen: true, rgb: false),
     };
 
     /// <summary>

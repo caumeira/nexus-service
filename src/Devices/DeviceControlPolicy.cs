@@ -35,7 +35,21 @@ public static class DeviceControlPolicy
         "cnvs", "keeb", "np50", "smarthub", "y70", "qseries", "fan-hub", "aw5",
     };
 
-    public static bool DefaultOn(string handlerId) => !ConflictAppByHandler.ContainsKey(handlerId);
+    /// <summary>
+    /// Handlers that default off for a reason other than a competing app: hardware whose
+    /// protocol we transcribed but have never run against a unit. A wrong guess here drives
+    /// someone's cooler, so these wait for an explicit opt-in even though nothing else is
+    /// holding the device.
+    /// </summary>
+    private static readonly HashSet<string> UnverifiedHandlers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "lianli-galahad2-lcd", "corsair-xc7-lcd", "corsair-capellix-lcd", "idcooling-fx-lcd",
+        "asrock-lcd",
+        "thermalright-lcd", "asus-ryujin-lcd", "lianli-screen88",
+    };
+
+    public static bool DefaultOn(string handlerId) =>
+        !ConflictAppByHandler.ContainsKey(handlerId) && !UnverifiedHandlers.Contains(handlerId);
 
     public static string? ConflictAppFor(string handlerId)
         => ConflictAppByHandler.TryGetValue(handlerId, out var id) ? id : null;

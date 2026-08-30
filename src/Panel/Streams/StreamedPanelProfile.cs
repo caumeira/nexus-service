@@ -33,6 +33,13 @@ public sealed class StreamedPanelProfile
     /// <summary>PanelSurfaces value stamped on the record; picks the default layout.</summary>
     public required string Surface { get; init; }
 
+    /// <summary>
+    /// Optional branding key stamped on the record's capabilities. Surfaces shared by more
+    /// than one model (the cooler-LCD surfaces) need something finer than the surface name
+    /// for the sidebar icon and label; promoted displays already use the same field.
+    /// </summary>
+    public string? Family { get; init; }
+
     public required int CssWidth { get; init; }
     public required int CssHeight { get; init; }
     public double Dpr { get; init; } = 1.0;
@@ -63,6 +70,7 @@ public sealed class StreamedPanelProfile
     public PanelDeviceCapabilities BuildCapabilities() => new()
     {
         Surface = Surface,
+        Family = Family,
         Touch = false,
         CssWidth = CssWidth,
         CssHeight = CssHeight,

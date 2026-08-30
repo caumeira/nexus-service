@@ -837,6 +837,60 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.KrakenLightingFrameWriter>());
         services.AddHostedService<Nexus.Service.Peripherals.Nzxt.KrakenConnectionWorker>();
 
+        // JPEG-over-HID cooler LCDs (Lian Li Galahad II LCD, Corsair XC7 / Elite Capellix,
+        // ID-Cooling FX-LCD). One hub, worker, panel discovery and device row per model;
+        // the hub instance is created here and captured so all four share it. Plain HID, so
+        // unlike the Kraken's WinUSB bulk pipe there is nothing Windows-only about them.
+        //
+        // Every one of these is transcribed, not tested - DeviceControlPolicy defaults them
+        // OFF so a build never claims one on its own.
+        foreach (var jpegPanelModel in Nexus.Service.Peripherals.JpegPanels.JpegPanelModel.All)
+        {
+            var jpegPanelHub = new Nexus.Service.Peripherals.JpegPanels.JpegPanelHub(jpegPanelModel);
+            services.AddSingleton(jpegPanelHub);
+            services.AddHostedService(sp =>
+                new Nexus.Service.Peripherals.JpegPanels.JpegPanelConnectionWorker(
+                    sp.GetRequiredService<Nexus.Service.Peripherals.Hid.IHidEnumerator>(),
+                    jpegPanelHub,
+                    sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>()));
+            services.AddSingleton<Nexus.Service.Panel.Streams.IStreamedPanelDiscovery>(
+                _ => new Nexus.Service.Panel.Streams.JpegPanelDiscovery(jpegPanelHub));
+            services.AddSingleton<IDeviceHandler>(
+                _ => new Nexus.Service.Devices.Handlers.JpegPanelHandler(jpegPanelHub));
+        }
+
+        // Bulk-pipe cooler LCDs (ASUS Ryujin, Thermalright, Lian Li Universal Screen 8.8).
+        // Their pixels ride a USB bulk endpoint rather than HID, so they are reachable only
+        // where Windows has bound WinUSB; off Windows the factory is a null object and the
+        // workers simply never find a panel. Transcribed and untested, so they default OFF.
+        services.AddSingleton<Nexus.Service.Peripherals.BulkPanels.IBulkUsbPipeFactory>(_ =>
+#if WINDOWS
+            new Nexus.Service.Peripherals.BulkPanels.WindowsBulkUsbPipeFactory()
+#else
+            new Nexus.Service.Peripherals.BulkPanels.NullBulkUsbPipeFactory()
+#endif
+        );
+        foreach (var bulkPanelDriver in new Nexus.Service.Peripherals.BulkPanels.IBulkPanelDriver[]
+        {
+            new Nexus.Service.Peripherals.BulkPanels.ThermalrightPanelDriver(),
+            new Nexus.Service.Peripherals.BulkPanels.RyujinPanelDriver(),
+            new Nexus.Service.Peripherals.BulkPanels.UniversalScreen88Driver(),
+        })
+        {
+            var bulkPanelHub = new Nexus.Service.Peripherals.BulkPanels.BulkPanelHub(bulkPanelDriver);
+            services.AddSingleton(bulkPanelHub);
+            services.AddHostedService(sp =>
+                new Nexus.Service.Peripherals.BulkPanels.BulkPanelConnectionWorker(
+                    sp.GetRequiredService<Nexus.Service.Peripherals.Hid.IHidEnumerator>(),
+                    sp.GetRequiredService<Nexus.Service.Peripherals.BulkPanels.IBulkUsbPipeFactory>(),
+                    bulkPanelHub,
+                    sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>()));
+            services.AddSingleton<Nexus.Service.Panel.Streams.IStreamedPanelDiscovery>(
+                _ => new Nexus.Service.Panel.Streams.BulkPanelDiscovery(bulkPanelHub));
+            services.AddSingleton<IDeviceHandler>(
+                _ => new Nexus.Service.Devices.Handlers.BulkPanelHandler(bulkPanelHub));
+        }
+
         // Corsair iCUE LINK System Hub: HID connection worker + lighting + cooling.
         // Auto-detects the daisy chain; no composition (each device is one fixed zone).
         services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkHub>();
