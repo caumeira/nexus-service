@@ -23,6 +23,18 @@ namespace Nexus.Service.Platform.Windows;
 [SupportedOSPlatform("windows")]
 internal static class TrayBootstrap
 {
+    /// <summary>
+    /// Where the conflict notice's button lands: the dashboard opens Settings
+    /// and shines the Conflicting apps row (Dashboard.tsx reads the query).
+    /// </summary>
+    private const string ConflictSettingsPath = "/?manageConflicts=1";
+    private const string ConflictNoticeTitle = "Conflicting apps closed";
+    private const string ConflictNoticeButton = "Open Settings";
+
+    private static string FormatConflictNotice(IReadOnlyList<string> names) => names.Count == 1
+        ? $"Closed {names[0]} so Nexus can control your hardware."
+        : $"Closed {names.Count} conflicting apps so Nexus can control your hardware: {string.Join(", ", names)}.";
+
     // Interactive Windows session: hides console, shows tray with right-click menu.
     // Skipped under --service: Session 0 cannot show UI, so the tray must be a
     // separate user-session process (Nexus.exe --helper). Leaving the
@@ -51,6 +63,17 @@ internal static class TrayBootstrap
             // not the persisted setting - that way a dead/crashed overlay
             // shows unchecked even if AutoLaunch is still true.
             isPanelRunning: () => panelLauncher.IsRunning);
+
+        // Interactive run: the tray lives in this process, so the startup
+        // shutdown's notice goes straight to it rather than down the helper
+        // pipe. Same sweep runs in both modes; without this it would kill
+        // apps silently here.
+        var interactiveShutdown = app.Services.GetRequiredService<Nexus.Service.Conflicts.ConflictStartupShutdown>();
+        interactiveShutdown.AppsTerminated += names =>
+        {
+            try { TrayIcon.ShowNoticeBalloon(ConflictNoticeTitle, FormatConflictNotice(names), null, ConflictSettingsPath); }
+            catch (Exception ex) { Console.Error.WriteLine($"[conflict-notify] interactive show failed: {ex.Message}"); }
+        };
 
         var hub = app.Services.GetRequiredService<MultiplexHub>();
         TrayIcon.ConfigureDesktop(
@@ -185,6 +208,44 @@ internal static class TrayBootstrap
             catch (Exception ex) { Console.Error.WriteLine($"[diagnostics-notify] show failed: {ex.Message}"); }
         };
 
+        // Startup conflict shutdown - one native notification listing what it
+        // ended. The sweep runs during service start, usually before the
+        // user-session helper has connected, so a notice raised with no helper
+        // present is held and flushed on the next connect instead of dropped.
+        var startupShutdown = app.Services.GetRequiredService<Nexus.Service.Conflicts.ConflictStartupShutdown>();
+
+        // Store-then-drain, both sides under one lock. Checking IsAnyConnected
+        // first and only then storing loses the notice entirely when a helper
+        // connects in between: the Connected handler drains an empty slot, and
+        // nothing raises it again until the helper next restarts.
+        var conflictNoticeGate = new object();
+        string? pendingConflictNotice = null;
+
+        void DrainConflictNotice()
+        {
+            string? text;
+            lock (conflictNoticeGate)
+            {
+                if (!helperRegistry.IsAnyConnected) return;
+                text = pendingConflictNotice;
+                pendingConflictNotice = null;
+            }
+            if (text is null) return;
+            try
+            {
+                _ = TrayCommands.NoticeAsync(
+                    helperRegistry, ConflictNoticeTitle, text, null,
+                    windowPath: ConflictSettingsPath, buttonLabel: ConflictNoticeButton);
+            }
+            catch (Exception ex) { Console.Error.WriteLine($"[conflict-notify] show failed: {ex.Message}"); }
+        }
+
+        startupShutdown.AppsTerminated += names =>
+        {
+            lock (conflictNoticeGate) { pendingConflictNotice = FormatConflictNotice(names); }
+            DrainConflictNotice();
+        };
+
         // Push current state on every fresh helper connect: first bootstrap,
         // service restart, helper crash-and-respawn.
         helperRegistry.Connected += conn =>
@@ -195,6 +256,9 @@ internal static class TrayBootstrap
                 _ = TrayCommands.SetVisibleAsync(helperRegistry, current);
             }
             catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] initial state failed: {ex.Message}"); }
+
+            // Flush a startup-shutdown notice raised before any helper existed.
+            DrainConflictNotice();
         };
 
         // Re-assert the Y70 panel's display orientation on every fresh helper

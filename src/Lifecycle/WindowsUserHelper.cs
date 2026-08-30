@@ -189,12 +189,17 @@ internal static class WindowsUserHelper
         // Each domain registers its own envelope handler against this
         // registry. Adding a new domain = create the handler class in
         // Helper/Domains/ and call .Register(handlerRegistry) here.
+        // Register the toast identity up front rather than on first use: the
+        // attribution name and icon are read from that registration, and a
+        // notice can be the very first toast this install ever raises.
+        Platform.Windows.ToastNotifications.EnsureAppUserModelId();
+
         var handlerRegistry = new HelperHandlerRegistry();
         new TrayHandler(
             Platform.Windows.TrayIcon.SetVisible,
             Platform.Windows.TrayIcon.ShowPairBalloon,
             Platform.Windows.TrayIcon.ClearPairBalloon,
-            Platform.Windows.TrayIcon.ShowNoticeBalloon,
+            ShowNoticeOrToast,
             Platform.Windows.TrayIcon.ShowUpdateReadyBalloon,
             () => Platform.Windows.TrayIcon.OpenLocalWindow(),
             ShowUpdaterWindow,
@@ -371,6 +376,23 @@ internal static class WindowsUserHelper
             4 => ServiceState.Running,
             _ => ServiceState.Other,
         };
+    }
+
+    /// <summary>
+    /// One notice, two transports. A notice asking for an action button goes
+    /// out as an interactive toast; everything else - and any toast Windows
+    /// refuses - falls back to the tray balloon, whose whole surface still
+    /// routes to the same place.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private static void ShowNoticeOrToast(string title, string text, string? folderPath, string? windowPath, string? buttonLabel)
+    {
+        if (!string.IsNullOrEmpty(buttonLabel)
+            && Platform.Windows.ToastNotifications.TryShowActionToast(title, text, buttonLabel, windowPath ?? "/"))
+        {
+            return;
+        }
+        Platform.Windows.TrayIcon.ShowNoticeBalloon(title, text, folderPath, windowPath);
     }
 
     // HTA caption is a known constant so the helper can close it by title.

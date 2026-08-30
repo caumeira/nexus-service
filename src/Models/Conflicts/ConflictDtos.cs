@@ -49,3 +49,21 @@ public sealed class ConflictsFrame
 {
     public List<DetectedConflict> Conflicts { get; set; } = new();
 }
+
+/// <summary>
+/// One <see cref="Nexus.Service.Conflicts.ConflictAppDefinition"/> as the
+/// settings UI sees it. Process and service names stay server-side: the SPA
+/// only ever addresses an app by Id.
+/// </summary>
+public sealed class ConflictCatalogApp
+{
+    public string Id { get; set; } = "";
+    public string DisplayName { get; set; } = "";
+    public string Category { get; set; } = "";
+}
+
+/// <summary>Response for GET /conflicts/catalog - the full set of apps the startup shutdown can act on.</summary>
+public sealed class GetConflictCatalogResponse
+{
+    public List<ConflictCatalogApp> Apps { get; set; } = new();
+}
