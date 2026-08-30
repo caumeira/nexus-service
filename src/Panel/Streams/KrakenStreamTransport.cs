@@ -12,8 +12,9 @@ namespace Nexus.Service.Panel.Streams;
 /// concatenate writes, so this buffers to exactly one frame before pushing. Frames are
 /// fixed-size, which makes the boundary unambiguous.
 ///
-/// The overlay produces BGRA (what the compositor hands back); the cooler wants RGBA with
-/// a zero alpha byte, so the swap happens here rather than costing a pass on the GPU side.
+/// The overlay produces BGRA (what the compositor hands back). The colour order is the
+/// hub's problem, not this one's: it folds the swap into whichever encode the attached
+/// panel needs, so nothing here touches pixels.
 /// </summary>
 public sealed class KrakenStreamTransport : IStreamedPanelTransport
 {
@@ -30,7 +31,7 @@ public sealed class KrakenStreamTransport : IStreamedPanelTransport
     {
         _hub = hub;
         Serial = serial;
-        _frame = new byte[KrakenProtocol.LcdFrameBytes];
+        _frame = new byte[hub.LcdFrameBytes];
     }
 
     public bool IsOpen => !_disposed && _hub.IsConnected && _hub.HasLcd;
@@ -47,6 +48,13 @@ public sealed class KrakenStreamTransport : IStreamedPanelTransport
         {
             throw new IOException("kraken LCD bulk pipe unavailable");
         }
+        // The frame size is fixed at construction. If the cooler dropped between discovery
+        // and here it reads as zero, and a zero-length frame would make Write spin forever
+        // consuming nothing.
+        if (_frame.Length <= 0)
+        {
+            throw new IOException("kraken panel size unknown");
+        }
         _filled = 0;
     }
 
@@ -61,6 +69,10 @@ public sealed class KrakenStreamTransport : IStreamedPanelTransport
         {
             throw new ObjectDisposedException(nameof(KrakenStreamTransport));
         }
+        if (_frame.Length <= 0)
+        {
+            return;
+        }
         while (!payload.IsEmpty)
         {
             int take = Math.Min(_frame.Length - _filled, payload.Length);
@@ -73,7 +85,6 @@ public sealed class KrakenStreamTransport : IStreamedPanelTransport
                 continue;
             }
             _filled = 0;
-            SwapToRgbaInPlace(_frame);
             if (_hub.PushStreamFrame(_frame))
             {
                 _dropLogged = false;
@@ -83,16 +94,6 @@ public sealed class KrakenStreamTransport : IStreamedPanelTransport
                 _dropLogged = true;
                 ServiceLog.Warn("[nzxt-kraken] stream frame rejected; retrying on the next frame");
             }
-        }
-    }
-
-    /// <summary>BGRA to RGBA, forcing alpha to 0 (any other value mangles the colours).</summary>
-    private static void SwapToRgbaInPlace(byte[] frame)
-    {
-        for (int i = 0; i + 3 < frame.Length; i += 4)
-        {
-            (frame[i], frame[i + 2]) = (frame[i + 2], frame[i]);
-            frame[i + 3] = 0;
         }
     }
 

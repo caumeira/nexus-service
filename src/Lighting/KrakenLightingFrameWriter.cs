@@ -15,16 +15,21 @@ namespace Nexus.Service.Lighting;
 /// Pushes engine output to the Kraken's RGB channels, one per-LED write per channel per
 /// tick. Same shape as <see cref="MiniHubLightingFrameWriter"/>.
 ///
-/// One 512-byte HID report per channel per tick. Unchanged frames are skipped so a static
+/// One HID write per channel per tick on the Elite V2, three on the older
+/// generations (two colour tables plus the latch). Unchanged frames are skipped so a static
 /// look costs nothing, which matters because the cooler shares this pipe with telemetry
 /// polling and any LCD upload.
 /// </summary>
 public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
 {
-    // One 512-byte report per channel per tick, so the push costs ~0.14 ms and the
-    // engine's own 60 Hz is the limit worth matching. The three-report sequence this
-    // replaced cost 0.62 ms plus a 3 ms wait for a reject that never meant anything.
-    private const int TickPeriodMs = 16;
+    // Matches LightingEngine's own frame interval, as the other writers do.
+    private const int TickPeriodMs = 33;
+
+    // A push is one HID write, and its result only says the bytes left the host - the
+    // firmware NAKs either way, so a frame the cooler drops is indistinguishable from one
+    // it applied. Re-send an unchanged frame this often so a drop self-heals instead of
+    // being deduped away until the look next changes.
+    private const int ReassertPeriodMs = 1000;
     private const int IdentifyFlashHalfPeriodMs = 250;
 
     private readonly LightingEngine _engine;
@@ -37,6 +42,7 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
 
     // Last bytes pushed per zone, so an unchanged frame is not re-sent.
     private readonly Dictionary<string, byte[]> _lastPushed = new();
+    private readonly Dictionary<string, long> _lastPushedAtMs = new();
     private readonly HashSet<string> _missingFrame = new();
 
     public KrakenLightingFrameWriter(
@@ -94,6 +100,7 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
             // Drop the de-dupe cache: after a re-attach the cooler is showing whatever its
             // firmware kept, so an unchanged payload still has to be written once.
             _lastPushed.Clear();
+            _lastPushedAtMs.Clear();
             return;
         }
         var devices = _engine.Devices;
@@ -152,7 +159,7 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
         }
         _missingFrame.Remove(zoneId);
 
-        var ledCount = Math.Min(frame.LedCount, KrakenProtocol.MaxDirectColors);
+        var ledCount = Math.Min(frame.LedCount, _hub.MaxDirectColors);
         if (ledCount <= 0)
         {
             return;
@@ -190,9 +197,12 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
             }
         }
 
+        var nowMs = nowTicks / TimeSpan.TicksPerMillisecond;
         if (_lastPushed.TryGetValue(zoneId, out var previous)
             && previous.Length == payload.Length
-            && previous.AsSpan().SequenceEqual(payload))
+            && previous.AsSpan().SequenceEqual(payload)
+            && _lastPushedAtMs.TryGetValue(zoneId, out var sentAt)
+            && nowMs - sentAt < ReassertPeriodMs)
         {
             return;
         }
@@ -200,6 +210,7 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
         if (_hub.SetDirectColors(channel.ChannelId, payload))
         {
             _lastPushed[zoneId] = payload;
+            _lastPushedAtMs[zoneId] = nowMs;
         }
         else
         {

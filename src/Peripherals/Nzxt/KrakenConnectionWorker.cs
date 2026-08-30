@@ -48,14 +48,14 @@ public sealed class KrakenConnectionWorker : BackgroundService
                     continue;
                 }
 
-                var device = FindAndOpen();
-                if (device == null)
+                var found = FindAndOpen();
+                if (found == null)
                 {
                     await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
                     continue;
                 }
 
-                _hub.Attach(device);
+                _hub.Attach(found.Value.Device, found.Value.Model, found.Value.ReportLength);
                 bool started = false;
                 try
                 {
@@ -64,7 +64,7 @@ public sealed class KrakenConnectionWorker : BackgroundService
                         started = true;
                         var snap = _hub.Snapshot;
                         ServiceLog.Info(
-                            $"[nzxt-kraken] connected: firmware {snap.FirmwareVersion}, " +
+                            $"[nzxt-kraken] connected: {_hub.ModelName}, firmware {snap.FirmwareVersion}, " +
                             $"{snap.Channels.Count} RGB channel(s), LCD bulk {(_hub.HasLcd ? "open" : "unavailable")}");
                         _lighting.OnHubStateUpdated();
 
@@ -116,28 +116,43 @@ public sealed class KrakenConnectionWorker : BackgroundService
         }
     }
 
-    private IHidDevice? FindAndOpen()
+    /// <summary>
+    /// Smallest report that can still carry a command: the 0x22 colour tables are 4 header
+    /// bytes plus 60 of colour. Anything shorter is one of the cooler's other HID
+    /// collections, not the vendor interface.
+    /// </summary>
+    private const int MinUsableReportLength = 64;
+
+    private (IHidDevice Device, KrakenModel Model, int ReportLength)? FindAndOpen()
     {
         HidDeviceInfo? best = null;
-        foreach (var info in _hid.Find(KrakenProtocol.VendorId, KrakenProtocol.ProductIdKrakenEliteV2))
+        KrakenModel? bestModel = null;
+        foreach (var model in KrakenModel.All)
         {
-            // The cooler exposes a single vendor-defined HID interface; anything whose
-            // reports are too short to carry a command is the wrong one.
-            if (info.OutputReportByteLength < KrakenProtocol.ReportLength
-                || info.InputReportByteLength < KrakenProtocol.ReportLength)
+            foreach (var info in _hid.Find(KrakenProtocol.VendorId, model.ProductId))
             {
-                continue;
-            }
-            if (best == null || info.InputReportByteLength > best.InputReportByteLength)
-            {
-                best = info;
+                // The cooler exposes a single vendor-defined HID interface; anything whose
+                // reports are too short to carry a command is the wrong one. Report size is
+                // per model - 512 bytes on the Elite V2, 64 on everything before it - so it
+                // comes from the descriptor rather than a constant.
+                if (info.OutputReportByteLength < MinUsableReportLength
+                    || info.InputReportByteLength < MinUsableReportLength)
+                {
+                    continue;
+                }
+                if (best == null || info.InputReportByteLength > best.InputReportByteLength)
+                {
+                    best = info;
+                    bestModel = model;
+                }
             }
         }
-        if (best == null)
+        if (best == null || bestModel == null)
         {
             return null;
         }
         // forInput so Read honors its timeout instead of busy-spinning on Windows.
-        return _hid.Open(best.Path, forInput: true);
+        var device = _hid.Open(best.Path, forInput: true);
+        return device == null ? null : (device, bestModel, best.OutputReportByteLength);
     }
 }

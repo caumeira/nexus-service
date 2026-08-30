@@ -44,6 +44,9 @@ public class LightingDevicesCatalogTests
     [InlineData("Lian Li", "SL-LCD", "0x1CBE", "0x0005")]
     [InlineData("Tryx", "Panorama", "0x391A", "0x1011")]
     [InlineData("Corsair", "iCUE LINK System Hub", "0x1B1C", "0x0C3F")]
+    [InlineData("NZXT", "Kraken Z3", "0x1E71", "0x3008")]
+    [InlineData("NZXT", "Kraken X3", "0x1E71", "0x2007")]
+    [InlineData("NZXT", "Kraken Elite", "0x1E71", "0x300C")]
     public void Catalog_ListsNativelyDrivenFirstPartyDevices(string vendor, string model, string vid, string pid)
     {
         var device = LightingDevicesCatalog.All.SingleOrDefault(
@@ -68,12 +71,60 @@ public class LightingDevicesCatalogTests
                      ("0x0416", "0x7373"), // Galahad II Trinity
                      ("0x0CF2", "0xA200"), // Strimer
                      ("0x1B1C", "0x0C3F"), // iCUE LINK System Hub
+                     ("0x1E71", "0x3012"), // Kraken Elite V2 - OpenRGB registers this PID too
                  })
         {
             var rows = all.Where(d => d.VendorId == vid && d.ProductId == pid).ToList();
             Assert.Single(rows);
             Assert.Equal("nexus", rows[0].Source);
         }
+    }
+
+    /// <summary>
+    /// Every Kraken the service drives has a curated row, and the OpenRGB detector rows for
+    /// the same hardware are gone. The X2/M2 rows must survive: they sit on a different
+    /// OpenRGB controller and Nexus has no driver for them.
+    /// </summary>
+    [Fact]
+    public void Catalog_CoversEveryKrakenTheServiceDrives()
+    {
+        var all = LightingDevicesCatalog.All;
+
+        foreach (var model in Nexus.Service.Peripherals.Nzxt.KrakenModel.All)
+        {
+            var pid = "0x" + model.ProductId.ToString("X4");
+            var rows = all.Where(d => d.VendorId == "0x1E71" && d.ProductId == pid).ToList();
+            Assert.Single(rows);
+            Assert.Equal("nexus", rows[0].Source);
+            Assert.Equal("aio", rows[0].Category);
+        }
+
+        Assert.DoesNotContain(all, d => d.Source == "openrgb" && d.Model.Contains("Kraken X3"));
+        Assert.Contains(all, d => d.Source == "openrgb" && d.ProductId == "0x170E");
+        Assert.Contains(all, d => d.Source == "openrgb" && d.ProductId == "0x1715");
+    }
+
+    /// <summary>
+    /// The 2023 Kraken and Kraken Elite have an LCD and no addressable LEDs at all, so
+    /// their rows must not claim RGB - the modal's capability column is the only place a
+    /// user learns what Nexus actually drives on a given cooler.
+    /// </summary>
+    [Fact]
+    public void Catalog_MarksTheScreenOnlyKrakensWithoutRgb()
+    {
+        var all = LightingDevicesCatalog.All;
+
+        foreach (var pid in new[] { "0x300C", "0x300E" })
+        {
+            var row = all.Single(d => d.VendorId == "0x1E71" && d.ProductId == pid);
+            Assert.Equal(new[] { "screen" }, row.Capabilities);
+        }
+
+        var eliteV2 = all.Single(d => d.VendorId == "0x1E71" && d.ProductId == "0x3012");
+        Assert.Equal(new[] { "rgb", "screen" }, eliteV2.Capabilities);
+
+        var x3 = all.Single(d => d.VendorId == "0x1E71" && d.ProductId == "0x2007");
+        Assert.Equal(new[] { "rgb" }, x3.Capabilities);
     }
 
     [Fact]

@@ -75,10 +75,12 @@ public sealed class KrakenLightingDeviceProvider :
         for (int i = 0; i < channels.Count; i++)
         {
             var c = channels[i];
-            string raw = i == 0 ? "Pump Ring" : "Fans";
+            // Named from the accessory, not the slot: the pump ring is channel 0 on the
+            // Elite V2 but channel 1 on an X3, so an index-based label lies on half the line.
+            string raw = KrakenProtocol.IsPumpRingAccessory(c.AccessoryId) ? "Pump Ring" : "Fans";
             defs.Add(new ZoneDef(
                 KrakenHub.ZoneIdForChannelIndex(i),
-                $"{KrakenHub.ProductName} - {c.AccessoryName}",
+                $"{_hub.ModelName} - {c.AccessoryName}",
                 raw,
                 c.LedCount,
                 c.ChannelId,
@@ -93,7 +95,7 @@ public sealed class KrakenLightingDeviceProvider :
     /// the accessory's ring count is unknown or the user has overridden the LED count,
     /// which still beats the straight line a strip would give.
     /// </summary>
-    private static (float[] u, float[] v) BuildRingUv(int ledCount, int rings)
+    private static (float[] u, float[] v) BuildRingUv(int ledCount, int rings, double startAngle)
     {
         if (ledCount <= 0)
         {
@@ -110,15 +112,29 @@ public sealed class KrakenLightingDeviceProvider :
             var centerU = (c + 0.5f) / circles;
             for (var i = 0; i < perCircle; i++)
             {
-                // Start at 12 o'clock and run clockwise, which is how both the pump ring
-                // and NZXT's fans are wired.
-                var angle = ((i / (double)perCircle) * 2.0 * Math.PI) - (Math.PI / 2.0);
+                // Clockwise from wherever this accessory's LED 0 physically sits.
+                var angle = ((i / (double)perCircle) * 2.0 * Math.PI) + startAngle;
                 u[(c * perCircle) + i] = centerU + ((Radius / circles) * (float)Math.Cos(angle));
                 v[(c * perCircle) + i] = 0.5f + (Radius * (float)Math.Sin(angle));
             }
         }
         return (u, v);
     }
+
+    /// <summary>12 o'clock: where the pump ring's LED 0 sits, confirmed by lighting one LED
+    /// at a time round the ring.</summary>
+    private const double RingStartAngle = -Math.PI / 2.0;
+
+    /// <summary>
+    /// A fan's LED 0 sits at 3 o'clock - a quarter turn clockwise from the ring's. Bench-set
+    /// against the wired fans: starting the circle at 12 rendered the chain a quarter turn
+    /// out, and each LED had to take the position two steps along (LED 3 -> where LED 5 sat,
+    /// LED 5 -> where LED 7 sat). Eight LEDs per fan, so two steps is 90 degrees.
+    /// </summary>
+    private const double FanStartAngle = 0.0;
+
+    /// <summary>Where LED 0 sits for an accessory. Rings are one circle; a fan chain is one per fan.</summary>
+    private static double StartAngleFor(int rings) => rings > 1 ? FanStartAngle : RingStartAngle;
 
     /// <summary>Circle radius in normalised frame space; leaves a small margin at the edge.</summary>
     private const float Radius = 0.42f;
@@ -257,7 +273,7 @@ public sealed class KrakenLightingDeviceProvider :
 
     public void SetZoneLedCount(string id, int count)
     {
-        if (count < 0 || count > KrakenProtocol.MaxDirectColors)
+        if (count < 0 || count > _hub.MaxDirectColors)
         {
             return;
         }
@@ -280,7 +296,7 @@ public sealed class KrakenLightingDeviceProvider :
         foreach (var def in defs)
         {
             var ledCount = EffectiveLedCount(def, counts);
-            var (u, v) = BuildRingUv(ledCount, def.Rings);
+            var (u, v) = BuildRingUv(ledCount, def.Rings, StartAngleFor(def.Rings));
             var structure = new DeviceStructure { DeviceId = def.Id, Name = def.Name, Partitionable = false };
             structure.Segments.Add(new StructureSegment
             {

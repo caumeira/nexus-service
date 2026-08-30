@@ -8,6 +8,8 @@ namespace Nexus.Service.Tests;
 
 public class KrakenProtocolTests
 {
+    private static readonly KrakenModel EliteV2 = KrakenModel.Find(0x3012)!;
+
     // Reply frames captured from the physical Kraken Elite V2 (1E71:3012, firmware
     // 1.2.0). Any change to the decoders must be re-verified against real hardware.
 
@@ -283,14 +285,14 @@ public class KrakenProtocolTests
     public void PagesFor_rounds_the_frame_up_to_whole_pages()
     {
         // A full RGBA frame plus the 20-byte header spans 1601 KiB pages.
-        Assert.Equal(1601, KrakenProtocol.PagesFor(KrakenProtocol.LcdFrameBytes));
+        Assert.Equal(1601, KrakenProtocol.PagesFor(EliteV2.LcdFrameBytes));
         Assert.Equal(1, KrakenProtocol.PagesFor(1));
     }
 
     [Fact]
     public void LcdFrameBytes_is_one_full_rgba_panel()
     {
-        Assert.Equal(640 * 640 * 4, KrakenProtocol.LcdFrameBytes);
+        Assert.Equal(640 * 640 * 4, EliteV2.LcdFrameBytes);
     }
 
     [Fact]

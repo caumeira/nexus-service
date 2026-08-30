@@ -31,7 +31,7 @@ public sealed class KrakenPanelDiscovery : IStreamedPanelDiscovery
     {
         // The bulk pipe is what carries frames; without it the cooler still works as a
         // cooler but has no panel to offer.
-        if (!_hub.IsConnected || !_hub.HasLcd)
+        if (!_hub.IsConnected || !_hub.HasLcd || _hub.LcdWidth <= 0 || _hub.LcdHeight <= 0)
         {
             return Array.Empty<StreamedPanelDeviceInfo>();
         }
@@ -43,17 +43,17 @@ public sealed class KrakenPanelDiscovery : IStreamedPanelDiscovery
                 Profile = new StreamedPanelProfile
                 {
                     Kind = ProfileKind,
-                    DisplayName = "NZXT Kraken LCD",
+                    DisplayName = $"{_hub.ModelName} LCD",
                     Surface = PanelSurfaces.Kraken,
-                    CssWidth = KrakenProtocol.LcdWidth,
-                    CssHeight = KrakenProtocol.LcdHeight,
+                    CssWidth = _hub.LcdWidth,
+                    CssHeight = _hub.LcdHeight,
                     Dpr = 1.0,
-                    // The device is the ceiling at ~2.3 fps: a 1.6 MB frame over a pipe
-                    // that accepts 4.0 MB/s however it is chunked (measured 64 KiB to
-                    // 2 MiB, all 4.0). Asking for 3 keeps the pipe saturated and lets the
-                    // queue trim, so the panel shows the freshest frame the device can
-                    // take rather than idling between paced sends.
-                    Fps = 3,
+                    // Frames go out Q565-compressed: 7-11 KB rather than 1.6 MB, so a full
+                    // bucket cycle measures ~8.5 ms median (13 ms worst) against the ~450 ms
+                    // a raw frame took. The wire would take more than this; 30 is the display
+                    // limit - a frame swaps the panel between two buckets, and driving that
+                    // swap harder reads as flicker.
+                    Fps = 30,
                     Codec = StreamCodec.RawBgra,
                 },
             },

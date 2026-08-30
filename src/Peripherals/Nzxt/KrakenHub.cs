@@ -30,6 +30,20 @@ public sealed class KrakenHub : IDisposable
     private IKrakenLcdTransport? _lcd;
     private bool _disposed;
 
+    // Which Kraken is attached, and the HID report size its descriptor declares. The line
+    // spans 64-byte and 512-byte reports, and Windows rejects a write that is not exactly
+    // the declared length, so every encoded report is truncated to this on the way out.
+    private KrakenModel _model = KrakenModel.All[0];
+    private int _reportLength = KrakenProtocol.ReportLength;
+
+    // Panel geometry. Seeded from the model table and then overwritten by whatever the
+    // device reports for itself, which is authoritative.
+    private int _lcdWidth;
+    private int _lcdHeight;
+
+    // 0x72 tuple selection. Only the 2023 Kraken and Kraken Elite ever moved theirs.
+    private bool _useNewSpeedChannels = true;
+
     private volatile bool _isConnected;
     private volatile KrakenSnapshot _snapshot = KrakenSnapshot.Empty;
     // Last image pushed, stored unrotated so a rotation change can re-render it.
@@ -40,6 +54,10 @@ public sealed class KrakenHub : IDisposable
     // stream has to write the idle one and switch to it.
     private bool _streamReady;
     private int _streamActiveBucket = -1;
+
+    // Encode scratch, allocated once: a stream runs at panel rate and a per-frame buffer
+    // this size would be pure garbage.
+    private byte[]? _lcdScratch;
 
     public KrakenHub(IKrakenLcdTransportFactory? lcdFactory = null)
     {
@@ -54,6 +72,35 @@ public sealed class KrakenHub : IDisposable
     public const string FansZoneId = "nzxt-kraken:led-fans";
 
     public bool IsConnected => _isConnected;
+
+    /// <summary>The attached model, or the Elite V2 row while nothing is attached.</summary>
+    public KrakenModel Model
+    {
+        get { lock (_lock) { return _model; } }
+    }
+
+    /// <summary>Marketing name of the attached model, for UI and logs.</summary>
+    public string ModelName
+    {
+        get { lock (_lock) { return _model.Name; } }
+    }
+
+    /// <summary>Panel width in pixels; 0 on a model with no LCD.</summary>
+    public int LcdWidth
+    {
+        get { lock (_lock) { return _lcdWidth; } }
+    }
+
+    public int LcdHeight
+    {
+        get { lock (_lock) { return _lcdHeight; } }
+    }
+
+    /// <summary>Bytes in one uncompressed RGBA frame at the attached panel's size.</summary>
+    public int LcdFrameBytes
+    {
+        get { lock (_lock) { return _lcdWidth * _lcdHeight * 4; } }
+    }
 
     /// <summary>USB serial of the attached cooler, or null when nothing is attached.</summary>
     public string? Serial
@@ -86,13 +133,34 @@ public sealed class KrakenHub : IDisposable
         }
     }
 
-    public void Attach(IHidDevice device)
+    public void Attach(IHidDevice device, KrakenModel model, int reportLength)
     {
         lock (_lock)
         {
             _device?.Dispose();
             _device = device;
+            _model = model;
+            _reportLength = reportLength > 0 ? reportLength : KrakenProtocol.ReportLength;
+            _lcdWidth = model.LcdWidth;
+            _lcdHeight = model.LcdHeight;
+            _useNewSpeedChannels = !model.SpeedChannelsFollowFirmware;
         }
+    }
+
+    /// <summary>
+    /// Writes one encoded report, cut to the length the attached device declares. Encoders
+    /// build at <see cref="KrakenProtocol.ReportLength"/> and every command's payload fits
+    /// well inside 64 bytes, so the tail dropped here is always padding.
+    /// </summary>
+    private bool WriteLocked(byte[] report)
+    {
+        if (_device == null)
+        {
+            return false;
+        }
+        return _device.Write(report.Length <= _reportLength
+            ? report.AsSpan()
+            : report.AsSpan(0, _reportLength));
     }
 
     /// <summary>
@@ -114,37 +182,63 @@ public sealed class KrakenHub : IDisposable
                 return false;
             }
             var fw = KrakenProtocol.DecodeFirmware(fwReply);
+            if (_model.SpeedChannelsFollowFirmware)
+            {
+                _useNewSpeedChannels = KrakenProtocol.UsesNewSpeedChannels(fw);
+            }
 
             // Starts the cooler's telemetry stream. Without it the accessory table is not
             // populated yet and the lighting query answers with zero channels.
-            _device.Write(KrakenProtocol.EncodeSetUpdateInterval());
-            _device.Write(KrakenProtocol.EncodeStartReporting());
+            WriteLocked(KrakenProtocol.EncodeSetUpdateInterval());
+            WriteLocked(KrakenProtocol.EncodeStartReporting());
 
-            var channels = ReadLightingChannelsLocked();
+            var channels = _model.Lighting == KrakenLightingProtocol.None
+                ? Array.Empty<KrakenLightingChannel>()
+                : ReadLightingChannelsLocked();
 
             int brightness = 0;
             int orientation = 0;
-            var lcdReply = ExchangeLocked(KrakenProtocol.EncodeLcdInfoRequest(), 0x31, 0x01, CommandReadTimeoutMs);
-            var lcdInfo = lcdReply == null ? null : KrakenProtocol.DecodeLcdInfo(lcdReply);
-            if (lcdInfo.HasValue)
+            var mode = KrakenDisplayMode.Liquid;
+            if (_model.HasLcd)
             {
-                brightness = lcdInfo.Value.BrightnessPercent;
-                orientation = lcdInfo.Value.OrientationQuarterTurns;
-            }
+                var lcdReply = ExchangeLocked(KrakenProtocol.EncodeLcdInfoRequest(), 0x31, 0x01, CommandReadTimeoutMs);
+                var lcdInfo = lcdReply == null ? null : KrakenProtocol.DecodeLcdInfo(lcdReply);
+                if (lcdInfo.HasValue)
+                {
+                    brightness = lcdInfo.Value.BrightnessPercent;
+                    orientation = lcdInfo.Value.OrientationQuarterTurns;
+                    // The panel reports its own size; the model table is only the seed, so a
+                    // variant we have not measured still gets driven at its real resolution.
+                    if (lcdInfo.Value.Width > 0 && lcdInfo.Value.Height > 0)
+                    {
+                        if (lcdInfo.Value.Width != _lcdWidth || lcdInfo.Value.Height != _lcdHeight)
+                        {
+                            ServiceLog.Info(
+                                $"[nzxt-kraken] panel reports {lcdInfo.Value.Width}x{lcdInfo.Value.Height}, " +
+                                $"table said {_lcdWidth}x{_lcdHeight}; using the device");
+                        }
+                        _lcdWidth = lcdInfo.Value.Width;
+                        _lcdHeight = lcdInfo.Value.Height;
+                    }
+                }
 
-            var modeReply = ExchangeLocked(KrakenProtocol.EncodeReadDisplayModeRequest(), 0x31, 0x03, CommandReadTimeoutMs);
-            var mode = (modeReply == null ? null : KrakenProtocol.DecodeDisplayMode(modeReply))
-                ?? KrakenDisplayMode.Liquid;
+                var modeReply = ExchangeLocked(KrakenProtocol.EncodeReadDisplayModeRequest(), 0x31, 0x03, CommandReadTimeoutMs);
+                mode = (modeReply == null ? null : KrakenProtocol.DecodeDisplayMode(modeReply))
+                    ?? KrakenDisplayMode.Liquid;
+            }
 
             _snapshot = new KrakenSnapshot(
                 0, 0, 0, 0, 0,
                 fw?.ToString() ?? "",
                 brightness, orientation, mode, channels);
 
-            _lcd = _lcdFactory?.Open(_device.Serial);
-            if (_lcd == null)
+            if (_model.HasLcd)
             {
-                ServiceLog.Info("[nzxt-kraken] connected without an LCD bulk pipe; image upload unavailable");
+                _lcd = _lcdFactory?.Open(_device.Serial);
+                if (_lcd == null)
+                {
+                    ServiceLog.Info("[nzxt-kraken] connected without an LCD bulk pipe; image upload unavailable");
+                }
             }
 
             _isConnected = true;
@@ -230,7 +324,7 @@ public sealed class KrakenHub : IDisposable
                 return false;
             }
             DrainLocked();
-            if (!_device.Write(KrakenProtocol.EncodeStatusRequest()))
+            if (!WriteLocked(KrakenProtocol.EncodeStatusRequest()))
             {
                 return false;
             }
@@ -258,9 +352,9 @@ public sealed class KrakenHub : IDisposable
         }
     }
 
-    public bool SetPumpCurve(ReadOnlySpan<byte> duties) => SendCurve(KrakenProtocol.PumpChannel, duties);
+    public bool SetPumpCurve(ReadOnlySpan<byte> duties) => SendCurve(pump: true, duties);
 
-    public bool SetFanCurve(ReadOnlySpan<byte> duties) => SendCurve(KrakenProtocol.FanChannel, duties);
+    public bool SetFanCurve(ReadOnlySpan<byte> duties) => SendCurve(pump: false, duties);
 
     /// <summary>Applies a flat duty by filling every point of the curve.</summary>
     public bool SetPumpDuty(int percent) => SetPumpCurve(FlatCurve(percent, KrakenProtocol.PumpDutyFloor));
@@ -275,12 +369,14 @@ public sealed class KrakenHub : IDisposable
         return curve;
     }
 
-    private bool SendCurve(ReadOnlySpan<byte> channel, ReadOnlySpan<byte> duties)
+    private bool SendCurve(bool pump, ReadOnlySpan<byte> duties)
     {
-        var report = KrakenProtocol.EncodeSpeedCurve(channel, duties);
         lock (_lock)
         {
-            return _device != null && _device.Write(report);
+            var channel = _useNewSpeedChannels
+                ? (pump ? KrakenProtocol.PumpChannel : KrakenProtocol.FanChannel)
+                : (pump ? KrakenProtocol.LegacyPumpChannel : KrakenProtocol.LegacyFanChannel);
+            return WriteLocked(KrakenProtocol.EncodeSpeedCurve(channel, duties));
         }
     }
 
@@ -296,7 +392,7 @@ public sealed class KrakenHub : IDisposable
         lock (_lcdTransferLock)
         lock (_lock)
         {
-            if (_device == null || !_device.Write(report))
+            if (_device == null || !WriteLocked(report))
             {
                 return false;
             }
@@ -336,7 +432,7 @@ public sealed class KrakenHub : IDisposable
         var report = KrakenProtocol.EncodeColors(channelId, mode, speed, rgbColors, forward);
         lock (_lock)
         {
-            return _device != null && _device.Write(report);
+            return WriteLocked(report);
         }
     }
 
@@ -347,15 +443,41 @@ public sealed class KrakenHub : IDisposable
     /// </summary>
     public bool SetDirectColors(byte channelId, ReadOnlySpan<byte> rgbColors)
     {
-        var report = KrakenProtocol.EncodeChannelColors(channelId, rgbColors);
         lock (_lock)
         {
-            return _device != null && _device.Write(report);
+            switch (_model.Lighting)
+            {
+                case KrakenLightingProtocol.ChannelReport:
+                    return WriteLocked(KrakenProtocol.EncodeChannelColors(channelId, rgbColors));
+
+                case KrakenLightingProtocol.StreamedTables:
+                {
+                    // Both tables then the latch, in that order: the submit is what the
+                    // firmware acts on, and a table written after it lands on the next frame.
+                    var tables = KrakenProtocol.EncodeStreamedColors(channelId, rgbColors);
+                    foreach (var table in tables)
+                    {
+                        if (!WriteLocked(table))
+                        {
+                            return false;
+                        }
+                    }
+                    return WriteLocked(KrakenProtocol.EncodeSubmitColors(channelId));
+                }
+
+                default:
+                    return false;
+            }
         }
     }
 
+    /// <summary>Per-channel LED ceiling for the attached model's lighting protocol.</summary>
+    public int MaxDirectColors => Model.Lighting == KrakenLightingProtocol.StreamedTables
+        ? KrakenProtocol.MaxStreamedColors
+        : KrakenProtocol.MaxDirectColors;
+
     /// <summary>
-    /// Uploads one 640x640 RGBA frame and makes the panel show it.
+    /// Uploads one full-panel RGBA frame and makes the panel show it.
     ///
     /// Every bucket is deleted first. That step is not optional: a stale allocation makes
     /// the setup command return success while placing the image somewhere the panel never
@@ -367,9 +489,10 @@ public sealed class KrakenHub : IDisposable
     /// </summary>
     public bool UploadLcdImage(ReadOnlySpan<byte> rgba)
     {
-        if (rgba.Length != KrakenProtocol.LcdFrameBytes)
+        var expected = LcdFrameBytes;
+        if (expected <= 0 || rgba.Length != expected)
         {
-            ServiceLog.Warn($"[nzxt-kraken] LCD frame must be {KrakenProtocol.LcdFrameBytes} bytes, got {rgba.Length}");
+            ServiceLog.Warn($"[nzxt-kraken] LCD frame must be {expected} bytes, got {rgba.Length}");
             return false;
         }
 
@@ -387,6 +510,48 @@ public sealed class KrakenHub : IDisposable
         }
     }
 
+    /// <summary>
+    /// Turns one source frame into the bytes this model's panel decodes, into the reusable
+    /// scratch buffer. Returns the encoded length and the bulk format byte that describes it.
+    /// <paramref name="sourceIsBgra"/> is set for capture-order frames (the panel stream);
+    /// the still-image route posts RGBA.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_lcdScratch))]
+    private int EncodeLcdPayloadLocked(ReadOnlySpan<byte> frame, int quarterTurns, bool sourceIsBgra, out byte format)
+    {
+        int w = _lcdWidth, h = _lcdHeight;
+        switch (_model.LcdFormat)
+        {
+            case KrakenLcdFormat.Q565:
+                format = KrakenProtocol.BulkFormatQ565;
+                EnsureLcdScratch(Q565Encoder.MaxEncodedLength(w, h));
+                return Q565Encoder.Encode(frame, w, h, quarterTurns, _lcdScratch, sourceIsBgra);
+
+            case KrakenLcdFormat.Rgb565:
+                format = KrakenProtocol.BulkFormatRgb565;
+                EnsureLcdScratch(Rgb565Encoder.EncodedLength(w, h));
+                return Rgb565Encoder.Encode(frame, w, h, quarterTurns, _lcdScratch, sourceIsBgra);
+
+            default:
+            {
+                format = KrakenProtocol.BulkFormatRgba8888;
+                var wire = KrakenProtocol.ToWireRgba(frame, w, h, quarterTurns, sourceIsBgra);
+                EnsureLcdScratch(wire.Length);
+                wire.CopyTo(_lcdScratch.AsSpan());
+                return wire.Length;
+            }
+        }
+    }
+
+    [System.Diagnostics.CodeAnalysis.MemberNotNull(nameof(_lcdScratch))]
+    private void EnsureLcdScratch(int bytes)
+    {
+        if (_lcdScratch == null || _lcdScratch.Length < bytes)
+        {
+            _lcdScratch = new byte[bytes];
+        }
+    }
+
     private bool UploadLcdFrameLocked(byte[] source, int quarterTurns)
     {
         var lcd = _lcd;
@@ -394,9 +559,10 @@ public sealed class KrakenHub : IDisposable
         {
             return false;
         }
-        var payload = KrakenProtocol.RotateRgba(source, KrakenProtocol.LcdWidth, KrakenProtocol.LcdHeight, quarterTurns);
-        var header = KrakenProtocol.EncodeBulkHeader(KrakenProtocol.BulkFormatRgba8888, payload.Length);
-        int pages = KrakenProtocol.PagesFor(payload.Length);
+        int encoded = EncodeLcdPayloadLocked(source, quarterTurns, sourceIsBgra: false, out var format);
+        var payload = _lcdScratch.AsSpan(0, encoded);
+        var header = KrakenProtocol.EncodeBulkHeader(format, encoded);
+        int pages = KrakenProtocol.PagesFor(encoded);
         {
             // Releases the active bucket so it becomes deletable.
             ExchangeLocked(KrakenProtocol.EncodeSetDisplayMode(KrakenDisplayMode.Liquid, 0), 0x39, 0x01, CommandReadTimeoutMs);
@@ -429,7 +595,7 @@ public sealed class KrakenHub : IDisposable
             for (int offset = 0; offset < payload.Length; offset += BulkChunkBytes)
             {
                 int len = Math.Min(BulkChunkBytes, payload.Length - offset);
-                if (!lcd.Write(payload.AsSpan(offset, len)))
+                if (!lcd.Write(payload.Slice(offset, len)))
                 {
                     ServiceLog.Warn($"[nzxt-kraken] LCD bulk write failed at offset {offset}");
                     return false;
@@ -455,20 +621,22 @@ public sealed class KrakenHub : IDisposable
     /// the first call and alternates thereafter; unlike <see cref="UploadLcdImage"/> this
     /// does not wipe the bucket table per frame, which is what makes a stream viable.
     ///
-    /// Measured ceiling on the Elite V2 is ~2.3 fps: a full 640x640 RGBA frame is 1.6 MB
-    /// and the bulk pipe accepts about 4 MB/s, which dominates the ~24 ms of handshake.
+    /// Frames arrive in capture order (BGRA); the colour swap and the rotation both ride
+    /// the encode rather than costing a separate pass over 1.6 MB.
     /// </summary>
-    public bool PushStreamFrame(ReadOnlySpan<byte> rgba)
+    public bool PushStreamFrame(ReadOnlySpan<byte> bgra)
     {
-        if (rgba.Length != KrakenProtocol.LcdFrameBytes)
+        var expected = LcdFrameBytes;
+        if (expected <= 0 || bgra.Length != expected)
         {
             return false;
         }
-        var source = rgba.ToArray();
         lock (_lcdTransferLock)
         {
             int target;
-            byte[] payload;
+            int encoded;
+            byte format;
+            byte[] scratch;
             IKrakenLcdTransport lcd;
             lock (_lock)
             {
@@ -482,8 +650,9 @@ public sealed class KrakenHub : IDisposable
                 }
                 lcd = _lcd;
                 target = _streamActiveBucket == 0 ? 1 : 0;
-                payload = KrakenProtocol.RotateRgba(
-                    source, KrakenProtocol.LcdWidth, KrakenProtocol.LcdHeight, _snapshot.LcdOrientationQuarterTurns);
+                // Rotation rides the encode: the panel does not re-orient what it is sent.
+                encoded = EncodeLcdPayloadLocked(
+                    bgra, _snapshot.LcdOrientationQuarterTurns, sourceIsBgra: true, out format);
                 var start = ExchangeLocked(
                     KrakenProtocol.EncodeStartTransfer(target), 0x37, 0x01, CommandReadTimeoutMs);
                 if (start == null || !KrakenProtocol.IsAck(start))
@@ -491,12 +660,13 @@ public sealed class KrakenHub : IDisposable
                     _streamReady = false;
                     return false;
                 }
+                scratch = _lcdScratch;
             }
 
             // Bulk endpoint only, outside _lock: HID commands for lighting and telemetry
             // keep flowing while the pixels stream, which is what lets an animation run at
             // its own rate instead of waiting a whole frame for the pipe.
-            if (!WriteBulkPayload(lcd, payload))
+            if (!WriteBulkPayload(lcd, format, scratch.AsSpan(0, encoded)))
             {
                 lock (_lock) { _streamReady = false; }
                 return false;
@@ -526,9 +696,9 @@ public sealed class KrakenHub : IDisposable
     }
 
     /// <summary>Header then pixels on the bulk endpoint; takes no lock of its own.</summary>
-    private static bool WriteBulkPayload(IKrakenLcdTransport lcd, byte[] payload)
+    private static bool WriteBulkPayload(IKrakenLcdTransport lcd, byte format, ReadOnlySpan<byte> payload)
     {
-        var header = KrakenProtocol.EncodeBulkHeader(KrakenProtocol.BulkFormatRgba8888, payload.Length);
+        var header = KrakenProtocol.EncodeBulkHeader(format, payload.Length);
         // The header must be its own bulk transfer; concatenating corrupts the upload.
         if (!lcd.Write(header))
         {
@@ -537,7 +707,7 @@ public sealed class KrakenHub : IDisposable
         for (int offset = 0; offset < payload.Length; offset += BulkChunkBytes)
         {
             int len = Math.Min(BulkChunkBytes, payload.Length - offset);
-            if (!lcd.Write(payload.AsSpan(offset, len)))
+            if (!lcd.Write(payload.Slice(offset, len)))
             {
                 return false;
             }
@@ -548,7 +718,8 @@ public sealed class KrakenHub : IDisposable
     /// <summary>Clears the bucket table and reserves two non-overlapping frame slots.</summary>
     private bool PrepareStreamBucketsLocked()
     {
-        int pages = KrakenProtocol.PagesFor(KrakenProtocol.LcdFrameBytes);
+        // Sized for a raw frame so any encoding fits, however incompressible the content.
+        int pages = KrakenProtocol.PagesFor(_lcdWidth * _lcdHeight * 4);
         ExchangeLocked(KrakenProtocol.EncodeSetDisplayMode(KrakenDisplayMode.Liquid, 0), 0x39, 0x01, CommandReadTimeoutMs);
         for (int i = 0; i < KrakenProtocol.BucketCount; i++)
         {
@@ -584,7 +755,7 @@ public sealed class KrakenHub : IDisposable
         // a stale one as this command's answer is how a healthy exchange reports failure, so
         // clear the queue before asking.
         DrainLocked();
-        if (!_device.Write(request))
+        if (!WriteLocked(request))
         {
             return null;
         }

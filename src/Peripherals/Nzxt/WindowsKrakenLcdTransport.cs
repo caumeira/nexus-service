@@ -223,7 +223,7 @@ public sealed class WindowsKrakenLcdTransportFactory : IKrakenLcdTransportFactor
         return int.TryParse(path.AsSpan(vidIdx + 4, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var vid)
             && int.TryParse(path.AsSpan(pidIdx + 4, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var pid)
             && vid == KrakenProtocol.VendorId
-            && pid == KrakenProtocol.ProductIdKrakenEliteV2;
+            && KrakenProtocol.ProductIds.Contains(pid);
     }
 
     private static string ReadDevicePath(IntPtr devInfo, ref Slv3WinUsbInterop.SP_DEVICE_INTERFACE_DATA ifaceData)

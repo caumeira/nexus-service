@@ -41,8 +41,8 @@ public static partial class DevicesRoutes
                     FanRpm = snap.FanRpm,
                     FanDuty = snap.FanDuty,
                     HasLcd = hub.HasLcd,
-                    LcdWidth = KrakenProtocol.LcdWidth,
-                    LcdHeight = KrakenProtocol.LcdHeight,
+                    LcdWidth = hub.LcdWidth,
+                    LcdHeight = hub.LcdHeight,
                     LcdBrightness = snap.LcdBrightness,
                     LcdOrientation = snap.LcdOrientationQuarterTurns * 90,
                     LcdMode = snap.DisplayMode switch
@@ -120,7 +120,7 @@ public static partial class DevicesRoutes
                 return Results.BadRequest(ApiResponse.Fail("lcd bulk pipe unavailable"));
             }
 
-            var expected = KrakenProtocol.LcdFrameBytes;
+            var expected = hub.LcdFrameBytes;
             var buffer = new byte[expected];
             var read = 0;
             while (read < expected)
@@ -135,7 +135,7 @@ public static partial class DevicesRoutes
             if (read != expected)
             {
                 return Results.BadRequest(ApiResponse.Fail(
-                    $"expected {expected} bytes of RGBA ({KrakenProtocol.LcdWidth}x{KrakenProtocol.LcdHeight}), got {read}"));
+                    $"expected {expected} bytes of RGBA ({hub.LcdWidth}x{hub.LcdHeight}), got {read}"));
             }
             // Guard against a body longer than one frame rather than silently truncating.
             if (await request.Body.ReadAsync(new byte[1].AsMemory(0, 1)).ConfigureAwait(false) != 0)

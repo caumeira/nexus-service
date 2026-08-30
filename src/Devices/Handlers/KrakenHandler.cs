@@ -11,14 +11,18 @@ public sealed class KrakenHandler : IDeviceHandler
     public KrakenHandler(KrakenHub hub)
     {
         _hub = hub;
-        Identifiers = new[]
+        var ids = new UsbId[KrakenModel.All.Length];
+        for (var i = 0; i < ids.Length; i++)
         {
-            new UsbId(KrakenProtocol.VendorId, KrakenProtocol.ProductIdKrakenEliteV2),
-        };
+            ids[i] = new UsbId(KrakenProtocol.VendorId, KrakenModel.All[i].ProductId);
+        }
+        Identifiers = ids;
     }
 
     public string Id => KrakenHub.DeviceId;
-    public string Name => KrakenHub.ProductName;
+    // Names the attached model once one is connected; the generic name is what the device
+    // list shows for a cooler that is present but not yet talking.
+    public string Name => _hub.IsConnected ? _hub.ModelName : KrakenHub.ProductName;
     public string Category => "cooler";
 
     public IReadOnlyList<UsbId> Identifiers { get; }
@@ -31,7 +35,7 @@ public sealed class KrakenHandler : IDeviceHandler
         }
         return detectedDevices.Any(d =>
             d.VendorId == KrakenProtocol.VendorId &&
-            d.ProductId == KrakenProtocol.ProductIdKrakenEliteV2);
+            KrakenProtocol.ProductIds.Contains(d.ProductId));
     }
 
     public string GetFirmwareVersion() => _hub.IsConnected ? _hub.Snapshot.FirmwareVersion : "";
@@ -41,5 +45,5 @@ public sealed class KrakenHandler : IDeviceHandler
     /// HID and still works without it, so this is a warning rather than a disconnect.
     /// </summary>
     public string? GetWarning(IReadOnlyList<UsbDeviceEntry> detectedDevices) =>
-        _hub.IsConnected && !_hub.HasLcd ? "lcd-unavailable" : null;
+        _hub.IsConnected && _hub.Model.HasLcd && !_hub.HasLcd ? "lcd-unavailable" : null;
 }

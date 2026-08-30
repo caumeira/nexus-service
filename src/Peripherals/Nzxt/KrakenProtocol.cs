@@ -1,10 +1,11 @@
 using System;
+using System.Collections.Generic;
 
 namespace Nexus.Service.Peripherals.Nzxt;
 
 // Byte facts decoded from the NZXT Kraken Elite V2 (1E71:3012, firmware 1.2.0) on the
 // bench and cross-checked against liquidctl's kraken3.py. Everything encoded here was
-// exercised against real hardware; see plans/nzxt-kraken-support.md.
+// exercised against real hardware.
 //
 // THE trap: this firmware uses 512-byte HID reports, not the 64-byte reports liquidctl
 // uses for older Krakens. A short write is rejected outright (Windows returns failure)
@@ -18,14 +19,24 @@ namespace Nexus.Service.Peripherals.Nzxt;
 internal static class KrakenProtocol
 {
     public const int VendorId = 0x1E71;
-    public const int ProductIdKrakenEliteV2 = 0x3012;
+
+    /// <summary>
+    /// Every product id <see cref="KrakenModel.All"/> covers, for the two places that only
+    /// need to answer "is this one of ours" - HID enumeration and the WinUSB path match.
+    /// </summary>
+    public static IReadOnlyList<int> ProductIds { get; } = BuildProductIds();
+
+    private static int[] BuildProductIds()
+    {
+        var ids = new int[KrakenModel.All.Length];
+        for (int i = 0; i < ids.Length; i++)
+        {
+            ids[i] = KrakenModel.All[i].ProductId;
+        }
+        return ids;
+    }
 
     public const int ReportLength = 512;
-
-    // LCD panel geometry, confirmed by reading DecodeLcdInfo off the device rather than
-    // assuming it from the model name.
-    public const int LcdWidth = 640;
-    public const int LcdHeight = 640;
 
     // The bucket store is flash-backed and holds 16 slots, addressed in 1 KiB pages.
     public const int BucketCount = 16;
@@ -76,6 +87,27 @@ internal static class KrakenProtocol
     public static ReadOnlySpan<byte> PumpChannel => new byte[] { 0x01, 0x01, 0x00 };
 
     public static ReadOnlySpan<byte> FanChannel => new byte[] { 0x02, 0x01, 0x01 };
+
+    /// <summary>
+    /// The tuples the Kraken and Kraken Elite used before their firmware 2.1.1. Only those
+    /// two models ever moved: the Elite V2's own 1.x firmware line ships the newer pair
+    /// above, so it must not be version-gated onto these.
+    /// </summary>
+    public static ReadOnlySpan<byte> LegacyPumpChannel => new byte[] { 0x01, 0x00, 0x00 };
+
+    public static ReadOnlySpan<byte> LegacyFanChannel => new byte[] { 0x02, 0x00, 0x00 };
+
+    /// <summary>Firmware at or past which a Kraken/Kraken Elite wants the newer tuples.</summary>
+    public static bool UsesNewSpeedChannels(KrakenFirmware? firmware)
+    {
+        if (firmware is not { } fw)
+        {
+            return false;
+        }
+        return fw.Major > 2
+            || (fw.Major == 2 && fw.Minor > 1)
+            || (fw.Major == 2 && fw.Minor == 1 && fw.Patch >= 1);
+    }
 
     /// <summary>
     /// Lighting channel ids. The Elite V2 reports two channels: the pump ring and whatever
@@ -281,6 +313,70 @@ internal static class KrakenProtocol
         return report;
     }
 
+    private const byte ReportStreamColors = 0x22;
+
+    /// <summary>Bytes of colour one 0x22 table carries; 4 header bytes precede them in a 64-byte report.</summary>
+    public const int StreamedColorBytesPerTable = 60;
+
+    /// <summary>The firmware exposes exactly two staging tables per channel.</summary>
+    public const int StreamedColorTables = 2;
+
+    /// <summary>Two 60-byte tables of GRB, so 40 LEDs - the same ceiling as the 0x26 path.</summary>
+    public const int MaxStreamedColors = StreamedColorTables * StreamedColorBytesPerTable / 3;
+
+    /// <summary>
+    /// The pre-Elite-V2 per-LED path: colours are staged into two tables and do nothing
+    /// until <see cref="EncodeSubmitColors"/> latches them. Both tables are always written,
+    /// including an empty second one - a stale table left behind keeps lighting its LEDs.
+    /// <paramref name="rgbColors"/> is packed RGB triplets; this performs the RGB to GRB swap.
+    /// </summary>
+    public static byte[][] EncodeStreamedColors(byte channelId, ReadOnlySpan<byte> rgbColors)
+    {
+        int count = Math.Min(rgbColors.Length / 3, MaxStreamedColors);
+        var reports = new byte[StreamedColorTables][];
+        for (int table = 0; table < StreamedColorTables; table++)
+        {
+            var report = new byte[ReportLength];
+            report[0] = ReportStreamColors;
+            report[1] = (byte)(0x10 | table);
+            report[2] = channelId;
+            report[3] = 0x00;
+            reports[table] = report;
+        }
+        for (int i = 0; i < count; i++)
+        {
+            int src = i * 3;
+            int flat = i * 3;
+            int table = flat / StreamedColorBytesPerTable;
+            int dst = 4 + (flat % StreamedColorBytesPerTable);
+            var report = reports[table];
+            report[dst] = rgbColors[src + 1];     // G
+            report[dst + 1] = rgbColors[src];     // R
+            report[dst + 2] = rgbColors[src + 2]; // B
+        }
+        return reports;
+    }
+
+    /// <summary>
+    /// Latches whatever the two staged tables hold onto the channel. The tail is the
+    /// documented constant, sent verbatim; byte 7 is the channel's LED
+    /// budget (0x28 = 40) rather than the count actually staged.
+    /// </summary>
+    public static byte[] EncodeSubmitColors(byte channelId)
+    {
+        var report = new byte[ReportLength];
+        report[0] = ReportStreamColors;
+        report[1] = 0xA0;
+        report[2] = channelId;
+        report[3] = 0x00;
+        report[4] = 0x01;
+        report[7] = 0x28;
+        report[10] = 0x80;
+        report[12] = 0x32;
+        report[15] = 0x01;
+        return report;
+    }
+
     // Colour block starts right after the 7-byte header and holds 16 GRB triplets;
     // the 5-byte footer follows it.
     private const int ColorBlockOffset = 7;
@@ -298,7 +394,15 @@ internal static class KrakenProtocol
     // to its firmware readout. Values are the ordinals of CAM's own format enum.
     public const byte BulkFormatRgba8888 = 0x02;
 
-    public static int LcdFrameBytes => LcdWidth * LcdHeight * 4;
+    /// <summary>
+    /// Q565 - the compressed format the panel also accepts on the bulk path. A real frame
+    /// is 7-11 KB against 1,638,400 raw, which is the difference between ~2 fps and the
+    /// bucket path's ~90. See <see cref="Q565Encoder"/>.
+    /// </summary>
+    public const byte BulkFormatQ565 = 0x08;
+
+    /// <summary>Uncompressed RGB565. The 2023 Kraken (0x300E) takes only this.</summary>
+    public const byte BulkFormatRgb565 = 0x06;
 
     /// <summary>
     /// The 20-byte preamble that precedes the pixels. It must be written as its own bulk
@@ -351,6 +455,42 @@ internal static class KrakenProtocol
                 dst[to + 1] = rgba[from + 1];
                 dst[to + 2] = rgba[from + 2];
                 dst[to + 3] = rgba[from + 3];
+            }
+        }
+        return dst;
+    }
+
+    /// <summary>
+    /// Rotates and converts a frame into what the raw-RGBA wire format wants: R G B and a
+    /// zero alpha byte. Any other alpha value mangles the colours, and the overlay hands
+    /// frames back in capture order (BGRA), hence <paramref name="sourceIsBgra"/>.
+    /// </summary>
+    public static byte[] ToWireRgba(ReadOnlySpan<byte> frame, int width, int height, int quarterTurns, bool sourceIsBgra)
+    {
+        int turns = ((quarterTurns % 4) + 4) % 4;
+        if (turns != 0 && width != height)
+        {
+            throw new ArgumentException("rotation assumes a square panel", nameof(width));
+        }
+        var dst = new byte[width * height * 4];
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int sx, sy;
+                switch (turns)
+                {
+                    case 1: sx = y; sy = height - 1 - x; break;
+                    case 2: sx = width - 1 - x; sy = height - 1 - y; break;
+                    case 3: sx = width - 1 - y; sy = x; break;
+                    default: sx = x; sy = y; break;
+                }
+                int from = ((sy * width) + sx) * 4;
+                int to = ((y * width) + x) * 4;
+                dst[to] = frame[from + (sourceIsBgra ? 2 : 0)];
+                dst[to + 1] = frame[from + 1];
+                dst[to + 2] = frame[from + (sourceIsBgra ? 0 : 2)];
+                dst[to + 3] = 0;
             }
         }
         return dst;
@@ -511,6 +651,14 @@ internal static class KrakenProtocol
         // split is unmeasured, so they stay a single ring until a unit is on the bench.
         _ => (0, 0),
     };
+
+    /// <summary>
+    /// True for the accessories that are a cooler's own pump ring rather than something
+    /// chained off its RGB port. Which channel carries it moves across the line, so callers
+    /// identify it by accessory id.
+    /// </summary>
+    public static bool IsPumpRingAccessory(byte accessoryId) =>
+        accessoryId is 0x10 or 0x11 or 0x1E;
 
     public static string AccessoryName(byte accessoryId) => accessoryId switch
     {

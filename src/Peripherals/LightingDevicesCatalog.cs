@@ -153,12 +153,14 @@ public static class LightingDevicesCatalog
         foreach (var d in file.Devices)
         {
             var controller = d.Controller ?? "";
+            var detector = d.Name ?? "";
             if (controller.StartsWith("HYTE", System.StringComparison.OrdinalIgnoreCase) ||
-                NativelyDrivenControllers.Contains(controller))
+                NativelyDrivenControllers.Contains(controller) ||
+                NativelyDrivenDetectors.Contains(detector))
             {
                 continue;
             }
-            var (vendor, model) = SplitVendorModel(d.Name);
+            var (vendor, model) = SplitVendorModel(detector);
             result.Add(new SupportedDeviceDto
             {
                 Vendor = vendor,
@@ -249,18 +251,57 @@ public static class LightingDevicesCatalog
         Native("Corsair", "iCUE LINK System Hub",   "fan",      "0x1B1C", "0x0C3F"),
         Native("Corsair", "iCUE LINK LCD",          "aio",      "0x1B1C", "0x0C4E", screen: true),
         Native("Corsair", "iCUE LINK XD5 Elite LCD","aio",      "0x1B1C", "0x0C43", screen: true),
+
+        // NZXT Kraken - PIDs from src/Peripherals/Nzxt/KrakenModel.cs. The 2023 Kraken and
+        // Kraken Elite carry an LCD but no addressable LEDs anywhere, so they are screen-only.
+        Native("NZXT",    "Kraken Elite V2",        "aio",      "0x1E71", "0x3012", screen: true),
+        Native("NZXT",    "Kraken Elite V2",        "aio",      "0x1E71", "0x3014", screen: true),
+        Native("NZXT",    "Kraken Elite",           "aio",      "0x1E71", "0x300C", screen: true, rgb: false),
+        Native("NZXT",    "Kraken",                 "aio",      "0x1E71", "0x300E", screen: true, rgb: false),
+        Native("NZXT",    "Kraken Z3",              "aio",      "0x1E71", "0x3008", screen: true),
+        Native("NZXT",    "Kraken X3",              "aio",      "0x1E71", "0x2007"),
+        Native("NZXT",    "Kraken X3 RGB",          "aio",      "0x1E71", "0x2014"),
     };
 
-    private static SupportedDeviceDto Native(string vendor, string model, string category, string vid, string pid, bool screen = false) => new()
+    /// <summary>
+    /// OpenRGB detector names whose exact hardware Nexus now drives natively, where the
+    /// controller they belong to still covers other devices we do not. NZXTHue2Controller
+    /// is the case in point: it registers the Hue 2 family and the Smart Device V2
+    /// alongside the Krakens, so it cannot be skipped wholesale the way LianLiController is.
+    /// The Kraken X2/M2 rows stay - they are on NZXTKrakenController and we do not drive them.
+    /// </summary>
+    private static readonly HashSet<string> NativelyDrivenDetectors = new()
+    {
+        "NZXT Kraken 2024 ELITE Series RGB",
+        "NZXT Kraken X3 Series",
+        "NZXT Kraken X3 Series RGB",
+    };
+
+    private static SupportedDeviceDto Native(
+        string vendor, string model, string category, string vid, string pid, bool screen = false, bool rgb = true) => new()
     {
         Vendor = vendor,
         Model = model,
         Category = category,
         VendorId = vid,
         ProductId = pid,
-        Capabilities = screen ? new List<string> { "rgb", "screen" } : new List<string> { "rgb" },
+        Capabilities = BuildCapabilities(rgb, screen),
         Source = "nexus",
     };
+
+    private static List<string> BuildCapabilities(bool rgb, bool screen)
+    {
+        var caps = new List<string>(2);
+        if (rgb)
+        {
+            caps.Add("rgb");
+        }
+        if (screen)
+        {
+            caps.Add("screen");
+        }
+        return caps;
+    }
 
     private static (string vendor, string model) SplitVendorModel(string name)
     {
