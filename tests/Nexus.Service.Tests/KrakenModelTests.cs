@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using Nexus.Service.Peripherals.Nzxt;
-using Nexus.Service.Peripherals.PixelFormats;
 using Xunit;
 
 namespace Nexus.Service.Tests;
