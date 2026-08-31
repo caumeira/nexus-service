@@ -113,7 +113,11 @@ public static class OpenRgbDetectorExclusions
         return true;
     }
 
-    public static Delta Compute(IReadOnlyList<RgbDevice> devices, NexusSettings settings)
+    /// <param name="detectorMap">Device name -> detector name, from the
+    /// daemon's detector-map.json. Null or missing entries fall back to the
+    /// device name (pre-map behaviour, correct wherever a detector is named
+    /// after its model).</param>
+    public static Delta Compute(IReadOnlyList<RgbDevice> devices, NexusSettings settings, IReadOnlyDictionary<string, string>? detectorMap = null)
     {
         var delta = new Delta();
         var exclusions = settings.Devices.OpenRgbDetectorExclusions;
@@ -169,13 +173,19 @@ public static class OpenRgbDetectorExclusions
             foreach (var d in group.Value)
             {
                 var baseId = d.StableId;
-                if (exclusions.ContainsKey(baseId))
+                var detectorName = OpenRgbDetectorMap.Resolve(detectorMap, d.Name);
+                // An exclusion snapshotted before the map existed holds the
+                // device name, which denylists nothing when the detector is
+                // named differently - the device is then still live here, so
+                // re-snapshot it with the resolved name. Never mutate the
+                // stored instance: lock-free readers hold that reference.
+                if (exclusions.TryGetValue(baseId, out var existing) && existing.DetectorName == detectorName)
                 {
                     continue;
                 }
                 delta.Add.Add(new KeyValuePair<string, OpenRgbDetectorExclusion>(baseId, new OpenRgbDetectorExclusion
                 {
-                    DetectorName = d.Name,
+                    DetectorName = detectorName,
                     Vendor = d.Vendor,
                     Serial = d.Serial,
                     Location = d.Location,

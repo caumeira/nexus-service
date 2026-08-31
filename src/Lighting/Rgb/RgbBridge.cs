@@ -1292,7 +1292,11 @@ public sealed class RgbBridge : IDisposable
         OpenRgbDetectorExclusions.Delta delta;
         try
         {
-            delta = OpenRgbDetectorExclusions.Compute(settledList, settingsSnapshot);
+            // Reloaded per reconcile: the daemon rewrites the map at the end of
+            // every detection pass, so a device that only appeared on a later
+            // rescan is in the file by the time its settle lands here.
+            var detectorMap = OpenRgbDetectorMap.Load(OpenRgbProcessManager.ResolveConfigDir());
+            delta = OpenRgbDetectorExclusions.Compute(settledList, settingsSnapshot, detectorMap);
         }
         catch (Exception ex)
         {
@@ -1302,10 +1306,11 @@ public sealed class RgbBridge : IDisposable
         if (delta.IsEmpty)
         {
             // Steady state. A drivable device still live under an existing
-            // exclusion means the snapshot name did not match a detector
-            // string (possible for I2C-detected hardware, where controller
-            // and detector names can differ) - the denylist write is then a
-            // silent no-op in the daemon, so surface it once per device. The
+            // exclusion means the denylisted name did not match a detector
+            // string and detector-map.json could not correct it (an old daemon
+            // writes no map; a device detected after the map was written is
+            // missing from it) - the denylist write is then a silent no-op in
+            // the daemon, so surface it once per device. The
             // bounce-age gate keeps a refresh that raced the exclusion's own
             // bounce (fetched from the not-yet-killed daemon) from warning
             // spuriously and permanently eating the one warn per id.
@@ -1319,7 +1324,7 @@ public sealed class RgbBridge : IDisposable
                         && settingsSnapshot.Devices.OpenRgbDetectorExclusions.ContainsKey(d.StableId)
                         && _warnedIneffectiveExclusions.Add(d.StableId))
                     {
-                        ServiceLog.Warn($"[rgb-bridge] '{d.Name}' is still detected despite its detector exclusion; the OpenRGB detector name likely differs from the device name");
+                        ServiceLog.Warn($"[rgb-bridge] '{d.Name}' is still detected despite its detector exclusion; detector-map.json has no entry naming its detector");
                     }
                 }
             }
