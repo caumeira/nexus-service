@@ -107,11 +107,15 @@ public sealed class ShaderEffect : IEffect
         lock (_ctx.Lock)
         {
             _ctx.EnsureInitializedLocked();
-            if (!_ctx.Available)
-            {
-                _failed = true;
-                return;
-            }
+        }
+        // No context YET is not the same as a broken shader: a cold-boot driver
+        // can take tens of seconds, and latching here would keep every device
+        // dark for the rest of the session even once the context lands. Skip the
+        // frame and re-check on the next one. _failed stays for a shader that
+        // will never work (compile failure).
+        if (!_ctx.Available)
+        {
+            return;
         }
 
         _pendingCanvas = canvas;

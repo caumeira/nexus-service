@@ -61,6 +61,16 @@ public sealed class LightingStatusResponse
     public bool Scanning { get; set; }
     public bool RgbRunning { get; set; }
     public bool GpuAvailable { get; set; }
+
+    /// <summary>"ready" | "initializing" | "unavailable". Finer than
+    /// <see cref="GpuAvailable"/>, which cannot tell "no usable card" apart from
+    /// "the driver is still handing one over".</summary>
+    public string GpuState { get; set; } = "unavailable";
+
+    /// <summary>True when this box has a second adapter to move rendering to,
+    /// so a client can offer the render-GPU picker as a fix rather than a dead
+    /// end. Windows-only: the DXGI enumeration behind it is empty elsewhere.</summary>
+    public bool GpuCanSwitch { get; set; }
 }
 
 public sealed class GetCalibrationsResponse

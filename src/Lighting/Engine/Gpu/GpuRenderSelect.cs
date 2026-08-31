@@ -39,10 +39,10 @@ internal static class GpuRenderSelect
     private const string Discrete = "discrete";
     private const string Off = "off";
 
-    // Parent's backstop wait for a probe child. Longer than the child's own init
-    // budget (GpuContext.InitTimeout, 10s) so a working-but-slow card finishes on
+    // Parent's backstop wait for a probe child. Must outlast the budget the
+    // child pins on itself (see GpuProbe) so a working-but-slow card finishes on
     // its own and the parent only kills a truly wedged child.
-    private static readonly TimeSpan ProbeWait = TimeSpan.FromSeconds(13);
+    private static readonly TimeSpan ProbeWait = TimeSpan.FromSeconds(35);
 
     private const int ClassIntegrated = 0; // clear pref: Windows' default is the iGPU on a hybrid box
     private const int ClassDiscrete = 2;   // high-performance
@@ -82,10 +82,18 @@ internal static class GpuRenderSelect
         if (state == Integrated || state == Discrete)
         {
             WarmGuarded(gpu, sw, state, state == Discrete ? ClassDiscrete : ClassIntegrated, $"remembered:{state}");
-            if (!gpu.Available)
+            if (gpu.Failed)
             {
                 SaveState(Unprobed);
-                GpuContext.Log("[gpu] select: remembered card no longer works; will re-probe next boot");
+                GpuContext.Log("[gpu] select: remembered card failed init; will re-probe next boot");
+                TrySwitchToOtherCard(gpu, sw, state);
+            }
+            else if (!gpu.Available)
+            {
+                // Still initializing. NOT a verdict - it lands on its own and
+                // Available flips. Demoting here would re-pay two probes on
+                // every later boot for a card that works.
+                GpuContext.Log("[gpu] select: remembered card still initializing; keeping it");
             }
             return;
         }
@@ -121,12 +129,15 @@ internal static class GpuRenderSelect
             {
                 gpu.EnsureInitializedLocked();
             }
+            // Outside the lock: the render path takes it every frame.
+            gpu.WaitForInit(gpu.InitTimeout);
         }
         catch (Exception ex) { GpuContext.Log($"[gpu] warmup threw: {ex.Message}"); }
         ClearCrashGuard();
         GpuContext.Log(gpu.Available
             ? $"[gpu] warmup: GPU shader engine ready in {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'"
-            : $"[gpu] warmup: GPU unavailable after {sw.ElapsedMilliseconds}ms (shader effects off; static/firmware lighting unaffected)");
+            : $"[gpu] warmup: no GPU context after {sw.ElapsedMilliseconds}ms "
+              + $"({(gpu.Failed ? "init failed" : "still initializing")}; every lighting mode is shader-rendered, so devices stay dark until it lands)");
         if (gpu.Available) SaveState(stateName);
     }
 
@@ -174,6 +185,31 @@ internal static class GpuRenderSelect
             GpuContext.Log($"[gpu] select: probe class {cls} spawn failed: {ex.Message}");
             return false;
         }
+    }
+
+    /// <summary>
+    /// Live fallback to the other card. Caller guarantees <paramref name="failedState"/>
+    /// actually FAILED: only a terminated attempt can be swapped in-process
+    /// (GpuContext.ResetForRetry), because a card that is merely slow is still
+    /// inside GLFW init and a second init beside it is undefined.
+    ///
+    /// The retry runs through WarmGuarded like every other direct init, so it
+    /// keeps the crash guard - the card has not been probed this boot, and a
+    /// native fast-fail here would otherwise take the service down unrecorded.
+    /// </summary>
+    private static void TrySwitchToOtherCard(GpuContext gpu, Stopwatch sw, string failedState)
+    {
+        var other = failedState == Discrete ? Integrated : Discrete;
+        if (!gpu.ResetForRetry())
+        {
+            GpuContext.Log($"[gpu] select: no in-process retry left; '{other}' waits for the next start");
+            return;
+        }
+        GpuContext.Log($"[gpu] select: '{failedState}' failed init; retrying on '{other}' in-process");
+        WarmGuarded(gpu, sw, other, other == Discrete ? ClassDiscrete : ClassIntegrated, $"switch-from:{failedState}");
+        GpuContext.Log(gpu.Available
+            ? $"[gpu] select: switched to '{other}' ({gpu.Renderer}) after {sw.ElapsedMilliseconds}ms, no restart needed"
+            : $"[gpu] select: '{other}' did not produce a context either; GPU rendering off");
     }
 
     private static void SetPref(int cls)

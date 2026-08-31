@@ -163,6 +163,18 @@ public static class LightingRoutes
                 Scanning = rescanning || (engine.CurrentEffectName != "none" && pm?.IsRunning == true && !devices.IsConnected),
                 RgbRunning = pm?.IsRunning ?? false,
                 GpuAvailable = gpu?.Available ?? false,
+                // Only a thrown init is "unavailable". Before the deferred
+                // warmup fires there is no attempt yet, but one is always
+                // scheduled, so reporting "unavailable" for that half second
+                // flashes "no usable GPU" at the user for a card that is fine.
+                GpuState = gpu is null ? "unavailable"
+                    : gpu.Available ? "ready"
+                    : gpu.Failed ? "unavailable"
+                    : "initializing",
+                // Same adapter set GpuRenderSelect chooses from (0x1414 is the
+                // Microsoft software adapter, never a render target).
+                GpuCanSwitch = Nexus.Service.Sensors.GpuAdapterLuids.Enumerate()
+                    .Count(a => a.VendorId != 0x1414) > 1,
             };
         }).AllowPanel();
         // Master brightness slider: caps every LED channel before it leaves the

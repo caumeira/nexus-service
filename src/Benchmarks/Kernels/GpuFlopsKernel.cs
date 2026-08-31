@@ -105,7 +105,7 @@ internal static class GpuFlopsKernel
         {
             ctx.EnsureInitializedLocked();
         }
-        if (!ctx.Available)
+        if (!ctx.WaitForInit(ctx.InitTimeout, ct))
         {
             throw new InvalidOperationException("no GPU context available");
         }
