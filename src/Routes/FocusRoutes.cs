@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Nexus.Service.FocusModes;
+using Nexus.Service.Models;
 using Nexus.Service.Models.Focus;
 using Nexus.Service.Persistence;
 using Nexus.Service.Sockets;
@@ -11,6 +12,10 @@ namespace Nexus.Service.Routes;
 /// Focus modes: status for the top bar chip, the manual on/off, and CRUD over
 /// the user's mode list. Stock modes are editable but never deletable - their
 /// ids are wired to triggers, and a reset needs a known-good pair to restore.
+///
+/// Error bodies are ApiResponse, never an anonymous type: source-gen JSON has
+/// no metadata for those, so an AOT build answers 500 instead of the 400 the
+/// route intended (bench-hit on T1, 2026-08-30).
 /// </summary>
 public static class FocusRoutes
 {
@@ -43,7 +48,7 @@ public static class FocusRoutes
         app.MapPost("/api/focus/modes", (CreateFocusModeBody body, FocusModeState state, IConfigStore config, MultiplexHub hub) =>
         {
             var name = Clean(body.Name, MaxNameLength);
-            if (name.Length == 0) return Results.BadRequest(new { error = true, msg = "name required" });
+            if (name.Length == 0) return Results.BadRequest(new ApiResponse { Error = true, Msg = "name required" });
 
             var created = new FocusModeSettings
             {
@@ -61,7 +66,7 @@ public static class FocusRoutes
                 if (s.Focus.Modes.Count >= MaxModes) { overflow = true; return; }
                 s.Focus.Modes.Add(created);
             });
-            if (overflow) return Results.BadRequest(new { error = true, msg = "too many modes" });
+            if (overflow) return Results.BadRequest(new ApiResponse { Error = true, Msg = "too many modes" });
 
             PanelTopics.BroadcastFocus(hub);
             return Results.Ok(BuildStatus(state, config));
@@ -86,7 +91,7 @@ public static class FocusRoutes
                 if (body.ExitGraceSeconds is int grace)
                     mode.ExitGraceSeconds = Math.Clamp(grace, MinExitGraceSeconds, MaxExitGraceSeconds);
             });
-            if (!found) return Results.NotFound(new { error = true, msg = "no such mode" });
+            if (!found) return Results.NotFound(new ApiResponse { Error = true, Msg = "no such mode" });
 
             // An effect toggled while the mode is already active has to take hold now.
             state.ReapplyEffects();
@@ -106,8 +111,8 @@ public static class FocusRoutes
                 if (mode.BuiltIn) { builtIn = true; return; }
                 s.Focus.Modes.Remove(mode);
             });
-            if (!found) return Results.NotFound(new { error = true, msg = "no such mode" });
-            if (builtIn) return Results.BadRequest(new { error = true, msg = "built-in modes cannot be deleted" });
+            if (!found) return Results.NotFound(new ApiResponse { Error = true, Msg = "no such mode" });
+            if (builtIn) return Results.BadRequest(new ApiResponse { Error = true, Msg = "built-in modes cannot be deleted" });
 
             if (state.ActiveModeId == id) state.TurnOff();
             state.ReapplyEffects();
