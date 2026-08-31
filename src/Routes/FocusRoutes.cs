@@ -157,7 +157,9 @@ public static class FocusRoutes
             Modes = settings.Modes.Select(m => new FocusModeDto
             {
                 Id = m.Id,
-                Name = m.Name,
+                // Clamped on the way out too: a name stored before the cap
+                // existed would otherwise still overflow every surface.
+                Name = Clean(m.Name, MaxNameLength),
                 Icon = m.Icon,
                 BuiltIn = m.BuiltIn,
                 Trigger = m.Trigger,
