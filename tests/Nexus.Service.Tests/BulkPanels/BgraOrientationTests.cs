@@ -1,3 +1,4 @@
+using Nexus.Service.Panel.Streams;
 using Nexus.Service.Peripherals.PixelFormats;
 using Xunit;
 
@@ -69,5 +70,40 @@ public class BgraOrientationTests
         Rgb565Encoder.Encode(src, 2, 1, quarterTurns: 0, mirrored, sourceIsBgra: true, mirror: true);
 
         Assert.Equal(new[] { plain[2], plain[3], plain[0], plain[1] }, mirrored);
+    }
+
+    // Regression: the cache gate was `now - _readMs >= Ttl` seeded with long.MinValue,
+    // which overflows negative, so the source was never read and every panel rendered
+    // unturned however the record was set.
+    [Fact]
+    public void Filter_reads_its_source_on_the_very_first_frame()
+    {
+        var frame = Indexed(2, 2);
+        var filter = new PanelOrientationFilter();
+        int reads = 0;
+        filter.Bind(() => { reads++; return (Flip180: true, Mirror: false); });
+
+        var oriented = filter.Apply(frame, 2, 2).ToArray();
+
+        Assert.Equal(1, reads);
+        Assert.Equal(new[] { 3, 2, 1, 0 }, Order(oriented));
+    }
+
+    [Fact]
+    public void Filter_passes_the_frame_through_untouched_when_nothing_is_set()
+    {
+        var frame = Indexed(2, 2);
+        var filter = new PanelOrientationFilter();
+        filter.Bind(() => (Flip180: false, Mirror: false));
+
+        Assert.True(filter.Apply(frame, 2, 2).SequenceEqual(frame));
+    }
+
+    [Fact]
+    public void Filter_without_a_source_is_a_passthrough()
+    {
+        var frame = Indexed(2, 2);
+
+        Assert.True(new PanelOrientationFilter().Apply(frame, 2, 2).SequenceEqual(frame));
     }
 }

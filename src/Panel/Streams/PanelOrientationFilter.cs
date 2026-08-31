@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using Nexus.Service.Peripherals.PixelFormats;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Panel.Streams;
 
@@ -24,12 +25,14 @@ public sealed class PanelOrientationFilter
     private Func<(bool Flip180, bool Mirror)>? _source;
     private byte[] _oriented = Array.Empty<byte>();
     private (bool Flip180, bool Mirror) _current;
-    private long _readMs = long.MinValue;
+    // A deadline rather than a last-read stamp: `now - long.MinValue` overflows to a
+    // negative, which pinned the cache at its default and silently ignored the setting.
+    private long _nextReadMs;
 
     public void Bind(Func<(bool Flip180, bool Mirror)> source)
     {
         _source = source;
-        _readMs = long.MinValue;
+        _nextReadMs = 0;
     }
 
     /// <summary>Returns the frame turned as the record asks, or the input when nothing to do.</summary>
@@ -40,11 +43,16 @@ public sealed class PanelOrientationFilter
             return frame;
         }
         var nowMs = Stopwatch.GetTimestamp() / (Stopwatch.Frequency / 1000);
-        if (nowMs - _readMs >= TtlMs)
+        if (nowMs >= _nextReadMs)
         {
-            _readMs = nowMs;
+            _nextReadMs = nowMs + TtlMs;
+            var previous = _current;
             try { _current = _source(); }
             catch { _current = default; }
+            if (_current != previous)
+            {
+                ServiceLog.Info($"[panel-orientation] flip180={_current.Flip180} mirror={_current.Mirror}");
+            }
         }
         if (BgraOrientation.IsIdentity(_current.Flip180, _current.Mirror))
         {
