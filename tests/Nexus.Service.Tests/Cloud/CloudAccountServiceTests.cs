@@ -450,4 +450,16 @@ public sealed class CloudAccountServiceTests
         Assert.Equal("token-gen-0", seenTokens[0]);
         Assert.Equal("token-gen-1", seenTokens[1]);
     }
+
+    [Fact]
+    public async Task StartRecoveryAsync_refused_by_the_cloud_reports_idle_not_an_expired_link()
+    {
+        var (svc, api, _) = Make();
+        api.OnRecoveryStart = _ => CloudApiResult<CloudVoid>.Fail(429, "too_many_requests", "Slow down.");
+
+        var result = await svc.StartRecoveryAsync("nicola@example.com", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("idle", svc.GetRecoveryStatus().Status);
+    }
 }

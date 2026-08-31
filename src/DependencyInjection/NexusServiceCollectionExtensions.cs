@@ -1596,6 +1596,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Widgets.AppRegistry>()));
         services.AddSingleton<Nexus.Service.Store.StoreCatalogProxy>(sp => new Nexus.Service.Store.StoreCatalogProxy(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("StoreCatalog")));
+        services.AddSingleton<Nexus.Service.Store.StoreEntitlements>();
         services.AddSingleton<Nexus.Service.Widgets.AppCodeSessionService>();
         services.AddSingleton<Nexus.Service.Widgets.AppActionRegistry>(sp =>
         {

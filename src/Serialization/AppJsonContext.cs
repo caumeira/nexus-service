@@ -958,6 +958,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AppInstallResponse))]
 [JsonSerializable(typeof(StoreInstallRequest))]
 [JsonSerializable(typeof(StoreInstallResponse))]
+[JsonSerializable(typeof(StoreDownloadGrant))]
+[JsonSerializable(typeof(StorePurchase))]
+[JsonSerializable(typeof(StoreLibraryResponse))]
+[JsonSerializable(typeof(CloudStoreEntitlement))]
+[JsonSerializable(typeof(CloudStoreLibraryResponse))]
 [JsonSerializable(typeof(AppCodeSessionResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.OpenUrlRequest))]
 // Widgets - settings

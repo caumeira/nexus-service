@@ -143,11 +143,39 @@ public static class AppRoutes
         // Install one version from the asset CDN. Distinct path from the
         // sideload route above: that one activates a bundled app, this one
         // downloads a versioned artifact.
+        //
+        // Getting an app needs a linked Nexus account: the cloud grant both
+        // authorizes the download and records the purchase Manage purchases
+        // lists. Its hash supersedes whatever the page sent, so the trust pin
+        // comes from the store rather than from the caller.
         app.MapPost("/apps-api/store/install",
-            async (StoreInstallRequest body, Nexus.Service.Store.StoreInstaller installer, CancellationToken ct) =>
+            async (StoreInstallRequest body, Nexus.Service.Store.StoreEntitlements entitlements,
+                   Nexus.Service.Store.StoreInstaller installer, HttpContext http, CancellationToken ct) =>
         {
+            var auth = await entitlements.AuthorizeAsync(
+                body.AppId ?? "", body.Version ?? "", http.Request.Query["nexusVersion"], ct);
+            if (!auth.Ok || auth.Grant is null)
+            {
+                return Results.Json(new StoreInstallResponse
+                {
+                    AppId = body.AppId ?? "",
+                    Version = body.Version ?? "",
+                    Ok = false,
+                    Reason = auth.Reason ?? "store_unavailable",
+                }, AppJsonContext.Default.StoreInstallResponse);
+            }
+            body.Sha256 = auth.Grant.Sha256;
+            if (auth.Grant.Size > 0) body.Size = auth.Grant.Size;
             var result = await installer.InstallAsync(body, ct);
             return Results.Json(result, AppJsonContext.Default.StoreInstallResponse);
+        }).AllowPanel();
+
+        // Manage purchases: cloud entitlements joined with what is on disk here.
+        app.MapGet("/apps-api/store/library",
+            async (Nexus.Service.Store.StoreEntitlements entitlements, CancellationToken ct) =>
+        {
+            var library = await entitlements.LibraryAsync(ct);
+            return Results.Json(library, AppJsonContext.Default.StoreLibraryResponse);
         }).AllowPanel();
 
         app.MapPost("/apps-api/uninstall", (AppInstallRequest body, AppInstaller installer) =>

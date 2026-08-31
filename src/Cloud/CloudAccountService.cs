@@ -535,7 +535,10 @@ public sealed class CloudAccountService
             new CloudRecoveryStartRequest { Email = email, GrantId = grantId, DeviceSecret = deviceSecret }, ct).ConfigureAwait(false);
         if (!result.Success)
         {
-            SetRecoveryStatus(grantId, "expired");
+            // No link was sent (throttled, offline), so the flow is back where it
+            // started; reporting "expired" here is what put a "link expired" page
+            // in front of users who never got a link.
+            SetRecoveryStatus(grantId, "idle");
             return CloudActionResult.FromError(result);
         }
 
