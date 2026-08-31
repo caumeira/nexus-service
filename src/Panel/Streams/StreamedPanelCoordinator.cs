@@ -320,6 +320,13 @@ public sealed class StreamedPanelCoordinator : BackgroundService
             && !string.IsNullOrEmpty(rec.PanelDeviceId)
             && _registry.Get(rec.PanelDeviceId) is not null)
         {
+            // Re-stamp: the driver can report a different surface than it did when the
+            // record was minted (a Thermalright splits square from wide by model), and a
+            // reused record would otherwise keep the old one for the life of the install.
+            _registry.Patch(rec.PanelDeviceId, new PanelDevicePatch
+            {
+                Capabilities = info.Profile.BuildCapabilities(),
+            });
             return rec.PanelDeviceId;
         }
 

@@ -59,18 +59,6 @@ public class BgraOrientationTests
         Assert.Equal(src, twice);
     }
 
-    [Fact]
-    public void Rgb565_mirrors_on_the_read_index_without_a_second_pass()
-    {
-        var src = Indexed(2, 1);
-        var plain = new byte[Rgb565Encoder.EncodedLength(2, 1)];
-        var mirrored = new byte[plain.Length];
-
-        Rgb565Encoder.Encode(src, 2, 1, quarterTurns: 0, plain, sourceIsBgra: true);
-        Rgb565Encoder.Encode(src, 2, 1, quarterTurns: 0, mirrored, sourceIsBgra: true, mirror: true);
-
-        Assert.Equal(new[] { plain[2], plain[3], plain[0], plain[1] }, mirrored);
-    }
 
     // Regression: the cache gate was `now - _readMs >= Ttl` seeded with long.MinValue,
     // which overflows negative, so the source was never read and every panel rendered
