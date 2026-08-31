@@ -15,7 +15,8 @@ public sealed class WindowsFpsProvider : IFpsProvider
     private const float GaugeMaximumFrameMs = 50f;
     private const string SensorName = "FPS";
     private const string FrameTimeName = "Frame Time";
-    private static readonly string SessionName = $"Nexus-Fps-{Environment.ProcessId}";
+    private const string SessionPrefix = "Nexus-Fps-";
+    private static readonly string SessionName = SessionPrefix + Environment.ProcessId;
     private static readonly Guid DxgKrnlProviderGuid = new("802EC45A-1E99-4B83-9920-87C98277BA9D");
     private static readonly TraceEventID PresentInfoEventId = (TraceEventID)0x00b8;
     // Present_Info's keyword per the DxgKrnl manifest (PresentMon's
@@ -378,11 +379,25 @@ public sealed class WindowsFpsProvider : IFpsProvider
         catch { }
     }
 
+    // An ETW logger is a kernel object that outlives the process that made it,
+    // so a hard kill or a crash strands one under the dead pid's name. Windows
+    // caps loggers at 64 and a full table fails session creation with a bare
+    // COM HRESULT, so the whole prefix is swept, not just this pid's name.
     private static void TryStopExistingSession()
     {
-        try { TraceEventSession.GetActiveSession(SessionName)?.Stop(); }
-        catch { }
-        StopSessionByName();
+        IEnumerable<string> names;
+        try { names = TraceEventSession.GetActiveSessionNames(); }
+        catch { names = new[] { SessionName }; }
+
+        foreach (var name in names)
+        {
+            if (!name.StartsWith(SessionPrefix, StringComparison.Ordinal))
+                continue;
+
+            try { TraceEventSession.GetActiveSession(name)?.Stop(); }
+            catch { }
+            StopSessionByName(name);
+        }
     }
 
     private static void StopSession(TraceEventSession? session)
@@ -393,14 +408,14 @@ public sealed class WindowsFpsProvider : IFpsProvider
         try { session.Source.StopProcessing(); } catch { }
         try { session.Stop(); } catch { }
         try { session.Dispose(); } catch { }
-        StopSessionByName();
+        StopSessionByName(SessionName);
     }
 
-    private static void StopSessionByName()
+    private static void StopSessionByName(string sessionName)
     {
         var properties = new EventTraceProperties();
         properties.Wnode.BufferSize = (uint)Marshal.SizeOf<EventTraceProperties>();
-        try { _ = ControlTrace(0, SessionName, ref properties, EventTraceControlStop); }
+        try { _ = ControlTrace(0, sessionName, ref properties, EventTraceControlStop); }
         catch { }
     }
 
