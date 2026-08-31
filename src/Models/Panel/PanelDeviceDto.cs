@@ -80,6 +80,12 @@ public sealed class PanelDeviceRecord
     /// Display-bound records only; null = default (true).
     /// </summary>
     public bool? AutoOrient { get; set; }
+    /// <summary>Turn the pushed frame 180 degrees; a cooler LCD's pump head rotates with the
+    /// tubing. Applied in the transport, not the renderer. Pushed-frame panels only; null = off.</summary>
+    public bool? Flip180 { get; set; }
+    /// <summary>Mirror the pushed frame horizontally; with <see cref="Flip180"/> that is a
+    /// vertical flip. Null = off.</summary>
+    public bool? Mirror { get; set; }
     /// <summary>
     /// Last known Corsair Xeneon Edge native display settings (vendor HID),
     /// applied/read through /displays/{id}/xeneon-settings. Display-bound
@@ -190,6 +196,12 @@ public sealed class PanelDevicePatch
     public bool? ReserveMonitor { get; set; }
     /// <summary>Display-bound records only; ignored for other panels.</summary>
     public bool? AutoOrient { get; set; }
+    /// <summary>Turn the pushed frame 180 degrees; a cooler LCD's pump head rotates with the
+    /// tubing. Applied in the transport, not the renderer. Pushed-frame panels only; null = off.</summary>
+    public bool? Flip180 { get; set; }
+    /// <summary>Mirror the pushed frame horizontally; with <see cref="Flip180"/> that is a
+    /// vertical flip. Null = off.</summary>
+    public bool? Mirror { get; set; }
     public PanelDeviceCapabilities? Capabilities { get; set; }
 }
 

@@ -12,7 +12,7 @@ namespace Nexus.Service.Panel.Streams;
 /// concatenate writes, so this buffers to exactly one frame before encoding. Frames are
 /// fixed-size, which makes the boundary unambiguous.
 /// </summary>
-public sealed class JpegPanelStreamTransport : IStreamedPanelTransport
+public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrientablePanelTransport
 {
     private readonly JpegPanelHub _hub;
     private readonly BgraJpegEncoder _encoder;
@@ -23,6 +23,7 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport
     // A stall shows up as the queue trimming rather than an exception, so a dropped frame
     // is only worth logging once per run of drops.
     private bool _dropLogged;
+    private readonly PanelOrientationFilter _orientation = new();
 
     public JpegPanelStreamTransport(JpegPanelHub hub, string serial)
     {
@@ -34,6 +35,8 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport
     }
 
     public bool IsOpen => !_disposed && _hub.IsConnected;
+
+    public void BindOrientation(Func<(bool Flip180, bool Mirror)> source) => _orientation.Bind(source);
 
     public string Serial { get; }
 
@@ -75,7 +78,8 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport
         ReadOnlySpan<byte> jpeg;
         try
         {
-            jpeg = _encoder.Encode(_frame);
+            var model = _hub.Model;
+            jpeg = _encoder.Encode(_orientation.Apply(_frame, model.Width, model.Height));
         }
         catch (Exception ex)
         {

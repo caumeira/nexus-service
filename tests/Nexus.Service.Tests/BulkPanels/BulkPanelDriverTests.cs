@@ -40,6 +40,22 @@ public class BulkPanelDriverTests
         Assert.Contains("TL-M10", driver.Name);
     }
 
+    [Theory]
+    [InlineData(0x40, "lcd-wide")]   // Wonder Vision 1600x720
+    [InlineData(0x01, "lcd-square")] // Grand Vision 480x480
+    public void Thermalright_surface_matches_the_shape_of_the_glass(byte model, string surface)
+    {
+        var driver = new ThermalrightPanelDriver();
+        var reply = new byte[64];
+        ThermalrightProtocol.Magic.CopyTo(reply);
+        reply[24] = model;
+        var pipe = new FakeBulkPipe { Replies = { reply } };
+
+        driver.Connect(pipe, null);
+
+        Assert.Equal(surface, driver.Surface);
+    }
+
     [Fact]
     public void Thermalright_retries_while_the_panel_reports_booting()
     {

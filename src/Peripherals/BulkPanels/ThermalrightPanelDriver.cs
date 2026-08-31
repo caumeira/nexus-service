@@ -25,7 +25,11 @@ public sealed class ThermalrightPanelDriver : IBulkPanelDriver
     public string Name => _panel.Name is { Length: > 0 } n ? $"Thermalright {n}" : "Thermalright LCD";
     public int VendorId => 0x87AD;
     public IReadOnlyList<int> ProductIds { get; } = new[] { 0x70DB };
-    public string Surface => Models.Panel.PanelSurfaces.LcdSquare;
+    // Read only after Connect negotiated a panel (BulkPanelDiscovery skips a hub that is
+    // not attached), so the default-struct case here is just a safe pre-connect answer.
+    public string Surface => _panel.IsWide
+        ? Models.Panel.PanelSurfaces.LcdWide
+        : Models.Panel.PanelSurfaces.LcdSquare;
     public int Fps => 30;
     public byte WritePipeId => 0x01;
     public byte ReadPipeId => 0x81;

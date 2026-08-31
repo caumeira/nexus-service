@@ -320,6 +320,13 @@ public sealed class StreamedPanelCoordinator : BackgroundService
             && !string.IsNullOrEmpty(rec.PanelDeviceId)
             && _registry.Get(rec.PanelDeviceId) is not null)
         {
+            // Re-stamp: the driver can report a different surface than it did when the
+            // record was minted (a Thermalright splits square from wide by model), and a
+            // reused record would otherwise keep the old one for the life of the install.
+            _registry.Patch(rec.PanelDeviceId, new PanelDevicePatch
+            {
+                Capabilities = info.Profile.BuildCapabilities(),
+            });
             return rec.PanelDeviceId;
         }
 
@@ -346,6 +353,17 @@ public sealed class StreamedPanelCoordinator : BackgroundService
         try
         {
             var transport = ds.Discovery.CreateTransport(ds.Info);
+            // Mount orientation is applied to the bytes, not the render, so the editor and
+            // the preview stay upright. Pushed-frame cooler LCDs only.
+            if (transport is IOrientablePanelTransport orientable)
+            {
+                var panelId = ds.Session.PanelDeviceId;
+                orientable.BindOrientation(() =>
+                {
+                    var rec = _registry.Get(panelId);
+                    return (rec?.Flip180 ?? false, rec?.Mirror ?? false);
+                });
+            }
             transport.Open();
             transport.StartPlayer();
             var accepted = false;

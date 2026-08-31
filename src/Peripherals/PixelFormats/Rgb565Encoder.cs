@@ -7,8 +7,8 @@ namespace Nexus.Service.Peripherals.PixelFormats;
 /// the 2023 NZXT Kraken (0x300E), whose firmware has no Q565 decoder, and Thermalright's
 /// Frozen Warframe Pro. Small panels both, so an uncompressed frame is affordable.
 ///
-/// Rotation rides the read index rather than costing a separate pass: no panel that takes
-/// this format re-orients what the host sends it.
+/// Rotation rides the read index rather than costing a separate pass. Mount orientation is
+/// NOT applied here - PanelOrientationFilter turns the frame before the driver sees it.
 /// </summary>
 public static class Rgb565Encoder
 {
