@@ -10,13 +10,14 @@ namespace Nexus.Service.Panel.Streams;
 /// Buffers to exactly one frame before handing it to the driver, which owns whatever
 /// encoding its panel wants.
 /// </summary>
-public sealed class BulkPanelStreamTransport : IStreamedPanelTransport
+public sealed class BulkPanelStreamTransport : IStreamedPanelTransport, IOrientablePanelTransport
 {
     private readonly BulkPanelHub _hub;
     private readonly byte[] _frame;
     private int _filled;
     private bool _disposed;
     private bool _dropLogged;
+    private readonly PanelOrientationFilter _orientation = new();
 
     public BulkPanelStreamTransport(BulkPanelHub hub, string serial)
     {
@@ -28,6 +29,8 @@ public sealed class BulkPanelStreamTransport : IStreamedPanelTransport
     }
 
     public bool IsOpen => !_disposed && _hub.IsConnected;
+
+    public void BindOrientation(Func<(bool Flip180, bool Mirror)> source) => _orientation.Bind(source);
 
     public string Serial { get; }
 
@@ -68,7 +71,7 @@ public sealed class BulkPanelStreamTransport : IStreamedPanelTransport
                 continue;
             }
             _filled = 0;
-            if (_hub.SendFrame(_frame))
+            if (_hub.SendFrame(_orientation.Apply(_frame, _hub.Width, _hub.Height)))
             {
                 _dropLogged = false;
             }

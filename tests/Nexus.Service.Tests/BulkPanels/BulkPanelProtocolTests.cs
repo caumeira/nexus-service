@@ -92,6 +92,31 @@ public class BulkPanelProtocolTests
         Assert.Equal(rgb565, panel.Value.Rgb565);
     }
 
+    [Theory]
+    // Square and 4:3 glass keeps the 2x2 tile; anything 3:2 or wider takes the 4x2.
+    [InlineData(0x01, false)] // Grand Vision 480x480
+    [InlineData(0x05, false)] // Mjolnir Vision 640x480
+    [InlineData(0x20, false)] // Frozen Warframe Pro 320x320
+    [InlineData(0x0B, true)]  // Vision Max 854x480
+    [InlineData(0x40, true)]  // Wonder Vision 1600x720
+    [InlineData(0x41, true)]  // TL-M10 Vision 1920x462
+    public void Thermalright_wide_glass_is_the_side_the_4x2_tile_belongs_on(byte id, bool wide)
+    {
+        Assert.Equal(wide, ThermalrightProtocol.PanelFor(id)!.Value.IsWide);
+    }
+
+    [Fact]
+    public void Thermalright_surface_follows_the_negotiated_panel_not_a_constant()
+    {
+        var wide = new ThermalrightPanel("Wonder Vision", 1600, 720, false);
+        var square = new ThermalrightPanel("Grand Vision", 480, 480, false);
+
+        Assert.True(wide.IsWide);
+        Assert.False(square.IsWide);
+        // A driver that has not connected yet must not claim the wide surface.
+        Assert.False(default(ThermalrightPanel).IsWide);
+    }
+
     [Fact]
     public void Thermalright_unknown_model_has_no_panel_and_the_fallback_is_the_no_init_one()
     {

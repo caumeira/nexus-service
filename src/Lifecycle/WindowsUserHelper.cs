@@ -384,7 +384,7 @@ internal static class WindowsUserHelper
     /// refuses - falls back to the tray balloon, whose whole surface still
     /// routes to the same place.
     /// </summary>
-    [SupportedOSPlatform("windows")]
+    [SupportedOSPlatform("windows10.0.19041.0")]
     private static void ShowNoticeOrToast(string title, string text, string? folderPath, string? windowPath, string? buttonLabel)
     {
         if (!string.IsNullOrEmpty(buttonLabel)

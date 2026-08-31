@@ -31,6 +31,13 @@ public static class PanelSurfaces
     public const string LcdSquare = "lcd-square";
 
     /// <summary>
+    /// Wide cooler glass on the same pushed-frame path as <see cref="LcdSquare"/>, split
+    /// out because the single tile these surfaces carry is sized by the surface, not the
+    /// record: a square panel wants a 2x2 and a 1600x720 Thermalright Wonder Vision a 4x2.
+    /// </summary>
+    public const string LcdWide = "lcd-wide";
+
+    /// <summary>
     /// Surfaces that are exactly one physical panel per host. They self-register
     /// over <c>POST /panel/devices</c> (no OS displayId to key on) and rely on
     /// the kiosk WebView's localStorage to reuse their record. The Q-series OEM
@@ -41,7 +48,7 @@ public static class PanelSurfaces
     /// keyed by displayId.
     /// </summary>
     public static readonly IReadOnlySet<string> SingleInstance =
-        new HashSet<string>(StringComparer.Ordinal) { Y70, Q60, Kraken, LcdRound, LcdSquare };
+        new HashSet<string>(StringComparer.Ordinal) { Y70, Q60, Kraken, LcdRound, LcdSquare, LcdWide };
 
     public static bool IsSingleInstance(string? surface) =>
         surface is not null && SingleInstance.Contains(surface);

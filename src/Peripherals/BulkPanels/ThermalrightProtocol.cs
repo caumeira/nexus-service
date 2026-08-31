@@ -5,7 +5,9 @@ namespace Nexus.Service.Peripherals.BulkPanels;
 /// <summary>
 /// Thermalright's LCD coolers. One 64-byte header then the frame, both in a SINGLE bulk
 /// transfer - unlike the Kraken, where concatenating the header with the pixels corrupts
-/// the upload. Reconstructed from third-party documentation; no unit has been run against it.
+/// the upload. Reconstructed from third-party documentation, then confirmed on a customer's
+/// Wonder Vision (model 0x40): the init handshake answered and the geometry below matched.
+/// Only the connect path is verified; the frame format is still transcription.
 ///
 /// The panel identifies itself: an init packet answered on the bulk IN pipe carries a
 /// model byte, and the model decides the resolution and whether the frame is JPEG or
@@ -103,4 +105,12 @@ public static class ThermalrightProtocol
 }
 
 /// <summary>One Thermalright panel: the size the firmware expects and how it wants pixels.</summary>
-public readonly record struct ThermalrightPanel(string Name, int Width, int Height, bool Rgb565);
+public readonly record struct ThermalrightPanel(string Name, int Width, int Height, bool Rgb565)
+{
+    /// <summary>
+    /// True for glass wide enough that the single tile should be a 4x2 rather than a 2x2.
+    /// The threshold sits between the two spans' aspects (1:1 and 2:1), so the 4:3 members
+    /// stay square and the Vision Max, Wonder Vision and TL-M10 go wide.
+    /// </summary>
+    public bool IsWide => Width > 0 && Width * 2 >= Height * 3;
+}
