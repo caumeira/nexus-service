@@ -416,6 +416,7 @@ public static class NexusServiceCollectionExtensions
     public static IServiceCollection AddNexusFps(this IServiceCollection services)
     {
         services.AddSingleton<Nexus.Service.Games.GameCatalog>();
+        services.AddSingleton<Nexus.Service.Games.IGameInstallLocator>(sp => sp.GetRequiredService<Nexus.Service.Games.GameCatalog>());
         services.AddSingleton<Nexus.Service.Games.IGameArtResolver, Nexus.Service.Games.GameArtResolver>();
         services.AddSingleton(_ => new Nexus.Service.Games.BinaryFpsSessionStore(
             System.IO.Path.Combine(NexusDataPaths.DatabaseDir(), "fps")));
