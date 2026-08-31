@@ -20,7 +20,8 @@ namespace Nexus.Service.Routes;
 public static class FocusRoutes
 {
     private const int MaxModes = 12;
-    private const int MaxNameLength = 40;
+    // The name rides the top bar chip and the mode list; longer than this and it truncates everywhere it is shown.
+    private const int MaxNameLength = 10;
     private const int MinExitGraceSeconds = 0;
     private const int MaxExitGraceSeconds = 600;
 
@@ -33,14 +34,6 @@ public static class FocusRoutes
         {
             if (string.IsNullOrWhiteSpace(body.ModeId)) state.TurnOff();
             else state.ActivateManually(body.ModeId);
-            PanelTopics.BroadcastFocus(hub);
-            return BuildStatus(state, config);
-        });
-
-        app.MapPost("/api/focus/enabled", (SetFocusEnabledBody body, FocusModeState state, IConfigStore config, MultiplexHub hub) =>
-        {
-            config.Update(s => s.Focus.Enabled = body.Enabled);
-            state.ReapplyEffects();
             PanelTopics.BroadcastFocus(hub);
             return BuildStatus(state, config);
         });
@@ -155,7 +148,6 @@ public static class FocusRoutes
         var settings = LoadSettings(config);
         return new FocusStatus
         {
-            Enabled = settings.Enabled,
             ActiveModeId = state.ActiveModeId,
             Reason = state.Reason,
             ActivatedUtcMs = state.ActivatedUtcMs,

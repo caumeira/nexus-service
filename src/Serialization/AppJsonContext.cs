@@ -745,7 +745,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(DeleteResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Focus.FocusStatus))]
 [JsonSerializable(typeof(Nexus.Service.Models.Focus.SetFocusActiveBody))]
-[JsonSerializable(typeof(Nexus.Service.Models.Focus.SetFocusEnabledBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Focus.CreateFocusModeBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Focus.UpdateFocusModeBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Focus.ReorderFocusModesBody))]

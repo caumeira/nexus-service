@@ -3,8 +3,6 @@ namespace Nexus.Service.Models.Focus;
 /// <summary>Pinned cross-repo contract with nexus-web (the top bar chip and the Focus settings page). Field names and shapes must not change on one side alone.</summary>
 public sealed class FocusStatus
 {
-    public bool Enabled { get; set; } = true;
-
     /// <summary>Id of the mode currently active, or null.</summary>
     public string? ActiveModeId { get; set; }
 
@@ -68,11 +66,6 @@ public sealed class SetFocusActiveBody
 {
     /// <summary>Mode id to activate; null or empty turns Focus off.</summary>
     public string? ModeId { get; set; }
-}
-
-public sealed class SetFocusEnabledBody
-{
-    public bool Enabled { get; set; }
 }
 
 /// <summary>New precedence order, by mode id.</summary>
