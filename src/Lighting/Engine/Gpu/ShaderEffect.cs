@@ -108,11 +108,8 @@ public sealed class ShaderEffect : IEffect
         {
             _ctx.EnsureInitializedLocked();
         }
-        // No context YET is not the same as a broken shader: a cold-boot driver
-        // can take tens of seconds, and latching here would keep every device
-        // dark for the rest of the session even once the context lands. Skip the
-        // frame and re-check on the next one. _failed stays for a shader that
-        // will never work (compile failure).
+        // Skip the frame rather than latch: the context can still land, and
+        // _failed here would keep the device dark for the process lifetime.
         if (!_ctx.Available)
         {
             return;

@@ -45,10 +45,6 @@ public sealed class GpuContext : IDisposable
     private bool _retryUsed;
     private volatile bool _disposed;
 
-    // Bumped when an attempt is abandoned. A thread whose epoch is stale must
-    // not publish itself as the live context.
-    private volatile int _epoch;
-
     // Dedicated GL thread. The engine loop is a Task that hops thread-pool
     // threads between awaits, but GLFW/wgl contexts are sticky to the
     // thread that created them, so every GL call must marshal to this one
@@ -79,11 +75,19 @@ public sealed class GpuContext : IDisposable
     // in contexts that don't need it (e.g. tests).
     private readonly Nexus.Service.Persistence.IConfigStore? _store;
 
+    // Substituted by tests: a real GL init is host-dependent, and concurrent
+    // glfwInit calls in a parallelized suite are undefined.
+    private readonly Action _initAction;
+
     public GpuContext(int width, int height, Nexus.Service.Persistence.IConfigStore? store = null)
+        : this(width, height, store, null) { }
+
+    internal GpuContext(int width, int height, Nexus.Service.Persistence.IConfigStore? store, Action? initAction)
     {
         _width = width;
         _height = height;
         _store = store;
+        _initAction = initAction ?? InitInternal;
     }
 
     public object Lock => _lock;
@@ -132,21 +136,14 @@ public sealed class GpuContext : IDisposable
         }
 
         _initStarted = true;
-        var epoch = _epoch;
-        _glThread = new Thread(() => GlThreadMain(epoch)) { IsBackground = true, Name = "nexus-gl" };
+        _glThread = new Thread(GlThreadMain) { IsBackground = true, Name = "nexus-gl" };
         _glThread.Start();
     }
 
-    /// <summary>
-    /// Block until the running attempt finishes or <paramref name="timeout"/>
-    /// elapses. Call WITHOUT holding <see cref="Lock"/> - the render path takes
-    /// that lock every frame, so waiting under it stalls lighting for the whole
-    /// budget.
-    ///
-    /// Running out of budget is NOT a verdict. The nexus-gl thread keeps going
-    /// and <see cref="Available"/> flips on its own if the context lands late,
-    /// so a slow card costs a few dark seconds rather than the session.
-    /// </summary>
+    /// <summary>Block until the attempt finishes or <paramref name="timeout"/>
+    /// elapses; the thread keeps running past it and <see cref="Available"/>
+    /// flips on its own. Call WITHOUT holding <see cref="Lock"/>, which the
+    /// render path takes every frame.</summary>
     public bool WaitForInit(TimeSpan timeout) => WaitForInit(timeout, CancellationToken.None);
 
     /// <inheritdoc cref="WaitForInit(TimeSpan)"/>
@@ -165,18 +162,10 @@ public sealed class GpuContext : IDisposable
         return Available;
     }
 
-    /// <summary>
-    /// Abandon a FAILED attempt so one more can run (on a different card, after
-    /// the caller rewrites the OS preference). False when a retry is not
-    /// available.
-    ///
-    /// Only a terminated attempt qualifies. A thread that is merely slow is
-    /// still inside GLFW/driver init, and glfwInit/glfwCreateWindow share
-    /// process-global state, so starting a second one alongside it is
-    /// undefined - a wedged card is escaped by writing the preference for the
-    /// next boot, not in-process. One retry per process: a card that fails
-    /// twice is a broken card, not a race.
-    /// </summary>
+    /// <summary>Abandon a FAILED attempt so one more can run, once per process.
+    /// Only a terminated attempt qualifies: glfwInit/glfwCreateWindow share
+    /// process-global state, so a second init beside a still-running one is
+    /// undefined.</summary>
     public bool ResetForRetry()
     {
         lock (_lock)
@@ -186,7 +175,6 @@ public sealed class GpuContext : IDisposable
                 return false;
             }
             _retryUsed = true;
-            _epoch++;
             _initError = null;
             _failed = false;
             _ready = false;
@@ -215,18 +203,32 @@ public sealed class GpuContext : IDisposable
         }
     }
 
-    private void GlThreadMain(int epoch)
+    /// <summary>Mark an attempt that never returned as failed; its thread stays
+    /// parked in native init and dies with the process.</summary>
+    public void AbandonInit()
+    {
+        lock (_lock)
+        {
+            if (_disposed || _ready || _failed || !_initStarted)
+            {
+                return;
+            }
+            _initError = new TimeoutException("GL context init never returned");
+            _failed = true;
+            _initDone.Set();
+        }
+    }
+
+    private void GlThreadMain()
     {
         try
-        { InitInternal(); }
+        { _initAction(); }
         catch (Exception ex)
         {
-            // Under the lock, with the epoch re-read inside: ResetForRetry takes
-            // the same lock, so it cannot land between the flag write and the
-            // Set() and have this attempt signal the NEXT one's event.
+            // Published under the lock so ResetForRetry cannot land between the
+            // flag write and the Set().
             lock (_lock)
             {
-                if (epoch != _epoch) { return; }
                 _initError = ex;
                 _failed = true;
                 _initDone.Set();
@@ -235,11 +237,6 @@ public sealed class GpuContext : IDisposable
         }
         lock (_lock)
         {
-            if (epoch != _epoch)
-            {
-                Log("[gpu] late init from an abandoned attempt; ignored");
-                return;
-            }
             _ready = true;
             _initDone.Set();
         }

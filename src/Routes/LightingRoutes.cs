@@ -171,10 +171,10 @@ public static class LightingRoutes
                     : gpu.Available ? "ready"
                     : gpu.Failed ? "unavailable"
                     : "initializing",
-                // Same adapter set GpuRenderSelect chooses from (0x1414 is the
-                // Microsoft software adapter, never a render target).
-                GpuCanSwitch = Nexus.Service.Sensors.GpuAdapterLuids.Enumerate()
-                    .Count(a => a.VendorId != 0x1414) > 1,
+                // Same enumeration the render-GPU picker gates on, so the UI never
+                // offers a shortcut to a control that will not be there. Cached:
+                // GetGpus() runs a full LHM refresh and this is polled.
+                GpuCanSwitch = MultiGpuCache.Value(sp),
             };
         }).AllowPanel();
         // Master brightness slider: caps every LED channel before it leaves the
@@ -280,5 +280,43 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
+    }
+}
+
+/// <summary>Whether the box has a second GPU to move lighting rendering to.
+/// The source call refreshes every LHM sensor, so a positive is memoized and a
+/// negative is re-checked at most every 30s: hardware enumeration is not ready
+/// at the first status poll, and caching that answer strands the UI on
+/// "no second card" for the life of the process.</summary>
+internal static class MultiGpuCache
+{
+    private static readonly TimeSpan RecheckAfter = TimeSpan.FromSeconds(30);
+    private static int _multi;
+    private static long _lastCheckTicks;
+
+    public static bool Value(IServiceProvider sp)
+    {
+        if (Volatile.Read(ref _multi) == 1)
+        {
+            return true;
+        }
+        var now = DateTime.UtcNow.Ticks;
+        var last = Interlocked.Read(ref _lastCheckTicks);
+        if (last != 0 && new TimeSpan(now - last) < RecheckAfter)
+        {
+            return false;
+        }
+        Interlocked.Exchange(ref _lastCheckTicks, now);
+        try
+        {
+            if ((sp.GetService(typeof(Nexus.Service.Sensors.ISensorProvider))
+                as Nexus.Service.Sensors.ISensorProvider)?.GetGpus().Count > 1)
+            {
+                Volatile.Write(ref _multi, 1);
+                return true;
+            }
+        }
+        catch { }
+        return false;
     }
 }

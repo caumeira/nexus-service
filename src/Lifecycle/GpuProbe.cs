@@ -70,6 +70,13 @@ internal static class GpuProbe
                 Console.WriteLine($"RENDERER={gpu.Renderer}");
                 return 0;
             }
+            // Exit 2 = still running, which says nothing about the card; exit 1
+            // is reserved for an init that actually threw.
+            if (!gpu.Failed)
+            {
+                Console.WriteLine("PROBE_INCONCLUSIVE");
+                return 2;
+            }
             Console.WriteLine("PROBE_FAILED");
             return 1;
         }

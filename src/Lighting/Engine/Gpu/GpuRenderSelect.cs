@@ -64,8 +64,13 @@ internal static class GpuRenderSelect
                 SaveState(Off);
                 return;
             }
-            if (ProbeCard(ClassIntegrated)) { WarmGuarded(gpu, sw, Integrated, ClassIntegrated, "single-gpu"); }
-            else { SaveState(Off); GpuContext.Log("[gpu] select: sole GPU probe failed; GPU off"); }
+            if (ProbeCard(ClassIntegrated) == ProbeResult.Failed)
+            {
+                SaveState(Off);
+                GpuContext.Log("[gpu] select: sole GPU probe failed; GPU off");
+                return;
+            }
+            WarmGuarded(gpu, sw, Integrated, ClassIntegrated, "single-gpu");
             return;
         }
 
@@ -108,9 +113,19 @@ internal static class GpuRenderSelect
 
         // Unprobed: probe integrated, then discrete, each isolated in a subprocess.
         GpuContext.Log("[gpu] select: probing GPUs (first run)");
-        if (ProbeCard(ClassIntegrated)) { WarmGuarded(gpu, sw, Integrated, ClassIntegrated, "probed:integrated"); return; }
+        var integrated = ProbeCard(ClassIntegrated);
+        if (integrated != ProbeResult.Failed)
+        {
+            WarmGuarded(gpu, sw, Integrated, ClassIntegrated, "probed:integrated");
+            return;
+        }
         GpuContext.Log("[gpu] select: integrated probe failed; trying discrete");
-        if (ProbeCard(ClassDiscrete)) { WarmGuarded(gpu, sw, Discrete, ClassDiscrete, "probed:discrete"); return; }
+        var discrete = ProbeCard(ClassDiscrete);
+        if (discrete != ProbeResult.Failed)
+        {
+            WarmGuarded(gpu, sw, Discrete, ClassDiscrete, "probed:discrete");
+            return;
+        }
         SaveState(Off);
         GpuContext.Log("[gpu] select: no GPU produced a working context; GPU rendering off (no CPU fallback)");
     }
@@ -138,7 +153,15 @@ internal static class GpuRenderSelect
             ? $"[gpu] warmup: GPU shader engine ready in {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'"
             : $"[gpu] warmup: no GPU context after {sw.ElapsedMilliseconds}ms "
               + $"({(gpu.Failed ? "init failed" : "still initializing")}; every lighting mode is shader-rendered, so devices stay dark until it lands)");
-        if (gpu.Available) SaveState(stateName);
+        if (gpu.Available)
+        {
+            SaveState(stateName);
+            return;
+        }
+        if (!gpu.Failed)
+        {
+            PersistWhenItLands(gpu, stateName);
+        }
     }
 
     // Spawn `Nexus.exe --gpu-probe --set-pref <cls>` and wait; kill on timeout (a
@@ -146,12 +169,30 @@ internal static class GpuRenderSelect
     // are drained concurrently so a chatty child can't fill a pipe buffer and
     // deadlock. WorkingDirectory is pinned to the exe dir so the bundled GLFW
     // native libs resolve (same loader-search gotcha as the bundled adb).
-    private static bool ProbeCard(int cls)
+    // A card slower than the budget still has to be remembered, or every later
+    // boot re-pays the probe for a card that works.
+    private static void PersistWhenItLands(GpuContext gpu, string stateName)
+    {
+        var t = new System.Threading.Thread(() =>
+        {
+            if (gpu.WaitForInit(TimeSpan.FromMinutes(10)))
+            {
+                SaveState(stateName);
+                GpuContext.Log($"[gpu] select: '{stateName}' landed late; remembered");
+            }
+        })
+        { IsBackground = true, Name = "nexus-gpu-persist" };
+        t.Start();
+    }
+
+    private enum ProbeResult { Works, Failed, Inconclusive }
+
+    private static ProbeResult ProbeCard(int cls)
     {
         try
         {
             var exe = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exe)) return false;
+            if (string.IsNullOrEmpty(exe)) return ProbeResult.Inconclusive;
             var psi = new ProcessStartInfo
             {
                 FileName = exe,
@@ -165,7 +206,7 @@ internal static class GpuRenderSelect
             psi.ArgumentList.Add("--set-pref");
             psi.ArgumentList.Add(cls.ToString());
             using var p = Process.Start(psi);
-            if (p is null) return false;
+            if (p is null) return ProbeResult.Inconclusive;
             // Drain both pipes concurrently to avoid a buffer-full deadlock.
             var stdout = p.StandardOutput.ReadToEndAsync();
             var stderr = p.StandardError.ReadToEndAsync();
@@ -173,30 +214,27 @@ internal static class GpuRenderSelect
             {
                 try { p.Kill(entireProcessTree: true); } catch { }
                 GpuContext.Log($"[gpu] select: probe class {cls} timed out ({ProbeWait.TotalSeconds:0}s); killed");
-                return false;
+                return ProbeResult.Inconclusive;
             }
-            var ok = p.ExitCode == 0;
             var tail = (stdout.Result + " " + stderr.Result).Trim().Replace('\n', ' ').Replace('\r', ' ');
             GpuContext.Log($"[gpu] select: probe class {cls} exit={p.ExitCode} [{tail}]");
-            return ok;
+            return p.ExitCode switch
+            {
+                0 => ProbeResult.Works,
+                1 => ProbeResult.Failed,
+                _ => ProbeResult.Inconclusive,
+            };
         }
         catch (Exception ex)
         {
             GpuContext.Log($"[gpu] select: probe class {cls} spawn failed: {ex.Message}");
-            return false;
+            return ProbeResult.Inconclusive;
         }
     }
 
-    /// <summary>
-    /// Live fallback to the other card. Caller guarantees <paramref name="failedState"/>
-    /// actually FAILED: only a terminated attempt can be swapped in-process
-    /// (GpuContext.ResetForRetry), because a card that is merely slow is still
-    /// inside GLFW init and a second init beside it is undefined.
-    ///
-    /// The retry runs through WarmGuarded like every other direct init, so it
-    /// keeps the crash guard - the card has not been probed this boot, and a
-    /// native fast-fail here would otherwise take the service down unrecorded.
-    /// </summary>
+    /// <summary>Live fallback to the other card; caller guarantees
+    /// <paramref name="failedState"/> failed. Runs through WarmGuarded so an
+    /// unprobed card still gets the crash guard.</summary>
     private static void TrySwitchToOtherCard(GpuContext gpu, Stopwatch sw, string failedState)
     {
         var other = failedState == Discrete ? Integrated : Discrete;

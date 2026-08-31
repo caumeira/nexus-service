@@ -1,28 +1,38 @@
 using System;
+using System.Threading;
 using Nexus.Service.Lighting.Engine.Gpu;
 using Xunit;
 
 namespace Nexus.Service.Tests.Lighting.Gpu;
 
 /// <summary>
-/// Running out of init budget must not be recorded as a verdict on the card.
+/// Running out of init budget must not be recorded as a verdict on the card: a
+/// customer's context arrived at 28.4s against a 10s budget, and every lighting
+/// mode is shader-rendered, so latching left every LED black until a restart.
 ///
-/// A customer's cold-boot AMD iGPU handed back a working context 28.4s into a
-/// 10s budget. The old code set _failed on the timeout and never looked again,
-/// so every lighting mode - Static solid fills included, they all resolve to
-/// simple.frag - stayed black until the service was restarted.
-///
-/// These assert the state machine only. EnsureInitializedLocked does start a
-/// real init on the test host, whose outcome varies (a headless CI box throws in
-/// milliseconds, a workstation succeeds), so nothing here asserts WHICH terminal
-/// state is reached - only that waiting is never itself what produces one.
+/// The init body is substituted throughout - a real GL init is host-dependent
+/// and would put concurrent glfwInit calls into a parallelized suite.
 /// </summary>
 public class GpuContextInitLatchTests
 {
+    private static GpuContext WithInit(Action init) => new(160, 90, null, init);
+
+    /// <summary>Init that blocks until the test releases it.</summary>
+    private static GpuContext Blocking(ManualResetEventSlim gate) =>
+        WithInit(() => gate.Wait(TimeSpan.FromSeconds(30)));
+
+    private static void Start(GpuContext gpu)
+    {
+        lock (gpu.Lock)
+        {
+            gpu.EnsureInitializedLocked();
+        }
+    }
+
     [Fact]
     public void FreshContext_IsNeitherAvailableNorInitializingNorFailed()
     {
-        using var gpu = new GpuContext(160, 90);
+        using var gpu = WithInit(() => { });
 
         Assert.False(gpu.Available);
         Assert.False(gpu.Initializing);
@@ -30,70 +40,114 @@ public class GpuContextInitLatchTests
     }
 
     [Fact]
-    public void StartedContext_IsInExactlyOneOfTheThreeStates()
+    public void ElapsedBudget_LeavesTheAttemptRunning()
     {
-        using var gpu = new GpuContext(160, 90);
-        lock (gpu.Lock)
-        {
-            gpu.EnsureInitializedLocked();
-        }
+        using var gate = new ManualResetEventSlim(false);
+        using var gpu = Blocking(gate);
+        Start(gpu);
 
-        // Initializing is defined as "started, no result yet", so it must be
-        // the exact complement of having reached a terminal state. The old
-        // _initTried-based Available could report true against a half-built
-        // context, which this rules out.
-        Assert.Equal(gpu.Initializing, !(gpu.Available || gpu.Failed));
+        Assert.False(gpu.WaitForInit(TimeSpan.FromMilliseconds(50)));
+        Assert.False(gpu.Failed);
+        Assert.True(gpu.Initializing);
+        gate.Set();
     }
 
     [Fact]
-    public void WaitingDoesNotItselfFailTheCard()
+    public void ContextThatLandsAfterTheBudget_StillBecomesAvailable()
     {
-        using var gpu = new GpuContext(160, 90);
-        lock (gpu.Lock)
-        {
-            gpu.EnsureInitializedLocked();
-        }
+        using var gate = new ManualResetEventSlim(false);
+        using var gpu = Blocking(gate);
+        Start(gpu);
+        Assert.False(gpu.WaitForInit(TimeSpan.FromMilliseconds(50)));
 
-        // Zero budget cannot have observed a result, so this is the timeout
-        // path. Whatever the host's init is doing, elapsing the budget must not
-        // move the card into Failed - that transition belongs to InitInternal
-        // throwing, and latching it here is what stranded the customer.
-        var failedBefore = gpu.Failed;
-        gpu.WaitForInit(TimeSpan.Zero);
-        gpu.WaitForInit(TimeSpan.Zero);
-        Assert.Equal(failedBefore, gpu.Failed);
+        gate.Set();
+
+        Assert.True(gpu.WaitForInit(TimeSpan.FromSeconds(10)));
+        Assert.True(gpu.Available);
+        Assert.False(gpu.Failed);
+    }
+
+    [Fact]
+    public void InitThatThrows_IsTerminal()
+    {
+        using var gpu = WithInit(() => throw new InvalidOperationException("no adapter"));
+        Start(gpu);
+
+        Assert.False(gpu.WaitForInit(TimeSpan.FromSeconds(10)));
+        Assert.True(gpu.Failed);
+        Assert.False(gpu.Available);
+        Assert.False(gpu.Initializing);
+    }
+
+    [Fact]
+    public void AbandonInit_TurnsAnEndlessWaitIntoAFailure()
+    {
+        using var gate = new ManualResetEventSlim(false);
+        using var gpu = Blocking(gate);
+        Start(gpu);
+        Assert.False(gpu.WaitForInit(TimeSpan.FromMilliseconds(50)));
+
+        gpu.AbandonInit();
+
+        Assert.True(gpu.Failed);
+        Assert.False(gpu.Initializing);
+        gate.Set();
+    }
+
+    [Fact]
+    public void AbandonInit_DoesNotDemoteAContextThatAlreadyLanded()
+    {
+        using var gpu = WithInit(() => { });
+        Start(gpu);
+        Assert.True(gpu.WaitForInit(TimeSpan.FromSeconds(10)));
+
+        gpu.AbandonInit();
+
+        Assert.True(gpu.Available);
+        Assert.False(gpu.Failed);
     }
 
     [Fact]
     public void ResetForRetry_IsRefusedBeforeAnyAttempt()
     {
-        using var gpu = new GpuContext(160, 90);
+        using var gpu = WithInit(() => { });
 
-        // Nothing has failed, so there is nothing to swap away from.
         Assert.False(gpu.ResetForRetry());
     }
 
     [Fact]
-    public void ResetForRetry_IsRefusedWhileAnAttemptHasNotFailed()
+    public void ResetForRetry_IsRefusedWhileAnAttemptIsStillRunning()
     {
-        using var gpu = new GpuContext(160, 90);
-        lock (gpu.Lock)
-        {
-            gpu.EnsureInitializedLocked();
-        }
-        gpu.WaitForInit(TimeSpan.Zero);
+        using var gate = new ManualResetEventSlim(false);
+        using var gpu = Blocking(gate);
+        Start(gpu);
+        gpu.WaitForInit(TimeSpan.FromMilliseconds(50));
 
-        // Only a terminated attempt may be swapped: a second GLFW init running
-        // beside a live one shares process-global state. On a host where init
-        // did fail, the retry is allowed exactly once.
-        if (gpu.Failed)
+        // A second GLFW init beside a live one shares process-global state.
+        Assert.False(gpu.ResetForRetry());
+        gate.Set();
+    }
+
+    [Fact]
+    public void ResetForRetry_AllowsExactlyOneRetryAfterAFailure()
+    {
+        var attempts = 0;
+        using var gpu = WithInit(() =>
         {
-            Assert.True(gpu.ResetForRetry());
-            Assert.False(gpu.ResetForRetry());
-        }
-        else
-        {
-            Assert.False(gpu.ResetForRetry());
-        }
+            attempts++;
+            throw new InvalidOperationException("no adapter");
+        });
+        Start(gpu);
+        Assert.False(gpu.WaitForInit(TimeSpan.FromSeconds(10)));
+
+        Assert.True(gpu.ResetForRetry());
+        // Does not start the attempt itself: the caller sets the OS GPU
+        // preference first, which is read at context-creation time.
+        Assert.Equal(1, attempts);
+        Start(gpu);
+        Assert.False(gpu.WaitForInit(TimeSpan.FromSeconds(10)));
+        Assert.Equal(2, attempts);
+
+        Assert.False(gpu.ResetForRetry());
     }
 }

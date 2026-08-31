@@ -45,9 +45,6 @@ internal static class AppBootstrap
                     if (string.Equals(choice, "auto", StringComparison.OrdinalIgnoreCase))
                     {
                         Nexus.Service.Lighting.Engine.Gpu.GpuRenderSelect.SelectAndWarm(gpu, sw);
-                        // Same late-landing watch as the pinned path below: the
-                        // card selection is settled, but a slow driver can still
-                        // hand the context over after the budget.
                         WatchForLateContext(app, gpu, sw);
                         return;
                     }
@@ -74,11 +71,9 @@ internal static class AppBootstrap
         });
     }
 
-    // A cold-boot driver can hand back the context well after the budget.
-    // Nothing needs re-applying when it lands - ShaderEffect re-checks
-    // availability and compiles lazily on the next frame - but the Lighting
-    // canvas notice is driven by /lighting/status, so publish the flip or it
-    // reads "no GPU" until the page is reloaded.
+    // ShaderEffect re-checks availability and compiles lazily, so a late context
+    // needs no re-apply; the broadcast is what clears the Lighting canvas notice,
+    // which reads /lighting/status.
     private static void WatchForLateContext(WebApplication app, GpuContext gpu, System.Diagnostics.Stopwatch sw)
     {
         if (gpu.Available || !gpu.Initializing)
@@ -89,21 +84,30 @@ internal static class AppBootstrap
         {
             if (!gpu.WaitForInit(TimeSpan.FromMinutes(10)))
             {
+                // Otherwise the UI shows "still setting up" forever and withholds
+                // the render-GPU shortcut, which is gated on a failed card.
+                gpu.AbandonInit();
+                Broadcast(app);
                 return;
             }
             GpuContext.Log($"[gpu] context landed late, after {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'; shader effects resume");
-            try
-            {
-                var hub = app.Services.GetService<MultiplexHub>();
-                if (hub is not null)
-                {
-                    PanelTopics.BroadcastLighting(hub);
-                }
-            }
-            catch (Exception ex) { GpuContext.Log($"[gpu] late-context broadcast failed: {ex.Message}"); }
+            Broadcast(app);
         })
         { IsBackground = true, Name = "nexus-gpu-late" };
         thread.Start();
+    }
+
+    private static void Broadcast(WebApplication app)
+    {
+        try
+        {
+            var hub = app.Services.GetService<MultiplexHub>();
+            if (hub is not null)
+            {
+                PanelTopics.BroadcastLighting(hub);
+            }
+        }
+        catch (Exception ex) { GpuContext.Log($"[gpu] lighting broadcast failed: {ex.Message}"); }
     }
 
     // Creates Default profile if none exists, then wires the profile-switch
