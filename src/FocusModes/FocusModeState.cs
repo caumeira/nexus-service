@@ -107,9 +107,17 @@ public sealed class FocusModeState : BackgroundService
         Reevaluate();
     }
 
-    /// <summary>Activates one mode by id until the user turns it off.</summary>
+    /// <summary>
+    /// Activates one mode by id until the user turns it off. Also clears the
+    /// master switch: picking a mode by hand is an explicit request, and
+    /// silently doing nothing because a switch elsewhere is off is worse than
+    /// honouring it.
+    /// </summary>
     public void ActivateManually(string modeId)
     {
+        try { _config.Update(s => s.Focus.Enabled = true); }
+        catch (Exception ex) { ServiceLog.Warn($"[focus] enabling for a manual pick failed: {ex.Message}"); }
+
         lock (_lock)
         {
             _manualModeId = modeId;

@@ -219,6 +219,20 @@ public class FocusModeStateTests
     }
 
     [Fact]
+    public void AManualPickTurnsTheMasterSwitchBackOn()
+    {
+        // Otherwise picking a mode from the top bar does nothing at all, with
+        // no hint that a switch in a modal is what swallowed it.
+        var (state, store, _) = Build();
+        store.Update(s => s.Focus.Enabled = false);
+
+        state.ActivateManually("game");
+
+        Assert.True(store.Load().Focus.Enabled);
+        Assert.Equal("game", state.ActiveModeId);
+    }
+
+    [Fact]
     public void TheMasterSwitchSuspendsEveryMode()
     {
         var (state, store, _) = Build();
