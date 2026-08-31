@@ -61,7 +61,7 @@ public sealed class FocusObsTrigger : BackgroundService
         {
             var focus = _config.Load().Focus;
             return focus is not null
-                && focus.Modes.Any(m => m.Trigger == FocusTriggers.Obs && m.AutoActivate);
+                && focus.Modes.Any(m => m.Trigger == FocusTriggers.Obs);
         }
         catch
         {

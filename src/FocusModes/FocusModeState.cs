@@ -236,7 +236,6 @@ public sealed class FocusModeState : BackgroundService
                 {
                     foreach (var mode in settings.Modes)
                     {
-                        if (!mode.AutoActivate) continue;
                         if (mode.Id == _suppressedModeId) continue;
                         if (!IsFiringLocked(mode, nowMs)) continue;
                         chosen = mode;

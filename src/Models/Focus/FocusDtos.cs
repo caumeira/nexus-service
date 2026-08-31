@@ -37,7 +37,6 @@ public sealed class FocusModeDto
     public string Name { get; set; } = "";
     public string Icon { get; set; } = "";
     public bool BuiltIn { get; set; }
-    public bool AutoActivate { get; set; }
     public string Trigger { get; set; } = "";
     public bool HoldNotifications { get; set; }
     public bool HoldBackgroundTraffic { get; set; }
@@ -50,7 +49,6 @@ public sealed class UpdateFocusModeBody
 {
     public string? Name { get; set; }
     public string? Icon { get; set; }
-    public bool? AutoActivate { get; set; }
     public string? Trigger { get; set; }
     public bool? HoldNotifications { get; set; }
     public bool? HoldBackgroundTraffic { get; set; }

@@ -56,7 +56,6 @@ public static class FocusRoutes
                 Name = name,
                 Icon = Clean(body.Icon, 32) is { Length: > 0 } icon ? icon : "focus",
                 BuiltIn = false,
-                AutoActivate = FocusTriggers.IsKnown(body.Trigger) && body.Trigger != FocusTriggers.Manual,
                 Trigger = FocusTriggers.IsKnown(body.Trigger) ? body.Trigger : FocusTriggers.Manual,
             };
 
@@ -83,7 +82,6 @@ public static class FocusRoutes
 
                 if (Clean(body.Name, MaxNameLength) is { Length: > 0 } name) mode.Name = name;
                 if (Clean(body.Icon, 32) is { Length: > 0 } icon) mode.Icon = icon;
-                if (body.AutoActivate is bool auto) mode.AutoActivate = auto;
                 if (body.Trigger is { } trigger && FocusTriggers.IsKnown(trigger)) mode.Trigger = trigger;
                 if (body.HoldNotifications is bool holdNotifications) mode.HoldNotifications = holdNotifications;
                 if (body.HoldBackgroundTraffic is bool holdTraffic) mode.HoldBackgroundTraffic = holdTraffic;
@@ -170,7 +168,6 @@ public static class FocusRoutes
                 Name = m.Name,
                 Icon = m.Icon,
                 BuiltIn = m.BuiltIn,
-                AutoActivate = m.AutoActivate,
                 Trigger = m.Trigger,
                 HoldNotifications = m.HoldNotifications,
                 HoldBackgroundTraffic = m.HoldBackgroundTraffic,

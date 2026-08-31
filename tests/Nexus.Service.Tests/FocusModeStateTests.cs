@@ -203,17 +203,16 @@ public class FocusModeStateTests
     }
 
     [Fact]
-    public void AModeWithAutoActivateOffIgnoresItsTrigger()
+    public void AManualTriggeredModeIgnoresARunningGame()
     {
         var (state, store, _) = Build(configure: f =>
         {
-            f.Modes.First(m => m.Id == "game").AutoActivate = false;
+            f.Modes.First(m => m.Id == "game").Trigger = FocusTriggers.Manual;
         });
         StartGame(state);
 
         Assert.False(state.IsActive);
 
-        // Manual still works: the toggle governs the trigger, not the mode.
         state.ActivateManually("game");
         Assert.Equal("game", state.ActiveModeId);
         Assert.NotNull(Mode(store, "game"));

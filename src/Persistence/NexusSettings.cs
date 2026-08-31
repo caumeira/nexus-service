@@ -299,9 +299,7 @@ public sealed class FocusModeSettings
     /// <summary>Stock modes can be renamed, retuned and disabled, never deleted: their ids are wired to triggers and a reset needs a known-good pair to restore.</summary>
     public bool BuiltIn { get; set; }
 
-    /// <summary>Whether <see cref="Trigger"/> activates this mode. Manual activation from the top bar works regardless.</summary>
-    public bool AutoActivate { get; set; } = true;
-
+    /// <summary>What activates the mode. <see cref="FocusTriggers.Manual"/> means only the top bar switches it on.</summary>
     public string Trigger { get; set; } = FocusTriggers.Manual;
 
     public bool HoldNotifications { get; set; } = true;
@@ -319,7 +317,6 @@ public sealed class FocusModeSettings
             Name = "Game Mode",
             Icon = "gamepad",
             BuiltIn = true,
-            AutoActivate = true,
             Trigger = FocusTriggers.Game,
             HoldNotifications = true,
             HoldBackgroundTraffic = true,
@@ -330,7 +327,6 @@ public sealed class FocusModeSettings
             Name = "Streaming Mode",
             Icon = "broadcast",
             BuiltIn = true,
-            AutoActivate = true,
             Trigger = FocusTriggers.Obs,
             HoldNotifications = true,
             HoldBackgroundTraffic = true,
