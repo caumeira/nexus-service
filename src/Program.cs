@@ -637,7 +637,16 @@ if (emitOpenApiPath is not null)
 }
 Nexus.Service.Lifecycle.BootTimer.Mark("after pairing wire (resolves PanelPhonePairingService)");
 
-// SPA fallback
+// SPA fallback. The default pattern carries a :nonfile constraint, so any path
+// whose last segment holds a dot is treated as a missing static file and 404s -
+// which is every store app page, since an app id is reverse-DNS
+// (/store/com.hellonexus.aquarium). Map those explicitly rather than dropping
+// the constraint, so a genuinely missing asset still 404s instead of being
+// answered with the shell.
+app.MapFallbackToFile("store/{**appId}", "index.html");
+// The store lived under /system/store before it moved to its own path; a link
+// from then still has to reach the shell, which redirects it.
+app.MapFallbackToFile("system/store/{**appId}", "index.html");
 app.MapFallbackToFile("index.html");
 Nexus.Service.Lifecycle.BootTimer.Mark("after MapFallbackToFile");
 
