@@ -1088,7 +1088,8 @@ public sealed class DevicesSettings
     /// device's OpenRGB stable id; the value snapshots identity at exclusion
     /// time so the card keeps rendering (and the exclusion can be lifted) while
     /// the hardware is deliberately no longer detected. DetectorName feeds the
-    /// detector denylist + placeholder_only list in the daemon's OpenRGB.json.
+    /// detector denylist + placeholder_only list in the daemon's OpenRGB.json;
+    /// DeviceName is what the card shows.
     /// </summary>
     public Dictionary<string, OpenRgbDetectorExclusion> OpenRgbDetectorExclusions { get; set; } = new();
 
@@ -1132,8 +1133,10 @@ public sealed class E131DeviceEntry
 /// <summary>Identity snapshot of an OpenRGB device taken when its detector was excluded.</summary>
 public sealed class OpenRgbDetectorExclusion
 {
-    /// <summary>OpenRGB device name; equals the REGISTER_*_DETECTOR string for HID controllers, so it keys the daemon's detector denylist. Exclusion is per detector name, i.e. per model.</summary>
+    /// <summary>Name of the detector to denylist in the daemon's OpenRGB.json, resolved through its detector-map.json; not the device name wherever one detector emits several models.</summary>
     public string DetectorName { get; set; } = "";
+    /// <summary>OpenRGB device name, for the synthesized card. Empty on snapshots taken before the two were told apart, where DetectorName held it.</summary>
+    public string DeviceName { get; set; } = "";
     public string Vendor { get; set; } = "";
     public string Serial { get; set; } = "";
     public string Location { get; set; } = "";

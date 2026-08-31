@@ -195,6 +195,7 @@ public static class OpenRgbDetectorExclusions
                 delta.Add.Add(new KeyValuePair<string, OpenRgbDetectorExclusion>(baseId, new OpenRgbDetectorExclusion
                 {
                     DetectorName = detectorName,
+                    DeviceName = d.Name,
                     Vendor = d.Vendor,
                     Serial = d.Serial,
                     Location = d.Location,

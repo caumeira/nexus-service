@@ -210,6 +210,7 @@ public class OpenRgbDetectorExclusionsTests
 
         var add = Assert.Single(delta.Add);
         Assert.Equal("Corsair DRAM", add.Value.DetectorName);
+        Assert.Equal("Corsair Vengeance RGB DDR5", add.Value.DeviceName);
     }
 
     [Fact]
