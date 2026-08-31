@@ -30,7 +30,9 @@ namespace Nexus.Service.Platform.Windows;
 /// registered, so a click only routes while the helper is alive - which it is
 /// whenever it raised the toast.
 /// </summary>
-[SupportedOSPlatform("windows")]
+// The WinRT toast API floor is 10.0.10240; the project targets 19041, so annotate to
+// the project floor rather than bare "windows" or every call site here is CA1416.
+[SupportedOSPlatform("windows10.0.19041.0")]
 public static class ToastNotifications
 {
     /// <summary>
