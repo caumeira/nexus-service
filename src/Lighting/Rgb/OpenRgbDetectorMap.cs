@@ -2,29 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json.Nodes;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
-/// Reads <c>detector-map.json</c>, which the bundled daemon rewrites at the end
-/// of every detection pass: device name -> the name of the REGISTER_*_DETECTOR
-/// entry that produced it.
-///
-/// The two names are not the same thing and the SDK only carries the first.
-/// Table-driven detectors register one generic string and emit per-model names
-/// ("Corsair DRAM" -> "Corsair Vengeance RGB DDR5"), and the OpenRGB.json
-/// denylist is keyed by the detector name, so an exclusion snapshotted from the
-/// device name is a silent no-op: the detector keeps running and keeps claiming
-/// the hardware (for DRAM, off another app's SMBus). HID devices mostly name
-/// their detector after the model, which is why exclusions worked at all.
+/// Reads <c>detector-map.json</c>, which the daemon rewrites whenever its
+/// device list changes: device name -> the REGISTER_*_DETECTOR name that
+/// produced it. The SDK carries only the device name, and the OpenRGB.json
+/// denylist is keyed by the detector, so an exclusion built from the device
+/// name is a silent no-op wherever the two differ.
 /// </summary>
 public static class OpenRgbDetectorMap
 {
-    /// <summary>
-    /// Loads the map, or an empty one when the file is absent or unreadable -
-    /// callers then fall back to the device name, which is the pre-map
-    /// behaviour. A daemon predating the map never writes the file.
-    /// </summary>
+    /// <summary>Loads the map, or an empty one when the file is absent or
+    /// unreadable; a daemon predating the map never writes it.</summary>
     public static IReadOnlyDictionary<string, string> Load(string configDir)
     {
         try
@@ -38,13 +30,19 @@ public static class OpenRgbDetectorMap
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[openrgb] detector map read failed: {ex.Message}");
+            // Read once per settle; warn once per process.
+            if (!_readFailureLogged)
+            {
+                _readFailureLogged = true;
+                ServiceLog.Warn($"[openrgb] detector map read failed: {ex.Message}");
+            }
             return EmptyMap;
         }
     }
 
     /// <summary>Parses the document body. Separate from the read so the shape
-    /// is testable without a filesystem.</summary>
+    /// is testable without a filesystem; throws on text that is not JSON,
+    /// which only <see cref="Load"/> catches.</summary>
     internal static IReadOnlyDictionary<string, string> Parse(string json)
     {
         if (JsonNode.Parse(json) is not JsonObject root || root["devices"] is not JsonObject devices)
@@ -65,10 +63,11 @@ public static class OpenRgbDetectorMap
         return map;
     }
 
-    /// <summary>The detector name to denylist for this device name, falling
-    /// back to the device name itself when the map has no entry.</summary>
+    /// <summary>The detector to denylist for this device name, falling back to
+    /// the device name when the map has no entry.</summary>
     public static string Resolve(IReadOnlyDictionary<string, string>? map, string deviceName)
         => map is not null && map.TryGetValue(deviceName, out var detector) ? detector : deviceName;
 
     private static readonly Dictionary<string, string> EmptyMap = new(StringComparer.Ordinal);
+    private static bool _readFailureLogged;
 }

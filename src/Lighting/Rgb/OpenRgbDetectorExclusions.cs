@@ -7,10 +7,10 @@ namespace Nexus.Service.Lighting.Rgb;
 /// <summary>
 /// Reconciles the persisted OpenRGB detector-exclusion snapshots against the
 /// live device list and the uncontrolled set. A device becomes excluded when
-/// every card it emits is uncontrolled AND every live device sharing its
-/// OpenRGB name is too (the daemon's denylist is per detector name, i.e. per
-/// model); an exclusion lifts when the device's base id leaves the
-/// uncontrolled list. Pure compute - the bridge persists the delta and
+/// every card it emits is uncontrolled AND every live device produced by the
+/// same detector is too, since the daemon's denylist disables a detector and
+/// takes all of its devices with it; an exclusion lifts when the device's base
+/// id leaves the uncontrolled list. Pure compute - the bridge persists the delta and
 /// bounces the subprocess to apply it.
 /// </summary>
 public static class OpenRgbDetectorExclusions
@@ -114,9 +114,8 @@ public static class OpenRgbDetectorExclusions
     }
 
     /// <param name="detectorMap">Device name -> detector name, from the
-    /// daemon's detector-map.json. Null or missing entries fall back to the
-    /// device name (pre-map behaviour, correct wherever a detector is named
-    /// after its model).</param>
+    /// daemon's detector-map.json. A missing entry falls back to the device
+    /// name, which is what the denylist held before the map existed.</param>
     public static Delta Compute(IReadOnlyList<RgbDevice> devices, NexusSettings settings, IReadOnlyDictionary<string, string>? detectorMap = null)
     {
         var delta = new Delta();
@@ -136,25 +135,28 @@ public static class OpenRgbDetectorExclusions
             return delta;
         }
 
+        // Grouped by detector, not by model: disabling one takes every device
+        // it produces with it. Without a map the two groupings are identical.
         // Placeholders and phantoms (0 LEDs) never seed an exclusion; neither
         // does an index-fallback id, which OpenRGB reassigns across bounces so
         // the snapshot could not be matched back to the hardware.
-        var byName = new Dictionary<string, List<RgbDevice>>(StringComparer.Ordinal);
+        var byDetector = new Dictionary<string, List<RgbDevice>>(StringComparer.Ordinal);
         foreach (var d in devices)
         {
             if (d.LedCount <= 0 || string.IsNullOrEmpty(d.Name))
             {
                 continue;
             }
-            if (!byName.TryGetValue(d.Name, out var list))
+            var key = OpenRgbDetectorMap.Resolve(detectorMap, d.Name);
+            if (!byDetector.TryGetValue(key, out var list))
             {
                 list = new List<RgbDevice>();
-                byName[d.Name] = list;
+                byDetector[key] = list;
             }
             list.Add(d);
         }
 
-        foreach (var group in byName)
+        foreach (var group in byDetector)
         {
             var allExcludable = true;
             foreach (var d in group.Value)
@@ -170,18 +172,25 @@ public static class OpenRgbDetectorExclusions
                 continue;
             }
 
+            var detectorName = group.Key;
             foreach (var d in group.Value)
             {
                 var baseId = d.StableId;
-                var detectorName = OpenRgbDetectorMap.Resolve(detectorMap, d.Name);
-                // An exclusion snapshotted before the map existed holds the
-                // device name, which denylists nothing when the detector is
-                // named differently - the device is then still live here, so
-                // re-snapshot it with the resolved name. Never mutate the
-                // stored instance: lock-free readers hold that reference.
-                if (exclusions.TryGetValue(baseId, out var existing) && existing.DetectorName == detectorName)
+                // Apply runs Add before Remove, so an Add here would be
+                // discarded while UncontrolledAdds still re-added the base id.
+                if (delta.Remove.Contains(baseId))
                 {
                     continue;
+                }
+                if (exclusions.TryGetValue(baseId, out var existing))
+                {
+                    // Repair only ever rewrites a device name into a detector
+                    // name; rewriting an existing detector name would bounce
+                    // the subprocess every settle if two passes disagreed.
+                    if (existing.DetectorName != d.Name || detectorName == d.Name)
+                    {
+                        continue;
+                    }
                 }
                 delta.Add.Add(new KeyValuePair<string, OpenRgbDetectorExclusion>(baseId, new OpenRgbDetectorExclusion
                 {

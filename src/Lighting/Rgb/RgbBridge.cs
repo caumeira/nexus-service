@@ -1292,9 +1292,8 @@ public sealed class RgbBridge : IDisposable
         OpenRgbDetectorExclusions.Delta delta;
         try
         {
-            // Reloaded per reconcile: the daemon rewrites the map at the end of
-            // every detection pass, so a device that only appeared on a later
-            // rescan is in the file by the time its settle lands here.
+            // Reloaded per reconcile: the daemon rewrites the map whenever its
+            // device list changes, including after this pass started.
             var detectorMap = OpenRgbDetectorMap.Load(OpenRgbProcessManager.ResolveConfigDir());
             delta = OpenRgbDetectorExclusions.Compute(settledList, settingsSnapshot, detectorMap);
         }

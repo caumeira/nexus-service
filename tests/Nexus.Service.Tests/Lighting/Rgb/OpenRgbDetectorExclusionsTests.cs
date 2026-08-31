@@ -260,10 +260,8 @@ public class OpenRgbDetectorExclusionsTests
     }
 
     [Fact]
-    public void Missing_map_leaves_a_stale_exclusion_alone()
+    public void Missing_map_leaves_a_device_named_exclusion_alone()
     {
-        // No map (old daemon): re-snapshotting would rewrite the same wrong
-        // name and bounce the subprocess on every settle.
         var settings = new NexusSettings();
         settings.Devices.UncontrolledLightingDevices.Add(Dimm().StableId);
         settings.Devices.OpenRgbDetectorExclusions[Dimm().StableId] = new OpenRgbDetectorExclusion { DetectorName = "Corsair Vengeance RGB DDR5" };
@@ -271,6 +269,81 @@ public class OpenRgbDetectorExclusionsTests
         var delta = OpenRgbDetectorExclusions.Compute(new[] { Dimm() }, settings);
 
         Assert.True(delta.IsEmpty);
+    }
+
+    [Fact]
+    public void Map_miss_never_rewrites_a_repaired_exclusion_back_to_the_device_name()
+    {
+        // A torn or truncated map read parses to empty; re-snapshotting off
+        // the fallback would reinstate the exact bug the repair removed.
+        var settings = new NexusSettings();
+        settings.Devices.UncontrolledLightingDevices.Add(Dimm().StableId);
+        settings.Devices.OpenRgbDetectorExclusions[Dimm().StableId] = new OpenRgbDetectorExclusion { DetectorName = "Corsair DRAM" };
+
+        var delta = OpenRgbDetectorExclusions.Compute(new[] { Dimm() }, settings, new Dictionary<string, string>());
+
+        Assert.True(delta.IsEmpty);
+    }
+
+    [Fact]
+    public void A_controlled_sibling_of_the_same_detector_blocks_the_exclusion()
+    {
+        // Denylisting "Corsair DRAM" would take the Dominator kit off the bus
+        // too, and the user never un-controlled it.
+        var dominator = Dimm();
+        dominator.Name = "Corsair Dominator Platinum RGB";
+        dominator.Location = "I2C: i801, address 0x1A";
+        var settings = new NexusSettings();
+        settings.Devices.UncontrolledLightingDevices.Add(Dimm().StableId);
+        var map = new Dictionary<string, string>
+        {
+            ["Corsair Vengeance RGB DDR5"] = "Corsair DRAM",
+            ["Corsair Dominator Platinum RGB"] = "Corsair DRAM",
+        };
+
+        var delta = OpenRgbDetectorExclusions.Compute(new[] { Dimm(), dominator }, settings, map);
+
+        Assert.True(delta.IsEmpty);
+    }
+
+    [Fact]
+    public void Both_devices_of_one_detector_uncontrolled_are_excluded_together()
+    {
+        var dominator = Dimm();
+        dominator.Name = "Corsair Dominator Platinum RGB";
+        dominator.Location = "I2C: i801, address 0x1A";
+        var settings = new NexusSettings();
+        settings.Devices.UncontrolledLightingDevices.Add(Dimm().StableId);
+        settings.Devices.UncontrolledLightingDevices.Add(dominator.StableId);
+        var map = new Dictionary<string, string>
+        {
+            ["Corsair Vengeance RGB DDR5"] = "Corsair DRAM",
+            ["Corsair Dominator Platinum RGB"] = "Corsair DRAM",
+        };
+
+        var delta = OpenRgbDetectorExclusions.Compute(new[] { Dimm(), dominator }, settings, map);
+
+        Assert.Equal(2, delta.Add.Count);
+        Assert.All(delta.Add, a => Assert.Equal("Corsair DRAM", a.Value.DetectorName));
+    }
+
+    [Fact]
+    public void A_key_being_lifted_this_pass_is_not_re_seeded()
+    {
+        // A split motherboard keeps IsFullyUncontrolled true off its zone ids
+        // while the base id is being lifted, and its stale exclusion is
+        // repairable, so both loops reach it. Apply runs Add before Remove.
+        var settings = new NexusSettings();
+        settings.Devices.UncontrolledLightingDevices.Add("openrgb-s-MB01-0");
+        settings.Devices.UncontrolledLightingDevices.Add("openrgb-s-MB01-1");
+        settings.Devices.OpenRgbDetectorExclusions["openrgb-s-MB01"] = new OpenRgbDetectorExclusion { DetectorName = "B850I AORUS PRO" };
+        var map = new Dictionary<string, string> { ["B850I AORUS PRO"] = "Gigabyte RGB Fusion 2 SMBus" };
+
+        var delta = OpenRgbDetectorExclusions.Compute(new[] { Motherboard() }, settings, map);
+
+        Assert.Equal(new[] { "openrgb-s-MB01" }, delta.Remove);
+        Assert.Empty(delta.Add);
+        Assert.Empty(delta.UncontrolledAdds);
     }
 
     private static RgbDevice Dimm() => new()

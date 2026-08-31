@@ -1,3 +1,4 @@
+using System.IO;
 using Nexus.Service.Lighting.Rgb;
 
 namespace Nexus.Service.Tests.Lighting.Rgb;
@@ -39,6 +40,23 @@ public class OpenRgbDetectorMapTests
             """);
 
         Assert.Equal("Real Detector", Assert.Single(map).Value);
+    }
+
+    [Fact]
+    public void Load_returns_empty_for_an_absent_or_unreadable_file()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(dir);
+        try
+        {
+            Assert.Empty(OpenRgbDetectorMap.Load(dir));
+            File.WriteAllText(Path.Combine(dir, "detector-map.json"), "{ not json");
+            Assert.Empty(OpenRgbDetectorMap.Load(dir));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     [Fact]
