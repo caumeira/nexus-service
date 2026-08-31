@@ -203,7 +203,13 @@ public static class LightingDevicesCatalog
         Native("HYTE",    "CNVS",                   "mousemat", "0x3402", "0x0B00"),
         Native("HYTE",    "Keeb TKL",               "keyboard", "0x3402", "0x0300"),
         Native("HYTE",    "Smart Hub",              "light",    "0x3402", "0x0904"),
-        Native("HYTE",    "MiniHub",                "light",    "0x3402", "0x0900"),
+        // Y70 cases are screen-only; DDC-only GW/Ina panels enumerate no USB.
+        Native("HYTE",    "Y70 Touch",              "case",     "0x3402", "0x0C00", screen: true, rgb: false),
+        Native("HYTE",    "Y70 Touch Infinite",     "case",     "0x3402", "0x0C01", screen: true, rgb: false),
+        Native("HYTE",    "Y70 Touch Infinite",     "case",     "0x3402", "0x0C02", screen: true, rgb: false),
+
+        // iBUYPOWER - PID from src/Peripherals/Hyte/MiniHub/MiniHubProtocol.cs.
+        Native("iBUYPOWER", "MiniHub",              "light",    "0x3402", "0x0900"),
 
         // Lian Li - PIDs from src/Peripherals/LianLi*, Strimer, Galahad2, LianLiTl,
         // LianLiWireless. SL/TL-LCD are the fan-mounted LCD screens.

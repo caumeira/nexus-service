@@ -75,10 +75,10 @@ public class PeripheralCatalogTests
     [Fact]
     public void LightingDevicesCatalog_DropsMislabeledNexusCaseRow()
     {
-        // The OpenRGB "HYTE Nexus" detector previously surfaced as model "Nexus"
-        // typed "case"; the curated first-party list replaces it.
+        // The OpenRGB "HYTE Nexus" detector's row is mislabeled model "Nexus";
+        // the curated first-party list replaces every HYTE row.
         Assert.DoesNotContain(LightingDevicesCatalog.All, d => d.Vendor == "HYTE" && d.Model == "Nexus");
-        Assert.DoesNotContain(LightingDevicesCatalog.All, d => d.Vendor == "HYTE" && d.Category == "case");
+        Assert.DoesNotContain(LightingDevicesCatalog.All, d => d.Vendor == "HYTE" && d.Source == "openrgb");
     }
 
     [Fact]
