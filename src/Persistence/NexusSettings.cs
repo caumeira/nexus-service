@@ -304,7 +304,7 @@ public sealed class FocusModeSettings
     public bool TurnPanelDisplaysOff { get; set; }
 
     /// <summary>How long the mode stays active after its trigger clears.</summary>
-    public int ExitGraceSeconds { get; set; } = 30;
+    public int ExitGraceSeconds { get; set; } = 3;
 
     public static List<FocusModeSettings> StockModes() => new()
     {

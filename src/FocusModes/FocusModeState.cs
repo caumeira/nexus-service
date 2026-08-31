@@ -23,11 +23,12 @@ public sealed record TrackedGame(
 public sealed class FocusModeState : BackgroundService
 {
     /// <summary>How long a candidate process must stay alive before it fires the
-    /// game trigger. GameCatalog resolves by install-dir prefix, so a game's
-    /// launcher, updater or shutdown handler resolves to the same game; without
-    /// this, one of those taking focus after a quit re-arms the mode seconds
-    /// after it correctly turned off (measured on T1: an 18s sibling process).</summary>
-    private static readonly TimeSpan DefaultActivationDelay = TimeSpan.FromSeconds(30);
+    /// game trigger, filtering a sibling exe that only flashes focus. GameCatalog
+    /// resolves by install-dir prefix, so a game's launcher, updater or shutdown
+    /// handler resolves to the same game and can re-arm the mode after a quit;
+    /// a sibling outliving this window is a resolution problem to fix there, not
+    /// a reason to make entry lag the game.</summary>
+    private static readonly TimeSpan DefaultActivationDelay = TimeSpan.FromSeconds(3);
 
     /// <summary>Ceiling on one auto activation, so a trigger that never clears
     /// cannot silence notifications and egress forever. Manual is uncapped.</summary>
