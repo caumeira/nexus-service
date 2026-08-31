@@ -51,7 +51,7 @@ public sealed class FocusModeState : BackgroundService
     // Set when the user picks "Off" while a mode was auto-active: that mode
     // stays out until its trigger stops firing, so "not now" does not mean
     // "never again" and does not fight a still-running game.
-    private string? _suppressedModeId;
+    private readonly HashSet<string> _suppressedModeIds = new(StringComparer.Ordinal);
     private string? _activeModeId;
     private string _reason = "";
     private long _activatedUtcMs;
@@ -114,7 +114,7 @@ public sealed class FocusModeState : BackgroundService
         lock (_lock)
         {
             _manualModeId = modeId;
-            _suppressedModeId = null;
+            _suppressedModeIds.Clear();
         }
         Reevaluate();
     }
@@ -125,7 +125,11 @@ public sealed class FocusModeState : BackgroundService
         lock (_lock)
         {
             _manualModeId = null;
-            _suppressedModeId = _reason == "auto" ? _activeModeId : null;
+            // Suppress whatever is active however it got there: a manual pick
+            // sitting on top of a firing trigger would otherwise re-activate on
+            // this same pass, so Off would read as a no-op. A set, not one slot,
+            // or turning a second mode off would un-suppress the first.
+            if (_activeModeId is not null) _suppressedModeIds.Add(_activeModeId);
         }
         Reevaluate();
     }
@@ -235,7 +239,7 @@ public sealed class FocusModeState : BackgroundService
             {
                 foreach (var mode in settings.Modes)
                 {
-                    if (mode.Id == _suppressedModeId) continue;
+                    if (_suppressedModeIds.Contains(mode.Id)) continue;
                     if (!IsFiringLocked(mode, nowMs)) continue;
                     chosen = mode;
                     reason = "auto";
@@ -247,9 +251,11 @@ public sealed class FocusModeState : BackgroundService
                 && _activatedUtcMs > 0 && nowMs - _activatedUtcMs > (long)MaxAutoActive.TotalMilliseconds)
             {
                 ServiceLog.Warn($"[focus] '{chosen.Name}' exceeded {MaxAutoActive.TotalHours:F0}h, forcing exit");
-                _games.Clear();
-                _pending.Clear();
-                _graceUntilUtcMs.Clear();
+                // Suppress rather than clear the tracked set: clearing makes the
+                // trigger read as gone, which opens a grace window and lets the
+                // next promotion restart the ceiling. Suppression holds until the
+                // trigger really stops firing.
+                _suppressedModeIds.Add(chosen.Id);
                 chosen = null;
                 reason = "";
             }
@@ -289,7 +295,7 @@ public sealed class FocusModeState : BackgroundService
                 _graceUntilUtcMs[mode.Id] = nowMs + Math.Max(0, mode.ExitGraceSeconds) * 1000L;
             }
 
-            if (!raw && mode.Id == _suppressedModeId) _suppressedModeId = null;
+            if (!raw) _suppressedModeIds.Remove(mode.Id);
         }
     }
 

@@ -215,7 +215,40 @@ public class FocusModeStateTests
 
         state.ActivateManually("game");
         Assert.Equal("game", state.ActiveModeId);
-        Assert.NotNull(Mode(store, "game"));
+        Assert.Equal("manual", state.Reason);
+    }
+
+    [Fact]
+    public void OffHoldsAManualPickOutWhileItsOwnTriggerIsStillFiring()
+    {
+        var (state, _, _) = Build();
+        StartGame(state);
+        state.ActivateManually("game");
+        Assert.True(state.IsActive);
+
+        state.TurnOff();
+
+        // The game is still running, so the auto trigger would re-pick this
+        // mode on the same pass unless Off suppressed it.
+        Assert.False(state.IsActive);
+    }
+
+    [Fact]
+    public void OffOnASecondModeKeepsTheFirstSuppressed()
+    {
+        var (state, _, _) = Build(configure: f =>
+        {
+            f.Modes.First(m => m.Id == "streaming").Trigger = FocusTriggers.Game;
+        });
+        StartGame(state);
+        Assert.Equal("game", state.ActiveModeId);
+
+        state.TurnOff();
+        Assert.Equal("streaming", state.ActiveModeId);
+
+        state.TurnOff();
+
+        Assert.False(state.IsActive);
     }
 
     [Fact]

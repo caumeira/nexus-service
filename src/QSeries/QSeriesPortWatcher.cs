@@ -487,39 +487,6 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// Sleeps the panels while Game Mode is active and restores them on exit,
-    /// respecting a screen the user turned off by hand. Same transport guards
-    /// as the session-lock path: a keyevent sharing the transport with a flash
-    /// or an APK install wedges USB-FFS.
-    /// </summary>
-    public void SetGameModeSleep(bool sleep)
-    {
-        try
-        {
-            var qseries = _configStore.Load().QSeries;
-            if (!sleep && !_sleptForGameMode) return;
-            if (FlashActive || _deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) return;
-            _sleptForGameMode = sleep;
-            if (_knownQSeriesSerials.Count == 0) return;
-            var keycode = SessionLockKeycode(sleep, qseries.ScreenOff);
-            Interlocked.Exchange(ref _displayRecordStale, 1);
-            foreach (var serial in _knownQSeriesSerials.ToArray())
-            {
-                if (QSeriesTransport.IsTcpSerial(serial)) continue;
-                SendKeyeventBestEffort(serial, keycode);
-            }
-        }
-        catch (Exception ex)
-        {
-            ServiceLog.Info($"[qseries-port-watcher] game-mode screen change failed: {ex.GetType().Name}: {ex.Message}");
-        }
-    }
-
-    /// <summary>Set while Game Mode is active AND this watcher slept the panels for it; read by the reassert path so a re-attach does not wake them.</summary>
-    private volatile bool _sleptForGameMode;
-
-    /// <summary>
-    /// <summary>
     /// Set while the desktop session is locked AND this watcher put the panels
     /// to sleep for it. Read by <see cref="ReassertPanelDisplayAsync"/>, which
     /// otherwise re-applies "awake unless the user turned the screen off" and
@@ -2052,7 +2019,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         // A panel slept for the session lock stays asleep through a re-attach
         // or a reassert; without this the panel wakes mid-lock and nothing
         // turns it back off until the unlock.
-        var wantAwake = !qseries.ScreenOff && !_sleptForSessionLock && !_sleptForGameMode;
+        var wantAwake = !qseries.ScreenOff && !_sleptForSessionLock;
 
         // Without a record of what this panel already has, its state is unknown
         // (a reboot resets user_rotation) so everything is pushed. Afterwards

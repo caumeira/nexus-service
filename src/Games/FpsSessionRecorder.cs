@@ -102,7 +102,7 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
 
             var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var focusedSec = (int)Math.Max(0, (nowMs - open.StartedUtcMs) / 1000);
-            // Hist is copied: the caller reads it while the tick thread keeps
+            // Hist is cloned because it escapes the lock; the tick thread keeps
             // writing into the live session's array.
             return new FpsSessionRecord(
                 open.Id, open.GameKey, open.GameName, open.Store,

@@ -101,6 +101,8 @@ public static class FpsRoutes
             var live = sp.GetService<FpsSessionRecorder>()?.SnapshotOpenSession();
             if (live is not null && live.StartedUtcMs <= to.Value && live.EndedUtcMs >= from.Value)
             {
+                // Drops the oldest rather than overrunning the caller's limit.
+                if (sessions.Count >= clampedLimit) sessions.RemoveAt(0);
                 sessions.Add(ToSessionOverviewDto(live));
             }
             return Results.Ok(new FpsSessionsOverviewResponse { Sessions = sessions });

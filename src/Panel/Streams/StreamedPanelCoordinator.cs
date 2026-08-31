@@ -201,7 +201,7 @@ public sealed class StreamedPanelCoordinator : BackgroundService
         return ids;
     }
 
-    /// <summary>Suppresses assignments while Game Mode asks for rendering to stop; the overlay closes its render hosts on the empty list and rebuilds them when it returns.</summary>
+    /// <summary>Suppresses assignments while a focus mode asks for rendering to stop; the overlay closes its render hosts on the empty list and rebuilds them when it returns.</summary>
     public void SetRenderingPaused(bool paused)
     {
         lock (_lock)

@@ -287,7 +287,6 @@ public sealed class FocusModeSettings
     /// <summary>Stable id. The two stock ids are fixed; user modes get a guid.</summary>
     public string Id { get; set; } = "";
 
-    /// <summary>User-editable display name, including for the stock modes. Capped at 10 characters (FocusRoutes.MaxNameLength).</summary>
     public string Name { get; set; } = "";
 
     /// <summary>Icon key from the web's focus icon set, not a path.</summary>

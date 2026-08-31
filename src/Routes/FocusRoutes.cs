@@ -32,10 +32,20 @@ public static class FocusRoutes
 
         app.MapPost("/api/focus/active", (SetFocusActiveBody body, FocusModeState state, IConfigStore config, MultiplexHub hub) =>
         {
-            if (string.IsNullOrWhiteSpace(body.ModeId)) state.TurnOff();
-            else state.ActivateManually(body.ModeId);
+            if (string.IsNullOrWhiteSpace(body.ModeId))
+            {
+                state.TurnOff();
+            }
+            else
+            {
+                // Answering 200 for an id that does not exist reports "nothing
+                // active" and reads as the mode silently refusing to turn on.
+                if (!config.Load().Focus.Modes.Any(m => m.Id == body.ModeId))
+                    return Results.NotFound(new ApiResponse { Error = true, Msg = "unknown mode" });
+                state.ActivateManually(body.ModeId);
+            }
             PanelTopics.BroadcastFocus(hub);
-            return BuildStatus(state, config);
+            return Results.Ok(BuildStatus(state, config));
         });
 
         app.MapPost("/api/focus/modes", (CreateFocusModeBody body, FocusModeState state, IConfigStore config, MultiplexHub hub) =>
