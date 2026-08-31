@@ -25,25 +25,20 @@ public interface IGameArtResolver
 }
 
 /// <summary>
-/// Steam art comes from the store's own appdetails record rather than a
-/// constructed cdn path: newer titles only exist under
-/// store_item_assets/steam/apps/{appid}/{content hash}/, and the hash cannot
-/// be derived from the appid (measured: appid 2473350 404s on every legacy
-/// path). The legacy capsule stays the fallback, since it still answers for
-/// most of the back catalogue and costs no round trip.
-///
-/// Everything else falls back to the game executable's own icon. Epic exposes
-/// no keyless route to its key art - the storefront GraphQL is Cloudflare-
-/// gated (403), the catalog service needs an OAuth token (401), and the one
-/// open endpoint is keyed by a store slug the local manifest does not carry.
+/// Steam art is read from the store's appdetails record, not built from the
+/// appid: newer titles live only under store_item_assets/steam/apps/{appid}/
+/// {content hash}/ and the hash is not derivable. Everything else falls back
+/// to the game executable's icon; Epic exposes no keyless key-art route.
 /// </summary>
 public sealed class GameArtResolver : IGameArtResolver
 {
     private const string DefaultStoreBaseUrl = "https://store.steampowered.com";
-    private const int CacheCap = 64;
+    private const int CacheCap = 256;
 
     private static readonly TimeSpan PositiveTtl = TimeSpan.FromDays(7);
     private static readonly TimeSpan MissTtl = TimeSpan.FromHours(6);
+    /// <summary>For a result the next call could legitimately improve on: a throttled store, or an icon the helper was not up to read yet.</summary>
+    private static readonly TimeSpan TransientTtl = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(6);
 
     private readonly IHttpClientFactory _http;
@@ -52,7 +47,8 @@ public sealed class GameArtResolver : IGameArtResolver
     private readonly string _storeBaseUrl;
 
     private readonly Dictionary<string, (GameArt Art, DateTime ExpiresUtc)> _cache = new(StringComparer.Ordinal);
-    private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly Dictionary<string, Task<Resolved>> _inFlight = new(StringComparer.Ordinal);
+    private readonly object _lock = new();
 
     public GameArtResolver(IHttpClientFactory http, GameCatalog catalog, IProcessIconProvider icons)
         : this(http, catalog, icons, DefaultStoreBaseUrl)
@@ -68,29 +64,52 @@ public sealed class GameArtResolver : IGameArtResolver
         _storeBaseUrl = storeBaseUrl.TrimEnd('/');
     }
 
+    /// <summary>A result plus how long it deserves to be trusted.</summary>
+    private readonly record struct Resolved(GameArt Art, TimeSpan Ttl);
+
     public async Task<GameArt> ResolveAsync(string gameKey, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(gameKey)) return GameArt.None;
 
         if (TryReadCache(gameKey, out var cached)) return cached;
 
-        var art = await ResolveUncachedAsync(gameKey, ct).ConfigureAwait(false);
-        var ttl = art.IsEmpty ? MissTtl : PositiveTtl;
-        Store(gameKey, art, ttl);
-        return art;
+        // Coalesced: a page of cards asks for the same key at once, and each
+        // miss would otherwise be its own round trip to the store.
+        Task<Resolved> work;
+        lock (_lock)
+        {
+            if (!_inFlight.TryGetValue(gameKey, out work!))
+            {
+                work = ResolveUncachedAsync(gameKey, ct);
+                _inFlight[gameKey] = work;
+            }
+        }
+
+        Resolved resolved;
+        try { resolved = await work.ConfigureAwait(false); }
+        finally { lock (_lock) { _inFlight.Remove(gameKey); } }
+
+        Store(gameKey, resolved.Art, resolved.Ttl);
+        return resolved.Art;
     }
 
-    private async Task<GameArt> ResolveUncachedAsync(string gameKey, CancellationToken ct)
+    private async Task<Resolved> ResolveUncachedAsync(string gameKey, CancellationToken ct)
     {
         if (TryParseSteamAppId(gameKey, out var appId))
         {
             var resolved = await ResolveSteamAsync(appId, ct).ConfigureAwait(false);
-            if (resolved.Length > 0) return new GameArt(resolved, Array.Empty<byte>());
-            return new GameArt(LegacyCapsuleUrl(appId), Array.Empty<byte>());
+            if (resolved.Length > 0) return new Resolved(new GameArt(resolved, Array.Empty<byte>()), PositiveTtl);
+            // The legacy capsule still answers for the back catalogue, but the
+            // store call failing is not evidence about this game, so it must
+            // not pin a 404 for post-2023 titles for a week.
+            return new Resolved(new GameArt(LegacyCapsuleUrl(appId), Array.Empty<byte>()), TransientTtl);
         }
 
         var icon = ResolveExecutableIcon(gameKey);
-        return icon.Length > 0 ? new GameArt("", icon) : GameArt.None;
+        if (icon is null) return new Resolved(GameArt.None, TransientTtl);
+        return icon.Length > 0
+            ? new Resolved(new GameArt("", icon), PositiveTtl)
+            : new Resolved(GameArt.None, MissTtl);
     }
 
     /// <summary>The store's own header image url, or empty when the record cannot be read.</summary>
@@ -115,32 +134,45 @@ public sealed class GameArtResolver : IGameArtResolver
             if (!data.TryGetProperty("header_image", out var header) || header.ValueKind != JsonValueKind.String) return "";
 
             var image = header.GetString() ?? "";
-            // The ?t= cache-buster changes whenever the publisher re-uploads,
-            // which would defeat the browser cache across our own TTL.
+            // The ?t= cache-buster changes on every re-upload and would defeat
+            // the browser cache across our own TTL.
             var query = image.IndexOf('?');
             if (query >= 0) image = image[..query];
-            return image.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ? image : "";
+            return IsSteamImageUrl(image) ? image : "";
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or JsonException)
         {
             return "";
         }
     }
 
-    /// <summary>PNG bytes of the game executable's icon, or empty when there is nothing to read.</summary>
-    private byte[] ResolveExecutableIcon(string gameKey)
+    // The url is redirected to, from a remote body: anything but a parsed
+    // https Steam host would make this an open redirect, and a value carrying
+    // CR/LF would throw setting the Location header.
+    private static bool IsSteamImageUrl(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttps
+        && (uri.Host.EndsWith(".steamstatic.com", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.EndsWith(".steampowered.com", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Icon bytes, empty when there is none, or null when extraction could not be attempted (IProcessIconProvider's contract).</summary>
+    private byte[]? ResolveExecutableIcon(string gameKey)
     {
         if (!_catalog.TryGetInstallDir(gameKey, out var installDir)) return Array.Empty<byte>();
 
         var exe = PickGameExecutable(installDir);
         if (exe.Length == 0) return Array.Empty<byte>();
 
-        return _icons.GetIcon(exe) ?? Array.Empty<byte>();
+        return _icons.GetIcon(exe);
     }
 
     // Below this an executable name is too short to be evidence: "T.exe" would
     // otherwise claim any folder starting with a T.
     private const int MinNameMatchLength = 4;
+
+    // Deep enough for <Project>/Binaries/Win64/, shallow enough that a big
+    // install is not walked end to end.
+    private const int MaxSearchDepth = 3;
 
     /// <summary>
     /// The executable most likely to carry the game's own icon: one named after
@@ -154,9 +186,9 @@ public sealed class GameArtResolver : IGameArtResolver
         {
             if (!Directory.Exists(installDir)) return "";
 
-            var exes = Directory
-                .EnumerateFiles(installDir, "*.exe", SearchOption.TopDirectoryOnly)
-                .ToList();
+            // Unreal ships its binary at <Project>/Binaries/Win64/, so a store
+            // whose games are mostly Unreal has nothing at the top level.
+            var exes = FindExecutables(installDir, MaxSearchDepth);
             if (exes.Count == 0) return "";
 
             var folder = Slug(Path.GetFileName(installDir.TrimEnd(Path.DirectorySeparatorChar)));
@@ -178,7 +210,27 @@ public sealed class GameArtResolver : IGameArtResolver
     // Huntdown.exe, and a versioned folder appends to the game's own name.
     private static bool NameMatches(string exe, string folder) =>
         exe.Length >= MinNameMatchLength
+        && folder.Length >= MinNameMatchLength
         && (exe == folder || folder.StartsWith(exe, StringComparison.Ordinal) || exe.StartsWith(folder, StringComparison.Ordinal));
+
+    /// <summary>Executables at or above the shallowest depth that has any, so a top-level binary is never outranked by one buried in a subfolder.</summary>
+    private static List<string> FindExecutables(string root, int maxDepth)
+    {
+        var level = new List<string> { root };
+        for (var depth = 0; depth <= maxDepth && level.Count > 0; depth++)
+        {
+            var found = new List<string>();
+            var next = new List<string>();
+            foreach (var dir in level)
+            {
+                found.AddRange(Directory.EnumerateFiles(dir, "*.exe", SearchOption.TopDirectoryOnly));
+                next.AddRange(Directory.EnumerateDirectories(dir));
+            }
+            if (found.Count > 0) return found;
+            level = next;
+        }
+        return new List<string>();
+    }
 
     private static string Slug(string value)
     {
@@ -204,8 +256,7 @@ public sealed class GameArtResolver : IGameArtResolver
 
     private bool TryReadCache(string gameKey, out GameArt art)
     {
-        _lock.Wait();
-        try
+        lock (_lock)
         {
             if (_cache.TryGetValue(gameKey, out var hit) && DateTime.UtcNow < hit.ExpiresUtc)
             {
@@ -213,7 +264,6 @@ public sealed class GameArtResolver : IGameArtResolver
                 return true;
             }
         }
-        finally { _lock.Release(); }
 
         art = GameArt.None;
         return false;
@@ -221,8 +271,7 @@ public sealed class GameArtResolver : IGameArtResolver
 
     private void Store(string gameKey, GameArt art, TimeSpan ttl)
     {
-        _lock.Wait();
-        try
+        lock (_lock)
         {
             if (_cache.Count >= CacheCap && !_cache.ContainsKey(gameKey))
             {
@@ -231,6 +280,5 @@ public sealed class GameArtResolver : IGameArtResolver
             }
             _cache[gameKey] = (art, DateTime.UtcNow.Add(ttl));
         }
-        finally { _lock.Release(); }
     }
 }
