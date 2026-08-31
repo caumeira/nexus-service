@@ -19,6 +19,31 @@ public class GameCatalogTests
         Assert.Equal("halflife2", GameCatalog.Slugify("Half-Life 2"));
     }
 
+    // The shape Epic actually writes: pretty-printed, so the value does not
+    // follow the colon directly, and the path is backslash-escaped. A
+    // substring scan for "key":" matched none of it and silently dropped every
+    // Epic game from the catalog.
+    [Fact]
+    public void ReadJsonString_ReadsAPrettyPrintedEpicManifest()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(
+            "{\n  \"DisplayName\": \"Sludge Life\",\n  \"InstallLocation\": \"C:\\\\Program Files\\\\Epic Games\\\\SludgeLife\"\n}");
+
+        Assert.Equal("Sludge Life", InstalledGameCollectors.ReadJsonString(doc.RootElement, "DisplayName"));
+        Assert.Equal(
+            @"C:\Program Files\Epic Games\SludgeLife",
+            InstalledGameCollectors.ReadJsonString(doc.RootElement, "InstallLocation"));
+    }
+
+    [Fact]
+    public void ReadJsonString_IsEmptyForAMissingOrNonStringKey()
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse("{\"DisplayName\": 7}");
+
+        Assert.Equal("", InstalledGameCollectors.ReadJsonString(doc.RootElement, "DisplayName"));
+        Assert.Equal("", InstalledGameCollectors.ReadJsonString(doc.RootElement, "InstallLocation"));
+    }
+
     // dirKey values run through InstalledGameCollectors.CanonicalDirKey, the
     // same normalization the real index applies, so the comparison against
     // TryResolveAgainst's own Path.GetFullPath-normalized exePath lines up

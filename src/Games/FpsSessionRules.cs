@@ -10,9 +10,11 @@ public static class FpsSessionRules
     public const int MinValidFps = 1;
     public const int MaxValidFps = 1000;
 
-    /// <summary>A session persists only once its wall-clock focused time
-    /// reaches this many seconds; shorter sessions are discarded entirely.</summary>
-    public const int MinFocusedSecToPersist = 300;
+    /// <summary>A session is uploaded only once its wall-clock focused time
+    /// reaches this many seconds. Shorter sessions are still kept on disk and
+    /// shown in the local history - the bar is a sampling-quality rule for the
+    /// shared leaderboard, not a reason to throw a player's own data away.</summary>
+    public const int MinFocusedSecToUpload = 300;
 
     /// <summary>A session is flagged capped when p90 - p10 (in fps) is at or
     /// below this spread - v-sync/frame-limiter flat lining, not a real

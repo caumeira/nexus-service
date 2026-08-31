@@ -68,6 +68,22 @@ public static class PanelTopics
     /// </summary>
     public const string Update = "update";
 
+    /// <summary>
+    /// The active focus mode changed, or the mode list was edited.
+    /// Subscribers refetch GET /api/focus so the top bar chip tracks it
+    /// without polling.
+    /// </summary>
+    public const string Focus = "focus";
+
+    public static void BroadcastFocus(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(Focus))
+            return;
+        var frame = new Models.Focus.FocusChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(Focus, frame, AppJsonContext.Default.FocusChangedFrame);
+        _ = hub.BroadcastTopicAsync(Focus, env);
+    }
+
     public static void BroadcastUpdate(MultiplexHub hub)
     {
         if (!hub.TopicHasSubscribers(Update))

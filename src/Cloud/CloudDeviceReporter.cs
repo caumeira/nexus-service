@@ -73,7 +73,11 @@ public sealed class CloudDeviceReporter : BackgroundService
                 return;
             }
 
-            if (_accounts.ActiveAccountId is { } accountId)
+            if (Nexus.Service.FocusModes.FocusNetworkGate.IsHeld)
+            {
+                delay = SteadyInterval;
+            }
+            else if (_accounts.ActiveAccountId is { } accountId)
             {
                 var ready = await ReportSafeAsync(accountId, stoppingToken).ConfigureAwait(false);
                 delay = ready ? SteadyInterval : WarmupInterval;

@@ -487,7 +487,6 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// <summary>
     /// Set while the desktop session is locked AND this watcher put the panels
     /// to sleep for it. Read by <see cref="ReassertPanelDisplayAsync"/>, which
     /// otherwise re-applies "awake unless the user turned the screen off" and

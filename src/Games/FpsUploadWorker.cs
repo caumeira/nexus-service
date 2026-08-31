@@ -22,6 +22,9 @@ internal sealed class FpsUploadWorker : BackgroundService
 {
     private const int MaxSessionsPerBatch = 50;
 
+    /// <summary>Cap on repeated reject sweeps in one pass, so a backlog of short sessions drains without spinning.</summary>
+    private const int MaxDrainPasses = 20;
+
     // Structural bounds nexus-api's UploadFpsSessionsDto enforces (upload-fps-sessions.dto.ts).
     private const int MaxDispDimension = 16384;
     private const int MaxRefreshHz = 1000;
@@ -50,7 +53,8 @@ internal sealed class FpsUploadWorker : BackgroundService
         {
             try
             {
-                await RunPendingUploadsAsync(stoppingToken).ConfigureAwait(false);
+                if (!Nexus.Service.FocusModes.FocusNetworkGate.IsHeld)
+                    await RunPendingUploadsAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -85,23 +89,40 @@ internal sealed class FpsUploadWorker : BackgroundService
             return;
         }
 
-        var pending = _sessions.QueryPendingForUpload(MaxSessionsPerBatch);
-        if (pending.Count == 0)
+        // Every alt-tab now leaves a Pending row, so a batch can be entirely
+        // sessions under the bar. Marking those and returning would drain one
+        // batch per tick and a real session might never reach the head, so the
+        // sweep repeats until it finds something to send.
+        List<FpsSessionRecord> uploadable;
+        var pass = 0;
+        while (true)
         {
-            return;
-        }
+            var pending = _sessions.QueryPendingForUpload(MaxSessionsPerBatch);
+            if (pending.Count == 0)
+            {
+                return;
+            }
 
-        var invalid = pending.Where(r => !IsStructurallyValid(r)).Select(r => r.Id).ToList();
-        if (invalid.Count > 0)
-        {
-            Console.Error.WriteLine($"[fps-upload] {invalid.Count} session(s) fail structural bounds, marking as not-retryable");
-            _sessions.MarkUploadState(invalid, FpsUploadState.Rejected);
-        }
+            var skipped = pending.Where(r => !IsUploadable(r)).Select(r => r.Id).ToList();
+            if (skipped.Count > 0)
+            {
+                // Marked rather than left pending: neither bound becomes true on
+                // a closed session, and they would hold batch slots forever.
+                Console.Error.WriteLine($"[fps-upload] {skipped.Count} session(s) too short or out of bounds, marking as not-retryable");
+                _sessions.MarkUploadState(skipped, FpsUploadState.Rejected);
+            }
 
-        var uploadable = pending.Where(IsStructurallyValid).ToList();
-        if (uploadable.Count == 0)
-        {
-            return;
+            uploadable = pending.Where(IsUploadable).ToList();
+            if (uploadable.Count > 0)
+            {
+                break;
+            }
+            // Bounded so a store that fails to persist the Rejected mark cannot
+            // spin this worker.
+            if (skipped.Count == 0 || ++pass >= MaxDrainPasses || ct.IsCancellationRequested)
+            {
+                return;
+            }
         }
 
         var specs = await _specs.GetAsync(ct).ConfigureAwait(false);
@@ -142,8 +163,10 @@ internal sealed class FpsUploadWorker : BackgroundService
 
     // FpsSessionRecorder legitimately persists DispW/DispH/RefreshHz as 0 when
     // display topology could not be resolved; that never becomes valid on
-    // retry, and one such session would otherwise 400 the whole batch.
-    private static bool IsStructurallyValid(FpsSessionRecord r) =>
+    // retry, and one such session would otherwise 400 the whole batch. Short
+    // sessions stay on disk for the local history and only skip the upload.
+    private static bool IsUploadable(FpsSessionRecord r) =>
+        r.FocusedSec >= FpsSessionRules.MinFocusedSecToUpload &&
         r.DispW is >= 1 and <= MaxDispDimension &&
         r.DispH is >= 1 and <= MaxDispDimension &&
         r.RefreshHz is >= 1 and <= MaxRefreshHz &&

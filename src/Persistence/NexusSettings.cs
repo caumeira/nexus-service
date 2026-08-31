@@ -41,6 +41,7 @@ public sealed class NexusSettings
     public UnitsSettings Units { get; set; } = new();
     public ScreenTimeSettings ScreenTime { get; set; } = new();
     public FpsSettings Fps { get; set; } = new();
+    public FocusSettings Focus { get; set; } = new();
     public ObsSettings Obs { get; set; } = new();
     /// <summary>Per-app volume mixer: remembered levels and named presets. NOT profile-scoped (absent from ProfileManager.CloneSettings): which apps are loud is a property of this workstation, not of a lighting/cooling persona.</summary>
     public AudioMixerSettings AudioMixer { get; set; } = new();
@@ -255,6 +256,78 @@ public sealed class FpsSettings
 {
     /// <summary>When false, capture stops entirely: no fps history series, no game sessions, no upload. Reads of existing history continue to work.</summary>
     public bool TrackingEnabled { get; set; } = InstallDefaults.Fps.TrackingEnabled;
+}
+
+/// <summary>
+/// Focus modes: named sets of "hold things back while I am busy" behavior.
+/// Ships with a Game and a Streaming mode; the user can rename, retune, add
+/// and remove them. At most one is active at a time - the first eligible mode
+/// in list order wins, so ordering is the user's precedence control.
+/// </summary>
+public sealed class FocusSettings
+{
+    public List<FocusModeSettings> Modes { get; set; } = FocusModeSettings.StockModes();
+}
+
+/// <summary>Trigger ids a mode can activate on. Persisted as strings so an unknown value from a newer build degrades to manual instead of failing the whole settings load.</summary>
+public static class FocusTriggers
+{
+    public const string Manual = "manual";
+    public const string Game = "game";
+    public const string Obs = "obs";
+
+    public static bool IsKnown(string? id) => id is Manual or Game or Obs;
+}
+
+public sealed class FocusModeSettings
+{
+    public const string GameModeId = "game";
+    public const string StreamingModeId = "streaming";
+
+    /// <summary>Stable id. The two stock ids are fixed; user modes get a guid.</summary>
+    public string Id { get; set; } = "";
+
+    public string Name { get; set; } = "";
+
+    /// <summary>Icon key from the web's focus icon set, not a path.</summary>
+    public string Icon { get; set; } = "gamepad";
+
+    /// <summary>Stock modes can be renamed, retuned and disabled, never deleted: their ids are wired to triggers and a reset needs a known-good pair to restore.</summary>
+    public bool BuiltIn { get; set; }
+
+    /// <summary>What activates the mode. <see cref="FocusTriggers.Manual"/> means only the top bar switches it on.</summary>
+    public string Trigger { get; set; } = FocusTriggers.Manual;
+
+    public bool HoldNotifications { get; set; } = true;
+    public bool HoldBackgroundTraffic { get; set; } = true;
+    public bool TurnPanelDisplaysOff { get; set; }
+
+    /// <summary>How long the mode stays active after its trigger clears.</summary>
+    public int ExitGraceSeconds { get; set; } = 3;
+
+    public static List<FocusModeSettings> StockModes() => new()
+    {
+        new FocusModeSettings
+        {
+            Id = GameModeId,
+            Name = "Game Mode",
+            Icon = "gamepad",
+            BuiltIn = true,
+            Trigger = FocusTriggers.Game,
+            HoldNotifications = true,
+            HoldBackgroundTraffic = true,
+        },
+        new FocusModeSettings
+        {
+            Id = StreamingModeId,
+            Name = "Streaming",
+            Icon = "broadcast",
+            BuiltIn = true,
+            Trigger = FocusTriggers.Obs,
+            HoldNotifications = true,
+            HoldBackgroundTraffic = true,
+        },
+    };
 }
 
 public sealed class ObsSettings

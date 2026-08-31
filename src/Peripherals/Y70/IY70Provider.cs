@@ -18,5 +18,7 @@ public interface IY70Provider
     void SetBrightness(int brightness);
     bool GetToggle();
     void SetToggle(bool toggle);
+    /// <summary>Drives screen power without persisting; false restores the stored preference.</summary>
+    void SetGameModeScreenOff(bool screenOff);
     bool IsRotated();
 }
