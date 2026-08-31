@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Nexus.Service.Games;
 using Nexus.Service.Persistence;
 using Xunit;
@@ -7,11 +8,13 @@ namespace Nexus.Service.Tests;
 
 public class GameModeStateTests
 {
-    // A pid that cannot resolve, so the liveness sweep sees the game as exited.
-    private const int DeadPid = 0x3FFFFFF;
+    private const int AlivePid = 4242;
+    private const int DeadPid = 9999;
 
-    private static (GameModeState State, InMemoryConfigStore Store) Build(
-        string manualState = GameModeState.StateAuto, int exitGraceSeconds = 0)
+    // Liveness is injected so a test can retire a pid without a real process.
+    private static (GameModeState State, HashSet<int> Alive) Build(
+        string manualState = GameModeState.StateAuto, int exitGraceSeconds = 0,
+        TimeSpan? activationDelay = null)
     {
         var store = new InMemoryConfigStore();
         store.Update(s =>
@@ -19,7 +22,18 @@ public class GameModeStateTests
             s.GameMode.State = manualState;
             s.GameMode.ExitGraceSeconds = exitGraceSeconds;
         });
-        return (new GameModeState(store), store);
+        var alive = new HashSet<int> { AlivePid };
+        var state = new GameModeState(
+            store, activationDelay ?? TimeSpan.Zero, g => alive.Contains(g.Pid));
+        return (state, alive);
+    }
+
+    /// <summary>A noted game only activates once a sweep promotes it, so every
+    /// "game is running" case runs one first.</summary>
+    private static void Start(GameModeState state, string key, string name, int pid)
+    {
+        state.NoteGameStarted(key, name, pid);
+        state.SweepForTests();
     }
 
     [Fact]
@@ -34,7 +48,7 @@ public class GameModeStateTests
     public void ALiveGameActivatesAuto()
     {
         var (state, _) = Build();
-        state.NoteGameStarted("steam:1", "Test Game", Environment.ProcessId);
+        Start(state, "steam:1", "Test Game", AlivePid);
 
         Assert.True(state.IsActive);
         Assert.Equal("auto", state.Reason);
@@ -45,7 +59,7 @@ public class GameModeStateTests
     public void ARunningGameSurvivesTheSweep()
     {
         var (state, _) = Build();
-        state.NoteGameStarted("steam:1", "Test Game", Environment.ProcessId);
+        Start(state, "steam:1", "Test Game", AlivePid);
 
         state.SweepForTests();
 
@@ -55,10 +69,11 @@ public class GameModeStateTests
     [Fact]
     public void AnExitedGameDeactivatesOnceTheGraceHasPassed()
     {
-        var (state, _) = Build(exitGraceSeconds: 0);
-        state.NoteGameStarted("steam:1", "Gone", DeadPid);
+        var (state, alive) = Build(exitGraceSeconds: 0);
+        Start(state, "steam:1", "Gone", AlivePid);
         Assert.True(state.IsActive);
 
+        alive.Remove(AlivePid);
         state.SweepForTests();
 
         Assert.False(state.IsActive);
@@ -68,9 +83,10 @@ public class GameModeStateTests
     [Fact]
     public void AnExitedGameStaysActiveInsideTheGrace()
     {
-        var (state, _) = Build(exitGraceSeconds: 600);
-        state.NoteGameStarted("steam:1", "Gone", DeadPid);
+        var (state, alive) = Build(exitGraceSeconds: 600);
+        Start(state, "steam:1", "Gone", AlivePid);
 
+        alive.Remove(AlivePid);
         state.SweepForTests();
 
         Assert.True(state.IsActive);
@@ -81,10 +97,8 @@ public class GameModeStateTests
     public void TheLastGameToExitEndsIt()
     {
         var (state, _) = Build(exitGraceSeconds: 0);
-        state.NoteGameStarted("steam:1", "Alive", Environment.ProcessId);
+        Start(state, "steam:1", "Alive", AlivePid);
         state.NoteGameStarted("steam:2", "Gone", DeadPid);
-        Assert.Equal(2, state.Games.Count);
-
         state.SweepForTests();
 
         Assert.True(state.IsActive);
@@ -106,7 +120,7 @@ public class GameModeStateTests
     public void ManualOffWinsOverARunningGame()
     {
         var (state, _) = Build(manualState: GameModeState.StateOff);
-        state.NoteGameStarted("steam:1", "Test Game", Environment.ProcessId);
+        Start(state, "steam:1", "Test Game", AlivePid);
 
         Assert.False(state.IsActive);
     }
@@ -115,7 +129,7 @@ public class GameModeStateTests
     public void SwitchingToOffWhileActiveDeactivates()
     {
         var (state, _) = Build();
-        state.NoteGameStarted("steam:1", "Test Game", Environment.ProcessId);
+        Start(state, "steam:1", "Test Game", AlivePid);
         Assert.True(state.IsActive);
 
         state.SetManualState(GameModeState.StateOff);
@@ -130,8 +144,8 @@ public class GameModeStateTests
         var flips = 0;
         state.ActiveChanged += _ => flips++;
 
-        state.NoteGameStarted("steam:1", "Test Game", Environment.ProcessId);
-        state.NoteGameStarted("steam:1", "Test Game", Environment.ProcessId);
+        Start(state, "steam:1", "Test Game", AlivePid);
+        state.NoteGameStarted("steam:1", "Test Game", AlivePid);
         state.SweepForTests();
         Assert.Equal(1, flips);
 
@@ -143,10 +157,11 @@ public class GameModeStateTests
     public void RenotingAPidKeepsTheOriginalStart()
     {
         var (state, _) = Build();
-        state.NoteGameStarted("steam:1", "First", Environment.ProcessId);
+        Start(state, "steam:1", "First", AlivePid);
         var first = Assert.Single(state.Games);
 
-        state.NoteGameStarted("steam:1", "Renamed", Environment.ProcessId);
+        state.NoteGameStarted("steam:1", "Renamed", AlivePid);
+        state.SweepForTests();
 
         var again = Assert.Single(state.Games);
         Assert.Equal(first.StartedUtcMs, again.StartedUtcMs);
@@ -158,6 +173,34 @@ public class GameModeStateTests
     {
         var (state, _) = Build();
         state.NoteGameStarted("steam:1", "Test Game", 0);
+        state.SweepForTests();
+
+        Assert.False(state.IsActive);
+        Assert.Empty(state.Games);
+    }
+
+    [Fact]
+    public void AProcessThatDiesInsideTheActivationDelayNeverActivates()
+    {
+        // A game's launcher, updater or shutdown handler lives in the same
+        // install dir, so GameCatalog resolves it to the same game; one taking
+        // focus after a quit must not re-arm Game Mode.
+        var (state, _) = Build(activationDelay: TimeSpan.FromMinutes(5));
+        state.NoteGameStarted("steam:1", "System Shock", DeadPid);
+
+        state.SweepForTests();
+
+        Assert.False(state.IsActive);
+        Assert.Empty(state.Games);
+    }
+
+    [Fact]
+    public void ALiveProcessStillInsideTheActivationDelayHasNotActivatedYet()
+    {
+        var (state, _) = Build(activationDelay: TimeSpan.FromMinutes(5));
+        state.NoteGameStarted("steam:1", "System Shock", AlivePid);
+
+        state.SweepForTests();
 
         Assert.False(state.IsActive);
         Assert.Empty(state.Games);

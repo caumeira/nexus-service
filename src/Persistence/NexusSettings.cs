@@ -279,13 +279,11 @@ public sealed class GameModeSettings
     /// polling, device inventory). User-initiated network work is unaffected.</summary>
     public bool HoldBackgroundNetwork { get; set; } = true;
 
-    /// <summary>Put every Nexus-driven panel display to sleep. Applied as a
-    /// transient override; the persisted per-device ScreenOff is never written.</summary>
+    /// <summary>Stop rendering the panels Nexus draws itself (kiosk windows,
+    /// streamed panels) and put their displays to sleep. Standalone Android
+    /// panels (Q-Series, Tryx) render on-device and are left alone. Applied as
+    /// a transient override; the persisted per-device ScreenOff is never written.</summary>
     public bool TurnPanelDisplaysOff { get; set; }
-
-    /// <summary>Stop rendering panels Nexus draws itself (kiosk windows and
-    /// streamed panels).</summary>
-    public bool StopPanelRendering { get; set; }
 
     /// <summary>How long Game Mode stays active after the last tracked game
     /// exits, so a crash-and-relaunch does not flap every effect.</summary>

@@ -29,18 +29,34 @@ public sealed class GameModeState : BackgroundService
 
     private static readonly TimeSpan SweepInterval = TimeSpan.FromSeconds(1);
 
+    /// <summary>How long a candidate process must stay alive before it activates
+    /// Game Mode. GameCatalog resolves by install-dir prefix, so a game's
+    /// launcher, updater or shutdown handler resolves to the same game; without
+    /// this, one of those taking focus after a quit re-arms the mode seconds
+    /// after it correctly turned off (measured on T1: an 18s sibling process).</summary>
+    private static readonly TimeSpan DefaultActivationDelay = TimeSpan.FromSeconds(30);
+
     private readonly IConfigStore _config;
     private readonly object _lock = new();
     private readonly Dictionary<int, TrackedGame> _games = new();
+    private readonly Dictionary<int, TrackedGame> _pending = new();
 
     private bool _active;
     private string _reason = "";
     private long _activatedUtcMs;
     private long _graceUntilUtcMs;
 
-    public GameModeState(IConfigStore config)
+    private readonly TimeSpan _activationDelay;
+    private readonly Func<TrackedGame, bool> _isRunning;
+
+    public GameModeState(IConfigStore config) : this(config, DefaultActivationDelay) { }
+
+    internal GameModeState(
+        IConfigStore config, TimeSpan activationDelay, Func<TrackedGame, bool>? isRunning = null)
     {
         _config = config;
+        _activationDelay = activationDelay;
+        _isRunning = isRunning ?? IsStillRunning;
     }
 
     /// <summary>Raised outside the state lock on every activity flip; background workers poll <see cref="IsActive"/> instead of subscribing.</summary>
@@ -67,12 +83,10 @@ public sealed class GameModeState : BackgroundService
         var startTime = TryReadProcessStartUtc(pid);
         lock (_lock)
         {
-            if (_games.ContainsKey(pid)) return;
-            _games[pid] = new TrackedGame(
+            if (_games.ContainsKey(pid) || _pending.ContainsKey(pid)) return;
+            _pending[pid] = new TrackedGame(
                 gameKey, name, pid, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), startTime);
-            _graceUntilUtcMs = 0;
         }
-        Reevaluate();
     }
 
     /// <summary>Writes the manual state and re-evaluates immediately, so the
@@ -118,9 +132,11 @@ public sealed class GameModeState : BackgroundService
         List<int>? dead = null;
         lock (_lock)
         {
+            PromotePendingLocked();
+
             foreach (var game in _games.Values)
             {
-                if (!IsStillRunning(game))
+                if (!_isRunning(game))
                 {
                     dead ??= new List<int>();
                     dead.Add(game.Pid);
@@ -139,6 +155,34 @@ public sealed class GameModeState : BackgroundService
         }
 
         Reevaluate();
+    }
+
+    /// <summary>Moves candidates that have outlived the activation delay
+    /// into the tracked set and drops the ones that died first.</summary>
+    private void PromotePendingLocked()
+    {
+        if (_pending.Count == 0) return;
+
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        List<int>? settled = null;
+        foreach (var candidate in _pending.Values)
+        {
+            if (!_isRunning(candidate))
+            {
+                (settled ??= new List<int>()).Add(candidate.Pid);
+                continue;
+            }
+            if (nowMs - candidate.StartedUtcMs < (long)_activationDelay.TotalMilliseconds) continue;
+
+            (settled ??= new List<int>()).Add(candidate.Pid);
+            _games[candidate.Pid] = candidate;
+            _graceUntilUtcMs = 0;
+        }
+
+        if (settled is not null)
+        {
+            foreach (var pid in settled) _pending.Remove(pid);
+        }
     }
 
     /// <summary>Recomputes activity and fires <see cref="ActiveChanged"/> outside the lock; only a transition raises it.</summary>
@@ -177,6 +221,7 @@ public sealed class GameModeState : BackgroundService
                     ServiceLog.Warn(
                         $"[game-mode] auto activation exceeded {MaxAutoActive.TotalHours:F0}h, forcing exit");
                     _games.Clear();
+                    _pending.Clear();
                     _graceUntilUtcMs = 0;
                     wantActive = false;
                 }
@@ -213,7 +258,7 @@ public sealed class GameModeState : BackgroundService
     private string FormatGames()
     {
         var games = Games;
-        return games.Count == 0 ? "" : ": " + string.Join(", ", games.Select(g => g.Name));
+        return games.Count == 0 ? "" : ": " + string.Join(", ", games.Select(g => $"{g.Name} (pid {g.Pid})"));
     }
 
     private static bool IsStillRunning(TrackedGame game)
@@ -272,6 +317,7 @@ public sealed class GameModeState : BackgroundService
         lock (_lock)
         {
             _games.Clear();
+            _pending.Clear();
             _graceUntilUtcMs = 0;
             _active = false;
             _reason = "";

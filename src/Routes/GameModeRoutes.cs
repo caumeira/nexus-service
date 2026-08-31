@@ -40,8 +40,6 @@ public static class GameModeRoutes
                     s.GameMode.HoldBackgroundNetwork = holdNetwork;
                 if (body.TurnPanelDisplaysOff is bool displaysOff)
                     s.GameMode.TurnPanelDisplaysOff = displaysOff;
-                if (body.StopPanelRendering is bool stopRendering)
-                    s.GameMode.StopPanelRendering = stopRendering;
                 if (body.ExitGraceSeconds is int grace)
                     s.GameMode.ExitGraceSeconds = Math.Clamp(grace, MinExitGraceSeconds, MaxExitGraceSeconds);
             });
@@ -71,7 +69,6 @@ public static class GameModeRoutes
                 HoldNotifications = settings.HoldNotifications,
                 HoldBackgroundNetwork = settings.HoldBackgroundNetwork,
                 TurnPanelDisplaysOff = settings.TurnPanelDisplaysOff,
-                StopPanelRendering = settings.StopPanelRendering,
                 ExitGraceSeconds = settings.ExitGraceSeconds,
             },
         };

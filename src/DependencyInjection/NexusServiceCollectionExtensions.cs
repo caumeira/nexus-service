@@ -428,8 +428,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>(),
             sp.GetRequiredService<Nexus.Service.Peripherals.Y70.IY70Provider>(),
             sp.GetRequiredService<Nexus.Service.Panel.PanelKioskLauncher>(),
-            sp.GetService<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>(),
-            sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()));
+            sp.GetService<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>()));
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.GameModeEffects>());
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Games.FpsSessionRecorder>();

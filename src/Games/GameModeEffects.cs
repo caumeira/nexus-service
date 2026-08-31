@@ -18,16 +18,13 @@ public sealed class GameModeEffects : IHostedService
     private readonly IY70Provider _y70;
     private readonly PanelKioskLauncher _kiosk;
     private readonly StreamedPanelCoordinator? _streams;
-    private readonly Nexus.Service.QSeries.QSeriesPortWatcher? _qseries;
 
-    private bool _displaysOffApplied;
-    private bool _renderStopApplied;
+    private bool _panelsOffApplied;
 
     public GameModeEffects(
         GameModeState state, IConfigStore config, MultiplexHub hub,
         IY70Provider y70, PanelKioskLauncher kiosk,
-        StreamedPanelCoordinator? streams = null,
-        Nexus.Service.QSeries.QSeriesPortWatcher? qseries = null)
+        StreamedPanelCoordinator? streams = null)
     {
         _state = state;
         _config = config;
@@ -35,7 +32,6 @@ public sealed class GameModeEffects : IHostedService
         _y70 = y70;
         _kiosk = kiosk;
         _streams = streams;
-        _qseries = qseries;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -64,8 +60,7 @@ public sealed class GameModeEffects : IHostedService
 
         ApplyNotificationHold(active && settings.HoldNotifications);
         GameModeNetworkGate.Set(active && settings.HoldBackgroundNetwork);
-        ApplyDisplaysOff(active && settings.TurnPanelDisplaysOff);
-        ApplyRenderStop(active && settings.StopPanelRendering);
+        ApplyPanelsOff(active && settings.TurnPanelDisplaysOff);
     }
 
     private static void ApplyNotificationHold(bool hold)
@@ -74,35 +69,31 @@ public sealed class GameModeEffects : IHostedService
         else _ = NotificationGate.ReleaseAsync(NotificationGate.ReasonGameMode);
     }
 
-    private void ApplyDisplaysOff(bool off)
+    /// <summary>
+    /// Stops rendering the panels Nexus draws itself and puts their displays to
+    /// sleep. Q-Series and Tryx render on-device and are deliberately untouched:
+    /// nothing of ours is drawing them, so there is no resource to reclaim.
+    /// </summary>
+    private void ApplyPanelsOff(bool off)
     {
-        if (_displaysOffApplied == off) return;
-        _displaysOffApplied = off;
+        if (_panelsOffApplied == off) return;
+        _panelsOffApplied = off;
 
-        try { _y70.SetGameModeScreenOff(off); }
-        catch (Exception ex) { ServiceLog.Warn($"[game-mode] y70 screen power failed: {ex.Message}"); }
-
-        try { _qseries?.SetGameModeSleep(off); }
-        catch (Exception ex) { ServiceLog.Warn($"[game-mode] q-series screen power failed: {ex.Message}"); }
-    }
-
-    private void ApplyRenderStop(bool stop)
-    {
-        if (_renderStopApplied == stop) return;
-        _renderStopApplied = stop;
+        try { _streams?.SetRenderingPaused(off); }
+        catch (Exception ex) { ServiceLog.Warn($"[game-mode] stream pause failed: {ex.Message}"); }
 
         try
         {
             // Restore only what the pref would have opened anyway: PanelKioskLauncher.IsRunning
             // is a false negative from Session 0, so a blind Launch would open a kiosk on a
             // machine that never had one.
-            if (stop) _kiosk.Close();
+            if (off) _kiosk.Close();
             else if (LoadPanelAutoLaunch()) _kiosk.Launch();
         }
         catch (Exception ex) { ServiceLog.Warn($"[game-mode] kiosk toggle failed: {ex.Message}"); }
 
-        try { _streams?.SetRenderingPaused(stop); }
-        catch (Exception ex) { ServiceLog.Warn($"[game-mode] stream pause failed: {ex.Message}"); }
+        try { _y70.SetGameModeScreenOff(off); }
+        catch (Exception ex) { ServiceLog.Warn($"[game-mode] y70 screen power failed: {ex.Message}"); }
     }
 
     private bool LoadPanelAutoLaunch()

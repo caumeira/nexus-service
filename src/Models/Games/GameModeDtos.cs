@@ -36,7 +36,6 @@ public sealed class GameModeEffectsDto
     public bool HoldNotifications { get; set; }
     public bool HoldBackgroundNetwork { get; set; }
     public bool TurnPanelDisplaysOff { get; set; }
-    public bool StopPanelRendering { get; set; }
     public int ExitGraceSeconds { get; set; }
 }
 
@@ -50,7 +49,6 @@ public sealed class SetGameModeEffectsBody
     public bool? HoldNotifications { get; set; }
     public bool? HoldBackgroundNetwork { get; set; }
     public bool? TurnPanelDisplaysOff { get; set; }
-    public bool? StopPanelRendering { get; set; }
     public int? ExitGraceSeconds { get; set; }
 }
 
