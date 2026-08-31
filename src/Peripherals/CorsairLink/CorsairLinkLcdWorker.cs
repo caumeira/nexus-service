@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 
@@ -13,27 +14,32 @@ namespace Nexus.Service.Peripherals.CorsairLink;
 /// </summary>
 public sealed class CorsairLinkLcdWorker : BackgroundService
 {
+
     private readonly CorsairLinkLcd _lcd;
     private readonly CorsairLinkLcdMediaLibrary _library;
     private readonly IConfigStore _store;
     private readonly CorsairLinkHub _hub;
+    private readonly DeviceControlGate _gate;
 
     private string? _loadedMediaId;
     private LcdImageData? _loadedImage;
     // Sentinels ensure brightness and rotation are pushed on the first connected loop.
     private byte _appliedBrightness = 255;
     private byte _appliedRotation = 255;
+    private int _appliedGeneration = -1;
 
     public CorsairLinkLcdWorker(
         CorsairLinkLcd lcd,
         CorsairLinkLcdMediaLibrary library,
         IConfigStore store,
-        CorsairLinkHub hub)
+        CorsairLinkHub hub,
+        DeviceControlGate gate)
     {
         _lcd = lcd;
         _library = library;
         _store = store;
         _hub = hub;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -42,7 +48,9 @@ public sealed class CorsairLinkLcdWorker : BackgroundService
         {
             try
             {
-                if (!_hub.State.IsConnected || !_hub.State.HasLcd)
+                // Same switch the panel stream rides: until the user claims the glass,
+                // nothing here writes to it.
+                if (!_gate.IsEnabled(CorsairLinkLcd.DeviceId) || !_hub.State.IsConnected || !_hub.State.HasLcd)
                 {
                     await Task.Delay(1000, ct).ConfigureAwait(false);
                     continue;
@@ -54,8 +62,20 @@ public sealed class CorsairLinkLcdWorker : BackgroundService
                     continue;
                 }
 
+                // A reconnect re-opens the panel with firmware defaults, so the sentinels
+                // go back to "nothing applied yet" and the block below re-pushes.
+                var generation = _lcd.AttachGeneration;
+                if (generation != _appliedGeneration)
+                {
+                    _appliedGeneration = generation;
+                    _appliedBrightness = 255;
+                    _appliedRotation = 255;
+                }
+
                 var s = _store.Load().Devices.Corsair;
 
+                // Brightness and rotation are feature reports on their own channel, so they
+                // apply while a panel session streams.
                 if (s.LcdBrightness != _appliedBrightness)
                 {
                     _lcd.SetBrightness(s.LcdBrightness);
@@ -66,6 +86,14 @@ public sealed class CorsairLinkLcdWorker : BackgroundService
                 {
                     _lcd.SetRotation(s.LcdRotation);
                     _appliedRotation = s.LcdRotation;
+                }
+
+                // A panel session owns the frame pipe while it streams widget frames; the
+                // still or GIF resumes on the pass after the frames stop.
+                if (_lcd.IsStreamLive)
+                {
+                    await Task.Delay(1000, ct).ConfigureAwait(false);
+                    continue;
                 }
 
                 if (s.LcdSelectedMediaId is null)

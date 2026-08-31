@@ -21,6 +21,11 @@ public sealed class CorsairLinkLcd
     internal const int AioPid = 0x0C4E;
     internal const int Xd5Pid = 0x0C43;
     internal const int LcdVendorId = 0x1B1C;
+    /// <summary>Device-list row id, Nexus Control gate key, and streamed-panel profile kind.</summary>
+    public const string DeviceId = "corsair-link-lcd";
+    // Both LCD modules are the same 480x480 round glass (lsh.go lcdWidth / lcdHeight).
+    public const int PanelWidth = 480;
+    public const int PanelHeight = 480;
     // The LCD's HID output report incl. the report-id byte at [0]; matches OLH lcdBufferSize.
     internal const int LcdOutputReportByteLength = LcdBufferSize;
 
@@ -30,9 +35,76 @@ public sealed class CorsairLinkLcd
     private readonly byte[] _writeBuffer = new byte[LcdOutputReportByteLength];
     private IHidDevice? _device;
     private volatile bool _attached;
+    private volatile string? _serial;
+    private volatile object? _streamOwner;
+    private long _lastStreamFrameMs;
+    // The handle is opened whenever the chain reports an LCD, but the glass stays the
+    // vendor app's until Nexus Control is on and something actually paints it. Only then
+    // is there anything to hand back, so only then is the shutdown sequence ours to send.
+    private bool _claimed;
+    private int _attachGeneration;
 
     /// <summary>True when a usable LCD HID device is open.</summary>
     public bool HasDevice => _attached;
+
+    /// <summary>Chain serial of the attached LCD, or null when nothing is attached.</summary>
+    public string? Serial => _serial;
+
+    /// <summary>
+    /// Bumped on every successful attach. The hub's shutdown sequence resets brightness to
+    /// 100 on the way out, so whoever owns those settings re-asserts them when this moves.
+    /// </summary>
+    public int AttachGeneration => System.Threading.Volatile.Read(ref _attachGeneration);
+
+    /// <summary>
+    /// How long after the last streamed frame the glass counts as the panel's. Frames stop
+    /// arriving for reasons the transport never hears about - the overlay dying, a focus
+    /// mode turning panels off - and this firmware clears the panel when they do, so the
+    /// media worker takes back a stream that has gone quiet rather than leaving it black.
+    /// </summary>
+    private const long StreamIdleMs = 2000;
+
+    /// <summary>
+    /// True while a panel session is actively streaming widget frames. The media worker
+    /// stands down for the duration: both push whole frames down the same pipe, and a
+    /// still interleaved with a 30 fps stream reads as flicker, not a picture.
+    /// </summary>
+    public bool IsStreamLive =>
+        _streamOwner is not null
+        && System.Environment.TickCount64 - System.Threading.Volatile.Read(ref _lastStreamFrameMs) < StreamIdleMs;
+
+    /// <summary>
+    /// Marks <paramref name="owner"/> as the panel session holding the glass. The claim is
+    /// by identity: a faulted transport disposing after its replacement has opened must not
+    /// release the live one.
+    /// </summary>
+    public void ClaimStream(object owner)
+    {
+        _streamOwner = owner;
+        System.Threading.Volatile.Write(ref _lastStreamFrameMs, System.Environment.TickCount64);
+    }
+
+    /// <summary>
+    /// Stamps a rendered frame as having reached the glass. Only the render side calls this;
+    /// the transport's own keepalive re-sends deliberately do not, so a stalled renderer
+    /// still expires.
+    /// </summary>
+    public void NoteStreamFrame(object owner)
+    {
+        if (ReferenceEquals(_streamOwner, owner))
+        {
+            System.Threading.Volatile.Write(ref _lastStreamFrameMs, System.Environment.TickCount64);
+        }
+    }
+
+    /// <summary>Releases the claim, but only if <paramref name="owner"/> still holds it.</summary>
+    public void ReleaseStream(object owner)
+    {
+        if (ReferenceEquals(_streamOwner, owner))
+        {
+            _streamOwner = null;
+        }
+    }
 
     /// <summary>
     /// Scans <paramref name="chain"/> for an LCD chain device (type 6 or 14), then opens the
@@ -59,7 +131,9 @@ public sealed class CorsairLinkLcd
             if (opened is null) return;
 
             _device = opened;
+            _serial = lcdDev.Serial;
             _attached = true;
+            System.Threading.Interlocked.Increment(ref _attachGeneration);
         }
     }
 
@@ -81,10 +155,15 @@ public sealed class CorsairLinkLcd
         lock (_lock)
         {
             if (_device is null) return;
-            SendShutdown();
+            if (_claimed)
+            {
+                SendShutdown();
+                _claimed = false;
+            }
             _device.Dispose();
             _device = null;
             _attached = false;
+            _serial = null;
         }
     }
 
@@ -99,6 +178,7 @@ public sealed class CorsairLinkLcd
         {
             if (_device is null) return false;
 
+            _claimed = true;
             var lcdSlice = _writeBuffer.AsSpan(0, LcdBufferSize);
             var offset = 0;
             var total = jpeg.Length;
@@ -131,6 +211,7 @@ public sealed class CorsairLinkLcd
         lock (_lock)
         {
             if (_device is null) return false;
+            _claimed = true;
             return _device.SetFeature(BuildBrightnessReport(value));
         }
     }
@@ -140,6 +221,7 @@ public sealed class CorsairLinkLcd
         lock (_lock)
         {
             if (_device is null) return false;
+            _claimed = true;
             return _device.SetFeature(BuildRotationReport(value));
         }
     }

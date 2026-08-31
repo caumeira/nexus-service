@@ -161,6 +161,8 @@ public class CorsairLinkLcdTests
     public void Detach_sends_shutdown_sequence_via_production_path()
     {
         var (lcd, device) = AttachLcd();
+        // Only glass Nexus actually painted is handed back; a frame is what claims it.
+        lcd.SendFrame(new byte[] { 0xFF, 0xD8, 0xFF });
         lcd.Detach();
 
         Assert.Equal(3, device.Features.Count);
