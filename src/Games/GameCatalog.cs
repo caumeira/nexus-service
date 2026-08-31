@@ -208,9 +208,9 @@ internal static class InstalledGameCollectors
             {
                 try
                 {
-                    var text = File.ReadAllText(item);
-                    var displayName = ExtractJsonStringValue(text, "DisplayName");
-                    var installLocation = ExtractJsonStringValue(text, "InstallLocation");
+                    using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(item));
+                    var displayName = ReadJsonString(doc.RootElement, "DisplayName");
+                    var installLocation = ReadJsonString(doc.RootElement, "InstallLocation");
                     if (displayName.Length > 0 && installLocation.Length > 0 && Directory.Exists(installLocation))
                     {
                         candidates.Add((displayName, installLocation, "epic", ""));
@@ -229,25 +229,15 @@ internal static class InstalledGameCollectors
 #endif
     }
 
-    // Extracts the value of `"key":"value"` from raw JSON text without full deserialization.
-    private static string ExtractJsonStringValue(string text, string key)
-    {
-        var search = $"\"{key}\":\"";
-        var idx = text.IndexOf(search, StringComparison.Ordinal);
-        if (idx < 0)
-        {
-            return "";
-        }
-
-        var valueStart = idx + search.Length;
-        var valueEnd = text.IndexOf('"', valueStart);
-        if (valueEnd < valueStart)
-        {
-            return "";
-        }
-
-        return text.Substring(valueStart, valueEnd - valueStart);
-    }
+    // A real JSON read, not a substring scan: Epic writes these manifests
+    // pretty-printed, so the value does not follow the key's colon directly,
+    // and its paths arrive backslash-escaped.
+    internal static string ReadJsonString(System.Text.Json.JsonElement root, string key) =>
+        root.ValueKind == System.Text.Json.JsonValueKind.Object
+            && root.TryGetProperty(key, out var value)
+            && value.ValueKind == System.Text.Json.JsonValueKind.String
+                ? value.GetString() ?? ""
+                : "";
 
     private static string ReadFirstQuotedValue(string line)
     {
