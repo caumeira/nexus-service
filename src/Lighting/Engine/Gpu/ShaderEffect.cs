@@ -107,11 +107,12 @@ public sealed class ShaderEffect : IEffect
         lock (_ctx.Lock)
         {
             _ctx.EnsureInitializedLocked();
-            if (!_ctx.Available)
-            {
-                _failed = true;
-                return;
-            }
+        }
+        // Skip the frame rather than latch: the context can still land, and
+        // _failed here would keep the device dark for the process lifetime.
+        if (!_ctx.Available)
+        {
+            return;
         }
 
         _pendingCanvas = canvas;

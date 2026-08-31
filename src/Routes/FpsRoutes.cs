@@ -108,6 +108,17 @@ public static class FpsRoutes
             return Results.Ok(new FpsSessionsOverviewResponse { Sessions = sessions });
         }).AllowPanel();
 
+        app.MapGet("/api/fps/games/{gameKey}/art", async (string gameKey, IGameArtResolver art, HttpContext ctx) =>
+        {
+            var resolved = await art.ResolveAsync(gameKey, ctx.RequestAborted);
+            // Without this a 302 is not cached at all and every card re-asks on
+            // each render; the resolver's own ttl is far longer than an hour.
+            ctx.Response.Headers.CacheControl = "private, max-age=3600";
+            if (resolved.Url.Length > 0) return Results.Redirect(resolved.Url);
+            if (resolved.Bytes.Length > 0) return Results.File(resolved.Bytes, "image/png");
+            return Results.NotFound();
+        }).AllowPanel();
+
         app.MapDelete("/api/fps/sessions/{id}", (string id, BinaryFpsSessionStore store) =>
         {
             if (!Guid.TryParse(id, out var sessionId))
