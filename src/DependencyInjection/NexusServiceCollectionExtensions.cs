@@ -923,6 +923,17 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcd>();
         services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcdMediaLibrary>();
         services.AddHostedService<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcdWorker>();
+        // The LCD screen module is its own device row, so the glass has a Nexus Control
+        // switch the hub's fans and RGB do not carry with them.
+        services.AddSingleton<IDeviceHandler>(sp =>
+            new Nexus.Service.Devices.Handlers.CorsairLinkLcdHandler(
+                sp.GetRequiredService<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcd>()));
+        // The cooler's LCD is a panel like the Kraken's: widgets stream to it, and the
+        // still/GIF worker above takes it back whenever no panel session holds it.
+        services.AddSingleton<Nexus.Service.Panel.Streams.IStreamedPanelDiscovery>(sp =>
+            new Nexus.Service.Panel.Streams.CorsairLinkPanelDiscovery(
+                sp.GetRequiredService<Nexus.Service.Peripherals.CorsairLink.CorsairLinkHub>(),
+                sp.GetRequiredService<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcd>()));
 
         // Lian Li Strimer Plus: HID connection worker + lighting.
         services.AddSingleton<Nexus.Service.Peripherals.Strimer.StrimerHub>();

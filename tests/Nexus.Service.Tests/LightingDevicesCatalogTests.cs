@@ -47,6 +47,8 @@ public class LightingDevicesCatalogTests
     [InlineData("NZXT", "Kraken Z3", "0x1E71", "0x3008")]
     [InlineData("NZXT", "Kraken X3", "0x1E71", "0x2007")]
     [InlineData("NZXT", "Kraken Elite", "0x1E71", "0x300C")]
+    [InlineData("HYTE", "Y70 Touch", "0x3402", "0x0C00")]
+    [InlineData("iBUYPOWER", "MiniHub", "0x3402", "0x0900")]
     public void Catalog_ListsNativelyDrivenFirstPartyDevices(string vendor, string model, string vid, string pid)
     {
         var device = LightingDevicesCatalog.All.SingleOrDefault(
@@ -125,6 +127,36 @@ public class LightingDevicesCatalogTests
 
         var x3 = all.Single(d => d.VendorId == "0x1E71" && d.ProductId == "0x2007");
         Assert.Equal(new[] { "rgb" }, x3.Capabilities);
+    }
+
+    /// <summary>0x0C01/0x0C02 are the two Touch Infinite panel revisions; the case drives no LEDs.</summary>
+    [Fact]
+    public void Catalog_CoversTheY70PanelsAsScreenOnly()
+    {
+        foreach (var (pid, model) in new[]
+                 {
+                     ("0x0C00", "Y70 Touch"),
+                     ("0x0C01", "Y70 Touch Infinite"),
+                     ("0x0C02", "Y70 Touch Infinite"),
+                 })
+        {
+            var row = LightingDevicesCatalog.All.Single(d => d.VendorId == "0x3402" && d.ProductId == pid);
+            Assert.Equal("nexus", row.Source);
+            Assert.Equal("HYTE", row.Vendor);
+            Assert.Equal(model, row.Model);
+            Assert.Equal("case", row.Category);
+            Assert.Equal(new[] { "screen" }, row.Capabilities);
+        }
+    }
+
+    /// <summary>The MiniHub ships on HYTE's shared 0x3402 VID but is iBUYPOWER's product.</summary>
+    [Fact]
+    public void Catalog_BrandsTheMiniHubAsIbuypower()
+    {
+        var row = LightingDevicesCatalog.All.Single(d => d.VendorId == "0x3402" && d.ProductId == "0x0900");
+
+        Assert.Equal("iBUYPOWER", row.Vendor);
+        Assert.Equal("MiniHub", row.Model);
     }
 
     [Fact]
