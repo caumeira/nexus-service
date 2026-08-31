@@ -111,6 +111,17 @@ public static class FocusRoutes
             return Results.Ok(BuildStatus(state, config));
         });
 
+        // Restores the stock pair, dropping user modes: "defaults" means the
+        // list a fresh install has, not a merge.
+        app.MapPost("/api/focus/reset", (FocusModeState state, IConfigStore config, MultiplexHub hub) =>
+        {
+            config.Update(s => s.Focus.Modes = FocusModeSettings.StockModes());
+            state.TurnOff();
+            state.ReapplyEffects();
+            PanelTopics.BroadcastFocus(hub);
+            return BuildStatus(state, config);
+        });
+
         // Order is precedence: the first eligible mode wins when two triggers fire.
         app.MapPost("/api/focus/modes/order", (ReorderFocusModesBody body, FocusModeState state, IConfigStore config, MultiplexHub hub) =>
         {
