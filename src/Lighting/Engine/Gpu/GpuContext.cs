@@ -16,8 +16,8 @@ namespace Nexus.Service.Lighting.Engine.Gpu;
 /// work onto it and blocks until completion. <see cref="Lock"/> only guards
 /// lazy initialization.
 ///
-/// If init fails the context is marked unavailable and shader effects fall
-/// back to their CPU implementations.
+/// If init fails the context is marked unavailable and shader effects do not
+/// render at all - there is no CPU fallback.
 /// </summary>
 public sealed class GpuContext : IDisposable
 {
@@ -39,9 +39,11 @@ public sealed class GpuContext : IDisposable
     private uint _fboTex;
     private uint _quadVao;
     private uint _quadVbo;
-    private bool _initTried;
-    private bool _failed;
-    private bool _disposed;
+    private volatile bool _initStarted;
+    private volatile bool _ready;
+    private volatile bool _failed;
+    private bool _retryUsed;
+    private volatile bool _disposed;
 
     // Dedicated GL thread. The engine loop is a Task that hops thread-pool
     // threads between awaits, but GLFW/wgl contexts are sticky to the
@@ -52,10 +54,10 @@ public sealed class GpuContext : IDisposable
     private readonly ManualResetEventSlim _initDone = new(false);
     private Exception? _initError;
 
-    // Per-attempt init budget: how long a caller waits for the nexus-gl thread
-    // to create the context before treating it as failed (a wedged driver never
-    // returns). Bounds both the in-process warmup and the --gpu-probe child.
-    public TimeSpan InitTimeout { get; set; } = TimeSpan.FromSeconds(10);
+    // How long a caller BLOCKS waiting for the context. Not a verdict on the
+    // card: the thread keeps going and Available flips on its own if it lands
+    // late. Sized off a cold-boot AMD iGPU measured at 28.4s.
+    public TimeSpan InitTimeout { get; set; } = TimeSpan.FromSeconds(60);
 
     // GL_RENDERER of the bound context (which physical card was selected), set
     // once init succeeds. Null until then.
@@ -73,11 +75,19 @@ public sealed class GpuContext : IDisposable
     // in contexts that don't need it (e.g. tests).
     private readonly Nexus.Service.Persistence.IConfigStore? _store;
 
+    // Substituted by tests: a real GL init is host-dependent, and concurrent
+    // glfwInit calls in a parallelized suite are undefined.
+    private readonly Action _initAction;
+
     public GpuContext(int width, int height, Nexus.Service.Persistence.IConfigStore? store = null)
+        : this(width, height, store, null) { }
+
+    internal GpuContext(int width, int height, Nexus.Service.Persistence.IConfigStore? store, Action? initAction)
     {
         _width = width;
         _height = height;
         _store = store;
+        _initAction = initAction ?? InitInternal;
     }
 
     public object Lock => _lock;
@@ -86,7 +96,14 @@ public sealed class GpuContext : IDisposable
     public uint Fbo => _fbo;
     public uint QuadVao => _quadVao;
     public GL Gl => _gl ?? throw new InvalidOperationException("GpuContext not initialized");
-    public bool Available => _initTried && !_failed && !_disposed;
+    public bool Available => _ready && !_failed && !_disposed;
+
+    /// <summary>An init attempt has run and thrown. Distinct from "not ready
+    /// yet": only this is terminal for the card.</summary>
+    public bool Failed => _failed;
+
+    /// <summary>An attempt is running and has neither succeeded nor thrown.</summary>
+    public bool Initializing => _initStarted && !_ready && !_failed && !_disposed;
 
     // Co-located with nexus-service.log; ServiceLog.LogsDirectory resolves the
     // writable per-OS logs dir (HOME-based on Linux, so the old /usr/share
@@ -107,41 +124,122 @@ public sealed class GpuContext : IDisposable
     }
 
     /// <summary>
-    /// Lazily init the GL context on first use. Must hold <see cref="Lock"/>.
+    /// Start GL init on the dedicated nexus-gl thread. Returns immediately; a
+    /// caller that needs the context ready follows with <see cref="WaitForInit"/>
+    /// OUTSIDE the lock. Must hold <see cref="Lock"/>.
     /// </summary>
     public void EnsureInitializedLocked()
     {
-        if (_initTried || _disposed)
+        if (_initStarted || _disposed)
         {
             return;
         }
 
-        _initTried = true;
-
+        _initStarted = true;
         _glThread = new Thread(GlThreadMain) { IsBackground = true, Name = "nexus-gl" };
         _glThread.Start();
-        if (!_initDone.Wait(InitTimeout))
+    }
+
+    /// <summary>Block until the attempt finishes or <paramref name="timeout"/>
+    /// elapses; the thread keeps running past it and <see cref="Available"/>
+    /// flips on its own. Call WITHOUT holding <see cref="Lock"/>, which the
+    /// render path takes every frame.</summary>
+    public bool WaitForInit(TimeSpan timeout) => WaitForInit(timeout, CancellationToken.None);
+
+    /// <inheritdoc cref="WaitForInit(TimeSpan)"/>
+    public bool WaitForInit(TimeSpan timeout, CancellationToken ct)
+    {
+        if (!_initDone.Wait(timeout, ct))
         {
-            // The nexus-gl thread is still wedged in native init; it stays a
-            // background thread and dies with the process. There is no CPU
-            // shader fallback - the GPU is simply reported unavailable.
-            Log($"[gpu] context init timed out after {InitTimeout.TotalSeconds:0.#}s");
-            _failed = true;
-            return;
+            Log($"[gpu] context init still running after {timeout.TotalSeconds:0.#}s; "
+                + "shader effects stay dark until it lands");
+            return false;
         }
         if (_initError is not null)
         {
             Log($"[gpu] context init failed: {_initError.Message}");
+        }
+        return Available;
+    }
+
+    /// <summary>Abandon a FAILED attempt so one more can run, once per process.
+    /// Only a terminated attempt qualifies: glfwInit/glfwCreateWindow share
+    /// process-global state, so a second init beside a still-running one is
+    /// undefined.</summary>
+    public bool ResetForRetry()
+    {
+        lock (_lock)
+        {
+            if (_disposed || _retryUsed || !_failed)
+            {
+                return false;
+            }
+            _retryUsed = true;
+            _initError = null;
+            _failed = false;
+            _ready = false;
+            _initDone.Reset();
+            _initStarted = false;
+            _gl = null;
+            Renderer = null;
+            _fbo = 0;
+            _fboTex = 0;
+            _quadVao = 0;
+            _quadVbo = 0;
+#if MACOS
+            _cglCtx = IntPtr.Zero;
+#elif LINUX
+            _eglUsed = false;
+#else
+            // Deliberately not disposed: GLFW window destruction belongs to the
+            // thread that created it, and that thread has exited. One leaked
+            // hidden window per process is harmless; reaching across threads to
+            // free it is not.
+            _window = null;
+#endif
+            // Deliberately does NOT start the next attempt: the caller sets the
+            // OS GPU preference (read at context-creation time) first.
+            return true;
+        }
+    }
+
+    /// <summary>Mark an attempt that never returned as failed; its thread stays
+    /// parked in native init and dies with the process.</summary>
+    public void AbandonInit()
+    {
+        lock (_lock)
+        {
+            if (_disposed || _ready || _failed || !_initStarted)
+            {
+                return;
+            }
+            _initError = new TimeoutException("GL context init never returned");
             _failed = true;
+            _initDone.Set();
         }
     }
 
     private void GlThreadMain()
     {
         try
-        { InitInternal(); }
-        catch (Exception ex) { _initError = ex; _initDone.Set(); return; }
-        _initDone.Set();
+        { _initAction(); }
+        catch (Exception ex)
+        {
+            // Published under the lock so ResetForRetry cannot land between the
+            // flag write and the Set().
+            lock (_lock)
+            {
+                _initError = ex;
+                _failed = true;
+                _initDone.Set();
+            }
+            return;
+        }
+        lock (_lock)
+        {
+            _ready = true;
+            _initDone.Set();
+        }
 
         while (!_disposed)
         {

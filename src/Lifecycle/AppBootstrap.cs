@@ -45,6 +45,7 @@ internal static class AppBootstrap
                     if (string.Equals(choice, "auto", StringComparison.OrdinalIgnoreCase))
                     {
                         Nexus.Service.Lighting.Engine.Gpu.GpuRenderSelect.SelectAndWarm(gpu, sw);
+                        WatchForLateContext(app, gpu, sw);
                         return;
                     }
 #endif
@@ -52,9 +53,13 @@ internal static class AppBootstrap
                     {
                         gpu.EnsureInitializedLocked();
                     }
+                    // Wait outside the lock - the render path takes it per frame.
+                    gpu.WaitForInit(gpu.InitTimeout);
                     GpuContext.Log(gpu.Available
-                        ? $"[gpu] warmup: GPU shader engine ready in {sw.ElapsedMilliseconds}ms"
-                        : $"[gpu] warmup: GPU unavailable after {sw.ElapsedMilliseconds}ms (shader effects off; static/firmware lighting unaffected)");
+                        ? $"[gpu] warmup: GPU shader engine ready in {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'"
+                        : $"[gpu] warmup: no GPU context after {sw.ElapsedMilliseconds}ms "
+                          + $"({(gpu.Failed ? "init failed" : "still initializing")}; every lighting mode is shader-rendered, so devices stay dark until it lands)");
+                    WatchForLateContext(app, gpu, sw);
                 }
                 catch (Exception ex)
                 {
@@ -64,6 +69,45 @@ internal static class AppBootstrap
             { IsBackground = true, Name = "nexus-gpu-warmup" };
             thread.Start();
         });
+    }
+
+    // ShaderEffect re-checks availability and compiles lazily, so a late context
+    // needs no re-apply; the broadcast is what clears the Lighting canvas notice,
+    // which reads /lighting/status.
+    private static void WatchForLateContext(WebApplication app, GpuContext gpu, System.Diagnostics.Stopwatch sw)
+    {
+        if (gpu.Available || !gpu.Initializing)
+        {
+            return;
+        }
+        var thread = new Thread(() =>
+        {
+            if (!gpu.WaitForInit(TimeSpan.FromMinutes(10)))
+            {
+                // Otherwise the UI shows "still setting up" forever and withholds
+                // the render-GPU shortcut, which is gated on a failed card.
+                gpu.AbandonInit();
+                Broadcast(app);
+                return;
+            }
+            GpuContext.Log($"[gpu] context landed late, after {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'; shader effects resume");
+            Broadcast(app);
+        })
+        { IsBackground = true, Name = "nexus-gpu-late" };
+        thread.Start();
+    }
+
+    private static void Broadcast(WebApplication app)
+    {
+        try
+        {
+            var hub = app.Services.GetService<MultiplexHub>();
+            if (hub is not null)
+            {
+                PanelTopics.BroadcastLighting(hub);
+            }
+        }
+        catch (Exception ex) { GpuContext.Log($"[gpu] lighting broadcast failed: {ex.Message}"); }
     }
 
     // Creates Default profile if none exists, then wires the profile-switch

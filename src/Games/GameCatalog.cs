@@ -309,6 +309,25 @@ public sealed class GameCatalog
         Task.Run(RefreshNow);
     }
 
+    /// <summary>The install directory a game key resolved from, for callers that need the game on disk rather than its identity.</summary>
+    public bool TryGetInstallDir(string gameKey, out string installDir)
+    {
+        IReadOnlyList<(string DirKey, GameIdentity Game)> snapshot;
+        lock (_lock) { snapshot = _resolveIndex; }
+
+        foreach (var (dirKey, game) in snapshot)
+        {
+            if (string.Equals(game.GameKey, gameKey, StringComparison.Ordinal))
+            {
+                installDir = dirKey;
+                return true;
+            }
+        }
+
+        installDir = "";
+        return false;
+    }
+
     public void RefreshNow()
     {
         var candidates = InstalledGameCollectors.CollectAll(_logger);
