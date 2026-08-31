@@ -1,13 +1,13 @@
-namespace Nexus.Service.Games;
+namespace Nexus.Service.FocusModes;
 
 /// <summary>
 /// Ambient "background egress is deferred" flag, written by
-/// <see cref="GameModeEffects"/> and read by the periodic cloud workers.
+/// <see cref="FocusModeEffects"/> and read by the periodic cloud workers.
 ///
 /// Only retry-on-next-tick work consults it, so a skipped tick loses nothing;
 /// user-initiated network work ignores it entirely.
 /// </summary>
-public static class GameModeNetworkGate
+public static class FocusNetworkGate
 {
     private static volatile bool _held;
 

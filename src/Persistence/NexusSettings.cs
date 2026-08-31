@@ -41,7 +41,7 @@ public sealed class NexusSettings
     public UnitsSettings Units { get; set; } = new();
     public ScreenTimeSettings ScreenTime { get; set; } = new();
     public FpsSettings Fps { get; set; } = new();
-    public GameModeSettings GameMode { get; set; } = new();
+    public FocusSettings Focus { get; set; } = new();
     public ObsSettings Obs { get; set; } = new();
     /// <summary>Per-app volume mixer: remembered levels and named presets. NOT profile-scoped (absent from ProfileManager.CloneSettings): which apps are loud is a property of this workstation, not of a lighting/cooling persona.</summary>
     public AudioMixerSettings AudioMixer { get; set; } = new();
@@ -259,35 +259,83 @@ public sealed class FpsSettings
 }
 
 /// <summary>
-/// Game Mode: while a tracked game runs (or the user switches it on), native
-/// notifications are queued instead of shown and background cloud egress is
-/// deferred. The two panel actions are opt-in because they change what the
-/// hardware is doing, not just what Nexus sends.
+/// Focus modes: named sets of "hold things back while I am busy" behavior.
+/// Ships with a Game and a Streaming mode; the user can rename, retune, add
+/// and remove them. At most one is active at a time - the first eligible mode
+/// in list order wins, so ordering is the user's precedence control.
 /// </summary>
-public sealed class GameModeSettings
+public sealed class FocusSettings
 {
-    /// <summary>"auto" (activate while a tracked game runs), "on" (stay active
-    /// until switched off), "off" (never activate). One field rather than an
-    /// enable flag plus an override, so "enabled but overridden off" cannot be
-    /// expressed two ways.</summary>
-    public string State { get; set; } = "auto";
+    /// <summary>Master switch behind the top bar's "Off". False suspends every mode without editing any of them.</summary>
+    public bool Enabled { get; set; } = true;
 
-    /// <summary>Queue native notifications and release them on exit.</summary>
+    public List<FocusModeSettings> Modes { get; set; } = FocusModeSettings.StockModes();
+}
+
+/// <summary>Trigger ids a mode can activate on. Persisted as strings so an unknown value from a newer build degrades to manual instead of failing the whole settings load.</summary>
+public static class FocusTriggers
+{
+    public const string Manual = "manual";
+    public const string Game = "game";
+    public const string Obs = "obs";
+
+    public static bool IsKnown(string? id) => id is Manual or Game or Obs;
+}
+
+public sealed class FocusModeSettings
+{
+    public const string GameModeId = "game";
+    public const string StreamingModeId = "streaming";
+
+    /// <summary>Stable id. The two stock ids are fixed; user modes get a guid.</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>User-editable display name, including for the stock modes.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>Icon key from the web's focus icon set, not a path.</summary>
+    public string Icon { get; set; } = "gamepad";
+
+    /// <summary>Stock modes can be renamed, retuned and disabled, never deleted: their ids are wired to triggers and a reset needs a known-good pair to restore.</summary>
+    public bool BuiltIn { get; set; }
+
+    /// <summary>Whether <see cref="Trigger"/> activates this mode. Manual activation from the top bar works regardless.</summary>
+    public bool AutoActivate { get; set; } = true;
+
+    public string Trigger { get; set; } = FocusTriggers.Manual;
+
     public bool HoldNotifications { get; set; } = true;
-
-    /// <summary>Defer background cloud egress (telemetry, fps upload, OTA
-    /// polling, device inventory). User-initiated network work is unaffected.</summary>
-    public bool HoldBackgroundNetwork { get; set; } = true;
-
-    /// <summary>Stop rendering the panels Nexus draws itself (kiosk windows,
-    /// streamed panels) and put their displays to sleep. Standalone Android
-    /// panels (Q-Series, Tryx) render on-device and are left alone. Applied as
-    /// a transient override; the persisted per-device ScreenOff is never written.</summary>
+    public bool HoldBackgroundTraffic { get; set; } = true;
     public bool TurnPanelDisplaysOff { get; set; }
 
-    /// <summary>How long Game Mode stays active after the last tracked game
-    /// exits, so a crash-and-relaunch does not flap every effect.</summary>
+    /// <summary>How long the mode stays active after its trigger clears.</summary>
     public int ExitGraceSeconds { get; set; } = 30;
+
+    public static List<FocusModeSettings> StockModes() => new()
+    {
+        new FocusModeSettings
+        {
+            Id = GameModeId,
+            Name = "Game Mode",
+            Icon = "gamepad",
+            BuiltIn = true,
+            AutoActivate = true,
+            Trigger = FocusTriggers.Game,
+            HoldNotifications = true,
+            HoldBackgroundTraffic = true,
+        },
+        new FocusModeSettings
+        {
+            Id = StreamingModeId,
+            Name = "Streaming Mode",
+            Icon = "broadcast",
+            BuiltIn = true,
+            AutoActivate = true,
+            Trigger = FocusTriggers.Obs,
+            HoldNotifications = true,
+            HoldBackgroundTraffic = true,
+        },
+    };
 }
 
 public sealed class ObsSettings

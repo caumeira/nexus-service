@@ -585,7 +585,7 @@ app.MapDiagnosticsEndpoints();
 app.MapDiagnosticsHealthEndpoints();
 app.MapMonitoringHistoryEndpoints();
 app.MapFpsEndpoints();
-app.MapGameModeEndpoints();
+app.MapFocusEndpoints();
 app.MapSmartPollRoutes();
 app.MapProcessDetailEndpoints();
 app.MapMediaLibraryEndpoints();

@@ -9,13 +9,14 @@ namespace Nexus.Service.Notifications;
 /// registered, then releases them in order once the last clears.
 ///
 /// Onboarding screens are full-viewport modals that own focus, and an alert
-/// over a fullscreen game is never seen; either way the notice is held rather
-/// than dropped, so a staged update still reaches the user.
+/// raised while a focus mode is active is either unseen or seen by an
+/// audience; either way the notice is held rather than dropped, so a staged
+/// update still reaches the user.
 /// </summary>
 public static class NotificationGate
 {
     public const string ReasonOnboarding = "onboarding";
-    public const string ReasonGameMode = "game-mode";
+    public const string ReasonFocusMode = "focus-mode";
 
     // Enough for a slow first run or a long session; past that the oldest are
     // dropped rather than burying the user in a backlog.

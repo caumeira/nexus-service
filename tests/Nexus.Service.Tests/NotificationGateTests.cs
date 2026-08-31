@@ -90,7 +90,7 @@ public class NotificationGateTests
     public async Task TwoReasonsBothHaveToClearBeforeAnythingGoesOut()
     {
         NotificationGate.ResetForTests();
-        NotificationGate.Hold(NotificationGate.ReasonGameMode);
+        NotificationGate.Hold(NotificationGate.ReasonFocusMode);
         var sent = 0;
         NotificationGate.TryHold(() => { sent++; return Task.CompletedTask; }, out _);
 
@@ -98,23 +98,23 @@ public class NotificationGateTests
         Assert.Equal(0, sent);
         Assert.False(NotificationGate.IsOpen);
 
-        await NotificationGate.ReleaseAsync(NotificationGate.ReasonGameMode);
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonFocusMode);
         Assert.Equal(1, sent);
         Assert.True(NotificationGate.IsOpen);
     }
 
     [Fact]
-    public async Task GameModeHoldsOnAnAlreadyOnboardedInstall()
+    public async Task FocusModeHoldsOnAnAlreadyOnboardedInstall()
     {
         NotificationGate.ResetForTests();
         NotificationGate.Initialize(onboardingComplete: true);
-        NotificationGate.Hold(NotificationGate.ReasonGameMode);
+        NotificationGate.Hold(NotificationGate.ReasonFocusMode);
 
         var sent = 0;
         Assert.True(NotificationGate.TryHold(() => { sent++; return Task.CompletedTask; }, out _));
         Assert.Equal(0, sent);
 
-        await NotificationGate.ReleaseAsync(NotificationGate.ReasonGameMode);
+        await NotificationGate.ReleaseAsync(NotificationGate.ReasonFocusMode);
         Assert.Equal(1, sent);
     }
 
@@ -123,7 +123,7 @@ public class NotificationGateTests
     {
         NotificationGate.ResetForTests();
         NotificationGate.Initialize(onboardingComplete: true);
-        NotificationGate.Hold(NotificationGate.ReasonGameMode);
+        NotificationGate.Hold(NotificationGate.ReasonFocusMode);
         var sent = 0;
         NotificationGate.TryHold(() => { sent++; return Task.CompletedTask; }, out _);
 

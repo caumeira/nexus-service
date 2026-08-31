@@ -69,19 +69,19 @@ public static class PanelTopics
     public const string Update = "update";
 
     /// <summary>
-    /// Game Mode activated or deactivated, or its settings changed.
-    /// Subscribers refetch GET /api/game-mode so the top bar chip appears and
-    /// clears without polling.
+    /// The active focus mode changed, or the mode list was edited.
+    /// Subscribers refetch GET /api/focus so the top bar chip tracks it
+    /// without polling.
     /// </summary>
-    public const string GameMode = "gameMode";
+    public const string Focus = "focus";
 
-    public static void BroadcastGameMode(MultiplexHub hub)
+    public static void BroadcastFocus(MultiplexHub hub)
     {
-        if (!hub.TopicHasSubscribers(GameMode))
+        if (!hub.TopicHasSubscribers(Focus))
             return;
-        var frame = new Models.Games.GameModeChangedFrame { Revision = Now() };
-        var env = WsEnvelope.Build(GameMode, frame, AppJsonContext.Default.GameModeChangedFrame);
-        _ = hub.BroadcastTopicAsync(GameMode, env);
+        var frame = new Models.Focus.FocusChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(Focus, frame, AppJsonContext.Default.FocusChangedFrame);
+        _ = hub.BroadcastTopicAsync(Focus, env);
     }
 
     public static void BroadcastUpdate(MultiplexHub hub)

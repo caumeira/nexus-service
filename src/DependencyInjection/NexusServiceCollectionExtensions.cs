@@ -419,17 +419,21 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton(_ => new Nexus.Service.Games.BinaryFpsSessionStore(
             System.IO.Path.Combine(NexusDataPaths.DatabaseDir(), "fps")));
 
-        // Every platform: the automatic trigger is Windows-only, the manual state is not.
-        services.AddSingleton<Nexus.Service.Games.GameModeState>();
-        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.GameModeState>());
-        services.AddSingleton(sp => new Nexus.Service.Games.GameModeEffects(
-            sp.GetRequiredService<Nexus.Service.Games.GameModeState>(),
+        // Every platform: the game trigger is Windows-only, the modes are not.
+        services.AddSingleton<Nexus.Service.FocusModes.FocusModeState>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.FocusModes.FocusModeState>());
+        services.AddSingleton(sp => new Nexus.Service.FocusModes.FocusModeEffects(
+            sp.GetRequiredService<Nexus.Service.FocusModes.FocusModeState>(),
             sp.GetRequiredService<IConfigStore>(),
             sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>(),
             sp.GetRequiredService<Nexus.Service.Peripherals.Y70.IY70Provider>(),
             sp.GetRequiredService<Nexus.Service.Panel.PanelKioskLauncher>(),
             sp.GetService<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>()));
-        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.GameModeEffects>());
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.FocusModes.FocusModeEffects>());
+        services.AddHostedService(sp => new Nexus.Service.FocusModes.FocusObsTrigger(
+            sp.GetRequiredService<Nexus.Service.FocusModes.FocusModeState>(),
+            sp.GetRequiredService<Nexus.Service.Obs.IObsProvider>(),
+            sp.GetRequiredService<IConfigStore>()));
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Games.FpsSessionRecorder>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Games.FpsSessionRecorder>());

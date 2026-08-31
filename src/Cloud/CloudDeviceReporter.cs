@@ -73,7 +73,7 @@ public sealed class CloudDeviceReporter : BackgroundService
                 return;
             }
 
-            if (Nexus.Service.Games.GameModeNetworkGate.IsHeld)
+            if (Nexus.Service.FocusModes.FocusNetworkGate.IsHeld)
             {
                 delay = SteadyInterval;
             }

@@ -38,7 +38,7 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
     private readonly BinaryFpsSessionStore _store;
     private readonly IDisplayTopologyProvider _displays;
     private readonly ISensorProvider _sensors;
-    private readonly GameModeState _gameMode;
+    private readonly Nexus.Service.FocusModes.FocusModeState _focus;
 
     private readonly object _lock = new();
     private readonly ConcurrentQueue<FocusSessionEnded> _pendingEnds = new();
@@ -51,7 +51,7 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         IFpsProvider fps, IFocusDetailsProvider focusDetails,
         GameCatalog catalog, IConfigStore config, BinaryFpsSessionStore store,
         IDisplayTopologyProvider displays, ISensorProvider sensors,
-        GameModeState gameMode)
+        Nexus.Service.FocusModes.FocusModeState focus)
     {
         _fps = fps;
         _focusDetails = focusDetails;
@@ -60,7 +60,7 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         _store = store;
         _displays = displays;
         _sensors = sensors;
-        _gameMode = gameMode;
+        _focus = focus;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -237,9 +237,9 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
             _modeCheckCounter = 0;
         }
 
-        // Game Mode follows the process, not this session: the session ends on
-        // the first alt-tab, while the game keeps running.
-        _gameMode.NoteGameStarted(identity.GameKey, identity.Name, details.Pid);
+        // The focus game trigger follows the process, not this session: the
+        // session ends on the first alt-tab, while the game keeps running.
+        _focus.NoteGameStarted(identity.GameKey, identity.Name, details.Pid);
     }
 
     // Resolution/Hz are part of the signature, so a mode change mid-session

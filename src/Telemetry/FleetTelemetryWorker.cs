@@ -21,7 +21,7 @@ internal sealed class FleetTelemetryWorker : BackgroundService
         {
             try
             {
-                if (!Nexus.Service.Games.GameModeNetworkGate.IsHeld)
+                if (!Nexus.Service.FocusModes.FocusNetworkGate.IsHeld)
                     await _fleet.RunPendingRetriesAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)

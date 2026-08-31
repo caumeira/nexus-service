@@ -7,12 +7,12 @@ using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sockets;
 
-namespace Nexus.Service.Games;
+namespace Nexus.Service.FocusModes;
 
-/// <summary>Applies Game Mode's push-side effects as desired-state writes, so a toggle flipped mid-session both takes hold and undoes itself.</summary>
-public sealed class GameModeEffects : IHostedService
+/// <summary>Applies the active focus mode's push-side effects as desired-state writes, so a toggle flipped mid-session both takes hold and undoes itself.</summary>
+public sealed class FocusModeEffects : IHostedService
 {
-    private readonly GameModeState _state;
+    private readonly FocusModeState _state;
     private readonly IConfigStore _config;
     private readonly MultiplexHub _hub;
     private readonly IY70Provider _y70;
@@ -21,8 +21,8 @@ public sealed class GameModeEffects : IHostedService
 
     private bool _panelsOffApplied;
 
-    public GameModeEffects(
-        GameModeState state, IConfigStore config, MultiplexHub hub,
+    public FocusModeEffects(
+        FocusModeState state, IConfigStore config, MultiplexHub hub,
         IY70Provider y70, PanelKioskLauncher kiosk,
         StreamedPanelCoordinator? streams = null)
     {
@@ -44,29 +44,27 @@ public sealed class GameModeEffects : IHostedService
     {
         _state.ActiveChanged -= OnActiveChanged;
         // The panel override lives only in memory, so stopping without it would leave the panels dark.
-        Apply(false);
+        Apply(null);
         return Task.CompletedTask;
     }
 
-    private void OnActiveChanged(bool active)
+    private void OnActiveChanged(FocusModeSettings? mode)
     {
-        Apply(active);
-        PanelTopics.BroadcastGameMode(_hub);
+        Apply(mode);
+        PanelTopics.BroadcastFocus(_hub);
     }
 
-    private void Apply(bool active)
+    private void Apply(FocusModeSettings? mode)
     {
-        var settings = LoadSettings();
-
-        ApplyNotificationHold(active && settings.HoldNotifications);
-        GameModeNetworkGate.Set(active && settings.HoldBackgroundNetwork);
-        ApplyPanelsOff(active && settings.TurnPanelDisplaysOff);
+        ApplyNotificationHold(mode?.HoldNotifications == true);
+        FocusNetworkGate.Set(mode?.HoldBackgroundTraffic == true);
+        ApplyPanelsOff(mode?.TurnPanelDisplaysOff == true);
     }
 
     private static void ApplyNotificationHold(bool hold)
     {
-        if (hold) NotificationGate.Hold(NotificationGate.ReasonGameMode);
-        else _ = NotificationGate.ReleaseAsync(NotificationGate.ReasonGameMode);
+        if (hold) NotificationGate.Hold(NotificationGate.ReasonFocusMode);
+        else _ = NotificationGate.ReleaseAsync(NotificationGate.ReasonFocusMode);
     }
 
     /// <summary>
@@ -80,7 +78,7 @@ public sealed class GameModeEffects : IHostedService
         _panelsOffApplied = off;
 
         try { _streams?.SetRenderingPaused(off); }
-        catch (Exception ex) { ServiceLog.Warn($"[game-mode] stream pause failed: {ex.Message}"); }
+        catch (Exception ex) { ServiceLog.Warn($"[focus] stream pause failed: {ex.Message}"); }
 
         try
         {
@@ -90,21 +88,15 @@ public sealed class GameModeEffects : IHostedService
             if (off) _kiosk.Close();
             else if (LoadPanelAutoLaunch()) _kiosk.Launch();
         }
-        catch (Exception ex) { ServiceLog.Warn($"[game-mode] kiosk toggle failed: {ex.Message}"); }
+        catch (Exception ex) { ServiceLog.Warn($"[focus] kiosk toggle failed: {ex.Message}"); }
 
         try { _y70.SetGameModeScreenOff(off); }
-        catch (Exception ex) { ServiceLog.Warn($"[game-mode] y70 screen power failed: {ex.Message}"); }
+        catch (Exception ex) { ServiceLog.Warn($"[focus] y70 screen power failed: {ex.Message}"); }
     }
 
     private bool LoadPanelAutoLaunch()
     {
         try { return _config.Load().Panel.AutoLaunch; }
         catch { return false; }
-    }
-
-    private GameModeSettings LoadSettings()
-    {
-        try { return _config.Load().GameMode ?? new GameModeSettings(); }
-        catch { return new GameModeSettings(); }
     }
 }

@@ -50,7 +50,7 @@ internal sealed class FpsUploadWorker : BackgroundService
         {
             try
             {
-                if (!GameModeNetworkGate.IsHeld)
+                if (!Nexus.Service.FocusModes.FocusNetworkGate.IsHeld)
                     await RunPendingUploadsAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (Exception ex)
