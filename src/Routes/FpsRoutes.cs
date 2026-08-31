@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Auth;
 using Nexus.Service.Games;
 using Nexus.Service.Models;
@@ -81,7 +82,7 @@ public static class FpsRoutes
         // Backs the monitoring page's fps overlay: which game was being
         // played across a time range, cheap over a 7-day window since
         // QuerySessionsByTimeRange scans only the overlapping month segments.
-        app.MapGet("/api/fps/sessions", (long? from, long? to, int? limit, BinaryFpsSessionStore store) =>
+        app.MapGet("/api/fps/sessions", (long? from, long? to, int? limit, BinaryFpsSessionStore store, IServiceProvider sp) =>
         {
             if (from is null || to is null || to < from)
             {
@@ -92,6 +93,16 @@ public static class FpsRoutes
             var sessions = store.QuerySessionsByTimeRange(from.Value, to.Value, clampedLimit)
                 .Select(ToSessionOverviewDto)
                 .ToList();
+
+            // The run in progress is not on disk yet, and the overlay masks
+            // fps points to session ranges, so without it a game being played
+            // right now draws nothing. Null off Windows, where no recorder is
+            // registered.
+            var live = sp.GetService<FpsSessionRecorder>()?.SnapshotOpenSession();
+            if (live is not null && live.StartedUtcMs <= to.Value && live.EndedUtcMs >= from.Value)
+            {
+                sessions.Add(ToSessionOverviewDto(live));
+            }
             return Results.Ok(new FpsSessionsOverviewResponse { Sessions = sessions });
         }).AllowPanel();
 

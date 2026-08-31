@@ -92,14 +92,16 @@ internal sealed class FpsUploadWorker : BackgroundService
             return;
         }
 
-        var invalid = pending.Where(r => !IsStructurallyValid(r)).Select(r => r.Id).ToList();
-        if (invalid.Count > 0)
+        var skipped = pending.Where(r => !IsUploadable(r)).Select(r => r.Id).ToList();
+        if (skipped.Count > 0)
         {
-            Console.Error.WriteLine($"[fps-upload] {invalid.Count} session(s) fail structural bounds, marking as not-retryable");
-            _sessions.MarkUploadState(invalid, FpsUploadState.Rejected);
+            // Marked rather than left pending: neither bound becomes true on a
+            // closed session, and they would hold batch slots forever.
+            Console.Error.WriteLine($"[fps-upload] {skipped.Count} session(s) too short or out of bounds, marking as not-retryable");
+            _sessions.MarkUploadState(skipped, FpsUploadState.Rejected);
         }
 
-        var uploadable = pending.Where(IsStructurallyValid).ToList();
+        var uploadable = pending.Where(IsUploadable).ToList();
         if (uploadable.Count == 0)
         {
             return;
@@ -143,8 +145,10 @@ internal sealed class FpsUploadWorker : BackgroundService
 
     // FpsSessionRecorder legitimately persists DispW/DispH/RefreshHz as 0 when
     // display topology could not be resolved; that never becomes valid on
-    // retry, and one such session would otherwise 400 the whole batch.
-    private static bool IsStructurallyValid(FpsSessionRecord r) =>
+    // retry, and one such session would otherwise 400 the whole batch. Short
+    // sessions stay on disk for the local history and only skip the upload.
+    private static bool IsUploadable(FpsSessionRecord r) =>
+        r.FocusedSec >= FpsSessionRules.MinFocusedSecToUpload &&
         r.DispW is >= 1 and <= MaxDispDimension &&
         r.DispH is >= 1 and <= MaxDispDimension &&
         r.RefreshHz is >= 1 and <= MaxRefreshHz &&

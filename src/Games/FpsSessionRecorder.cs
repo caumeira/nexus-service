@@ -89,6 +89,31 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         }
     }
 
+    /// <summary>The session in progress as a record ending now, or null when nothing is being recorded; its Id is the one the finished session persists under.</summary>
+    public FpsSessionRecord? SnapshotOpenSession()
+    {
+        lock (_lock)
+        {
+            var open = _open;
+            if (open is null || open.ValidSec < 1)
+            {
+                return null;
+            }
+
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var focusedSec = (int)Math.Max(0, (nowMs - open.StartedUtcMs) / 1000);
+            // Hist is copied: the caller reads it while the tick thread keeps
+            // writing into the live session's array.
+            return new FpsSessionRecord(
+                open.Id, open.GameKey, open.GameName, open.Store,
+                open.StartedUtcMs, nowMs, focusedSec, open.ValidSec, open.Frames,
+                open.MinFps == int.MaxValue ? 0 : open.MinFps, open.MaxFps, (uint[])open.Hist.Clone(),
+                open.DispW, open.DispH, open.RefreshHz, open.WinW, open.WinH,
+                open.WinW > 0 && open.WinH > 0 && open.WinW == open.DispW && open.WinH == open.DispH,
+                false, 0, open.HardwareHash, FpsUploadState.Pending);
+        }
+    }
+
     public void Dispose() => _cts?.Dispose();
 
     // Called synchronously from the helper pipe's read loop
@@ -274,7 +299,9 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
     private void FinalizeAndPersist(TrackedSession open, long endedUtcMs)
     {
         var focusedSec = (int)Math.Max(0, (endedUtcMs - open.StartedUtcMs) / 1000);
-        if (focusedSec < FpsSessionRules.MinFocusedSecToPersist)
+        // Length gates the upload (MinFocusedSecToUpload), never the local row;
+        // a session with no valid second measured no fps at all.
+        if (open.ValidSec < 1)
         {
             return;
         }
@@ -291,7 +318,7 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
         var fullscreen = open.WinW > 0 && open.WinH > 0 && open.WinW == open.DispW && open.WinH == open.DispH;
 
         var record = new FpsSessionRecord(
-            Guid.NewGuid(), open.GameKey, open.GameName, open.Store,
+            open.Id, open.GameKey, open.GameName, open.Store,
             open.StartedUtcMs, endedUtcMs, focusedSec, open.ValidSec, open.Frames,
             open.MinFps == int.MaxValue ? 0 : open.MinFps, open.MaxFps, open.Hist,
             open.DispW, open.DispH, open.RefreshHz, open.WinW, open.WinH,
@@ -359,6 +386,7 @@ public sealed class FpsSessionRecorder : IHostedService, IDisposable
 
     private sealed class TrackedSession
     {
+        public Guid Id { get; } = Guid.NewGuid();
         public required int Pid { get; init; }
         public required string GameKey { get; init; }
         public required string GameName { get; init; }
