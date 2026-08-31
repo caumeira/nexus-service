@@ -346,6 +346,17 @@ public sealed class StreamedPanelCoordinator : BackgroundService
         try
         {
             var transport = ds.Discovery.CreateTransport(ds.Info);
+            // Mount orientation is applied to the bytes, not the render, so the editor and
+            // the preview stay upright. Pushed-frame cooler LCDs only.
+            if (transport is IOrientablePanelTransport orientable)
+            {
+                var panelId = ds.Session.PanelDeviceId;
+                orientable.BindOrientation(() =>
+                {
+                    var rec = _registry.Get(panelId);
+                    return (rec?.Flip180 ?? false, rec?.Mirror ?? false);
+                });
+            }
             transport.Open();
             transport.StartPlayer();
             var accepted = false;

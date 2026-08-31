@@ -424,6 +424,12 @@ public sealed class PanelDeviceRegistry
             // sensor worker resolves a record by DisplayId).
             if (patch.AutoOrient.HasValue && !string.IsNullOrEmpty(record.DisplayId))
                 record.AutoOrient = patch.AutoOrient.Value;
+            // Orientation is a property of how the glass is physically mounted, so it
+            // applies to any record; the transport ignores it on surfaces it cannot turn.
+            if (patch.Flip180.HasValue)
+                record.Flip180 = patch.Flip180.Value;
+            if (patch.Mirror.HasValue)
+                record.Mirror = patch.Mirror.Value;
             // Capabilities on display-bound records are owned by the topology
             // sync (rebuilt from OS facts); a client value would ping-pong
             // with the next sync pass.
@@ -518,6 +524,8 @@ public sealed class PanelDeviceRegistry
                 return;
             record.ReserveMonitor = null;
             record.AutoOrient = null;
+            record.Flip180 = null;
+            record.Mirror = null;
             record.XeneonEdgeSettings = null;
             record.LastSeenAt = now;
             snapshot = Clone(record);
@@ -596,6 +604,8 @@ public sealed class PanelDeviceRegistry
             DisplayId = r.DisplayId,
             ReserveMonitor = r.ReserveMonitor,
             AutoOrient = r.AutoOrient,
+            Flip180 = r.Flip180,
+            Mirror = r.Mirror,
             XeneonEdgeSettings = r.XeneonEdgeSettings is null
                 ? null
                 : new XeneonEdgeSettingsDto
