@@ -196,7 +196,17 @@ public sealed class StoreEntitlements
             long total = 0;
             foreach (var file in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
             {
-                total += new FileInfo(file).Length;
+                try
+                {
+                    total += new FileInfo(file).Length;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // One unreadable entry must not cost the whole figure. A name
+                    // Win32 normalizes away (a macOS "._." AppleDouble ends in a
+                    // dot, which the path layer strips) enumerates fine and then
+                    // throws FileNotFoundException on the length read.
+                }
             }
             return total;
         }

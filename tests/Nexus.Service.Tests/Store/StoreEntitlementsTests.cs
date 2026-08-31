@@ -187,4 +187,21 @@ public sealed class StoreEntitlementsTests : IDisposable
         Assert.True(library.Offline);
         Assert.Single(library.Purchases);
     }
+    [Fact]
+    public void DirectorySize_still_counts_the_rest_when_one_entry_cannot_be_read()
+    {
+        var dir = Path.Combine(_root, "sizes");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "widget.mjs"), new string('x', 100));
+        Directory.CreateDirectory(Path.Combine(dir, "assets"));
+        File.WriteAllText(Path.Combine(dir, "assets", "icon.svg"), new string('y', 50));
+
+        Assert.Equal(150, StoreEntitlements.DirectorySize(dir));
+    }
+
+    [Fact]
+    public void DirectorySize_of_a_missing_folder_is_null()
+    {
+        Assert.Null(StoreEntitlements.DirectorySize(Path.Combine(_root, "gone")));
+    }
 }
