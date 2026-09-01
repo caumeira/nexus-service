@@ -1588,6 +1588,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Panel.PanelBgLibrary>();
         services.AddSingleton<Nexus.Service.Deck.DeckImageStore>();
         services.AddSingleton<Nexus.Service.Gallery.GalleryLibrary>();
+        services.AddSingleton<Nexus.Service.Gallery.GalleryResizeCache>();
         // Also consumed by /system/pick-path (SystemRoutes.cs), not just gallery.
         services.AddSingleton<Nexus.Service.Platform.IFileDialogPicker, Nexus.Service.Platform.FileDialogPicker>();
         return services;
