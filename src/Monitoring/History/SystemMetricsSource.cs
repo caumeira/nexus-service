@@ -89,10 +89,14 @@ public sealed class SystemMetricsSource : IMetricsSource
             ServiceLog.Warn($"[metrics-source] disk read failed: {ex.Message}");
         }
 
+        // CpuTemp derives from the cpu sensor list alone; SummarySensors.Value
+        // would also map every gpu and memory sensor, which this tick already
+        // reads once each below.
         double? cpuTemp = null;
         try
         {
-            cpuTemp = SummarySensors.Value(_sensors, SummarySensorKind.CpuTemp);
+            cpuTemp = SummarySensors.ValueFrom(
+                _sensors.GetCpuSensors(), Array.Empty<HardwareSensor>(), Array.Empty<HardwareSensor>(), SummarySensorKind.CpuTemp);
         }
         catch (Exception ex)
         {
