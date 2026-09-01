@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Nexus.Service.Gallery;
 using Nexus.Service.Platform;
 
@@ -33,6 +32,11 @@ public sealed class GalleryResizeCacheTests : IDisposable
     // Stands in for GalleryLibrary.ItemIdForPath - the cache only needs it to
     // be the stable per-item handle that names the derivative.
     private const string ItemId = "fcbe367ada7551ef";
+
+    // Wide enough that a downscale is visible in the byte count; Small is
+    // below every bucket, for the no-upscale guard.
+    private const string WideFixture = "wide.jpg";
+    private const string SmallFixture = "small.jpg";
 
     private GalleryResizeCache NewCache() => new(_cacheDir);
 
@@ -104,7 +108,7 @@ public sealed class GalleryResizeCacheTests : IDisposable
     public async Task GetAsync_writes_a_smaller_jpeg_and_leaves_the_original_alone()
     {
         if (FfmpegResolver.Path is null) return;
-        var source = await GenerateJpegAsync("big.jpg", 2000, 1500);
+        var source = CopyFixture(WideFixture, "big.jpg");
         var originalBytes = await File.ReadAllBytesAsync(source);
 
         var derived = await NewCache().GetAsync(ItemId, source, 480, CancellationToken.None);
@@ -119,7 +123,7 @@ public sealed class GalleryResizeCacheTests : IDisposable
     public async Task GetAsync_serves_the_second_request_from_disk()
     {
         if (FfmpegResolver.Path is null) return;
-        var source = await GenerateJpegAsync("cached.jpg", 1200, 900);
+        var source = CopyFixture(WideFixture, "cached.jpg");
         var cache = NewCache();
 
         var first = await cache.GetAsync(ItemId, source, 640, CancellationToken.None);
@@ -137,7 +141,7 @@ public sealed class GalleryResizeCacheTests : IDisposable
     public async Task GetAsync_keys_separately_per_bucket()
     {
         if (FfmpegResolver.Path is null) return;
-        var source = await GenerateJpegAsync("multi.jpg", 1600, 1200);
+        var source = CopyFixture(WideFixture, "multi.jpg");
         var cache = NewCache();
 
         var small = await cache.GetAsync(ItemId, source, 320, CancellationToken.None);
@@ -153,7 +157,7 @@ public sealed class GalleryResizeCacheTests : IDisposable
     public async Task GetAsync_reencodes_when_the_source_file_changes()
     {
         if (FfmpegResolver.Path is null) return;
-        var source = await GenerateJpegAsync("swapped.jpg", 1200, 900);
+        var source = CopyFixture(WideFixture, "swapped.jpg");
         var cache = NewCache();
         var before = await cache.GetAsync(ItemId, source, 640, CancellationToken.None);
         Assert.NotNull(before);
@@ -161,8 +165,7 @@ public sealed class GalleryResizeCacheTests : IDisposable
         // Same path, different photo - the URL cannot express that (item ids
         // hash the path alone), so size+mtime in the key is what stops a stale
         // derivative being served forever.
-        File.Delete(source);
-        await GenerateJpegAsync("swapped.jpg", 800, 400);
+        CopyFixture(SmallFixture, "swapped.jpg");
         var after = await cache.GetAsync(ItemId, source, 640, CancellationToken.None);
 
         Assert.NotNull(after);
@@ -173,7 +176,7 @@ public sealed class GalleryResizeCacheTests : IDisposable
     public async Task GetAsync_collapses_concurrent_requests_onto_one_encode()
     {
         if (FfmpegResolver.Path is null) return;
-        var source = await GenerateJpegAsync("shared.jpg", 1600, 1200);
+        var source = CopyFixture(WideFixture, "shared.jpg");
         var cache = NewCache();
 
         var results = await Task.WhenAll(Enumerable.Range(0, 8)
@@ -188,7 +191,7 @@ public sealed class GalleryResizeCacheTests : IDisposable
     public async Task GetAsync_never_upscales_a_source_smaller_than_the_bucket()
     {
         if (FfmpegResolver.Path is null) return;
-        var source = await GenerateJpegAsync("tiny.jpg", 200, 150);
+        var source = CopyFixture(SmallFixture, "tiny.jpg");
 
         var derived = await NewCache().GetAsync(ItemId, source, 1920, CancellationToken.None);
 
@@ -204,7 +207,7 @@ public sealed class GalleryResizeCacheTests : IDisposable
     public async Task Derivative_is_named_for_its_item()
     {
         if (FfmpegResolver.Path is null) return;
-        var source = await GenerateJpegAsync("named.jpg", 1200, 900);
+        var source = CopyFixture(WideFixture, "named.jpg");
 
         var derived = await NewCache().GetAsync(ItemId, source, 640, CancellationToken.None);
 
@@ -217,8 +220,8 @@ public sealed class GalleryResizeCacheTests : IDisposable
     public async Task PurgeExcept_drops_a_removed_items_derivatives_and_keeps_the_rest()
     {
         if (FfmpegResolver.Path is null) return;
-        var keep = await GenerateJpegAsync("keep.jpg", 1200, 900);
-        var drop = await GenerateJpegAsync("drop.jpg", 1200, 900);
+        var keep = CopyFixture(WideFixture, "keep.jpg");
+        var drop = CopyFixture(WideFixture, "drop.jpg");
         var cache = NewCache();
         const string keepId = "aaaaaaaaaaaaaaaa";
         const string dropId = "bbbbbbbbbbbbbbbb";
@@ -240,7 +243,7 @@ public sealed class GalleryResizeCacheTests : IDisposable
     public async Task PurgeExcept_on_an_empty_gallery_clears_everything()
     {
         if (FfmpegResolver.Path is null) return;
-        var source = await GenerateJpegAsync("gone.jpg", 1200, 900);
+        var source = CopyFixture(WideFixture, "gone.jpg");
         var cache = NewCache();
         Assert.NotNull(await cache.GetAsync(ItemId, source, 640, CancellationToken.None));
 
@@ -264,28 +267,24 @@ public sealed class GalleryResizeCacheTests : IDisposable
         Assert.Empty(Directory.Exists(_cacheDir) ? Directory.GetFiles(_cacheDir) : Array.Empty<string>());
     }
 
-    private async Task<string> GenerateJpegAsync(string name, int width, int height)
+    /// <summary>
+    /// Copies a committed JPEG into this test's photo dir.
+    ///
+    /// Deliberately NOT synthesized with ffmpeg: FfmpegResolver prefers the
+    /// bundled build over Homebrew, and the bundled one is minimal - it has
+    /// neither lavfi nor rawvideo, so a generated source silently failed and
+    /// took every encode assertion with it. Feeding a real file is also the
+    /// honest gate, since it exercises the ffmpeg that actually ships.
+    /// </summary>
+    private string CopyFixture(string fixture, string name)
     {
+        var source = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Gallery", fixture);
+        // Loud rather than skipped: a fixture missing from the output means the
+        // csproj Content glob stopped copying it, and silently passing on an
+        // absent input is how a suite comes back green having checked nothing.
+        Assert.True(File.Exists(source), $"missing test fixture {source}");
         var path = Path.Combine(_photosDir, name);
-        var psi = new ProcessStartInfo
-        {
-            FileName = FfmpegResolver.Path!,
-            UseShellExecute = false,
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            CreateNoWindow = true,
-        };
-        foreach (var arg in new[]
-                 {
-                     "-y", "-f", "lavfi", "-i", $"testsrc=size={width}x{height}",
-                     "-frames:v", "1", path,
-                 })
-        {
-            psi.ArgumentList.Add(arg);
-        }
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg failed to start");
-        await proc.WaitForExitAsync();
-        Assert.Equal(0, proc.ExitCode);
+        File.Copy(source, path, overwrite: true);
         return path;
     }
 }
