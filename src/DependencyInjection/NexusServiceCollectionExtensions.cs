@@ -383,27 +383,40 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Monitoring.History.AppSampleBuffer>();
         services.AddSingleton<Nexus.Service.Monitoring.History.ProcessFirstSeenCache>();
 
+        // Pushes each sample onto the monitoring/history-tail multiplex topic;
+        // MetricsSampler resolves it as an optional constructor dependency.
+        services.AddSingleton<Nexus.Service.Monitoring.History.IMetricsSampleSink,
+            Nexus.Service.Monitoring.History.MonitoringHistoryTailBroadcaster>();
         services.AddSingleton<Nexus.Service.Monitoring.History.MetricsSampler>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.History.MetricsSampler>());
 
-        // IPrivacySessionStore resolves the same singleton instance as
-        // IMetricsHistoryStore (both interfaces land on one concrete store),
-        // sharing its connection and lock rather than opening a second one.
+        // IPrivacySessionStore wraps the same singleton instance as
+        // IMetricsHistoryStore (both interfaces land on one concrete store,
+        // sharing its connection and lock rather than opening a second one) in
+        // BroadcastingPrivacySessionStore, so every Upsert also pushes onto
+        // the monitoring/privacy multiplex topic.
         services.AddSingleton<Nexus.Service.Monitoring.History.IPrivacyAccessRegistryReader,
             Nexus.Service.Monitoring.History.PrivacyAccessRegistryReader>();
         services.AddSingleton<Nexus.Service.Monitoring.History.IPrivacySessionStore>(sp =>
-            (Nexus.Service.Monitoring.History.IPrivacySessionStore)sp.GetRequiredService<Nexus.Service.Monitoring.History.IMetricsHistoryStore>());
+            new Nexus.Service.Monitoring.History.BroadcastingPrivacySessionStore(
+                (Nexus.Service.Monitoring.History.IPrivacySessionStore)sp.GetRequiredService<Nexus.Service.Monitoring.History.IMetricsHistoryStore>(),
+                sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>()));
         services.AddSingleton<Nexus.Service.Monitoring.History.PrivacyAccessWatcher>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.History.PrivacyAccessWatcher>());
 
-        // IMonitoringEventStore resolves the same singleton instance as
+        // IMonitoringEventStore wraps the same singleton instance as
         // IMetricsHistoryStore (both interfaces land on one concrete store),
-        // the same pattern as IPrivacySessionStore above. MonitoringEventCollector
+        // the same pattern as IPrivacySessionStore above, in
+        // BroadcastingMonitoringEventStore, so every Append (from
+        // MonitoringEventCollector or POST /monitoring/events) also pushes
+        // onto the monitoring/events multiplex topic. MonitoringEventCollector
         // depends on IUsbEnumerator, registered in AddNexusDevices - DI
         // resolution is deferred to host build, so registration order across
         // AddNexusX methods does not matter.
         services.AddSingleton<Nexus.Service.Monitoring.Events.IMonitoringEventStore>(sp =>
-            (Nexus.Service.Monitoring.Events.IMonitoringEventStore)sp.GetRequiredService<Nexus.Service.Monitoring.History.IMetricsHistoryStore>());
+            new Nexus.Service.Monitoring.Events.BroadcastingMonitoringEventStore(
+                (Nexus.Service.Monitoring.Events.IMonitoringEventStore)sp.GetRequiredService<Nexus.Service.Monitoring.History.IMetricsHistoryStore>(),
+                sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>()));
         services.AddSingleton<Nexus.Service.Monitoring.Events.MonitoringEventCollector>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.Events.MonitoringEventCollector>());
         return services;

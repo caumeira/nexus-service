@@ -1019,7 +1019,9 @@ public static class MonitoringHistoryRoutes
     internal static long ClampFutureEventTime(long t, long nowMs) =>
         t > nowMs + CustomEventFutureClampMs ? nowMs : t;
 
-    private static MonitoringEventDto ToEventDto(MonitoringEvent e) =>
+    // internal: also called by BroadcastingMonitoringEventStore so the
+    // monitoring/events push topic and the HTTP routes share one mapping.
+    internal static MonitoringEventDto ToEventDto(MonitoringEvent e) =>
         new(e.Id, e.TUtcMs, e.Kind, e.Label, e.Detail, e.Custom);
 
     private static HashSet<string>? ParseSeriesFilter(string? series)
@@ -1266,15 +1268,20 @@ public static class MonitoringHistoryRoutes
             Sessions = sessions
                 .Where(s => s.StartUtcSec <= toSec && (s.EndUtcSec is null || s.EndUtcSec >= fromSec))
                 .OrderBy(s => s.StartUtcSec)
-                .Select(s => new PrivacySessionWire
-                {
-                    App = s.AppId,
-                    Capability = s.Capability,
-                    Start = s.StartUtcSec * 1000,
-                    End = s.EndUtcSec is { } end ? end * 1000 : null,
-                })
+                .Select(ToPrivacySessionWire)
                 .ToList(),
         };
+
+    // internal: also called by BroadcastingPrivacySessionStore so the
+    // monitoring/privacy push topic and GET /monitoring/privacy share one
+    // mapping from seconds-based storage to the wire's milliseconds.
+    internal static PrivacySessionWire ToPrivacySessionWire(PrivacySession s) => new()
+    {
+        App = s.AppId,
+        Capability = s.Capability,
+        Start = s.StartUtcSec * 1000,
+        End = s.EndUtcSec is { } end ? end * 1000 : null,
+    };
 }
 
 // ----- Wire response wrappers -----
