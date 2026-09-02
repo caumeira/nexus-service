@@ -1259,6 +1259,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AssistantModelPullRequest))]
 [JsonSerializable(typeof(AssistantModelRemoveRequest))]
 [JsonSerializable(typeof(AssistantModelSelectRequest))]
+[JsonSerializable(typeof(AssistantUseSystemRequest))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDeckDispatchBody))]
 [JsonSerializable(typeof(AssistantQueryRequest))]
 [JsonSerializable(typeof(AssistantQueryResponse))]
 [JsonSerializable(typeof(AssistantToolRunDto))]

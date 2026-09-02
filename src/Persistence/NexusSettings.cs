@@ -173,6 +173,13 @@ public sealed class AiIntegrationSettings
     /// <summary>Port the managed (or detected system) Ollama runtime binds.
     /// 0 means the Ollama default (11434).</summary>
     public int AssistantRuntimePort { get; set; }
+
+    /// <summary>Opt-in to adopt an Ollama already listening on the default port
+    /// instead of the managed download. Off by default: the service runs as
+    /// LocalSystem, and whatever answers on the default port would otherwise
+    /// receive every prompt and drive the tool calls; any local process can
+    /// bind that port first.</summary>
+    public bool UseSystemOllama { get; set; }
 }
 
 /// <summary>Global on/off for each functional pillar. Additive, all default
