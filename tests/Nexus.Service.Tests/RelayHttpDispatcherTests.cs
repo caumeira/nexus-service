@@ -34,6 +34,7 @@ public sealed class RelayHttpDispatcherTests
     private const string ProtectedRoute = "/panel/probe";
     private const string ProtectedBody = "panel-probe-ok";
     private const string BinaryRoute = "/panel/blob";
+    private const string DesktopOnlyRoute = "/panel/desktop-only";
     // Includes 0xC3 0x28 - an invalid UTF-8 sequence a string round-trip would
     // mangle into U+FFFD; the byte-for-byte assert proves binary survives.
     private static readonly byte[] BinaryProbe = { 0x00, 0xFF, 0xC3, 0x28, 0x80, 0x01, 0xFE, 0x7F };
@@ -82,6 +83,8 @@ public sealed class RelayHttpDispatcherTests
         // A protected route returning raw binary (like an effect-thumbnail BMP) to
         // prove the tunnel carries non-UTF-8 bytes intact.
         app.MapGet(BinaryRoute, () => Results.Bytes(BinaryProbe, "image/bmp")).AllowPanel();
+        // A route under an allowed prefix WITHOUT .AllowPanel - desktop only.
+        app.MapGet(DesktopOnlyRoute, () => Results.Text("desktop-only"));
         // A public route (no auth) to prove a tunneled GET to a real route works.
         app.MapGet("/ping", () => Results.Text("pong"));
 
@@ -185,6 +188,25 @@ public sealed class RelayHttpDispatcherTests
         Assert.Equal(11, resp.Id);
         Assert.Equal(StatusCodes.Status200OK, resp.Status);
         Assert.Equal(ProtectedBody, DecodeText(resp));
+    }
+
+    [Fact]
+    public async Task Tunneled_NonPanelRoute_Is403_EvenWithTrustedMarker()
+    {
+        // The relay lane authorizes AS a phone session, so it reaches exactly
+        // what a LAN phone session reaches: a route without .AllowPanel() under
+        // an allowed prefix (e.g. /panel/phone/pair-qr in production) is 403.
+        var store = StoreWithSession();
+        var hub = new MultiplexHub();
+        await using var app = await BuildAppAsync(store, hub);
+        var dispatcher = app.Services.GetRequiredService<RelayHttpDispatcher>();
+
+        var resp = await dispatcher.DispatchAsync(
+            new RelayHttpRequest { Id = 12, Method = "GET", Path = DesktopOnlyRoute },
+            SessionId, CancellationToken.None);
+
+        Assert.Equal(12, resp.Id);
+        Assert.Equal(StatusCodes.Status403Forbidden, resp.Status);
     }
 
     [Fact]
