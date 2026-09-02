@@ -9,6 +9,7 @@ using Microsoft.Extensions.Hosting;
 using Nexus.Service.Deck;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
+using Nexus.Service.Fps;
 using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Models.Weather;
@@ -89,6 +90,23 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private readonly MultiplexHub _hub;
     private readonly ISensorProvider _sensors;
     private readonly IWeatherProvider? _weather;
+    /// <summary>Null only in tests that construct the worker without one; the fps monitoring category then resolves to nothing, like a machine with no capture available.</summary>
+    private readonly IFpsProvider? _fps;
+
+    /// <summary>This worker's IFpsProvider.SetDemand source id - see that method's multi-source contract.</summary>
+    private const string FpsDemandSource = "streamdeck";
+
+    /// <summary>
+    /// Set by any GatherMonitoringSources pass in the current Tick() that saw
+    /// an fps key, and applied once at the end of that tick. Accumulated
+    /// rather than written per pass because the two passes see disjoint key
+    /// sets - RefreshMonitoringKeys skips whatever PushCurrentView already
+    /// painted (_monitoringPaintedThisTick), so neither alone knows whether
+    /// the deck has an fps key. A PushCurrentView between ticks (nav, SetNav,
+    /// RefreshView) also writes it and that write is simply discarded by the
+    /// next Tick's reset, which recomputes from the full visible set anyway.
+    /// </summary>
+    private bool _monitoringFpsDemandThisTick;
 
     /// <summary>
     /// The dev-tools bench simulated deck, if any. Mutable (not just
@@ -214,7 +232,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         ISensorProvider sensors,
         SimulatedStreamDeckSurface? simulated = null,
         TimeProvider? clock = null,
-        IWeatherProvider? weather = null)
+        IWeatherProvider? weather = null,
+        IFpsProvider? fps = null)
     {
         _hid = hid;
         _presence = presence;
@@ -227,6 +246,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _simulated = simulated;
         _clock = clock ?? TimeProvider.System;
         _weather = weather;
+        _fps = fps;
         _hub.OnTopicFirstSubscriber += OnStreamDeckTilesFirstSubscriber;
     }
 
@@ -444,6 +464,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
         await animation.ConfigureAwait(false);
         DisconnectAll();
+        _fps?.SetDemand(FpsDemandSource, false);
     }
 
     /// <summary>
@@ -474,22 +495,34 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// </summary>
     public void Tick()
     {
+        bool wantFps;
         lock (_lock)
         {
             if (!_gate.IsEnabled("streamdeck"))
             {
                 DisconnectAll();
-                return;
+                wantFps = false;
             }
-
-            _monitoringPaintedThisTick.Clear();
-            RegisterSimulatedIfNeeded();
-            ReconcileHidSurfaces();
-            PumpSimulatedInput();
-            ApplySleepAfterIdle();
-            RefreshMonitoringKeys();
-            RefreshWeatherKeys();
+            else
+            {
+                _monitoringPaintedThisTick.Clear();
+                _monitoringFpsDemandThisTick = false;
+                RegisterSimulatedIfNeeded();
+                ReconcileHidSurfaces();
+                PumpSimulatedInput();
+                ApplySleepAfterIdle();
+                RefreshMonitoringKeys();
+                RefreshWeatherKeys();
+                wantFps = _monitoringFpsDemandThisTick;
+            }
         }
+
+        // Outside the lock, like TryxPanoramaHub.Disconnect: releasing the last
+        // demand tears an ETW session down synchronously, and HID input plus
+        // every deck route contend on _lock. Re-asserted every tick, so
+        // removing or navigating away from the last fps key releases capture
+        // on the next one.
+        _fps?.SetDemand(FpsDemandSource, wantFps);
     }
 
     private void RegisterSimulatedIfNeeded()
@@ -1566,10 +1599,12 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             }
         }
 
+        var sources = GatherMonitoringSources(visible);
+
         var sampled = new HardwareSensor?[visible.Count];
         for (var i = 0; i < visible.Count; i++)
         {
-            sampled[i] = SampleMonitoringHistory(visible[i]);
+            sampled[i] = SampleMonitoringHistory(visible[i], sources);
         }
 
         if (visible.Count == 0)
@@ -1587,15 +1622,59 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     }
 
     /// <summary>
+    /// Gathers the sensor sources one batch of monitoring keys needs beyond
+    /// ISensorProvider's cheap path. GetSensorExtras rebuilds every
+    /// battery/NIC/DIMM/PSU component on each call, so it runs at most once
+    /// per batch and only when a key actually asks for an extras-backed
+    /// category. FPS is gated harder still - its sensors only exist while
+    /// capture runs - so a pass that sees one records this worker's demand
+    /// for Tick() to apply. A network key always gets the NIC-summed
+    /// aggregate, empty included: nexus-web's tile resolves that same
+    /// aggregate, so falling back to a per-adapter reading here would paint a
+    /// number the touch tile shows as "--".
+    /// </summary>
+    private SensorSnapshotSources GatherMonitoringSources(List<MonitoringKeyRef> keys)
+    {
+        var needExtras = false;
+        var needFps = false;
+        var needNetwork = false;
+        for (var i = 0; i < keys.Count; i++)
+        {
+            var category = keys[i].Slot.Action?.Category ?? "";
+            if (SensorSnapshotResolver.CategoryUsesExtras(category))
+            {
+                needExtras = true;
+                needNetwork |= category == "network";
+            }
+            if (SensorSnapshotResolver.CategoryUsesFps(category))
+            {
+                needFps = true;
+            }
+        }
+
+        if (needFps)
+        {
+            _monitoringFpsDemandThisTick = true;
+        }
+
+        var extras = needExtras ? _sensors.GetSensorExtras() : null;
+        return new SensorSnapshotSources(
+            extras,
+            needFps ? _fps?.GetComponent().Sensors : null,
+            needNetwork && extras is not null ? SensorSnapshotResolver.BuildNicNetworkSensors(extras.Nics) : null);
+    }
+
+    /// <summary>
     /// Does not append while the sensor is unresolved, so a sensor that
     /// disappears and later returns resumes its graph from the last real
     /// shape instead of dragging in a zero-trough; an empty buffer stays
     /// empty until the sensor first resolves.
     /// </summary>
-    private HardwareSensor? SampleMonitoringHistory(MonitoringKeyRef key)
+    private HardwareSensor? SampleMonitoringHistory(MonitoringKeyRef key, SensorSnapshotSources sources)
     {
         var action = key.Slot.Action!;
-        var sensor = SensorSnapshotResolver.ResolveOrDefault(_sensors, action.Category ?? "", action.Sensor ?? "");
+        var sensor = SensorSnapshotResolver.ResolveOrDefault(
+            _sensors, action.Category ?? "", action.Sensor ?? "", sources);
         if (sensor is null)
         {
             return null;
@@ -2077,9 +2156,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         // so PushMonitoringKey's own hash compare decides whether a physical
         // write is needed - the sample still always happens so history stays
         // continuous.
+        var sources = GatherMonitoringSources(monitoringKeys);
         foreach (var keyRef in monitoringKeys)
         {
-            var sensor = SampleMonitoringHistory(keyRef);
+            var sensor = SampleMonitoringHistory(keyRef, sources);
             PushMonitoringKey(keyRef, sensor, tempUnit, numberFormat);
             _monitoringPaintedThisTick.Add(keyRef.HistoryKey);
         }
@@ -2434,6 +2514,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     {
         _hub.OnTopicFirstSubscriber -= OnStreamDeckTilesFirstSubscriber;
         DisconnectAll();
+        // A host stop that is not a process exit leaves IFpsProvider holding
+        // this source otherwise, so ETW capture would keep running with no
+        // key to feed.
+        _fps?.SetDemand(FpsDemandSource, false);
         base.Dispose();
     }
 }

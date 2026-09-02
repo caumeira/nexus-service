@@ -760,7 +760,8 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckImageCache>(),
                 sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>(),
                 sp.GetRequiredService<Nexus.Service.Sensors.ISensorProvider>(),
-                weather: sp.GetRequiredService<Nexus.Service.Platform.Weather.IWeatherProvider>()));
+                weather: sp.GetRequiredService<Nexus.Service.Platform.Weather.IWeatherProvider>(),
+                fps: sp.GetRequiredService<Nexus.Service.Fps.IFpsProvider>()));
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>());
 
         // Elgato Stream Deck profile import: read-only against the local
