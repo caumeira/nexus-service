@@ -488,6 +488,7 @@ public static class ProfileRoutes
                     if (monitoring.ShowWindowsTrayIcon.HasValue)  s.Monitoring.ShowWindowsTrayIcon  = monitoring.ShowWindowsTrayIcon.Value;
                     if (monitoring.DetailedCollapsed is not null) s.Monitoring.DetailedCollapsed   = monitoring.DetailedCollapsed;
                     if (monitoring.EventsEnabled.HasValue)        s.Monitoring.EventsEnabled        = monitoring.EventsEnabled.Value;
+                    if (monitoring.FpsOverlayEnabled.HasValue)    s.Monitoring.FpsOverlayEnabled    = monitoring.FpsOverlayEnabled.Value;
                     if (monitoring.EventKindsHidden is not null)  s.Monitoring.EventKindsHidden     = monitoring.EventKindsHidden;
                     if (monitoring.SmartPollSeconds is not null)  s.Monitoring.SmartPollSeconds     = SmartPollPolicy.Sanitize(monitoring.SmartPollSeconds);
                     if (monitoring.SmartPollDefaultSeconds.HasValue)
