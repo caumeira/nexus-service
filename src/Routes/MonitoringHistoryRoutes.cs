@@ -50,7 +50,15 @@ public static class MonitoringHistoryRoutes
     private const int DecimatedPathMinStepSeconds = 60;
 
     private const int MinMaxApps = 1;
-    private const int MaxMaxApps = 100;
+    // Also bounds an absent maxApps (see clampedMaxApps below): every app
+    // sampled in the window, not a top-N, since the process search and the
+    // detail panel both read this list. TopAppsPerSample caps one tick's
+    // ranked set, but distinct app names across a day-long window churn well
+    // past that as different apps rank in and out over time, so this needs
+    // headroom above it to hold a busy desktop's full set without silently
+    // truncating. Internal so the test project can size a window against it
+    // directly instead of duplicating the value.
+    internal const int MaxMaxApps = 500;
     private const int MinMaxAppPoints = 1;
     private const int MaxMaxAppPoints = 2000;
 
@@ -245,7 +253,10 @@ public static class MonitoringHistoryRoutes
             {
                 var fromSec = from.Value / 1000;
                 var toSec = to.Value / 1000;
-                var clampedMaxApps = Math.Clamp(maxApps ?? MetricsHistory.DefaultMaxApps, MinMaxApps, MaxMaxApps);
+                // Absent maxApps: every app up to MaxMaxApps, not a top-N (see its doc).
+                var clampedMaxApps = maxApps is { } requestedMaxApps
+                    ? Math.Clamp(requestedMaxApps, MinMaxApps, MaxMaxApps)
+                    : MaxMaxApps;
                 var clampedMaxPoints = Math.Clamp(maxPoints ?? MetricsHistory.DefaultMaxAppPoints, MinMaxAppPoints, MaxMaxAppPoints);
 
                 // Buffer read first, matching the sibling /monitoring/history
