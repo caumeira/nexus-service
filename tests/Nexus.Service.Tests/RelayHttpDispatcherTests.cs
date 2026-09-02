@@ -397,4 +397,86 @@ public sealed class RelayHttpDispatcherTests
 
         await connection.StopAsync(CancellationToken.None);
     }
+
+    [Fact]
+    public async Task FullWire_RidHttpLink_RekeysOnHello2_ThenServesUnderTheRekeyedKey()
+    {
+        // Protocol v2 over the real HttpChannel: hello2 under the connection key
+        // is answered with the host nonce, and the request/reply pair after it
+        // rides the rekeyed key with counters restarted at 0.
+        const string token = "test-session-token-rekey-0123";
+        var relayRoot = RelayCrypto.DeriveRelayRoot(token);
+        var ridHttp = RelayCrypto.DeriveHttpRid(relayRoot);
+
+        var store = new InMemoryConfigStore();
+        var hub = new MultiplexHub();
+        store.Update(s =>
+        {
+            s.Auth ??= new AuthSettings();
+            s.Auth.RemoteControlEnabled = true;
+            s.Auth.RelayEnabled = true;
+            s.Auth.PanelPhoneSessions = new List<PanelPhoneSessionToken>
+            {
+                new()
+                {
+                    Id = SessionId,
+                    Hash = "hash-placeholder",
+                    RelayKey = Convert.ToBase64String(relayRoot),
+                    Name = "iPhone",
+                    UserAgent = "iPhone",
+                    RemoteAddress = "192.168.1.50",
+                    CreatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    LastSeenAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                    ClaimedOverHttps = true,
+                },
+            };
+        });
+
+        await using var app = await BuildAppAsync(store, hub);
+        var dispatcher = app.Services.GetRequiredService<RelayHttpDispatcher>();
+        var pairing = app.Services.GetRequiredService<Nexus.Service.Panel.PanelPhonePairingService>();
+
+        using var relay = new MultiRidFakeRelay();
+        await relay.StartAsync();
+
+        using var connection = new RelayConnectionService(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RelayConnectionService>.Instance,
+            pairing, store, hub, dispatcher)
+        {
+            Endpoint = relay.Uri,
+        };
+        await connection.StartAsync(CancellationToken.None);
+        await relay.WaitForHostAsync(ridHttp, MultiRidFakeRelay.HostWait);
+
+        var connSalt = new byte[RelayCrypto.ConnSaltLength];
+        for (var i = 0; i < connSalt.Length; i++) connSalt[i] = (byte)(i + 0x30);
+        var k0 = RelayCrypto.DeriveAeadKey(relayRoot, connSalt);
+        await relay.SendPeerUpAsync(ridHttp, connSalt);
+
+        await relay.ForwardToHostAsync(ridHttp, RelayCrypto.Seal(k0, RelayCrypto.DirClientToHost, counter: 0, Encoding.UTF8.GetBytes("{\"c\":\"hello2\"}")));
+        var hnFrame = await relay.WaitForHostFrameAsync(ridHttp, TimeSpan.FromSeconds(5));
+        var (hnDir, hnCounter, hnPlain) = RelayCrypto.Open(k0, hnFrame);
+        Assert.Equal(RelayCrypto.DirHostToClient, hnDir);
+        Assert.Equal(0UL, hnCounter);
+        using var hnDoc = JsonDocument.Parse(hnPlain);
+        Assert.Equal("hn", hnDoc.RootElement.GetProperty("c").GetString());
+        var hostNonce = RelayCrypto.FromBase64UrlNoPad(hnDoc.RootElement.GetProperty("hn").GetString()!);
+        var k1 = RelayCrypto.DeriveRekeyedAeadKey(relayRoot, connSalt, hostNonce);
+
+        var req = new RelayHttpRequest { Id = 7, Method = "GET", Path = ProtectedRoute };
+        var reqBytes = JsonSerializer.SerializeToUtf8Bytes(req, Nexus.Service.Serialization.AppJsonContext.Default.RelayHttpRequest);
+        await relay.ForwardToHostAsync(ridHttp, RelayCrypto.Seal(k1, RelayCrypto.DirClientToHost, counter: 0, reqBytes));
+
+        var replyFrame = await relay.WaitForHostFrameAsync(ridHttp, TimeSpan.FromSeconds(5));
+        var (dir, counter, plain) = RelayCrypto.Open(k1, replyFrame);
+        Assert.Equal(RelayCrypto.DirHostToClient, dir);
+        Assert.Equal(0UL, counter);
+        var reply = JsonSerializer.Deserialize(plain, Nexus.Service.Serialization.AppJsonContext.Default.RelayHttpResponse);
+        Assert.NotNull(reply);
+        Assert.Equal(7, reply!.Id);
+        Assert.Equal(StatusCodes.Status200OK, reply.Status);
+        Assert.Equal(ProtectedBody, DecodeText(reply));
+
+        await connection.StopAsync(CancellationToken.None);
+    }
 }
