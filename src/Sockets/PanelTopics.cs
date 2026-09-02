@@ -335,5 +335,26 @@ public static class PanelTopics
         _ = hub.BroadcastTopicAsync(AiAssistant, env);
     }
 
+    /// <summary>
+    /// One recorded 1Hz metrics sample, pushed by MetricsSampler through
+    /// MonitoringHistoryTailBroadcaster. Same MetricsHistoryResponse shape as
+    /// GET /monitoring/history's tail poll, decimated to one point per series.
+    /// </summary>
+    public const string MonitoringHistoryTail = "monitoring/history-tail";
+
+    /// <summary>
+    /// A monitoring timeline event was appended (USB attach/detach, app-open,
+    /// UAC escalation, or a custom POST /monitoring/events entry). Carries one
+    /// MonitoringEventDto, the same shape GET /monitoring/events returns.
+    /// </summary>
+    public const string MonitoringEvents = "monitoring/events";
+
+    /// <summary>
+    /// A privacy-capability access session was opened or closed. Carries one
+    /// PrivacySessionWire, the same shape an entry in GET /monitoring/privacy's
+    /// sessions array has.
+    /// </summary>
+    public const string MonitoringPrivacy = "monitoring/privacy";
+
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }
