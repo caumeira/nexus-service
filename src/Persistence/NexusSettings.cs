@@ -787,7 +787,7 @@ public sealed class CoolingSettings
     public string ActivePreset { get; set; } = InstallDefaults.Cooling.ActivePreset;
     /// <summary>Last-known custom mapping of fan channel id -> curve id. Empty entries mean the fan was on BIOS Control. Used to restore custom assignments when leaving Silent/Balanced/Performance/Off.</summary>
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();
-    /// <summary>Snapshot of <see cref="ManualSpeeds"/> taken when leaving the Custom preset, keyed by channel id. Restored (and re-driven) when Custom is re-applied - the manual-fan counterpart of <see cref="CustomFanCurveAssignments"/>, and the only copy that survives the Off preset's per-channel release.</summary>
+    /// <summary>Snapshot of <see cref="ManualSpeeds"/> taken when leaving the Custom preset, keyed by channel id. Restored (and re-driven) when Custom is re-applied - the manual-fan counterpart of <see cref="CustomFanCurveAssignments"/>, and the only copy that survives the Off preset, which clears the live entries.</summary>
     public Dictionary<string, int> CustomManualSpeeds { get; set; } = new();
     /// <summary>User-saved cooling configurations, selectable from the Cooling page's preset dropdown. Distinct from <see cref="ActivePreset"/>, which is the built-in mode (off/silent/balanced/turbo/custom) the UI calls a mode.</summary>
     public List<CoolingPreset> Presets { get; set; } = new();
