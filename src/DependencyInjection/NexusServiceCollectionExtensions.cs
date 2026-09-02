@@ -1717,6 +1717,10 @@ public static class NexusServiceCollectionExtensions
 #elif WINDOWS
         services.AddSingleton<Nexus.Service.Panel.IOverlayHost>(sp =>
             sp.GetRequiredService<Nexus.Service.Panel.PanelOverlayHostLauncher>());
+#elif LINUX
+        // The Y70 kiosk is the only overlay-host duty Linux has; it rides the
+        // same Chromium kiosk host as promoted monitors.
+        services.AddSingleton<Nexus.Service.Panel.IOverlayHost, Nexus.Service.Platform.Linux.LinuxOverlayHost>();
 #else
         services.AddSingleton<Nexus.Service.Panel.IOverlayHost, Nexus.Service.Panel.NoopOverlayHost>();
 #endif

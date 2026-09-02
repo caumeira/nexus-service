@@ -43,6 +43,15 @@ internal static class LinuxBrowsers
         };
     }
 
+    /// <summary>Application id for a flatpak export path (<c>…/flatpak/exports/bin/org.chromium.Chromium</c>), else null.</summary>
+    public static string? FlatpakAppId(string browserPath)
+    {
+        var dir = Path.GetDirectoryName(browserPath) ?? "";
+        return dir.Replace('\\', '/').EndsWith("/flatpak/exports/bin", StringComparison.Ordinal)
+            ? Path.GetFileName(browserPath)
+            : null;
+    }
+
     public static string? FindChromium()
     {
         foreach (var path in ChromiumFamily())

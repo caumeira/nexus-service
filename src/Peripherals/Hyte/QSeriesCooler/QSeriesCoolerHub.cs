@@ -30,7 +30,9 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     private string _portName = "";
     // Starts at 0 (the silent default) so a device absent from boot never logs
     // "discovery returned 0"; only a real change (0->N found, or N->0 disconnect) logs.
-    private int _lastDiscoveredPortCount;
+    // -1 so the first attempt logs even when it finds nothing: a silent zero is
+    // indistinguishable from the worker never running.
+    private int _lastDiscoveredPortCount = -1;
     // Last software-commanded pump / fan duty, echoed when toggling turbo or
     // switching to software so the other channel isn't reset.
     private int _lastPumpDuty = 50;

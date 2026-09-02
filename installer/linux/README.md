@@ -60,5 +60,18 @@ plus, in this build: RGB (OpenRGB, native i2c/hidraw), HYTE serial devices
 (PipeWire/PulseAudio), display brightness (backlight + DDC/CI), and
 screen-mirror lighting (xdg-desktop-portal ScreenCast).
 
+The Y70 panel and any promoted monitor run as a Chromium-family kiosk window,
+so they need `chromium`, `chrome`, `brave` or `edge` installed - by package or
+flatpak. Display layout is the compositor's, and Nexus renders to whatever
+geometry it gives the kiosk:
+
+- Rotate the Y70 to portrait and keep your main monitor primary in the
+  desktop's display settings (KDE persists this in `kwinoutputconfig.json`).
+- Wayland gives clients no way to pick an output, and KWin puts a new
+  fullscreen window on the primary screen. On KDE the service loads a small
+  KWin script (`nexus-panel-y70`, alongside the `nexus-focus` one) that moves
+  the kiosk onto the portrait strip and keeps it fullscreen. Other
+  compositors need their own equivalent.
+
 Not available on Linux: the in-game FPS overlay and the floating
 desktop-widget overlay (no viable host).

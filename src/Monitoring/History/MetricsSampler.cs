@@ -112,6 +112,11 @@ public sealed class MetricsSampler : IHostedService, IDisposable
 
     public void Dispose()
     {
+        // The host disposes this twice on shutdown (hosted-service teardown,
+        // then the provider); a second Cancel on the disposed source throws
+        // ObjectDisposedException and takes the process down mid-stop.
+        if (_disposed) return;
+        _disposed = true;
         // Cancel + Join unconditionally rather than gating on
         // IsCancellationRequested: if StopAsync's own Join already timed out
         // (a slow flush still in flight), this is a second bounded wait
@@ -121,6 +126,8 @@ public sealed class MetricsSampler : IHostedService, IDisposable
         _thread?.Join(StopJoinTimeout);
         _stopCts.Dispose();
     }
+
+    private bool _disposed;
 
     private void Run()
     {
