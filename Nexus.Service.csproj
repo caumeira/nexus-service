@@ -793,6 +793,7 @@
     <Compile Remove="src/Platform/Linux/LinuxKWinPanelPlacement.cs" />
     <Compile Remove="src/Platform/Linux/LinuxNotify.cs" />
     <Compile Remove="src/Platform/Linux/LinuxOverlayHost.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxScreenInhibit.cs" />
     <Compile Remove="src/Platform/Linux/LinuxPanelKioskHost.cs" />
     <Compile Remove="src/Platform/Linux/LinuxPerformanceProvider.cs" />
     <Compile Remove="src/Platform/Linux/LinuxResumeListener.cs" />

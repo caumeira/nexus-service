@@ -194,7 +194,11 @@ public sealed class LinuxPanelKioskHost : IDisposable
     {
         if (!_running.Remove(displayId, out var kiosk))
             return;
-        if (string.Equals(displayId, Y70Slot, StringComparison.Ordinal)) _y70Running = false;
+        if (string.Equals(displayId, Y70Slot, StringComparison.Ordinal))
+        {
+            _y70Running = false;
+            _ = LinuxScreenInhibit.ReleaseAsync(_dbus);
+        }
         try
         {
             if (!kiosk.Process.HasExited)
@@ -353,7 +357,11 @@ public sealed class LinuxPanelKioskHost : IDisposable
             proc.EnableRaisingEvents = true;
             proc.Exited += (_, _) => OnKioskExited(displayId);
             _running[displayId] = new Kiosk(proc, deviceId, DateTime.UtcNow, LinuxBrowsers.FlatpakAppId(browser));
-            if (string.Equals(displayId, Y70Slot, StringComparison.Ordinal)) _y70Running = true;
+            if (string.Equals(displayId, Y70Slot, StringComparison.Ordinal))
+            {
+                _y70Running = true;
+                _ = LinuxScreenInhibit.AcquireAsync(_dbus);
+            }
             Console.Error.WriteLine($"[panel-kiosk] opened display={displayId} device={deviceId} via {browser} pid {proc.Id}");
         }
         catch (Exception ex)
@@ -372,7 +380,11 @@ public sealed class LinuxPanelKioskHost : IDisposable
             if (!_running.TryGetValue(displayId, out var kiosk) || !kiosk.Process.HasExited)
                 return;
             _running.Remove(displayId);
-            if (string.Equals(displayId, Y70Slot, StringComparison.Ordinal)) _y70Running = false;
+            if (string.Equals(displayId, Y70Slot, StringComparison.Ordinal))
+            {
+                _y70Running = false;
+                _ = LinuxScreenInhibit.ReleaseAsync(_dbus);
+            }
             try { kiosk.Process.Dispose(); } catch { }
 
             if (DateTime.UtcNow - kiosk.SpawnedUtc < TimeSpan.FromSeconds(RapidFailureWindowSeconds))
