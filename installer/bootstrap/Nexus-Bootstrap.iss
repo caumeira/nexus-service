@@ -171,15 +171,17 @@ end;
 // Runs the verified payload. ShellExec (not CreateProcess) so its
 // requireAdministrator manifest elevates it; waiting keeps {tmp} alive until
 // it finishes. Done from [Code] rather than [Run] so a payload that fails, or
-// a declined UAC prompt, fails this Setup too (non-zero exit code - a scripted
-// "Nexus-Installer.exe /VERYSILENT" must not report success with nothing
-// installed). A silent stub run stays silent end to end; an interactive one
-// hides itself and hands over to the payload's own wizard.
+// a declined UAC prompt, fails this Setup too: exit code 3, versus 1 for a
+// download or hash failure (a scripted "Nexus-Installer.exe /VERYSILENT" must
+// not report success with nothing installed). A silent stub run (/SILENT or
+// /VERYSILENT; the script cannot tell them apart) drives the payload very
+// silently. The stub's own window stays up, disabled, behind the payload's
+// wizard: hiding it first would forfeit foreground activation for the
+// process it launches.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Params: String;
   ResultCode: Integer;
-  Started: Boolean;
 begin
   if CurStep <> ssInstall then
     Exit;
@@ -187,16 +189,13 @@ begin
     Params := '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
   else
     Params := '';
-  if not WizardSilent then
-    WizardForm.Hide;
-  try
-    Started := ShellExec('', ExpandConstant('{tmp}\{#PayloadName}'), Params, '', SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode);
-  finally
-    if not WizardSilent then
-      WizardForm.Show;
-  end;
-  if not Started then
+  if not ShellExec('', ExpandConstant('{tmp}\{#PayloadName}'), Params, '', SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) then
+  begin
+    // 1223 = the user declined the UAC prompt: as deliberate as a cancel.
+    if ResultCode = 1223 then
+      Abort;
     RaiseException(Format('Could not start {#PayloadName} (error %d).', [ResultCode]));
+  end;
   Log(Format('{#PayloadName} exited with code %d', [ResultCode]));
   // Inno exit codes 2 and 5 are the user cancelling the payload's wizard: end
   // quietly (still a non-zero exit), no error box for a deliberate cancel.
