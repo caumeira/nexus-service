@@ -96,9 +96,11 @@ the payload fails, is cancelled, or the UAC prompt is declined. The payload is d
 in-app OTA, so it is not subject to a per-release SmartScreen check - which is
 the point: SmartScreen reputation is keyed on the downloaded file's hash, and
 a release every day or two never lets `Nexus-Setup.exe` accrue any. The web
-installers are built and signed **once** by a dispatch-only CI job and
-published to fixed URLs under `assets.hellonexus.com/installers/windows/`,
-then re-used unchanged across releases. **Rebuild them only when the bootstrap
+installers are built and signed **once** by the release CI's `web_installers`
+dispatch input and published as release assets on
+`github.com/hello-nexus/nexus-installer` (one release per `StubVersion`, so
+`releases/latest/download/<name>` is a fixed URL), then re-used unchanged
+across releases. **Rebuild them only when the bootstrap
 script changes** (bump its `StubVersion`); every rebuild is a new hash that
 starts from zero. `-Bootstrap` writes a `<name>.sha256` next to each output
 (same `<hash>  <name>` shape as `SHA256SUMS`).

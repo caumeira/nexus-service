@@ -36,9 +36,17 @@
 ; Bump on any change to this script; it is the only version this file has.
 #define StubVersion "1.0.0"
 #define PayloadName "Nexus-Setup.exe"
+; AppId of ..\Nexus.iss: its uninstall key holds the install location.
+#define PayloadAppId "{8F2E3A4D-9C5B-4E7A-B1F8-3C2A5E9D0F12}"
 #define SumsName "SHA256SUMS"
-#define SumsUrl BaseUrl + "/download/offline/sha256sums?channel=" + Channel
-#define PayloadUrl BaseUrl + "/download/offline/windows?channel=" + Channel
+; Overridable so a trial build can pin one release's GitHub asset URLs
+; directly, bypassing the site's resolver.
+#ifndef SumsUrl
+  #define SumsUrl BaseUrl + "/download/offline/sha256sums?channel=" + Channel
+#endif
+#ifndef PayloadUrl
+  #define PayloadUrl BaseUrl + "/download/offline/windows?channel=" + Channel
+#endif
 
 [Setup]
 AppName={#StubTitle}
@@ -168,16 +176,31 @@ begin
   end;
 end;
 
+// The payload's own "open dashboard" step is skipped under /SILENT, so do it
+// here, from the user's session, at the location it installed to.
+procedure OpenDashboard();
+var
+  Dir: String;
+  ResultCode: Integer;
+begin
+  if not RegQueryStringValue(HKLM64, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#PayloadAppId}_is1', 'InstallLocation', Dir) then
+    Dir := ExpandConstant('{commonpf64}\Nexus');
+  Exec(AddBackslash(Dir) + 'Nexus.exe', '--open-app', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+end;
+
 // Runs the verified payload. ShellExec (not CreateProcess) so its
 // requireAdministrator manifest elevates it; waiting keeps {tmp} alive until
 // it finishes. Done from [Code] rather than [Run] so a payload that fails, or
 // a declined UAC prompt, fails this Setup too: exit code 3, versus 1 for a
 // download or hash failure (a scripted "Nexus-Installer.exe /VERYSILENT" must
-// not report success with nothing installed). A silent stub run (/SILENT or
-// /VERYSILENT; the script cannot tell them apart) drives the payload very
-// silently. The stub's own window stays up, disabled, behind the payload's
-// wizard: hiding it first would forfeit foreground activation for the
-// process it launches.
+// not report success with nothing installed). This wizard is the only one
+// the user sees: an interactive run drives the payload with /SILENT (a
+// progress window, its default directory) plus /DESKTOPICON=1, since a silent
+// payload creates no desktop icon unless asked (Nexus.iss DesktopIconChecked;
+// payloads older than that switch ignore it), a silent stub run (/SILENT or /VERYSILENT; the script cannot tell them
+// apart) drives it very silently. The stub's own window stays up, disabled,
+// behind the payload's progress: hiding it first would forfeit foreground
+// activation for the process it launches.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Params: String;
@@ -188,7 +211,7 @@ begin
   if WizardSilent then
     Params := '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'
   else
-    Params := '';
+    Params := '/SILENT /DESKTOPICON=1';
   if not ShellExec('', ExpandConstant('{tmp}\{#PayloadName}'), Params, '', SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) then
   begin
     // 1223 = the user declined the UAC prompt: as deliberate as a cancel.
@@ -203,4 +226,6 @@ begin
     Abort;
   if ResultCode <> 0 then
     RaiseException(Format('{#PayloadName} exited with code %d.', [ResultCode]));
+  if not WizardSilent then
+    OpenDashboard;
 end;
