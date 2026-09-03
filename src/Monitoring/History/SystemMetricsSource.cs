@@ -13,8 +13,10 @@ namespace Nexus.Service.Monitoring.History;
 /// <summary>
 /// Production IMetricsSource: CPU/memory from IPerformanceProvider, network
 /// byte rates from NetworkRateReader, disk byte rates from DiskRateReader,
-/// CPU temperature via SummarySensors, per-GPU load/temperature from
-/// ISensorProvider.GetGpus, per-channel fan RPM/duty from
+/// CPU temperature and per-GPU load/temperature via FindSensor over
+/// ISensorProvider.GetCpuSensors/GetGpus (also the picker
+/// Nexus.Service.Mcp.History.HistoryIdMapping reuses for get_sensors'
+/// historyId field), per-channel fan RPM/duty from
 /// IFanControlProvider.GetFanChannels, and per-drive/per-DIMM temperature
 /// from ISmartHealthSource / ISensorProvider.GetMemorySensors - the same
 /// always-on channel state CurveEngine reads at its own 1Hz tick (fans) or
@@ -89,14 +91,10 @@ public sealed class SystemMetricsSource : IMetricsSource
             ServiceLog.Warn($"[metrics-source] disk read failed: {ex.Message}");
         }
 
-        // CpuTemp derives from the cpu sensor list alone; SummarySensors.Value
-        // would also map every gpu and memory sensor, which this tick already
-        // reads once each below.
         double? cpuTemp = null;
         try
         {
-            cpuTemp = SummarySensors.ValueFrom(
-                _sensors.GetCpuSensors(), Array.Empty<HardwareSensor>(), Array.Empty<HardwareSensor>(), SummarySensorKind.CpuTemp);
+            cpuTemp = FindSensor(_sensors.GetCpuSensors(), "Temperature", "Package")?.Value;
         }
         catch (Exception ex)
         {
@@ -209,8 +207,8 @@ public sealed class SystemMetricsSource : IMetricsSource
         var result = new List<GpuReading>(readouts.Count);
         foreach (var g in readouts)
         {
-            var load = FindSensorValue(g.Sensors, "Load", "Core");
-            var temp = FindSensorValue(g.Sensors, "Temperature", "Core");
+            var load = FindSensor(g.Sensors, "Load", "Core")?.Value;
+            var temp = FindSensor(g.Sensors, "Temperature", "Core")?.Value;
             result.Add(new GpuReading(MetricsHistory.SanitizeId(g.Id), g.Name, g.AdapterLuid, load, temp));
         }
         return result;
@@ -233,10 +231,13 @@ public sealed class SystemMetricsSource : IMetricsSource
         return result;
     }
 
-    // Prefers a sensor whose name mentions nameContains (the GPU core reading,
-    // not a memory/hotspot/junction reading of the same type); falls back to
-    // the first sensor of the requested type if no such match exists.
-    private static double? FindSensorValue(IReadOnlyList<HardwareSensor> sensors, string type, string nameContains)
+    // Prefers a sensor whose name mentions nameContains (the GPU core reading
+    // or CPU package reading, not a memory/hotspot/junction/per-core reading
+    // of the same type); falls back to the first sensor of the requested type
+    // if no such match exists. Internal: Nexus.Service.Mcp.History.HistoryIdMapping
+    // reuses this exact selection so get_sensors' historyId field and a raw-id
+    // argument to query_sensor_history always agree with what this sampler records.
+    internal static HardwareSensor? FindSensor(IReadOnlyList<HardwareSensor> sensors, string type, string nameContains)
     {
         HardwareSensor? fallback = null;
         foreach (var s in sensors)
@@ -248,9 +249,9 @@ public sealed class SystemMetricsSource : IMetricsSource
             fallback ??= s;
             if (s.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
             {
-                return s.Value;
+                return s;
             }
         }
-        return fallback?.Value;
+        return fallback;
     }
 }
