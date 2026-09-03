@@ -192,6 +192,11 @@ Regenerate `docs/openapi.json` whenever a route is added, removed, or renamed.
   powershell -File installer/build-installer.ps1
   ```
 
+  `-Bootstrap` instead builds the two payload-free **web installers**
+  (`Nexus-Installer.exe`, `Nexus-Installer-Beta.exe`) that hellonexus.com
+  hands out; they download the current `Nexus-Setup.exe` at install time.
+  Built once, not per release - see `installer/README.md`.
+
 - **Linux** - package the publish output into a tarball; end users extract
   it and run `./install.sh`, which installs a root systemd daemon to
   `/opt/nexus` (no udev rules or group membership needed). See

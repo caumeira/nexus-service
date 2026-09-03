@@ -51,6 +51,10 @@ Optional flags:
   uninstaller, and the installer via Azure Artifact Signing (see Code signing
   below); omit for a fast unsigned dev build
 - `-SignToolPath` / `-DlibPath`  override the auto-probed signtool / dlib paths
+- `-Bootstrap`          build the two Windows **web installers** instead (see
+  below); needs no publish dir
+- `-BootstrapBaseUrl`   point the web installers at a different site for a
+  local end-to-end test (default `https://hellonexus.com`)
 
 ### Keep it lean
 
@@ -71,9 +75,43 @@ intended (a new bundled feature) or junk; verify which.
   `wwwroot\assets\` holds only the current build's hashed bundles (a skipped
   wwwroot wipe accumulates every prior build's dead `*.js`).
 
+## Web installers (bootstrap)
+
+`hellonexus.com`'s Windows download buttons hand out `Nexus-Installer.exe`
+(stable) and `Nexus-Installer-Beta.exe`, not `Nexus-Setup.exe`. Both compile
+from `bootstrap\Nexus-Bootstrap.iss` with `-Bootstrap`:
+
+```powershell
+powershell -File installer\build-installer.ps1 -Bootstrap [-Sign]
+```
+
+They carry no payload. On Install they fetch the site's
+`/download/offline/sha256sums?channel=<stable|beta>`, then
+`/download/offline/windows?channel=<...>` pinned to the hash from that list
+(the site resolves both to the matching GitHub release), and run the
+downloaded `Nexus-Setup.exe` (its own UAC prompt, its own wizard). A silent
+stub run (`Nexus-Installer.exe /VERYSILENT`) passes `/VERYSILENT` through and
+exits non-zero if the download, the hash check, the UAC prompt, or the payload
+fails. The payload is downloaded without Mark-of-the-Web, the same as the
+in-app OTA, so it is not subject to a per-release SmartScreen check - which is
+the point: SmartScreen reputation is keyed on the downloaded file's hash, and
+a release every day or two never lets `Nexus-Setup.exe` accrue any. The web
+installers are built and signed **once** by a dispatch-only CI job and
+published to fixed URLs under `assets.hellonexus.com/installers/windows/`,
+then re-used unchanged across releases. **Rebuild them only when the bootstrap
+script changes** (bump its `StubVersion`); every rebuild is a new hash that
+starts from zero. `-Bootstrap` writes a `<name>.sha256` next to each output
+(same `<hash>  <name>` shape as `SHA256SUMS`).
+
+`Nexus-Setup.exe` keeps shipping on every release exactly as before: it is what
+the OTA downloads and what system integrators install from a USB stick, and
+the site links it as the "offline installer".
+
 ## Files
 
 - `Nexus.iss` - Inno Setup script (wizard config, install steps, uninstall)
+- `bootstrap\Nexus-Bootstrap.iss` - the web installers (both channels from one
+  script via `/DChannel=`), see above
 - `logo-small.bmp` - 58x58 logo shown top-right of the directory page; regenerated
   from `..\icon.ico` if you change the brand mark
 - `build-installer.ps1` - the build entry point, also strips macOS AppleDouble
