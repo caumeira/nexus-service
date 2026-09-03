@@ -123,7 +123,21 @@ function place(w) {
   w.fullScreen = true;
 }
 
-workspace.windowList().forEach(place);
-workspace.windowAdded.connect(place);
+// Chromium maps the surface first and sets the app_id afterwards, so the
+// class seen at windowAdded can still be the launcher's. Re-check on every
+// signal that follows the app_id: class, caption (set once the page loads)
+// and geometry (the first configure after map).
+function track(w) {
+  if (!w) return;
+  place(w);
+  const again = function () { place(w); };
+  for (const name of ["windowClassChanged", "captionChanged", "frameGeometryChanged"]) {
+    const sig = w[name];
+    if (sig && typeof sig.connect === "function") sig.connect(again);
+  }
+}
+
+workspace.windowList().forEach(track);
+workspace.windowAdded.connect(track);
 """;
 }

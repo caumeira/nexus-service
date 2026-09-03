@@ -314,7 +314,16 @@ public sealed class LinuxPanelKioskHost : IDisposable
         if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
             args.Add("--ozone-platform=wayland");
         args.Add($"--app={url}");
+        // Client-requested fullscreen: KWin keeps it across the placement
+        // script's move, while a compositor-set fullscreen on a normal Chromium
+        // window is not honoured.
         args.Add("--kiosk");
+        // Chromium initialises OS crypt from the desktop keyring before the
+        // first navigation; on KDE a locked KWallet (autologin, or a session
+        // unlocked without PAM) leaves it waiting on a wallet prompt and every
+        // document load aborts, so the kiosk sits on Chromium's blank grey. A
+        // kiosk stores no credentials: opt out of the keyring entirely.
+        args.Add("--password-store=basic");
         args.Add($"--user-data-dir={ProfileDir(deviceId)}");
         args.Add("--no-first-run");
         args.Add("--noerrdialogs");
