@@ -170,6 +170,7 @@ if ($Version) {
     }
     $msixVersion = "$($parts[0]).$($parts[1]).$($parts[2]).0"
     $versionSource = "-Version $Version"
+    $payloadLabel = ""
 } else {
     # The numeric VS_FIXEDFILEINFO parts, not the .FileVersion string: that
     # string is StringFileInfo text, which matches only while Nexus.iss leaves
@@ -179,6 +180,27 @@ if ($Version) {
     $vi = (Get-Item $SetupPath).VersionInfo
     $msixVersion = "$($vi.FileMajorPart).$($vi.FileMinorPart).$($vi.FileBuildPart).0"
     $versionSource = $SetupPath
+    # ProductVersion is the full semver, prerelease suffix included, which the
+    # 4-part MSIX version cannot express: two betas of one patch pack as the
+    # same 4-part version, so a filename built from that version alone would
+    # let them overwrite each other with no way to tell the payloads apart.
+    # The replace also drops the version resource's whitespace and NUL padding
+    # (String.Trim does not remove NULs), and caps length since this reaches a
+    # path.
+    $payloadLabel = $vi.ProductVersion
+    if ($payloadLabel) {
+        $payloadLabel = ($payloadLabel -replace '[^A-Za-z0-9.\-+]', '')
+        if ($payloadLabel.Length -gt 40) { $payloadLabel = $payloadLabel.Substring(0, 40) }
+        # Nexus.iss sets neither VersionInfoProductVersion nor
+        # VersionInfoProductTextVersion, so ProductVersion currently inherits
+        # AppVersion. If anyone sets either, this label could name a different
+        # version than the package carries; fall back rather than mislabel.
+        $numeric = "$($vi.FileMajorPart).$($vi.FileMinorPart).$($vi.FileBuildPart)"
+        if (-not $payloadLabel.StartsWith($numeric)) {
+            Write-Warning "Payload ProductVersion '$payloadLabel' disagrees with its file version $numeric; naming the package after the version instead."
+            $payloadLabel = ""
+        }
+    }
 }
 if ($msixVersion -like '0.0.0.*') {
     throw "$versionSource reports the placeholder version $msixVersion (the Nexus.iss default). Build the installer with installer\build-installer.ps1 from a checkout whose VERSION is real, or pass -Version."
@@ -245,7 +267,10 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($manifestPath, $manifest, $utf8NoBom)
 
 $makeappx = Resolve-MakeAppx
-$msixName = "Nexus-$msixVersion.msix"
+# Partner Center never reads the file name, so it can carry what the package
+# version cannot: the payload's prerelease suffix, and the architecture, since
+# a Store submission holds one package per arch and they share an output dir.
+$msixName = if ($payloadLabel) { "Nexus-$payloadLabel-$arch.msix" } else { "Nexus-$msixVersion-$arch.msix" }
 $msixPath = Join-Path $outputDir $msixName
 & $makeappx pack /d $stagingDir /p $msixPath /o
 if ($LASTEXITCODE -ne 0) { throw "makeappx pack failed (exit $LASTEXITCODE)" }

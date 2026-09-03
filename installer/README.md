@@ -213,7 +213,12 @@ powershell -File installer\msix\build-msix.ps1 -Sign `
     -PublisherDisplayName "Hello Nexus"
 ```
 
-Output: `installer\msix\output\Nexus-<4-part version>.msix`.
+Output: `installer\msix\output\Nexus-<payload version>-<arch>.msix`, e.g.
+`Nexus-3.0.10-beta.4-x64.msix`. The file name carries the payload's full
+version (prerelease suffix included) and the architecture, neither of which the
+4-part package version can express; Partner Center never reads it. A build that
+passes `-Version`, or whose payload reports a product version disagreeing with
+its file version, is named for the package version instead.
 
 ### Identity tokens
 
