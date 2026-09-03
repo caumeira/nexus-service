@@ -406,8 +406,11 @@ builder.Services.AddNexusCloud();
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusCloud");
 builder.Services.AddNexusMcp();
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusMcp");
+// Local assistant (Ollama download + model pulls): dev-tools builds only.
+#if DEV_TOOLS
 builder.Services.AddNexusAssistant();
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusAssistant");
+#endif
 
 // mDNS / Bonjour advertiser for the iOS companion app's Wi-Fi discovery.
 // Reads HttpsPort + SpkiFingerprint + MachineName off PanelPhonePairingService
@@ -608,7 +611,9 @@ app.MapSlv3LcdEndpoints();
 app.MapUpdateEndpoints();
 app.MapCloudEndpoints();
 app.MapAiEndpoints();
+#if DEV_TOOLS
 app.MapAiAssistantEndpoints();
+#endif
 app.MapWebSocketEndpoints();
 app.MapRtcEndpoints();
 Nexus.Service.Lifecycle.BootTimer.Mark("after route mapping");
@@ -797,7 +802,9 @@ static void FastServiceShutdown(WebApplication app)
         }),
         Task.Run(() => { try { sp.GetService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>()?.ResetConnectedSurfacesForShutdown(); } catch { } }),
         Task.Run(() => { try { sp.GetService<Nexus.Service.Common.ExternalTools.ExternalToolManager>()?.TerminateAll(); } catch { } }),
+#if DEV_TOOLS
         Task.Run(() => { try { sp.GetService<Nexus.Service.Mcp.Assistant.OllamaRuntimeManager>()?.StopChildForShutdown(); } catch { } }),
+#endif
         Task.Run(() => FastWindowsUiTeardown(sp)),
     }, millisecondsTimeout: 1500);
     Console.Error.WriteLine($"[shutdown] fast teardown {(done ? "complete" : "TIMED OUT")} in {sw.ElapsedMilliseconds}ms");
