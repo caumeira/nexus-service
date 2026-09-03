@@ -191,6 +191,11 @@ and then opens the dashboard itself, because a silent Inno run skips its own
 `--open-app` step. It carries no service/driver logic of its own - everything
 above in this README still owns that.
 
+It deliberately does not pass `/DESKTOPICON=1`, so a Store install leaves the
+desktop alone: MSIX has no desktop-shortcut mechanism, only a Start entry, and
+Store-installed apps are expected to behave that way. The web installer passes
+the switch because a website download carries the opposite expectation.
+
 Build (Windows only, after building `Nexus-Setup.exe` per "Building" above).
 There are two distinct modes, and they take a different `-Publisher`:
 
@@ -208,7 +213,7 @@ powershell -File installer\msix\build-msix.ps1 -Sign `
     -PublisherDisplayName "Hello Nexus"
 ```
 
-Output: `installer\msix\output\Nexus-<version>.msix`.
+Output: `installer\msix\output\Nexus-<4-part version>.msix`.
 
 ### Identity tokens
 
@@ -226,11 +231,21 @@ default, `win-arm64` allowed); cross-arch AOT publish is not dependable, so the
 RID must match the machine running the build. These substituted values are
 XML-escaped before they reach the manifest, since they are operator-supplied
 strings, not build-time constants.
-`{{VERSION}}` derives from the repo's `VERSION` file: MSIX requires exactly
-four numeric parts and Partner Center rejects a nonzero fourth part, so any
-`-beta.N` prerelease suffix is dropped entirely (`3.0.0-beta.8` becomes
-`3.0.0.0`; MSIX has no prerelease-suffix concept, a beta channel would be a
-separate Store flight).
+`{{VERSION}}` is read off the **bundled `Nexus-Setup.exe`**, not the repo's
+`VERSION` file. CI stamps `VERSION` from its workflow input at build time and
+never commits it back, so a checkout routinely sits several patches behind the
+released version, and a package claiming a version its own payload does not
+carry misreports itself in the Store. `build-installer.ps1` stamps the
+installer's `VersionInfoVersion` as `<numeric>.0`, which is already the exact
+shape MSIX needs: four numeric parts with a zero revision (Partner Center
+rejects a nonzero fourth part, and MSIX has no prerelease-suffix concept, so a
+beta channel would be a separate Store flight). `-Version` overrides that, and is
+validated the same way, but it makes the package claim a version its payload
+does not carry - and since Store package versions must strictly increase, a
+resubmission needs a higher one, which guarantees the mismatch. Prefer
+rebuilding the payload at the version you want to ship. The build fails rather
+than guessing if the payload carries no version, or reports the `0.0.0`
+placeholder from an installer built without `build-installer.ps1`.
 
 The two `DisplayName` values in the manifest are **not** placeholders and are
 not substituted. They read `Hello Nexus`, the reserved Store name; `Nexus`
@@ -271,6 +286,25 @@ unpackaged service/tray helper read. **Not confirmed grantable:** Microsoft's
 own docs scope `unvirtualizedResources` to "certain types of desktop PC games
 ... published by Microsoft and our partners" - Store certification may reject
 it for Nexus. Confirm with Microsoft/Partner Center before a real submission.
+
+The same inheritance question reaches further than the setup exe, and the
+sideload probe should be scoped to the whole tree rather than to one process.
+`Nexus.exe --open-app` is not a leaf: `TrayIcon.OpenLocalWindow` blocks up to
+8s waiting on the overlay marshaler, spawns `nexus-overlay.exe`, can fall back
+to spawning `msedge.exe`, and creates `%ProgramData%\Nexus\DashboardEdge`
+in-process - that last one being exactly the kind of write the virtualization
+opt-out above exists for. Everything in that tree inherits package identity on
+the same premise.
+
+A process holding package identity also takes its AppUserModelID from the
+package, so `SetCurrentProcessExplicitAppUserModelID`
+(`ToastNotifications.AppUserModelId`, `HelloNexus.Nexus`, pinned to the
+Start-menu shortcut in `Nexus.iss`) may be refused there. Toasts are the one
+part that looks safe: `--open-app` raises none (`CommandLineEntry` routes it
+straight to `OpenLocalWindow`), and the process that does raise them is the
+tray helper, which the *service* starts through Task Scheduler
+(`UserHelperBootstrapper`), never as a child of this launcher. Unverified -
+check the whole tree in the probe, not just the setup exe.
 
 ### Assets
 
