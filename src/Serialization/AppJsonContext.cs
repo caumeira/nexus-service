@@ -1262,6 +1262,21 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(McpUpdateStatusResult))]
 [JsonSerializable(typeof(McpMemoryInfoResult))]
 
+// History and action tools
+[JsonSerializable(typeof(McpTemperaturePoint))]
+[JsonSerializable(typeof(List<McpTemperaturePoint>))]
+[JsonSerializable(typeof(McpTemperatureSeries))]
+[JsonSerializable(typeof(List<McpTemperatureSeries>))]
+[JsonSerializable(typeof(McpTemperatureHistoryResult))]
+[JsonSerializable(typeof(McpGameSummary))]
+[JsonSerializable(typeof(List<McpGameSummary>))]
+[JsonSerializable(typeof(McpGameSessionEntry))]
+[JsonSerializable(typeof(List<McpGameSessionEntry>))]
+[JsonSerializable(typeof(McpGameSessionsResult))]
+[JsonSerializable(typeof(McpScreenTimeResult))]
+[JsonSerializable(typeof(McpAddMonitoringEventResult))]
+[JsonSerializable(typeof(McpCalibrateFansResult))]
+
 // Local AI assistant (managed Ollama runtime + agentic query loop).
 [JsonSerializable(typeof(AssistantStatusResponse))]
 [JsonSerializable(typeof(AssistantDownloadProgressDto))]
