@@ -363,7 +363,9 @@ public static class DiagnosticsHealthRoutes
     private static bool IsRefresh(string? refresh) =>
         refresh is "1" || string.Equals(refresh, "true", StringComparison.OrdinalIgnoreCase);
 
-    private static IncidentsResponse BuildIncidentsResponse(
+    // internal: also called by the get_incidents MCP tool, so it serves the
+    // same grouped and game-decorated response the REST route does.
+    internal static IncidentsResponse BuildIncidentsResponse(
         EventLogMonitor events, SteamGameLibraryCache steamCache, int windowDays, bool group, bool includeGpuDriver = true)
     {
         IReadOnlyList<DiagnosticIncident> incidents = events.Snapshot(windowDays);
