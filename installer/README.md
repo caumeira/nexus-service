@@ -197,15 +197,15 @@ There are two distinct modes, and they take a different `-Publisher`:
 ```powershell
 # Store build - stays unsigned, Store re-signs on submission.
 powershell -File installer\msix\build-msix.ps1 `
-    -IdentityName <reserved Partner Center identity name> `
-    -Publisher "CN=<Partner Center publisher id>" `
-    -PublisherDisplayName "American Future Technology Corp."
+    -IdentityName "HelloNexus.HelloNexus" `
+    -Publisher "CN=62485AE2-77C6-4F70-A924-D5BA99963014" `
+    -PublisherDisplayName "Hello Nexus"
 
 # Local sideload verification only.
 powershell -File installer\msix\build-msix.ps1 -Sign `
-    -IdentityName <reserved Partner Center identity name> `
+    -IdentityName "HelloNexus.HelloNexus" `
     -Publisher "<Azure Artifact Signing cert Subject>" `
-    -PublisherDisplayName "American Future Technology Corp."
+    -PublisherDisplayName "Hello Nexus"
 ```
 
 Output: `installer\msix\output\Nexus-<version>.msix`.
@@ -214,20 +214,29 @@ Output: `installer\msix\output\Nexus-<version>.msix`.
 
 `AppxManifest.template.xml` carries five placeholders the build script
 substitutes: `{{IDENTITY_NAME}}`, `{{PUBLISHER}}`, `{{PUBLISHER_DISPLAY_NAME}}`,
-`{{VERSION}}`, `{{ARCH}}`. The first three come from the app identity reserved
-in Partner Center and are not checked in anywhere; the script's own parameter
-defaults are deliberately invalid placeholders so an un-overridden package is
-obviously wrong rather than silently plausible, and `-Sign` refuses to run
-against them. `{{ARCH}}` derives from `-Rid` (`win-x64` default, `win-arm64`
-allowed); cross-arch AOT publish is not dependable, so the RID must match the
-machine running the build.
-Values are XML-escaped before they reach the manifest, since they are
-operator-supplied strings, not build-time constants.
+`{{VERSION}}`, `{{ARCH}}`. `{{IDENTITY_NAME}}` and `{{PUBLISHER_DISPLAY_NAME}}`
+come from the app identity reserved in Partner Center and are the real values
+shown in both build commands above (they are public: any installed package
+exposes them). `{{PUBLISHER}}` differs by mode - the Partner Center id for a
+Store build, the signing cert subject for `-Sign` - see Signing below. The
+script's own parameter defaults are deliberately invalid placeholders so an
+un-overridden package is obviously wrong rather than silently plausible, and
+`-Sign` refuses to run against them. `{{ARCH}}` derives from `-Rid` (`win-x64`
+default, `win-arm64` allowed); cross-arch AOT publish is not dependable, so the
+RID must match the machine running the build. These substituted values are
+XML-escaped before they reach the manifest, since they are operator-supplied
+strings, not build-time constants.
 `{{VERSION}}` derives from the repo's `VERSION` file: MSIX requires exactly
 four numeric parts and Partner Center rejects a nonzero fourth part, so any
 `-beta.N` prerelease suffix is dropped entirely (`3.0.0-beta.8` becomes
 `3.0.0.0`; MSIX has no prerelease-suffix concept, a beta channel would be a
 separate Store flight).
+
+The two `DisplayName` values in the manifest are **not** placeholders and are
+not substituted. They read `Hello Nexus`, the reserved Store name; `Nexus`
+belongs to another publisher, and Partner Center rejects any package whose name
+is not one of the account's reserved names. The unpackaged suite the shell
+installs is unaffected and keeps its own `Nexus` branding from `Nexus.iss`.
 
 ### Signing
 

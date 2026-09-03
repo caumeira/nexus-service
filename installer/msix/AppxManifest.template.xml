@@ -27,7 +27,12 @@
     ProcessorArchitecture="{{ARCH}}" />
 
   <Properties>
-    <DisplayName>Nexus</DisplayName>
+    <!--
+      Must stay a name reserved in Partner Center or the submission is rejected;
+      "Nexus" belongs to another publisher. Neither this nor the VisualElements
+      DisplayName below is substituted by build-msix.ps1.
+    -->
+    <DisplayName>Hello Nexus</DisplayName>
     <PublisherDisplayName>{{PUBLISHER_DISPLAY_NAME}}</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <!--
@@ -66,8 +71,9 @@
 
   <Applications>
     <Application Id="NexusStoreLauncher" Executable="NexusStoreLauncher.exe" EntryPoint="Windows.FullTrustApplication">
+      <!-- DisplayName: reserved Partner Center name, see Properties above. -->
       <uap:VisualElements
-        DisplayName="Nexus"
+        DisplayName="Hello Nexus"
         Description="Nexus hardware monitoring, control, and RGB lighting."
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"

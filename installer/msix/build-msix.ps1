@@ -17,16 +17,16 @@
 #
 #   Store build (stays unsigned; Store re-signs on submission):
 #     powershell -File installer\msix\build-msix.ps1 `
-#       -IdentityName <reserved Partner Center identity name> `
-#       -Publisher "CN=<Partner Center publisher id>" `
-#       -PublisherDisplayName "American Future Technology Corp."
+#       -IdentityName "HelloNexus.HelloNexus" `
+#       -Publisher "CN=62485AE2-77C6-4F70-A924-D5BA99963014" `
+#       -PublisherDisplayName "Hello Nexus"
 #
 #   Local sideload verification (-Sign):
 #     powershell -File installer\msix\build-msix.ps1 -Sign `
-#       -IdentityName <reserved Partner Center identity name> `
+#       -IdentityName "HelloNexus.HelloNexus" `
 #       -Publisher "<Azure Artifact Signing cert Subject, e.g. from
 #                    (Get-AuthenticodeSignature .\Nexus-Setup.exe).SignerCertificate.Subject>" `
-#       -PublisherDisplayName "American Future Technology Corp."
+#       -PublisherDisplayName "Hello Nexus"
 
 param(
     [string]$IdentityName = "Nexus.DEV.CHANGEME",
