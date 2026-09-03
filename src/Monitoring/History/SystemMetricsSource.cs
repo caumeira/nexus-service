@@ -177,8 +177,21 @@ public sealed class SystemMetricsSource : IMetricsSource
             }
         }
 
-        var ramIndex = 0;
-        foreach (var sensor in _sensors.GetMemorySensors())
+        var ramSensors = FindRamTempSensors(_sensors.GetMemorySensors());
+        for (var i = 0; i < ramSensors.Count; i++)
+        {
+            result.Add(new ComponentTempReading($"ram:{i}", "ram", ramSensors[i].Name, ramSensors[i].Value));
+        }
+
+        return result;
+    }
+
+    // Shared with Nexus.Service.Mcp.History.HistoryIdMapping.RamSensorIds so its
+    // temp.ram:<index> mapping never drifts from what this sampler records.
+    internal static IReadOnlyList<HardwareSensor> FindRamTempSensors(IReadOnlyList<HardwareSensor> memorySensors)
+    {
+        var result = new List<HardwareSensor>();
+        foreach (var sensor in memorySensors)
         {
             if (!string.Equals(sensor.Type, "Temperature", StringComparison.OrdinalIgnoreCase))
             {
@@ -189,10 +202,8 @@ public sealed class SystemMetricsSource : IMetricsSource
             {
                 continue;
             }
-            result.Add(new ComponentTempReading($"ram:{ramIndex}", "ram", sensor.Name, sensor.Value));
-            ramIndex++;
+            result.Add(sensor);
         }
-
         return result;
     }
 
@@ -231,12 +242,7 @@ public sealed class SystemMetricsSource : IMetricsSource
         return result;
     }
 
-    // Prefers a sensor whose name mentions nameContains (the GPU core reading
-    // or CPU package reading, not a memory/hotspot/junction/per-core reading
-    // of the same type); falls back to the first sensor of the requested type
-    // if no such match exists. Internal: Nexus.Service.Mcp.History.HistoryIdMapping
-    // reuses this exact selection so get_sensors' historyId field and a raw-id
-    // argument to query_sensor_history always agree with what this sampler records.
+    // Nexus.Service.Mcp.History.HistoryIdMapping reuses this exact match order so get_sensors' historyId stays in sync with sampling.
     internal static HardwareSensor? FindSensor(IReadOnlyList<HardwareSensor> sensors, string type, string nameContains)
     {
         HardwareSensor? fallback = null;

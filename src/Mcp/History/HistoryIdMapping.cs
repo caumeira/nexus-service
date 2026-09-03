@@ -43,26 +43,16 @@ public static class HistoryIdMapping
     }
 
     /// <summary>Raw sensor ids SystemMetricsSource samples as RAM temperature,
-    /// keyed by the "temp.ram:&lt;index&gt;" history id each feeds. Mirrors
-    /// SystemMetricsSource.ReadComponentTemps' dimm/memory name filter and
-    /// encounter-order indexing exactly.</summary>
+    /// keyed by the "temp.ram:&lt;index&gt;" history id each feeds. Reuses
+    /// SystemMetricsSource.FindRamTempSensors so the index always matches
+    /// ReadComponentTemps' encounter order.</summary>
     public static IReadOnlyDictionary<string, string> RamSensorIds(IReadOnlyList<HardwareSensor> memorySensors)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
-        var ramIndex = 0;
-        foreach (var s in memorySensors)
+        var ramSensors = SystemMetricsSource.FindRamTempSensors(memorySensors);
+        for (var i = 0; i < ramSensors.Count; i++)
         {
-            if (!string.Equals(s.Type, "Temperature", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            if (!s.Name.Contains("dimm", StringComparison.OrdinalIgnoreCase)
-                && !s.Name.Contains("memory", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-            map[s.Id] = $"temp.ram:{ramIndex}";
-            ramIndex++;
+            map[ramSensors[i].Id] = $"temp.ram:{i}";
         }
         return map;
     }

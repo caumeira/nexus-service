@@ -44,7 +44,7 @@ public sealed class QuerySensorHistoryTool : IMcpTool
 
     public string InputSchemaJson =>
         "{\"type\":\"object\",\"properties\":{" +
-        "\"sensorId\":{\"type\":\"string\",\"description\":\"Sensor id from get_history_summary.\"}," +
+        "\"sensorId\":{\"type\":\"string\",\"description\":\"Sensor id from get_history_summary, or the raw id get_sensors returns for a sensor with tracked history.\"}," +
         "\"minutes\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"How far back to look, in minutes.\"}," +
         "\"maxPoints\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"Maximum points to return; thinned evenly when the window has more.\"}" +
         "},\"required\":[\"sensorId\",\"minutes\"],\"additionalProperties\":false}";

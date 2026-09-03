@@ -45,12 +45,15 @@ public static class DiagnosticsHealthRoutes
     private const int MaxIncidentDays = 30;
 
     private const int MinTemperatureHours = 1;
-    private const int MaxTemperatureHours = 336;
+    // get_temperature_history (Nexus.Service.Mcp.Tools.GetTemperatureHistoryTool)
+    // reuses this so its own window cap never exceeds the route's.
+    internal const int MaxTemperatureHours = 336;
     private const int DefaultTemperatureHours = 168;
 
     // Defensive backstop only: TemperatureInsights.TierWidthMinutesFor already
     // bounds each series well under this cap for every window up to MaxTemperatureHours.
-    private const int MaxPointsPerSeries = 600;
+    // get_temperature_history reuses this value too, for the same reason.
+    internal const int MaxPointsPerSeries = 600;
 
     public static void MapDiagnosticsHealthEndpoints(this WebApplication app)
     {

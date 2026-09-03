@@ -67,7 +67,7 @@ public sealed class McpGpuInfo
     public double? TemperatureC { get; set; }
     public double? PowerW { get; set; }
     public GpuThrottleInfo Throttle { get; set; } = new(System.Array.Empty<string>(), null, null, null, null);
-    /// <summary>Timeout Detection and Recovery (driver-reset) events in the last 30 days.</summary>
+    /// <summary>Timeout Detection and Recovery (driver-reset) event count over a recent lookback window.</summary>
     public int RecentTdrCount { get; set; }
 }
 

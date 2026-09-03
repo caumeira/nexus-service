@@ -39,7 +39,7 @@ public sealed class GetStorageHealthTool : IMcpTool
 
     public Task<McpToolExecutionResult> ExecuteAsync(JsonElement? args, CancellationToken ct)
     {
-        if (BoolArg(args, "refresh"))
+        if (McpArgs.BoolArg(args, "refresh"))
         {
             _smart.ForceRefresh();
         }
@@ -95,8 +95,4 @@ public sealed class GetStorageHealthTool : IMcpTool
             DataWrittenBytes = d.Nvme.DataUnitsWrittenBytes,
         },
     };
-
-    private static bool BoolArg(JsonElement? args, string name) =>
-        args is { } a && a.ValueKind == JsonValueKind.Object
-            && a.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
 }

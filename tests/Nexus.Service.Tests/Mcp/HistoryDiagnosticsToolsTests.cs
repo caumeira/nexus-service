@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Nexus.Service.Activity;
 using Nexus.Service.Activity.Storage;
 using Nexus.Service.Diagnostics.EventLog;
+using Nexus.Service.Diagnostics.Temperature;
 using Nexus.Service.Games;
 using Nexus.Service.Mcp.Tools;
 using Nexus.Service.Models.Activity;
@@ -135,18 +136,57 @@ public sealed class HistoryDiagnosticsToolsTests : IDisposable
         Assert.Equal("chrome.exe", point.GetProperty("dominantApp").GetString());
     }
 
-    [Fact]
-    public async Task GetTemperatureHistory_wide_window_aggregates_hourly()
+    [Theory]
+    [InlineData(24, 5)]
+    [InlineData(48, 15)]
+    [InlineData(100, 30)]
+    [InlineData(200, 60)]
+    public async Task GetTemperatureHistory_bucket_width_matches_TierWidthMinutesFor(int hours, int expectedTierMinutes)
     {
         var store = new InMemoryMetricsHistoryStore();
         store.Append(new[] { CpuTempSample(DateTime.UtcNow.AddMinutes(-10), 60) }, null);
         var tool = new GetTemperatureHistoryTool(store, new FakeScreenTimeStore());
 
-        var result = await tool.ExecuteAsync(JsonSerializer.SerializeToElement(new { hours = 48 }), CancellationToken.None);
+        var result = await tool.ExecuteAsync(JsonSerializer.SerializeToElement(new { hours }), CancellationToken.None);
 
         Assert.False(result.IsError);
         using var doc = JsonDocument.Parse(result.Text);
-        Assert.Equal(60, doc.RootElement.GetProperty("bucketMinutes").GetInt32());
+        Assert.Equal(TemperatureInsights.TierWidthMinutesFor(hours), doc.RootElement.GetProperty("bucketMinutes").GetInt32());
+        Assert.Equal(expectedTierMinutes, doc.RootElement.GetProperty("bucketMinutes").GetInt32());
+    }
+
+    [Fact]
+    public void GetTemperatureHistory_MaxHours_matches_the_rest_routes_cap()
+    {
+        Assert.Equal(DiagnosticsHealthRoutes.MaxTemperatureHours, GetTemperatureHistoryTool.MaxHours);
+    }
+
+    [Fact]
+    public async Task GetTemperatureHistory_hours_beyond_the_route_cap_excludes_data_outside_it()
+    {
+        var store = new InMemoryMetricsHistoryStore();
+        // Older than MaxHours (336h/14d) but well inside the store's own retention.
+        store.Append(new[] { CpuTempSample(DateTime.UtcNow.AddHours(-400), 55) }, null);
+        var tool = new GetTemperatureHistoryTool(store, new FakeScreenTimeStore());
+
+        var result = await tool.ExecuteAsync(JsonSerializer.SerializeToElement(new { hours = 1000 }), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        using var doc = JsonDocument.Parse(result.Text);
+        Assert.Empty(doc.RootElement.GetProperty("series").EnumerateArray());
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(24)]
+    [InlineData(72)]
+    [InlineData(168)]
+    [InlineData(GetTemperatureHistoryTool.MaxHours)]
+    public void GetTemperatureHistory_tiering_keeps_merged_buckets_within_the_route_point_backstop(int hours)
+    {
+        var maxPossibleBuckets = hours * 60 / TemperatureInsights.TierWidthMinutesFor(hours);
+
+        Assert.True(maxPossibleBuckets <= DiagnosticsHealthRoutes.MaxPointsPerSeries);
     }
 
     [Fact]
@@ -309,6 +349,30 @@ public sealed class HistoryDiagnosticsToolsTests : IDisposable
         using var doc = JsonDocument.Parse(result.Text);
         Assert.Equal("app", doc.RootElement.GetProperty("mode").GetString());
         Assert.Equal("chrome.exe", doc.RootElement.GetProperty("app").GetProperty("appName").GetString());
+    }
+
+    [Fact]
+    public async Task GetScreenTime_range_beyond_the_cap_is_error()
+    {
+        var tool = new GetScreenTimeTool(new FakeScreenTimeStore(), NewConfigStore());
+
+        var result = await tool.ExecuteAsync(
+            JsonSerializer.SerializeToElement(new { from = "2020-01-01", to = "2026-09-01" }), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Contains(GetScreenTimeTool.MaxRangeDays.ToString(), result.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetScreenTime_app_range_beyond_the_cap_is_error()
+    {
+        var tool = new GetScreenTimeTool(new FakeScreenTimeStore(), NewConfigStore());
+
+        var result = await tool.ExecuteAsync(
+            JsonSerializer.SerializeToElement(new { app = "chrome.exe", from = "2020-01-01", to = "2026-09-01" }), CancellationToken.None);
+
+        Assert.True(result.IsError);
+        Assert.Contains(GetScreenTimeTool.MaxRangeDays.ToString(), result.Text, StringComparison.Ordinal);
     }
 
     [Fact]

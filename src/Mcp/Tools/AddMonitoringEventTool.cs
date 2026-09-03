@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,19 +11,14 @@ namespace Nexus.Service.Mcp.Tools;
 
 /// <summary>
 /// Write tool: adds a timeline marker exactly as POST /monitoring/events does,
-/// through the same IMonitoringEventStore.Append call, so the registered
-/// decorator broadcasts it on the monitoring/events topic the same way.
+/// through the same IMonitoringEventStore.Append call with kind fixed to
+/// custom, so the registered decorator broadcasts it on the monitoring/events
+/// topic the same way. Kind is not caller-selectable: app-open/uac-escalation/
+/// usb-attach/usb-detach are MonitoringEventCollector's own system markers.
 /// </summary>
 public sealed class AddMonitoringEventTool : IMcpTool
 {
-    private static readonly string[] ValidKinds =
-    {
-        MonitoringEventKinds.AppOpen,
-        MonitoringEventKinds.UacEscalation,
-        MonitoringEventKinds.UsbAttach,
-        MonitoringEventKinds.UsbDetach,
-        MonitoringEventKinds.Custom,
-    };
+    internal const int MaxDetailLength = MonitoringHistoryRoutes.MaxCustomEventLabelLength * 4;
 
     private readonly IMonitoringEventStore _store;
 
@@ -35,7 +29,9 @@ public sealed class AddMonitoringEventTool : IMcpTool
 
     public string Description =>
         "Adds a marker to the monitoring dashboard timeline, the same as the timeline's own add-event " +
-        "control. Use it right after changing cooling, lighting, or a profile so a later " +
+        "control. Always recorded as a custom event; label and detail beyond " +
+        $"{MonitoringHistoryRoutes.MaxCustomEventLabelLength} and {MaxDetailLength} characters are " +
+        "truncated. Use it right after changing cooling, lighting, or a profile so a later " +
         "get_temperature_history or query_events call can correlate against exactly when it happened.";
 
     public McpCapability Capability => McpCapability.History;
@@ -44,8 +40,9 @@ public sealed class AddMonitoringEventTool : IMcpTool
     public string InputSchemaJson =>
         "{\"type\":\"object\",\"properties\":{" +
         "\"label\":{\"type\":\"string\",\"description\":\"Short marker label shown on the timeline.\"}," +
-        "\"detail\":{\"type\":\"string\",\"description\":\"Optional longer detail text.\"}," +
-        "\"kind\":{\"type\":\"string\",\"enum\":[\"app-open\",\"uac-escalation\",\"usb-attach\",\"usb-detach\",\"custom\"],\"description\":\"Event kind. Defaults to custom.\"}" +
+        "\"detail\":{\"type\":\"string\",\"description\":\"Optional longer detail text, truncated beyond " +
+        $"{MaxDetailLength}" +
+        " characters.\"}" +
         "},\"required\":[\"label\"],\"additionalProperties\":false}";
 
     public Task<McpToolExecutionResult> ExecuteAsync(JsonElement? args, CancellationToken ct)
@@ -56,16 +53,14 @@ public sealed class AddMonitoringEventTool : IMcpTool
             return Task.FromResult(McpToolExecutionResult.Error(labelError));
         }
 
-        var kindArg = McpArgs.StringArg(args, "kind");
-        var kind = string.IsNullOrEmpty(kindArg) ? MonitoringEventKinds.Custom : kindArg;
-        if (!ValidKinds.Contains(kind, StringComparer.Ordinal))
+        var detail = McpArgs.StringArg(args, "detail");
+        if (detail is { Length: > MaxDetailLength })
         {
-            return Task.FromResult(McpToolExecutionResult.Error($"'kind' must be one of: {string.Join(", ", ValidKinds)}."));
+            detail = detail[..MaxDetailLength];
         }
 
-        var detail = McpArgs.StringArg(args, "detail");
         var t = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var created = _store.Append(t, kind, label, detail, custom: true);
+        var created = _store.Append(t, MonitoringEventKinds.Custom, label, detail, custom: true);
 
         var result = new McpAddMonitoringEventResult { Id = created.Id, T = created.TUtcMs, Kind = created.Kind, Label = created.Label };
         var json = JsonSerializer.Serialize(result, AppJsonContext.Default.McpAddMonitoringEventResult);

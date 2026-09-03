@@ -27,7 +27,7 @@ public sealed class GetSensorsTool : IMcpTool
         "or a specific storage drive's SMART data (pass its id as 'drive'). A sensor's historyId, when " +
         "present, is the same id query_sensor_history and get_history_summary use for it, and either " +
         "that id or the sensor's own 'id' works as query_sensor_history's sensorId argument; historyId " +
-        "is null for a sensor with no tracked history (every fan and storage sensor today).";
+        "is null for a sensor with no tracked history (every fan and storage sensor).";
 
     public McpCapability Capability => McpCapability.Telemetry;
     public bool ReadOnly => true;

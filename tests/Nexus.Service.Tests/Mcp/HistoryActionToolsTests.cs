@@ -98,19 +98,7 @@ public sealed class HistoryActionToolsTests : IDisposable
     }
 
     [Fact]
-    public async Task AddMonitoringEvent_invalid_kind_is_error_listing_valid_values()
-    {
-        var tool = new AddMonitoringEventTool(new InMemoryMetricsHistoryStore());
-
-        var result = await tool.ExecuteAsync(
-            JsonSerializer.SerializeToElement(new { label = "x", kind = "not-a-kind" }), CancellationToken.None);
-
-        Assert.True(result.IsError);
-        Assert.Contains("custom", result.Text, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task AddMonitoringEvent_explicit_kind_is_honored()
+    public async Task AddMonitoringEvent_ignores_a_caller_supplied_kind_and_always_records_custom()
     {
         var store = new InMemoryMetricsHistoryStore();
         var tool = new AddMonitoringEventTool(store);
@@ -120,7 +108,25 @@ public sealed class HistoryActionToolsTests : IDisposable
 
         Assert.False(result.IsError);
         using var doc = JsonDocument.Parse(result.Text);
-        Assert.Equal(MonitoringEventKinds.UsbAttach, doc.RootElement.GetProperty("kind").GetString());
+        Assert.Equal(MonitoringEventKinds.Custom, doc.RootElement.GetProperty("kind").GetString());
+        var stored = Assert.Single(((IMonitoringEventStore)store).Query(0, long.MaxValue, 10));
+        Assert.Equal(MonitoringEventKinds.Custom, stored.Kind);
+        Assert.True(stored.Custom);
+    }
+
+    [Fact]
+    public async Task AddMonitoringEvent_detail_beyond_the_cap_is_truncated()
+    {
+        var store = new InMemoryMetricsHistoryStore();
+        var tool = new AddMonitoringEventTool(store);
+        var longDetail = new string('x', AddMonitoringEventTool.MaxDetailLength + 50);
+
+        var result = await tool.ExecuteAsync(
+            JsonSerializer.SerializeToElement(new { label = "x", detail = longDetail }), CancellationToken.None);
+
+        Assert.False(result.IsError);
+        var stored = Assert.Single(((IMonitoringEventStore)store).Query(0, long.MaxValue, 10));
+        Assert.Equal(AddMonitoringEventTool.MaxDetailLength, stored.Detail!.Length);
     }
 
     // ── calibrate_fans ───────────────────────────────────────────────────────

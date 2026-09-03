@@ -9,19 +9,20 @@ using Nexus.Service.Diagnostics.Temperature;
 using Nexus.Service.Models.Mcp;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Platform;
+using Nexus.Service.Routes;
 using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Mcp.Tools;
 
-/// <summary>Read-only history tool: 5-minute temperature buckets (hourly for
-/// windows over a day) per component, each bucket annotated with the slot's
-/// dominant foreground app.</summary>
+/// <summary>Read-only history tool: temperature buckets tiered by window
+/// length (TemperatureInsights.TierWidthMinutesFor) per component, each
+/// annotated with the slot's dominant foreground app.</summary>
 public sealed class GetTemperatureHistoryTool : IMcpTool
 {
     internal const int DefaultHours = 24;
-    internal const int MaxHours = TemperatureInsights.RetentionDays * 24;
-    private const int HourlyTierThresholdHours = 24;
-    private const int HourlyTierMinutes = 60;
+    // Mirrors GET /diagnostics/temperatures' own cap so this tool can never
+    // return a wider window than the REST route allows.
+    internal const int MaxHours = DiagnosticsHealthRoutes.MaxTemperatureHours;
 
     private readonly IMetricsHistoryStore _store;
     private readonly IScreenTimeStore _screenTime;
@@ -36,11 +37,12 @@ public sealed class GetTemperatureHistoryTool : IMcpTool
     public string Title => "Temperature History";
 
     public string Description =>
-        "Returns temperature history bucketed every 5 minutes (hourly beyond a day) for one component " +
-        "or every component, over a window in hours (default 24, capped at " +
-        $"{MaxHours / 24} days) or a single calendar 'date'. Each bucket carries the average and peak " +
-        "temperature plus the dominant foreground app running at that time, for correlating heat with " +
-        "what was running. Call get_incidents to check whether a hot stretch lines up with a crash.";
+        "Returns temperature history for one component or every component, bucketed at a width that " +
+        "widens as the requested window grows, over a window in hours (default " +
+        $"{DefaultHours}, capped at {MaxHours / 24} days) or a single calendar 'date'. Each bucket " +
+        "carries the average and peak temperature plus the dominant foreground app running at that " +
+        "time, for correlating heat with what was running. Call get_incidents to check whether a hot " +
+        "stretch lines up with a crash.";
 
     public McpCapability Capability => McpCapability.History;
     public bool ReadOnly => true;
@@ -70,7 +72,7 @@ public sealed class GetTemperatureHistoryTool : IMcpTool
             {
                 return Task.FromResult(McpToolExecutionResult.Error(dateError!));
             }
-            tierWidthMinutes = TemperatureInsights.NativeBucketMinutes;
+            tierWidthMinutes = TemperatureInsights.TierWidthMinutesFor(24);
         }
         else
         {
@@ -78,7 +80,7 @@ public sealed class GetTemperatureHistoryTool : IMcpTool
             var hours = requestedHours is { } h && h > 0 ? Math.Min(h, MaxHours) : DefaultHours;
             toUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             fromUtcMs = toUtcMs - hours * 3_600_000L;
-            tierWidthMinutes = hours <= HourlyTierThresholdHours ? TemperatureInsights.NativeBucketMinutes : HourlyTierMinutes;
+            tierWidthMinutes = TemperatureInsights.TierWidthMinutesFor(hours);
         }
 
         var rows = _store.QueryTemperatureBuckets(fromUtcMs, toUtcMs);
@@ -103,17 +105,18 @@ public sealed class GetTemperatureHistoryTool : IMcpTool
                 var ordered = g.OrderBy(r => r.BucketUtcMs).ToList();
                 var last = ordered[^1];
                 var merged = TemperatureInsights.MergeToWidth(ordered, widthMs);
+                var decimated = TemperatureInsights.Decimate(merged, DiagnosticsHealthRoutes.MaxPointsPerSeries);
                 return new McpTemperatureSeries
                 {
                     Id = g.Key,
                     Kind = last.Kind,
                     Name = last.Name,
-                    Points = merged.Select(m => new McpTemperaturePoint
+                    Points = decimated.Select(p => new McpTemperaturePoint
                     {
-                        T = m.BucketUtcMs,
-                        Avg = Math.Round(m.AvgC, 1),
-                        Max = Math.Round(m.MaxC, 1),
-                        DominantApp = appByBucket.GetValueOrDefault(m.BucketUtcMs),
+                        T = p.T,
+                        Avg = Math.Round(p.Avg, 1),
+                        Max = Math.Round(p.Max, 1),
+                        DominantApp = appByBucket.GetValueOrDefault(p.T),
                     }).ToList(),
                 };
             })

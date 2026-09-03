@@ -26,10 +26,7 @@ public class HardwareSensor
     public string FormattedAverage { get; set; } = "";
     public string FormattedUsage { get; set; } = "";
     public SensorParent Parent { get; set; } = new();
-    // get_sensors MCP tool only (null everywhere else so it stays off the wire
-    // under WhenWritingNull): the query_sensor_history/get_history_summary id
-    // this sensor feeds, from HistoryIdMapping. Null when no history series
-    // reads this sensor.
+    // get_sensors only (WhenWritingNull hides it elsewhere): HistoryIdMapping's id for query_sensor_history, or null.
     public string? HistoryId { get; set; }
 }
 

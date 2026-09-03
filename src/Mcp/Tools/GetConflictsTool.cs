@@ -39,11 +39,7 @@ public sealed class GetConflictsTool : IMcpTool
             ConflictsWith = DescribeConflict(c.Category),
         }).ToList();
 
-        // A real vendor Chroma SDK DLL occupying a shim slot is a distinct
-        // conflict from a running Synapse process (ConflictAppCatalog's
-        // "razer-synapse" entry above) - it can be true even when Synapse
-        // itself is not currently running. Safe to call unconditionally:
-        // GameSyncShimInstaller.GetState() is a no-op off Windows.
+        // A loaded Chroma SDK DLL is distinct from ConflictAppCatalog's razer-synapse entry (a running process); GetState() no-ops off Windows so this is safe unconditionally.
         if (GameSyncShimInstaller.GetState().SynapseConflict)
         {
             items.Add(new McpConflictItem
