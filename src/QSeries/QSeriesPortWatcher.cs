@@ -812,6 +812,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _homePinFirstFailureBySerial.Remove(key);
         }
+        _homeChooserSeenBySerial.RemoveWhere(k => !seenSerials.Contains(k));
         // user_rotation does not survive a panel reboot (brightness does), so a
         // re-attach re-applies. Dropping the confirmed-state record with the
         // latch is what forces that apply to push everything rather than diff
@@ -1460,6 +1461,18 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// <summary>Substring of <c>dumpsys window mCurrentFocus</c> when qshell owns focus.</summary>
     private const string QshellFocusMarker = QshellPackage;
 
+    /// <summary>Android role that owns the default launcher from Android 10 on.</summary>
+    private const string HomeRole = "android.app.role.HOME";
+
+    /// <summary>
+    /// True when <c>mCurrentFocus</c> holds a disambiguation chooser. The panel
+    /// keeps two HOME-eligible apps by design (qshell + the OEM launcher), so a
+    /// dropped default HOME resolves to one; a chooser raised for some other
+    /// intent only costs a redundant re-pin.
+    /// </summary>
+    internal static bool IsChooserFocus(string focus) =>
+        focus.Contains("ResolverActivity", StringComparison.Ordinal);
+
     /// <summary>
     /// Last <c>am start</c> time per serial. Throttles re-launch; the foreground
     /// check itself is cheap and runs every tick.
@@ -1478,15 +1491,19 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// Serials whose default HOME has been re-pinned to qshell this run. The
     /// install-time <c>set-home-activity</c> (ApkFlasher) does not survive a panel
     /// cold boot on Android 11, so the panel comes up on the launcher chooser; the
-    /// per-tick am-start masks it but never restores the default. Re-assert the pin
-    /// once per attach, after qshell is confirmed installed, so the next cold boot
-    /// resolves HOME without the chooser. Cleared on detach so a reboot re-pins.
+    /// per-tick am-start masks it but never restores the default. Re-asserted
+    /// after qshell is confirmed installed - once per attach, plus again whenever
+    /// the chooser is seen in the foreground. Cleared on detach.
     /// </summary>
     private readonly HashSet<string> _homePinnedThisRun = new(StringComparer.Ordinal);
 
     /// <summary>Serial -> when the pin first failed this attach; bounds the
     /// un-latch retry below. Cleared on success and on detach.</summary>
     private readonly Dictionary<string, DateTimeOffset> _homePinFirstFailureBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>Serials whose current chooser episode has already triggered a
+    /// re-pin. Cleared when qshell regains focus, and on detach.</summary>
+    private readonly HashSet<string> _homeChooserSeenBySerial = new(StringComparer.Ordinal);
 
 
     /// <summary>
@@ -1778,12 +1795,29 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 $"[qseries-port-watcher] {device.Serial}: foreground check failed: {ex.GetType().Name}");
             return;
         }
-        if (focusReceiver.ToString().Contains(QshellFocusMarker, StringComparison.Ordinal))
+        var focus = focusReceiver.ToString();
+        if (focus.Contains(QshellFocusMarker, StringComparison.Ordinal))
         {
             _qshellMissingBySerial.Remove(device.Serial);
             _activityMissingBySerial.Remove(device.Serial);
+            _homeChooserSeenBySerial.Remove(device.Serial);
             await ReassertQshellHomeAsync(device, ct);
             return;
+        }
+
+        // A chooser in focus means the default was dropped after the pin latched.
+        // Skipped while a pin is already failing, so the bounded give-up in
+        // RecordHomePinFailure stands.
+        // One repair per chooser episode: _homeChooserSeenBySerial is cleared only
+        // when qshell regains focus, so a chooser that outlives the re-pin does not
+        // re-shell every tick.
+        if (IsChooserFocus(focus)
+            && _homeChooserSeenBySerial.Add(device.Serial)
+            && !_homePinFirstFailureBySerial.ContainsKey(device.Serial)
+            && _homePinnedThisRun.Remove(device.Serial))
+        {
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: HOME chooser in foreground; re-arming the default-HOME pin");
         }
 
         // Throttle: give a just-issued am start time to take.
@@ -1941,7 +1975,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     /// <summary>
     /// Re-pin qshell as the panel's default HOME (<c>cmd package
-    /// set-home-activity</c>), once per attach. See <see cref="_homePinnedThisRun"/>
+    /// set-home-activity</c>) while unlatched. See <see cref="_homePinnedThisRun"/>
     /// for why the install-time pin is insufficient. Caller must have confirmed
     /// qshell is installed.
     /// </summary>
@@ -1957,8 +1991,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
             if (SetHomeActivityTook(output))
             {
                 _homePinFirstFailureBySerial.Remove(device.Serial);
+                var role = await AssignHomeRoleAsync(device, ct);
                 ServiceLog.Info(
-                    $"[qseries-port-watcher] {device.Serial}: re-pinned default HOME to qshell ({output})");
+                    $"[qseries-port-watcher] {device.Serial}: re-pinned default HOME to qshell ({output}); role={role}");
             }
             else
             {
@@ -1972,6 +2007,43 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             RecordHomePinFailure(device.Serial, ex.GetType().Name);
         }
+    }
+
+    /// <summary>
+    /// Give qshell the HOME role alongside the pin. The pin stays the success
+    /// criterion: a shell without MANAGE_ROLE_HOLDERS leaves the panel where it
+    /// already is. Verdict comes from a holder read-back, never from the
+    /// add command's silence.
+    /// </summary>
+    private async Task<string> AssignHomeRoleAsync(DeviceData device, CancellationToken ct)
+    {
+        try
+        {
+            var addReceiver = new ConsoleOutputReceiver();
+            await _client.ExecuteShellCommandAsync(
+                device, $"cmd role add-role-holder {HomeRole} {QshellPackage}", addReceiver, ct);
+            var holdersReceiver = new ConsoleOutputReceiver();
+            await _client.ExecuteShellCommandAsync(
+                device, $"cmd role get-role-holders {HomeRole}", holdersReceiver, ct);
+            return ClassifyHomeRole(addReceiver.ToString(), holdersReceiver.ToString());
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            return ex.GetType().Name;
+        }
+    }
+
+    /// <summary>
+    /// "ok" only when the read-back names qshell. An empty add output means
+    /// nothing on its own - a shell that never ran returns the same thing.
+    /// </summary>
+    internal static string ClassifyHomeRole(string addOutput, string holdersOutput)
+    {
+        var holders = holdersOutput.Trim();
+        if (holders.Contains(QshellPackage, StringComparison.Ordinal)) return "ok";
+        var add = addOutput.Trim();
+        if (add.Length > 0) return add;
+        return holders.Length == 0 ? "no holder" : $"holder={holders}";
     }
 
     /// <summary>
@@ -2283,13 +2355,23 @@ public sealed class QSeriesPortWatcher : BackgroundService
             // Timezone first so the wall clock lands in the right offset; the
             // host TZ is stable, but re-sending it is a cheap no-op.
             var iana = ResolveHostIanaTimeZone();
+            var tzDetail = "skipped (host zone unmapped)";
             if (iana is not null)
             {
+                var tzReceiver = new ConsoleOutputReceiver();
                 await _client.ExecuteShellCommandAsync(
-                    device, $"cmd alarm set-timezone {iana}", new ConsoleOutputReceiver(), ct);
+                    device, $"cmd alarm set-timezone {iana}", tzReceiver, ct);
+                // `cmd alarm` prints nothing on success, an error line on refusal.
+                var tzOut = tzReceiver.ToString().Trim();
+                tzDetail = tzOut.Length == 0 ? iana : $"{iana} -> {tzOut}";
             }
+            var timeReceiver = new ConsoleOutputReceiver();
             await _client.ExecuteShellCommandAsync(
-                device, $"cmd alarm set-time {now.ToUnixTimeMilliseconds()}", new ConsoleOutputReceiver(), ct);
+                device, $"cmd alarm set-time {now.ToUnixTimeMilliseconds()}", timeReceiver, ct);
+            var timeOut = timeReceiver.ToString().Trim();
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: clock sync tz={tzDetail}"
+                + $" time={(timeOut.Length == 0 ? "ok" : timeOut)}");
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -2304,12 +2386,15 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// Host system timezone as an IANA id (<c>cmd alarm set-timezone</c> wants
     /// IANA, e.g. "America/Los_Angeles"); null when a Windows id has no IANA
     /// mapping, in which case the timezone is left as-is and only the clock set.
+    /// <see cref="WindowsTimeZoneMap"/> is the fallback the shipping
+    /// <c>InvariantGlobalization</c> publish depends on - see its remarks.
     /// </summary>
-    private static string? ResolveHostIanaTimeZone()
+    internal static string? ResolveHostIanaTimeZone()
     {
         var local = TimeZoneInfo.Local;
         if (local.HasIanaId) return local.Id;
-        return TimeZoneInfo.TryConvertWindowsIdToIanaId(local.Id, out var iana) ? iana : null;
+        if (TimeZoneInfo.TryConvertWindowsIdToIanaId(local.Id, out var iana)) return iana;
+        return WindowsTimeZoneMap.ToIana(local.Id);
     }
 
     /// <summary>

@@ -1,3 +1,4 @@
+using System;
 using AdvancedSharpAdbClient.Models;
 using Nexus.Service.Devices;
 using Nexus.Service.QSeries;
@@ -90,5 +91,88 @@ public class BuildAdbVisibilitySignatureTests
             new UsbDeviceEntry[0]);
 
         Assert.Equal("adb=[ABC(Unauthorized,HYTE_Q60_Display)] mediatek-pnp=[]", signature);
+    }
+}
+
+public class WindowsTimeZoneMapTests
+{
+    // The service publishes with InvariantGlobalization, where
+    // TimeZoneInfo.TryConvertWindowsIdToIanaId returns false for every Windows id
+    // - which silently skipped `cmd alarm set-timezone` on every Windows host and
+    // left field panels on their factory zone.
+    [Theory]
+    [InlineData("India Standard Time", "Asia/Calcutta")]
+    [InlineData("Pacific Standard Time", "America/Los_Angeles")]
+    [InlineData("GMT Standard Time", "Europe/London")]
+    [InlineData("W. Europe Standard Time", "Europe/Berlin")]
+    [InlineData("UTC", "Etc/UTC")]
+    public void Maps_windows_ids_to_iana(string windowsId, string expected)
+    {
+        Assert.Equal(expected, WindowsTimeZoneMap.ToIana(windowsId));
+    }
+
+    [Fact]
+    public void Unknown_id_is_null_so_the_panel_zone_is_left_alone()
+    {
+        Assert.Null(WindowsTimeZoneMap.ToIana("Not A Real Standard Time"));
+    }
+
+    [Fact]
+    public void No_value_is_a_windows_registry_id()
+    {
+        // `cmd alarm set-timezone` only takes IANA; a Windows id reaching the
+        // panel is the bug this map exists to close.
+        foreach (var windowsId in new[] { "India Standard Time", "UTC", "Tokyo Standard Time" })
+        {
+            Assert.DoesNotContain("Standard Time", WindowsTimeZoneMap.ToIana(windowsId)!, StringComparison.Ordinal);
+        }
+    }
+}
+
+public class HomeRoleAndChooserTests
+{
+    [Fact]
+    public void Chooser_focus_detected()
+    {
+        Assert.True(QSeriesPortWatcher.IsChooserFocus(
+            "  mCurrentFocus=Window{1a2b3c u0 android/com.android.internal.app.ResolverActivity}"));
+    }
+
+    [Fact]
+    public void Qshell_focus_is_not_a_chooser()
+    {
+        Assert.False(QSeriesPortWatcher.IsChooserFocus(
+            "  mCurrentFocus=Window{1a2b3c u0 com.hellonexus.qshell/com.hellonexus.qshell.MainActivity}"));
+        Assert.False(QSeriesPortWatcher.IsChooserFocus(""));
+    }
+
+    [Fact]
+    public void Role_ok_only_when_the_read_back_names_qshell()
+    {
+        Assert.Equal("ok", QSeriesPortWatcher.ClassifyHomeRole("", "[com.hellonexus.qshell]\n"));
+    }
+
+    [Fact]
+    public void Silent_add_with_no_holder_is_not_ok()
+    {
+        // A shell that never ran returns the same empty string as one that worked.
+        Assert.Equal("no holder", QSeriesPortWatcher.ClassifyHomeRole("", ""));
+    }
+
+    [Fact]
+    public void Refusal_is_reported_over_an_empty_read_back()
+    {
+        Assert.Equal(
+            "Error: java.lang.SecurityException: MANAGE_ROLE_HOLDERS",
+            QSeriesPortWatcher.ClassifyHomeRole(
+                "Error: java.lang.SecurityException: MANAGE_ROLE_HOLDERS\n", ""));
+    }
+
+    [Fact]
+    public void Wrong_holder_is_named()
+    {
+        Assert.Equal(
+            "holder=[com.companyname.thiccapp]",
+            QSeriesPortWatcher.ClassifyHomeRole("", "[com.companyname.thiccapp]"));
     }
 }
