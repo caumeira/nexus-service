@@ -188,13 +188,13 @@ var httpsPort = servicePort == 9400 ? 9443 : servicePort + 443;
 // the watcher's escalation reboot an attributable liveness signal - on the
 // main port, panel traffic is indistinguishable from the desktop dashboard
 // (both 127.0.0.1), so an open dashboard masked a stranded panel
-// indefinitely. Windows-only,
-// matching the Q-series host stack. A taken port deactivates the monitor
+// indefinitely. Windows and Linux, matching the QSeriesPortWatcher
+// registration. A taken port deactivates the monitor
 // (watcher falls back to the legacy record-based gate) instead of failing the
 // Kestrel bind and taking the service down.
 var panelTunnelPort = servicePort + 1;
 var panelTunnelMonitor = new Nexus.Service.Panel.PanelTunnelMonitor(
-    OperatingSystem.IsWindows() && !testHost && IsLoopbackPortFree(panelTunnelPort) ? panelTunnelPort : null);
+    (OperatingSystem.IsWindows() || OperatingSystem.IsLinux()) && !testHost && IsLoopbackPortFree(panelTunnelPort) ? panelTunnelPort : null);
 
 static bool IsLoopbackPortFree(int port)
 {

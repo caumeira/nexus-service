@@ -55,8 +55,9 @@ and any DKMS module are left in place.
 Sensors (hwmon), CPU/GPU performance, network, USB enumeration, screen-time,
 shortcuts, weather, audio-reactive lighting, system tray, start at boot -
 plus, in this build: RGB (OpenRGB, native i2c/hidraw), HYTE serial devices
-(NP50 / MiniHub / CNVS / Q-series cooler / Y70), motherboard fan control
-(hwmon PWM), keyboard macros (uinput), media (MPRIS), volume
+(NP50 / MiniHub / CNVS / Q-series cooler / Y70), the Q-series panel (Q60 /
+Q80, driven over the bundled adb; no USB-reset recovery on Linux yet),
+motherboard fan control (hwmon PWM), keyboard macros (uinput), media (MPRIS), volume
 (PipeWire/PulseAudio), display brightness (backlight + DDC/CI), and
 screen-mirror lighting (xdg-desktop-portal ScreenCast).
 

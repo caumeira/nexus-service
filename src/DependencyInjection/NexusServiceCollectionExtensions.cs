@@ -1678,9 +1678,10 @@ public static class NexusServiceCollectionExtensions
         // QSeriesPortWatcher keeps `adb reverse tcp:{servicePort}` alive
         // while a HYTE Q60 / Q80 USB display is attached. Without it,
         // every time Y70's adb-server restarts the panel's multiplex
-        // WebSocket on the Q-series silently freezes. Windows-only - the
-        // Q-series host stack lives on the Y70 PC.
-        if (OperatingSystem.IsWindows())
+        // WebSocket on the Q-series silently freezes. Windows and Linux only:
+        // macOS has no native Q-series cooler stack and the panel path is
+        // untested there.
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.QSeries.QSeriesPortWatcher>(
                 sp => new Nexus.Service.QSeries.QSeriesPortWatcher(

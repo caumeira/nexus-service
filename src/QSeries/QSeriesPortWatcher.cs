@@ -383,6 +383,19 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// <summary>KEYCODE_WAKEUP: forces the display awake.</summary>
     private const int KeyeventWakeup = 224;
 
+    /// <summary>Host is about to suspend. Linux calls this from the logind
+    /// PrepareForSleep(true) signal; Windows from SystemEvents. Runs inline,
+    /// bounded by SendKeyeventBestEffort's per-serial cap.</summary>
+    public void OnHostSuspending() => TrySleepPanelsForHostPowerDown();
+
+    /// <summary>Host resumed. Stamps the resume before handing off so the tick
+    /// loop's reseat check reads a resume, not a reseat, whichever runs first.</summary>
+    public void OnHostResumed()
+    {
+        MarkHostResumed();
+        _ = Task.Run(TryRestorePanelsForHostResume);
+    }
+
 #if WINDOWS
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e)
