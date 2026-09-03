@@ -11,6 +11,9 @@
          sources exist in the referenced assembly. -->
     <DefineConstants Condition="$(RuntimeIdentifier.StartsWith('osx')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('OSX')))">$(DefineConstants);MACOS</DefineConstants>
     <DefineConstants Condition="$(RuntimeIdentifier.StartsWith('linux')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('Linux')))">$(DefineConstants);LINUX</DefineConstants>
+    <!-- Mirror the service's DEV_TOOLS define (-p:DevTools=true) so dev-only
+         route contracts compile in the same flavour as the referenced assembly. -->
+    <DefineConstants Condition="'$(DevTools)' == 'true'">$(DefineConstants);DEV_TOOLS</DefineConstants>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
