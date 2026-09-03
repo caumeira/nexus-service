@@ -696,14 +696,17 @@ public static partial class DevicesRoutes
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
 
-        // Motherboard ARGB zone LED count - persists and applies via OpenRGB RESIZEZONE
-        app.MapPost("/devices/lighting-devices/zone-size", (SetZoneLedCountBody body, ILightingDeviceProvider ld, FeatureGates gates) =>
+        // Motherboard ARGB zone LED count - persists and applies via OpenRGB RESIZEZONE.
+        // Broadcasts `lighting` so the device list (and its cards' LED counts)
+        // refetches without waiting for an unrelated mutation.
+        app.MapPost("/devices/lighting-devices/zone-size", (SetZoneLedCountBody body, ILightingDeviceProvider ld, FeatureGates gates, Nexus.Service.Sockets.MultiplexHub hub) =>
         {
             if (!gates.Lighting)
             {
                 return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
             }
             ld.SetZoneLedCount(body.Id, body.Count);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return Results.Ok(ApiResponse.Ok());
         });
 
