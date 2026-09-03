@@ -213,7 +213,12 @@ powershell -File installer\msix\build-msix.ps1 -Sign `
     -PublisherDisplayName "Hello Nexus"
 ```
 
-Output: `installer\msix\output\Nexus-<4-part version>.msix`.
+Output: `installer\msix\output\Nexus-<payload version>-<arch>.msix`, e.g.
+`Nexus-3.0.10-beta.4-x64.msix`. The file name carries the payload's full
+version (prerelease suffix included) and the architecture, neither of which the
+4-part package version can express; Partner Center never reads it. A build that
+passes `-Version`, or whose payload reports a product version disagreeing with
+its file version, is named for the package version instead.
 
 ### Identity tokens
 
@@ -274,37 +279,57 @@ The script refuses `-Sign` when `-Publisher` looks like a bare Partner Center
 `CN=<GUID>` id, since that is never a valid signing subject; pass
 `-SkipPublisherModeCheck` if this heuristic misfires.
 
-### Write virtualization
+### Write virtualization: opt-out removed 2026-09-03
 
-The manifest disables MSIX AppData/HKCU write virtualization
-(`desktop6:FileSystemWriteVirtualization` / `RegistryWriteVirtualization`,
-`unvirtualizedResources` capability). Without it, `Nexus.exe` and
-`Nexus-Setup.exe` launched as direct children of this packaged launcher would
-inherit its package identity, so their writes would land in the package's
-private virtualized store instead of the real locations the already-installed,
-unpackaged service/tray helper read. **Not confirmed grantable:** Microsoft's
-own docs scope `unvirtualizedResources` to "certain types of desktop PC games
-... published by Microsoft and our partners" - Store certification may reject
-it for Nexus. Confirm with Microsoft/Partner Center before a real submission.
+The manifest used to disable MSIX write virtualization
+(`desktop6:FileSystemWriteVirtualization` / `RegistryWriteVirtualization` plus
+the `unvirtualizedResources` restricted capability), on the theory that
+`Nexus.exe` and `Nexus-Setup.exe` launched by the packaged launcher would
+inherit its package identity and have their writes redirected into the
+package's private store. All three are gone, because the redirection they
+guarded against cannot reach anything this package starts, and the capability
+was a standing certification risk: Microsoft scopes `unvirtualizedResources` to
+"certain types of desktop PC games ... published by Microsoft and our
+partners".
 
-The same inheritance question reaches further than the setup exe, and the
-sideload probe should be scoped to the whole tree rather than to one process.
-`Nexus.exe --open-app` is not a leaf: `TrayIcon.OpenLocalWindow` blocks up to
-8s waiting on the overlay marshaler, spawns `nexus-overlay.exe`, can fall back
-to spawning `msedge.exe`, and creates `%ProgramData%\Nexus\DashboardEdge`
-in-process - that last one being exactly the kind of write the virtualization
-opt-out above exists for. Everything in that tree inherits package identity on
-the same premise.
+**The argument is about scope, not about identity.** Write virtualization
+redirects only writes under `%USERPROFILE%\AppData` and `HKCU`
+(learn.microsoft.com/windows/msix/desktop/flexible-virtualization). Neither is
+in the launcher's path:
 
-A process holding package identity also takes its AppUserModelID from the
-package, so `SetCurrentProcessExplicitAppUserModelID`
-(`ToastNotifications.AppUserModelId`, `HelloNexus.Nexus`, pinned to the
-Start-menu shortcut in `Nexus.iss`) may be refused there. Toasts are the one
-part that looks safe: `--open-app` raises none (`CommandLineEntry` routes it
-straight to `OpenLocalWindow`), and the process that does raise them is the
-tray helper, which the *service* starts through Task Scheduler
-(`UserHelperBootstrapper`), never as a child of this launcher. Unverified -
-check the whole tree in the probe, not just the setup exe.
+- The only descendant the launcher creates is `Nexus.exe --open-app`
+  (`CommandLineEntry`), whose tree writes `%ProgramData%\Nexus\DashboardEdge`
+  (`TrayIcon`) - outside the redirected scope.
+- `Nexus-Setup.exe` writes Program Files, `%ProgramData%`, and HKLM. Also
+  outside it.
+- The suite's HKCU writers - the Run key (`WindowsStartupProvider`), the
+  `nexus:` protocol handler (`ProtocolHandler`), and the AUMID registration
+  (`ToastNotifications`) - all run in the daemon or the tray helper, which the
+  service starts through SCM or Task Scheduler. Neither is ever a descendant of
+  the launcher.
+
+That holds however package identity propagates, which is what makes it the
+load-bearing argument.
+
+**What was and was not measured on T1** (Windows 11 Home, self-signed sideload
+of a `runFullTrust`-only package):
+
+- Measured: the capability-free package installs, reports `caps=runFullTrust`,
+  and its launcher activates without error; `makeappx` packs the manifest under
+  the real Store identity.
+- **Not measured: whether a child of a Store-activated packaged app inherits
+  package identity.** An attempt using `Invoke-CommandInDesktopPackage` proved
+  nothing - that cmdlet creates children *without* context by default, which a
+  control run confirmed (default: child `NO_PACKAGE`; `-PreventBreakaway`:
+  child carries the package identity). A second attempt polling for the real
+  launcher's children caught neither the launcher nor any child, both being far
+  too short-lived for a 100ms poll. Catching them needs ETW process-start
+  tracing.
+
+**Residual risk, small and named:** if a launcher descendant does inherit
+identity *and* someone later adds an `%APPDATA%` or HKCU write to the
+`--open-app` path, that write would silently redirect into the package store.
+Nothing on that path writes to either location today.
 
 ### Assets
 
