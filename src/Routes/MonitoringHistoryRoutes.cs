@@ -65,7 +65,7 @@ public static class MonitoringHistoryRoutes
     private const int MinEventsLimit = 1;
     private const int MaxEventsLimit = 2000;
     private const int DefaultEventsLimit = 500;
-    private const int MaxCustomEventLabelLength = 120;
+    internal const int MaxCustomEventLabelLength = 120;
 
     // POST /monitoring/events clamps a t further in the future than this to
     // now, per the wire contract - a client's clock skew should not park an

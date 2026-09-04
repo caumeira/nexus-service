@@ -1941,6 +1941,24 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.QueryEventsTool>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetTopAppsTool>();
         services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.QueryAppHistoryTool>();
+        // Diagnostics read tools
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetHealthTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetStorageHealthTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetGpuHealthTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetSystemSpecsTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetConflictsTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetUpdateStatusTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetMemoryInfoTool>();
+
+        // History and action tools
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetIncidentsTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetTemperatureHistoryTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetGameSessionsTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetScreenTimeTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetProcessInfoTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.AddMonitoringEventTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.CalibrateFansTool>();
+
         services.AddSingleton<Nexus.Service.Mcp.McpToolRegistry>();
         services.AddSingleton<Nexus.Service.Mcp.McpServerHost>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Mcp.McpServerHost>());
