@@ -749,6 +749,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Focus.UpdateFocusModeBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Focus.ReorderFocusModesBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Focus.FocusChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudAccountsChangedFrame))]
 [JsonSerializable(typeof(TrackingStatus))]
 [JsonSerializable(typeof(SetTrackingBody))]
 [JsonSerializable(typeof(NetworkProcessInfo))]
