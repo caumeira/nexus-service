@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using AdvancedSharpAdbClient.Models;
 using Nexus.Service.Devices;
 using Nexus.Service.QSeries;
@@ -129,8 +130,19 @@ public class WindowsTimeZoneMapTests
     }
 }
 
-public class HomeRoleAndChooserTests
+public class HomeChooserAndTaskTests
 {
+    // Real `dumpsys activity activities | grep -E "\* Task\{"` output from a Q60
+    // (MT8167 BSP, Android 11) while qshell was stacked on the launcher chooser.
+    private const string Dump = """
+    * Task{f48decd #20 visible=true type=standard mode=fullscreen translucent=false A=10064:com.hellonexus.qshell U=0 StackId=20 sz=1}
+    * Task{b6a066f #18 visible=true type=standard mode=fullscreen translucent=true I=android/com.android.internal.app.ResolverActivity U=0 StackId=18 sz=1}
+      * Task{f48decd #20 visible=true type=standard mode=fullscreen translucent=false A=10064:com.hellonexus.qshell U=0 StackId=20 sz=1}
+      * Task{b6a066f #18 visible=true type=standard mode=fullscreen translucent=true I=android/com.android.internal.app.ResolverActivity U=0 StackId=18 sz=1}
+      * Task{9278be3 #17 visible=true type=home mode=fullscreen translucent=true ?? U=0 StackId=17 sz=0}
+      * Task{d785ee4 #3 visible=false type=undefined mode=split-screen-primary translucent=true ?? U=0 StackId=3 sz=0}
+    """;
+
     [Fact]
     public void Chooser_focus_detected()
     {
@@ -147,32 +159,31 @@ public class HomeRoleAndChooserTests
     }
 
     [Fact]
-    public void Role_ok_only_when_the_read_back_names_qshell()
+    public void Parses_root_tasks_once_each()
     {
-        Assert.Equal("ok", QSeriesPortWatcher.ClassifyHomeRole("", "[com.hellonexus.qshell]\n"));
+        var tasks = QSeriesPortWatcher.ParsePanelTasks(Dump);
+        Assert.Equal(new[] { 20, 18, 17, 3 }, tasks.Select(t => t.Id).ToArray());
+        var qshell = tasks.Single(t => t.Id == 20);
+        Assert.Equal(("standard", "com.hellonexus.qshell", 20, 1), (qshell.Type, qshell.Component, qshell.StackId, qshell.Size));
+        var home = tasks.Single(t => t.Id == 17);
+        Assert.Equal(("home", "", 0), (home.Type, home.Component, home.Size));
     }
 
     [Fact]
-    public void Silent_add_with_no_holder_is_not_ok()
+    public void Zombie_chooser_and_standard_qshell_are_stale_and_the_empty_home_task_is_not_qshell_home()
     {
-        // A shell that never ran returns the same empty string as one that worked.
-        Assert.Equal("no holder", QSeriesPortWatcher.ClassifyHomeRole("", ""));
+        var tasks = QSeriesPortWatcher.ParsePanelTasks(Dump);
+        Assert.Equal(new[] { 20, 18 }, tasks.Where(QSeriesPortWatcher.IsStaleStandardTask).Select(t => t.Id).ToArray());
+        Assert.DoesNotContain(tasks, QSeriesPortWatcher.IsQshellHomeTask);
     }
 
     [Fact]
-    public void Refusal_is_reported_over_an_empty_read_back()
+    public void Qshell_in_the_home_task_is_recognised_and_not_stale()
     {
-        Assert.Equal(
-            "Error: java.lang.SecurityException: MANAGE_ROLE_HOLDERS",
-            QSeriesPortWatcher.ClassifyHomeRole(
-                "Error: java.lang.SecurityException: MANAGE_ROLE_HOLDERS\n", ""));
-    }
-
-    [Fact]
-    public void Wrong_holder_is_named()
-    {
-        Assert.Equal(
-            "holder=[com.companyname.thiccapp]",
-            QSeriesPortWatcher.ClassifyHomeRole("", "[com.companyname.thiccapp]"));
+        var tasks = QSeriesPortWatcher.ParsePanelTasks(
+            "    * Task{9278be3 #17 visible=true type=home mode=fullscreen translucent=false A=10064:com.hellonexus.qshell U=0 StackId=17 sz=1}");
+        Assert.Single(tasks);
+        Assert.True(QSeriesPortWatcher.IsQshellHomeTask(tasks[0]));
+        Assert.False(QSeriesPortWatcher.IsStaleStandardTask(tasks[0]));
     }
 }

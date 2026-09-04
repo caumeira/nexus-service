@@ -5,7 +5,6 @@ using Nexus.Service.Common.ExternalTools;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Panel;
 using Nexus.Service.Platform;
-using Nexus.Service.QSeries;
 
 namespace Nexus.Service.Devices.Firmware;
 
@@ -17,8 +16,8 @@ internal delegate Task<string?> ApkDownloader(CancellationToken ct);
 
 /// <summary>
 /// Manual-flash path for the qshell APK on the connected Q-series panel.
-/// Installs qshell alongside the OEM launcher (both coexist), then makes qshell
-/// the default HOME via cmd package set-home-activity plus the HOME role.
+/// Installs qshell alongside the OEM launcher (both coexist), then sets qshell
+/// as the default HOME via cmd package set-home-activity.
 /// Acquires <see cref="FlashGate"/> so this flash and a concurrent DFU flash
 /// are mutually exclusive.
 /// </summary>
@@ -37,9 +36,6 @@ public sealed class ApkFlasher
     private const string GoHomeCmd = "am start -a android.intent.action.MAIN -c android.intent.category.HOME";
     // Best-effort check: resolves the current default HOME; output must contain qshell package.
     private const string ResolveHomeCmd = "cmd package resolve-activity -a android.intent.action.MAIN -c android.intent.category.HOME";
-    // HOME role, set alongside the pin above; see QSeriesPortWatcher.AssignHomeRoleAsync.
-    private const string AddHomeRoleCmd = "cmd role add-role-holder android.app.role.HOME ";
-    private const string GetHomeRoleCmd = "cmd role get-role-holders android.app.role.HOME";
 
     /// <summary>DeviceType key used in firmware-status and flash endpoints.</summary>
     internal const string DeviceTypeKey = "qseries-app";
@@ -309,13 +305,6 @@ public sealed class ApkFlasher
             {
                 Fail($"set-home-activity failed: {setHomeOut}");
                 return;
-            }
-            var roleAdd = await device.ShellAsync(AddHomeRoleCmd + QshellPackage, ct);
-            var roleHolders = await device.ShellAsync(GetHomeRoleCmd, ct);
-            var roleVerdict = QSeriesPortWatcher.ClassifyHomeRole(roleAdd, roleHolders);
-            if (roleVerdict != "ok")
-            {
-                ServiceLog.Warn($"[apk-flash] HOME role did not take: {roleVerdict}");
             }
             // Switch the panel to the new HOME immediately.
             await device.ShellAsync(GoHomeCmd, ct);
