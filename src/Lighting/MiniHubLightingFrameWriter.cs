@@ -126,6 +126,7 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
         // produces a fixed 157/307-byte frame regardless of declared count.
         var ledCount = frame is null ? 0 : frame.LedCount;
         var brightnessMul = ComputeBrightnessMul(id, disabled, uncontrolled, prefs, globalBrightness);
+        var adjust = DeviceColorAdjust.For(id, prefs);
         var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
 
         var idx = channel - 1;
@@ -135,7 +136,7 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
         var dst = _portBuffers[idx]!;
         if (ledCount > 0 && frame is not null)
         {
-            FillBufferSlice(dst, 0, frame.LedBytes, ledCount, brightnessMul, hasIdentify, startTicks, nowTicks);
+            FillBufferSlice(dst, 0, frame.LedBytes, ledCount, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
         }
         _hub.WriteLighting(channel, new ReadOnlySpan<MiniHubColor>(dst, 0, ledCount));
     }
@@ -161,7 +162,7 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
     }
 
     private static void FillBufferSlice(MiniHubColor[] dst, int dstStart, ReadOnlySpan<byte> src, int ledCount,
-        double brightnessMul, bool hasIdentify, long identifyStartTicks, long nowTicks)
+        double brightnessMul, DeviceColorAdjust adjust, bool hasIdentify, long identifyStartTicks, long nowTicks)
     {
         if (hasIdentify)
         {
@@ -174,6 +175,18 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
         if (brightnessMul <= 0.0)
         {
             for (var i = 0; i < ledCount && dstStart + i < dst.Length; i++) dst[dstStart + i] = default;
+            return;
+        }
+        if (!adjust.IsIdentity)
+        {
+            for (var i = 0; i < ledCount && dstStart + i < dst.Length; i++)
+            {
+                var off = i * 3;
+                if (off + 2 >= src.Length) break;
+                adjust.Apply(src[off], src[off + 1], src[off + 2], brightnessMul,
+                    out var ar, out var ag, out var ab);
+                dst[dstStart + i] = new MiniHubColor(ar, ag, ab);
+            }
             return;
         }
         if (brightnessMul >= 0.999)

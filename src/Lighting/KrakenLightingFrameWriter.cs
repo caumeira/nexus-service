@@ -166,6 +166,7 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
         }
 
         var brightnessMul = ComputeBrightnessMul(zoneId, disabled, prefs, globalBrightness);
+        var adjust = DeviceColorAdjust.For(zoneId, prefs);
         var hasIdentify = _identify.TryGetActive(zoneId, nowTicks, out var startTicks);
 
         var payload = new byte[ledCount * 3];
@@ -182,7 +183,15 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
             {
                 var off = i * 3;
                 if (off + 2 >= src.Length) break;
-                if (brightnessMul >= 0.999)
+                if (!adjust.IsIdentity)
+                {
+                    adjust.Apply(src[off], src[off + 1], src[off + 2], brightnessMul,
+                        out var ar, out var ag, out var ab);
+                    payload[off] = ar;
+                    payload[off + 1] = ag;
+                    payload[off + 2] = ab;
+                }
+                else if (brightnessMul >= 0.999)
                 {
                     payload[off] = src[off];
                     payload[off + 1] = src[off + 1];

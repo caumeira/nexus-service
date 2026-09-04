@@ -197,8 +197,9 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
         float globalBrightness, long nowTicks)
     {
         var brightnessMul = ComputeBrightnessMul(frame.Id, disabled, uncontrolled, prefs, globalBrightness);
+        var adjust = DeviceColorAdjust.For(frame.Id, prefs);
         var hasIdentify = TryGetActiveIdentify(frame.Id, nowTicks, out var startTicks);
-        FillBufferSlice(dst, dstStart, frame.LedBytes, writeLen, brightnessMul, hasIdentify, startTicks, nowTicks);
+        FillBufferSlice(dst, dstStart, frame.LedBytes, writeLen, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
     }
 
     // ── Helpers ──
@@ -239,7 +240,7 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
         => _identify.TryGetActive(id, nowTicks, out startTicks);
 
     internal static void FillBufferSlice(RgbColor[] dst, int dstStart, ReadOnlySpan<byte> src, int ledCount,
-        double brightnessMul, bool hasIdentify, long identifyStartTicks, long nowTicks)
+        double brightnessMul, DeviceColorAdjust adjust, bool hasIdentify, long identifyStartTicks, long nowTicks)
     {
         if (hasIdentify)
         {
@@ -252,6 +253,18 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
         if (brightnessMul <= 0.0)
         {
             for (var i = 0; i < ledCount && dstStart + i < dst.Length; i++) dst[dstStart + i] = default;
+            return;
+        }
+        if (!adjust.IsIdentity)
+        {
+            for (var i = 0; i < ledCount && dstStart + i < dst.Length; i++)
+            {
+                var off = i * 3;
+                if (off + 2 >= src.Length) break;
+                adjust.Apply(src[off], src[off + 1], src[off + 2], brightnessMul,
+                    out var ar, out var ag, out var ab);
+                dst[dstStart + i] = new RgbColor(ar, ag, ab);
+            }
             return;
         }
         if (brightnessMul >= 0.999)

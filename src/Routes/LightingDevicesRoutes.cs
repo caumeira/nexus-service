@@ -653,6 +653,83 @@ public static partial class DevicesRoutes
             ld.SetBrightness(body.Id, body.Brightness);
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
+        // Colour tuning: per-device channel / temperature / saturation trims,
+        // applied by the frame writers on the way to the hardware. Read as a
+        // sparse map - only cards the user actually trimmed appear, so a fresh
+        // install answers with an empty object.
+        app.MapGet("/devices/lighting-devices/color-adjust", (
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            var dto = new LightingColorAdjustResponse();
+            // Snapshot under the store lock: the preference dictionary is
+            // mutated in place, so enumerating it on the request thread throws
+            // mid-iteration.
+            store.Update(s =>
+            {
+                foreach (var (id, pref) in s.Devices.LightingDevicePrefs)
+                {
+                    if (pref is null
+                        || (pref.AdjustRed == 1f && pref.AdjustGreen == 1f && pref.AdjustBlue == 1f
+                            && pref.AdjustTemperature == 0f && pref.AdjustSaturation == 1f))
+                    {
+                        continue;
+                    }
+                    dto.Adjustments[id] = new LightingColorAdjustDto
+                    {
+                        Red = pref.AdjustRed,
+                        Green = pref.AdjustGreen,
+                        Blue = pref.AdjustBlue,
+                        Temperature = pref.AdjustTemperature,
+                        Saturation = pref.AdjustSaturation,
+                    };
+                }
+            });
+            return Results.Json(
+                dto,
+                Nexus.Service.Serialization.AppJsonContext.Default.LightingColorAdjustResponse);
+        }).AllowPanel();
+
+        app.MapPost("/devices/lighting-devices/color-adjust", (
+            SetLightingColorAdjustBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            FeatureGates gates) =>
+        {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
+            // Clamped here as well as in DeviceColorAdjust: the stored value is
+            // what the UI reads back, so a client sending an out-of-range trim
+            // must not come back as one.
+            var red = Math.Clamp(body.Red, Nexus.Service.Lighting.DeviceColorAdjust.MinChannel, Nexus.Service.Lighting.DeviceColorAdjust.MaxChannel);
+            var green = Math.Clamp(body.Green, Nexus.Service.Lighting.DeviceColorAdjust.MinChannel, Nexus.Service.Lighting.DeviceColorAdjust.MaxChannel);
+            var blue = Math.Clamp(body.Blue, Nexus.Service.Lighting.DeviceColorAdjust.MinChannel, Nexus.Service.Lighting.DeviceColorAdjust.MaxChannel);
+            var temperature = Math.Clamp(body.Temperature, -1f, 1f);
+            var saturation = Math.Clamp(body.Saturation, Nexus.Service.Lighting.DeviceColorAdjust.MinSaturation, Nexus.Service.Lighting.DeviceColorAdjust.MaxSaturation);
+            store.Update(s =>
+            {
+                foreach (var id in body.Ids)
+                {
+                    if (string.IsNullOrEmpty(id))
+                    {
+                        continue;
+                    }
+                    if (!s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref) || pref is null)
+                    {
+                        pref = new Nexus.Service.Persistence.LightingDevicePreference();
+                        s.Devices.LightingDevicePrefs[id] = pref;
+                    }
+                    pref.AdjustRed = red;
+                    pref.AdjustGreen = green;
+                    pref.AdjustBlue = blue;
+                    pref.AdjustTemperature = temperature;
+                    pref.AdjustSaturation = saturation;
+                }
+            });
+            CaptureDeviceStateIntoActive(store);
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
+
         app.MapPost("/devices/lighting-devices/color", (
             SetLightingDeviceColor body,
             ILightingDeviceProvider ld,

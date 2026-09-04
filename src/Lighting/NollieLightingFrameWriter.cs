@@ -110,8 +110,9 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
                 var frame = FindFrame(devices, id);
                 var buf = Rent(id, Math.Max(ledCount, 1) * 3);
                 var brightnessMul = ComputeBrightnessMul(id, disabled, uncontrolled, prefs, globalBrightness);
+                var adjust = DeviceColorAdjust.For(id, prefs);
                 var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
-                Fill(buf, ledCount, frame, brightnessMul, hasIdentify, startTicks, nowTicks);
+                Fill(buf, ledCount, frame, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
 
                 if (controller.SendChannel(ch, new ReadOnlySpan<byte>(buf, 0, ledCount * 3)))
                 {
@@ -201,7 +202,7 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
     }
 
     private static void Fill(byte[] dst, int ledCount, DeviceFrame? frame,
-        double brightnessMul, bool hasIdentify, long identifyStartTicks, long nowTicks)
+        double brightnessMul, DeviceColorAdjust adjust, bool hasIdentify, long identifyStartTicks, long nowTicks)
     {
         Array.Clear(dst, 0, Math.Min(dst.Length, ledCount * 3));
 
@@ -216,6 +217,20 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
         if (frame is null || brightnessMul <= 0.0) return;
 
         var src = frame.LedBytes;
+        if (!adjust.IsIdentity)
+        {
+            for (var i = 0; i < ledCount; i++)
+            {
+                var off = i * 3;
+                if (off + 2 >= src.Length || off + 2 >= dst.Length) break;
+                adjust.Apply(src[off], src[off + 1], src[off + 2], brightnessMul,
+                    out var ar, out var ag, out var ab);
+                dst[off] = ar;
+                dst[off + 1] = ag;
+                dst[off + 2] = ab;
+            }
+            return;
+        }
         if (brightnessMul >= 0.999)
         {
             for (var i = 0; i < ledCount; i++)

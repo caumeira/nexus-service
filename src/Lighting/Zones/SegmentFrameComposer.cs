@@ -61,6 +61,7 @@ public static class SegmentFrameComposer
             // the Settings slider) multiplies the per-zone software level, which the
             // global master brightness caps: effective = min(global, zone) * masterMul.
             var mul = ComputeBrightnessMul(zone.Id, disabled, uncontrolled, prefs, globalBrightness) * masterMul;
+            var adjust = DeviceColorAdjust.For(zone.Id, prefs);
             var identifying = false;
             var identifyOn = false;
             if (identify is not null && identify.TryGetActive(zone.Id, nowTicks, out var startTicks))
@@ -97,6 +98,11 @@ public static class SegmentFrameComposer
                         if (off + 2 >= src.Length || mul <= 0.0)
                         {
                             buf[slice.Start + i] = default;
+                        }
+                        else if (!adjust.IsIdentity)
+                        {
+                            adjust.Apply(src[off], src[off + 1], src[off + 2], mul, out var ar, out var ag, out var ab);
+                            buf[slice.Start + i] = new RgbColor(ar, ag, ab);
                         }
                         else if (mul >= 0.999)
                         {

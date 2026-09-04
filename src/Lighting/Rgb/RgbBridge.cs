@@ -1831,6 +1831,7 @@ public sealed class RgbBridge : IDisposable
             try { devBrightness = devicePrefs.TryGetValue(dev.Id, out var pref) ? pref.Brightness : 100; }
             catch (InvalidOperationException) { devBrightness = 100; }
             var brightnessMul = Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
+            var adjust = Nexus.Service.Lighting.DeviceColorAdjust.For(dev.Id, devicePrefs);
 
             if (isOff)
             {
@@ -1851,6 +1852,16 @@ public sealed class RgbBridge : IDisposable
                 for (int led = 0; led < writeLen; led++)
                 {
                     buffer[zoneOffset + led] = flash;
+                }
+            }
+            else if (!adjust.IsIdentity && brightnessMul > 0.0)
+            {
+                for (int led = 0; led < writeLen; led++)
+                {
+                    var off2 = pos + led * 3;
+                    adjust.Apply(frame[off2], frame[off2 + 1], frame[off2 + 2], brightnessMul,
+                        out var ar, out var ag, out var ab);
+                    buffer[zoneOffset + led] = new RgbColor(ar, ag, ab);
                 }
             }
             else if (brightnessMul >= 0.999)

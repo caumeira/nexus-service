@@ -153,11 +153,12 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
         else
         {
             var brightnessMul = ComputeBrightnessMul(id, disabled, prefs, globalBrightness);
+            var adjust = DeviceColorAdjust.For(id, prefs);
             var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
             var ledCount = Math.Min(panelFrame.LedCount, QSeriesCoolerHub.LedCount);
             EnsureCapacity(ref _buffer, QSeriesCoolerHub.LedCount);
             var dst = _buffer!;
-            FillBufferSlice(dst, 0, panelFrame.LedBytes, ledCount, brightnessMul, hasIdentify, startTicks, nowTicks);
+            FillBufferSlice(dst, 0, panelFrame.LedBytes, ledCount, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
             for (var i = ledCount; i < QSeriesCoolerHub.LedCount; i++) dst[i] = default;
             _hub.WriteLighting(new ReadOnlySpan<QColor>(dst, 0, QSeriesCoolerHub.LedCount));
         }
@@ -209,9 +210,10 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
         {
             var blockWidth = FirmwareLedCountOf(channelState, dev.Id, dev.LedCount);
             var brightnessMul = ComputeBrightnessMul(dev.Id, disabled, prefs, globalBrightness);
+            var adjust = DeviceColorAdjust.For(dev.Id, prefs);
             var hasIdentify = _identify.TryGetActive(dev.Id, nowTicks, out var startTicks);
             var fillCount = Math.Min(dev.LedCount, blockWidth);
-            FillBufferSlice(dst, offset, dev.LedBytes, fillCount, brightnessMul, hasIdentify, startTicks, nowTicks);
+            FillBufferSlice(dst, offset, dev.LedBytes, fillCount, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
             for (var i = fillCount; i < blockWidth && offset + i < dst.Length; i++) dst[offset + i] = default;
             offset += blockWidth;
         }
@@ -252,7 +254,7 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
     }
 
     private static void FillBufferSlice(QColor[] dst, int dstStart, ReadOnlySpan<byte> src, int ledCount,
-        double brightnessMul, bool hasIdentify, long identifyStartTicks, long nowTicks)
+        double brightnessMul, DeviceColorAdjust adjust, bool hasIdentify, long identifyStartTicks, long nowTicks)
     {
         if (hasIdentify)
         {
@@ -268,6 +270,18 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
             return;
         }
         // src is RGB triples (engine order); QColor(R,G,B) - the hub emits GRB on the wire.
+        if (!adjust.IsIdentity)
+        {
+            for (var i = 0; i < ledCount && dstStart + i < dst.Length; i++)
+            {
+                var off = i * 3;
+                if (off + 2 >= src.Length) break;
+                adjust.Apply(src[off], src[off + 1], src[off + 2], brightnessMul,
+                    out var ar, out var ag, out var ab);
+                dst[dstStart + i] = new QColor(ar, ag, ab);
+            }
+            return;
+        }
         if (brightnessMul >= 0.999)
         {
             for (var i = 0; i < ledCount && dstStart + i < dst.Length; i++)

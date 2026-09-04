@@ -165,12 +165,13 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
         var nowTicks = DateTime.UtcNow.Ticks;
 
         var brightnessMul = ComputeBrightnessMul(id, disabled, prefs, globalBrightness);
+        var adjust = DeviceColorAdjust.For(id, prefs);
         var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
 
         var ledCount = Math.Min(frame.LedCount, CnvsHub.LedCount);
         EnsureCapacity(CnvsHub.LedCount);
         var dst = _buffer!;
-        FillBufferSlice(dst, frame.LedBytes, ledCount, brightnessMul, hasIdentify, startTicks, nowTicks);
+        FillBufferSlice(dst, frame.LedBytes, ledCount, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
         // Any LEDs beyond the engine-frame count: zero so the mat is fully
         // owned by us, no firmware residue.
         for (var i = ledCount; i < CnvsHub.LedCount; i++) dst[i] = default;
@@ -207,7 +208,7 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
     }
 
     private static void FillBufferSlice(CnvsColor[] dst, ReadOnlySpan<byte> src, int ledCount,
-        double brightnessMul, bool hasIdentify, long identifyStartTicks, long nowTicks)
+        double brightnessMul, DeviceColorAdjust adjust, bool hasIdentify, long identifyStartTicks, long nowTicks)
     {
         if (hasIdentify)
         {
@@ -220,6 +221,18 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
         if (brightnessMul <= 0.0)
         {
             for (var i = 0; i < ledCount && i < dst.Length; i++) dst[i] = default;
+            return;
+        }
+        if (!adjust.IsIdentity)
+        {
+            for (var i = 0; i < ledCount && i < dst.Length; i++)
+            {
+                var off = i * 3;
+                if (off + 2 >= src.Length) break;
+                adjust.Apply(src[off], src[off + 1], src[off + 2], brightnessMul,
+                    out var ar, out var ag, out var ab);
+                dst[i] = new CnvsColor(ar, ag, ab);
+            }
             return;
         }
         if (brightnessMul >= 0.999)
