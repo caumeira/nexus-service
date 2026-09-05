@@ -165,8 +165,7 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
             return;
         }
 
-        var brightnessMul = ComputeBrightnessMul(zoneId, disabled, prefs, globalBrightness);
-        var adjust = DeviceColorAdjust.For(zoneId, prefs);
+        var brightnessMul = ComputeBrightnessMul(zoneId, disabled, prefs, globalBrightness, out var adjust);
         var hasIdentify = _identify.TryGetActive(zoneId, nowTicks, out var startTicks);
 
         var payload = new byte[ledCount * 3];
@@ -179,26 +178,38 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
         else if (brightnessMul > 0.0)
         {
             var src = frame.LedBytes;
-            for (var i = 0; i < ledCount; i++)
+            // Branch once, not once per LED: an untuned zone runs the original
+            // loop with no colour-tuning work in it at all.
+            if (!adjust.IsIdentity)
             {
-                var off = i * 3;
-                if (off + 2 >= src.Length) break;
-                if (!adjust.IsIdentity)
+                for (var i = 0; i < ledCount; i++)
                 {
+                    var off = i * 3;
+                    if (off + 2 >= src.Length) break;
                     adjust.Apply(src[off], src[off + 1], src[off + 2], brightnessMul,
                         out var ar, out var ag, out var ab);
                     payload[off] = ar;
                     payload[off + 1] = ag;
                     payload[off + 2] = ab;
                 }
-                else if (brightnessMul >= 0.999)
+            }
+            else if (brightnessMul >= 0.999)
+            {
+                for (var i = 0; i < ledCount; i++)
                 {
+                    var off = i * 3;
+                    if (off + 2 >= src.Length) break;
                     payload[off] = src[off];
                     payload[off + 1] = src[off + 1];
                     payload[off + 2] = src[off + 2];
                 }
-                else
+            }
+            else
+            {
+                for (var i = 0; i < ledCount; i++)
                 {
+                    var off = i * 3;
+                    if (off + 2 >= src.Length) break;
                     payload[off] = (byte)(src[off] * brightnessMul);
                     payload[off + 1] = (byte)(src[off + 1] * brightnessMul);
                     payload[off + 2] = (byte)(src[off + 2] * brightnessMul);
@@ -232,14 +243,32 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
         string id,
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
-        float globalBrightness)
+        float globalBrightness,
+        out DeviceColorAdjust adjust)
     {
+        adjust = DeviceColorAdjust.Identity;
         for (var i = 0; i < disabled.Count; i++)
         {
             if (disabled[i] == id) return 0.0;
         }
+        // One dictionary lookup serves both the brightness and the colour trim:
+        // an untuned device must not pay a second one just because colour
+        // tuning exists. The guard is the same as before - the preference
+        // dictionary is mutated in place by the settings writers, so a
+        // concurrent insert can throw mid-read.
         int devBrightness;
-        try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }
+        try
+        {
+            if (prefs.TryGetValue(id, out var pref) && pref is not null)
+            {
+                devBrightness = pref.Brightness;
+                adjust = DeviceColorAdjust.For(pref);
+            }
+            else
+            {
+                devBrightness = 100;
+            }
+        }
         catch (InvalidOperationException) { devBrightness = 100; }
         return Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
     }

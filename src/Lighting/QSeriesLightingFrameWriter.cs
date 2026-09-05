@@ -152,8 +152,7 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
         }
         else
         {
-            var brightnessMul = ComputeBrightnessMul(id, disabled, prefs, globalBrightness);
-            var adjust = DeviceColorAdjust.For(id, prefs);
+            var brightnessMul = ComputeBrightnessMul(id, disabled, prefs, globalBrightness, out var adjust);
             var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
             var ledCount = Math.Min(panelFrame.LedCount, QSeriesCoolerHub.LedCount);
             EnsureCapacity(ref _buffer, QSeriesCoolerHub.LedCount);
@@ -209,8 +208,7 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
         foreach (var dev in chainDevices)
         {
             var blockWidth = FirmwareLedCountOf(channelState, dev.Id, dev.LedCount);
-            var brightnessMul = ComputeBrightnessMul(dev.Id, disabled, prefs, globalBrightness);
-            var adjust = DeviceColorAdjust.For(dev.Id, prefs);
+            var brightnessMul = ComputeBrightnessMul(dev.Id, disabled, prefs, globalBrightness, out var adjust);
             var hasIdentify = _identify.TryGetActive(dev.Id, nowTicks, out var startTicks);
             var fillCount = Math.Min(dev.LedCount, blockWidth);
             FillBufferSlice(dst, offset, dev.LedBytes, fillCount, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
@@ -241,14 +239,32 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
     private static double ComputeBrightnessMul(string id,
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
-        float globalBrightness)
+        float globalBrightness,
+        out DeviceColorAdjust adjust)
     {
+        adjust = DeviceColorAdjust.Identity;
         if (disabled.Count > 0)
         {
             foreach (var d in disabled) if (d == id) return 0.0;
         }
+        // One dictionary lookup serves both the brightness and the colour trim:
+        // an untuned device must not pay a second one just because colour
+        // tuning exists. The guard is the same as before - the preference
+        // dictionary is mutated in place by the settings writers, so a
+        // concurrent insert can throw mid-read.
         int devBrightness;
-        try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }
+        try
+        {
+            if (prefs.TryGetValue(id, out var pref) && pref is not null)
+            {
+                devBrightness = pref.Brightness;
+                adjust = DeviceColorAdjust.For(pref);
+            }
+            else
+            {
+                devBrightness = 100;
+            }
+        }
         catch (InvalidOperationException) { devBrightness = 100; }
         return Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
     }

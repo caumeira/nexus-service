@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Lighting;
@@ -76,21 +75,24 @@ public readonly struct DeviceColorAdjust
         return new DeviceColorAdjust(r, g, b, s);
     }
 
-    /// <summary>Resolve one card's correction from the persisted preferences.</summary>
-    public static DeviceColorAdjust For(string id, IReadOnlyDictionary<string, LightingDevicePreference> prefs)
+    /// <summary>
+    /// Resolve one card's correction from the preference the caller already
+    /// looked up for its brightness. Takes the object rather than the id on
+    /// purpose: the frame writers do exactly one dictionary lookup per device
+    /// per frame, and colour tuning must not add a second one.
+    ///
+    /// An untouched device costs five float compares and nothing else - no
+    /// clamping, no multiplies, no allocation - and the caller's per-LED loop
+    /// then runs its original untouched path.
+    /// </summary>
+    public static DeviceColorAdjust For(LightingDevicePreference? pref)
     {
-        // Same guard the brightness readers use: the preference dictionary is
-        // mutated in place by the settings writers, so a concurrent insert can
-        // throw mid-read. Fall back to identity for this frame.
-        LightingDevicePreference? pref;
-        try
-        {
-            if (!prefs.TryGetValue(id, out pref) || pref is null)
-            {
-                return Identity;
-            }
-        }
-        catch (InvalidOperationException)
+        if (pref is null
+            || (pref.AdjustRed == 1f
+                && pref.AdjustGreen == 1f
+                && pref.AdjustBlue == 1f
+                && pref.AdjustTemperature == 0f
+                && pref.AdjustSaturation == 1f))
         {
             return Identity;
         }

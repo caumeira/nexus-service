@@ -196,8 +196,7 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         float globalBrightness, long nowTicks)
     {
-        var brightnessMul = ComputeBrightnessMul(frame.Id, disabled, uncontrolled, prefs, globalBrightness);
-        var adjust = DeviceColorAdjust.For(frame.Id, prefs);
+        var brightnessMul = ComputeBrightnessMul(frame.Id, disabled, uncontrolled, prefs, globalBrightness, out var adjust);
         var hasIdentify = TryGetActiveIdentify(frame.Id, nowTicks, out var startTicks);
         FillBufferSlice(dst, dstStart, frame.LedBytes, writeLen, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
     }
@@ -220,8 +219,10 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     }
 
     private double ComputeBrightnessMul(string id, IReadOnlyList<string> disabled, IReadOnlyList<string> uncontrolled,
-        IReadOnlyDictionary<string, LightingDevicePreference> prefs, float globalBrightness)
+        IReadOnlyDictionary<string, LightingDevicePreference> prefs, float globalBrightness,
+        out DeviceColorAdjust adjust)
     {
+        adjust = DeviceColorAdjust.Identity;
         if (disabled.Count > 0)
         {
             foreach (var d in disabled) if (d == id) return 0.0;
@@ -230,8 +231,24 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
         {
             foreach (var u in uncontrolled) if (u == id) return 0.0;
         }
+        // One dictionary lookup serves both the brightness and the colour trim:
+        // an untuned device must not pay a second one just because colour
+        // tuning exists. The guard is the same as before - the preference
+        // dictionary is mutated in place by the settings writers, so a
+        // concurrent insert can throw mid-read.
         int devBrightness;
-        try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }
+        try
+        {
+            if (prefs.TryGetValue(id, out var pref) && pref is not null)
+            {
+                devBrightness = pref.Brightness;
+                adjust = DeviceColorAdjust.For(pref);
+            }
+            else
+            {
+                devBrightness = 100;
+            }
+        }
         catch (InvalidOperationException) { devBrightness = 100; }
         return Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
     }

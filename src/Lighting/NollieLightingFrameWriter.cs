@@ -109,8 +109,7 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
 
                 var frame = FindFrame(devices, id);
                 var buf = Rent(id, Math.Max(ledCount, 1) * 3);
-                var brightnessMul = ComputeBrightnessMul(id, disabled, uncontrolled, prefs, globalBrightness);
-                var adjust = DeviceColorAdjust.For(id, prefs);
+                var brightnessMul = ComputeBrightnessMul(id, disabled, uncontrolled, prefs, globalBrightness, out var adjust);
                 var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
                 Fill(buf, ledCount, frame, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
 
@@ -185,8 +184,10 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
 
     private static double ComputeBrightnessMul(string id,
         IReadOnlyList<string> disabled, IReadOnlyList<string> uncontrolled,
-        IReadOnlyDictionary<string, LightingDevicePreference> prefs, float globalBrightness)
+        IReadOnlyDictionary<string, LightingDevicePreference> prefs, float globalBrightness,
+        out DeviceColorAdjust adjust)
     {
+        adjust = DeviceColorAdjust.Identity;
         if (disabled.Count > 0)
         {
             foreach (var d in disabled) if (d == id) return 0.0;
@@ -195,8 +196,24 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
         {
             foreach (var u in uncontrolled) if (u == id) return 0.0;
         }
+        // One dictionary lookup serves both the brightness and the colour trim:
+        // an untuned device must not pay a second one just because colour
+        // tuning exists. The guard is the same as before - the preference
+        // dictionary is mutated in place by the settings writers, so a
+        // concurrent insert can throw mid-read.
         int devBrightness;
-        try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }
+        try
+        {
+            if (prefs.TryGetValue(id, out var pref) && pref is not null)
+            {
+                devBrightness = pref.Brightness;
+                adjust = DeviceColorAdjust.For(pref);
+            }
+            else
+            {
+                devBrightness = 100;
+            }
+        }
         catch (InvalidOperationException) { devBrightness = 100; }
         return Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
     }

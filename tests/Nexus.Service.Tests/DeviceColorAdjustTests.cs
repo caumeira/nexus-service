@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using Nexus.Service.Lighting;
 using Nexus.Service.Persistence;
 using Xunit;
@@ -90,11 +89,17 @@ public class DeviceColorAdjustTests
     [Fact]
     public void For_ReadsThePreference_AndFallsBackToIdentity()
     {
-        var prefs = new Dictionary<string, LightingDevicePreference>
-        {
-            ["tuned"] = new LightingDevicePreference { AdjustRed = 1.2f },
-        };
-        Assert.False(DeviceColorAdjust.For("tuned", prefs).IsIdentity);
-        Assert.True(DeviceColorAdjust.For("absent", prefs).IsIdentity);
+        Assert.False(DeviceColorAdjust.For(new LightingDevicePreference { AdjustRed = 1.2f }).IsIdentity);
+        Assert.True(DeviceColorAdjust.For(null).IsIdentity);
+    }
+
+    // The whole point of taking the preference object: a device nobody tuned
+    // resolves to identity off the stored defaults, so the frame writers keep
+    // their original per-LED loop.
+    [Fact]
+    public void For_UntouchedPreference_IsIdentity()
+    {
+        Assert.True(DeviceColorAdjust.For(new LightingDevicePreference()).IsIdentity);
+        Assert.True(DeviceColorAdjust.For(new LightingDevicePreference { Brightness = 40 }).IsIdentity);
     }
 }
