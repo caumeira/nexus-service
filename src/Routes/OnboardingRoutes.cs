@@ -35,8 +35,12 @@ internal static class OnboardingRoutes
         app.MapGet("/onboarding", (IConfigStore store) =>
             Results.Ok(Status(store))).LocalhostOnly();
 
-        app.MapPost("/onboarding/complete", (IConfigStore store) =>
+        app.MapPost("/onboarding/complete", (IConfigStore store, Nexus.Service.Telemetry.ITelemetry telemetry) =>
         {
+            // Fires once per install (the flag is already true on a repeat
+            // call, and the client only posts this at the end of the run).
+            if (!store.Load().OnboardingCompleted)
+                telemetry.Capture(Nexus.Service.Telemetry.TelemetryEvents.OnboardingCompleted);
             store.Update(s => s.OnboardingCompleted = true);
             // A skip completes both flags at once; releasing here covers it.
             if (store.Load().LightingOnboardingCompleted)
