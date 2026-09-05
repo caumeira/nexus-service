@@ -1202,6 +1202,16 @@ public sealed class LightingDevicePreference
     public int Brightness { get; set; } = InstallDefaults.Lighting.DevicePreference.Brightness;
     public float Hue { get; set; }
     public float Saturation { get; set; } = InstallDefaults.Lighting.DevicePreference.Saturation;
+    // Colour-tuning trims, applied to the frame on its way to the hardware.
+    // Distinct from Hue/Saturation above, which are a smart light's own colour
+    // rather than a correction: these five never change what the canvas shows.
+    // Neutral defaults, and DeviceColorAdjust owns the bounds these clamp to.
+    public float AdjustRed { get; set; } = 1f;
+    public float AdjustGreen { get; set; } = 1f;
+    public float AdjustBlue { get; set; } = 1f;
+    /// <summary>Negative is cooler, positive warmer.</summary>
+    public float AdjustTemperature { get; set; }
+    public float AdjustSaturation { get; set; } = 1f;
 }
 
 public sealed class MotherboardLedChannel
@@ -1312,6 +1322,8 @@ public sealed class LianLiWirelessScreenSettings
     public string? ColorB { get; set; }
     /// <summary>"c" | "f". Display unit for a temperature sensor source.</summary>
     public string? TempUnit { get; set; }
+    /// <summary>User-chosen list position (0-based) so the numbered tiles match the physical fans; -1 = not set.</summary>
+    public int Order { get; set; } = -1;
 }
 
 public sealed class LianLiLightingSettings

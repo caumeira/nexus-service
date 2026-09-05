@@ -10701,6 +10701,28 @@
         }
       }
     },
+    "/devices/lianli-wireless/screens/order": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Slv3LcdOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/devices/lianli-wireless/screen/content": {
       "post": {
         "tags": [
@@ -19535,6 +19557,17 @@
               "string"
             ],
             "format": "uint8"
+          }
+        }
+      },
+      "Slv3LcdOrderRequest": {
+        "type": "object",
+        "properties": {
+          "serials": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

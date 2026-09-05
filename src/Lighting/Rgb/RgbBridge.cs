@@ -1827,8 +1827,21 @@ public sealed class RgbBridge : IDisposable
             // SetBrightness writers; a concurrent insert during this read can
             // throw InvalidOperationException. Catch it and fall back to full
             // brightness for this frame; the next frame will see the new state.
+            // One lookup feeds both the brightness and the colour trim.
             int devBrightness;
-            try { devBrightness = devicePrefs.TryGetValue(dev.Id, out var pref) ? pref.Brightness : 100; }
+            var adjust = Nexus.Service.Lighting.DeviceColorAdjust.Identity;
+            try
+            {
+                if (devicePrefs.TryGetValue(dev.Id, out var pref) && pref is not null)
+                {
+                    devBrightness = pref.Brightness;
+                    adjust = Nexus.Service.Lighting.DeviceColorAdjust.For(pref);
+                }
+                else
+                {
+                    devBrightness = 100;
+                }
+            }
             catch (InvalidOperationException) { devBrightness = 100; }
             var brightnessMul = Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
 
@@ -1851,6 +1864,16 @@ public sealed class RgbBridge : IDisposable
                 for (int led = 0; led < writeLen; led++)
                 {
                     buffer[zoneOffset + led] = flash;
+                }
+            }
+            else if (!adjust.IsIdentity && brightnessMul > 0.0)
+            {
+                for (int led = 0; led < writeLen; led++)
+                {
+                    var off2 = pos + led * 3;
+                    adjust.Apply(frame[off2], frame[off2 + 1], frame[off2 + 2], brightnessMul,
+                        out var ar, out var ag, out var ab);
+                    buffer[zoneOffset + led] = new RgbColor(ar, ag, ab);
                 }
             }
             else if (brightnessMul >= 0.999)
