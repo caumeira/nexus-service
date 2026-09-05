@@ -13,6 +13,7 @@ using Nexus.Service.Fps;
 using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Models.Weather;
+using Nexus.Service.Monitoring;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
@@ -92,6 +93,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private readonly IWeatherProvider? _weather;
     /// <summary>Null only in tests that construct the worker without one; the fps monitoring category then resolves to nothing, like a machine with no capture available.</summary>
     private readonly IFpsProvider? _fps;
+    // Only read to carry cooling-page fan-header renames onto motherboard keys; null in tests that don't need them.
+    private readonly Nexus.Service.Cooling.IFanControlProvider? _fans;
 
     /// <summary>This worker's IFpsProvider.SetDemand source id - see that method's multi-source contract.</summary>
     private const string FpsDemandSource = "streamdeck";
@@ -233,7 +236,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         SimulatedStreamDeckSurface? simulated = null,
         TimeProvider? clock = null,
         IWeatherProvider? weather = null,
-        IFpsProvider? fps = null)
+        IFpsProvider? fps = null,
+        Nexus.Service.Cooling.IFanControlProvider? fans = null)
     {
         _hid = hid;
         _presence = presence;
@@ -247,6 +251,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _clock = clock ?? TimeProvider.System;
         _weather = weather;
         _fps = fps;
+        _fans = fans;
         _hub.OnTopicFirstSubscriber += OnStreamDeckTilesFirstSubscriber;
     }
 
@@ -1638,9 +1643,12 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         var needExtras = false;
         var needFps = false;
         var needNetwork = false;
+        // The only two categories that can hold a fan tach sensor.
+        var needFanNames = false;
         for (var i = 0; i < keys.Count; i++)
         {
             var category = keys[i].Slot.Action?.Category ?? "";
+            needFanNames |= category is "motherboard" or "gpu";
             if (SensorSnapshotResolver.CategoryUsesExtras(category))
             {
                 needExtras = true;
@@ -1661,7 +1669,29 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         return new SensorSnapshotSources(
             extras,
             needFps ? _fps?.GetComponent().Sensors : null,
-            needNetwork && extras is not null ? SensorSnapshotResolver.BuildNicNetworkSensors(extras.Nics) : null);
+            needNetwork && extras is not null ? SensorSnapshotResolver.BuildNicNetworkSensors(extras.Nics) : null,
+            needFanNames ? FanHeaderNames() : null);
+    }
+
+    /// <summary>Fan provider injected; an optional ctor arg fails silently otherwise.</summary>
+    internal bool FanHeaderRenamesWired => _fans is not null;
+
+    /// <summary>
+    /// The cooling page's fan-header renames, so a key shows the same name the deck editor
+    /// picked it by. Null unless a key reads a category that can hold a fan, and the settings
+    /// check short-circuits before any hardware read when nothing is renamed.
+    /// </summary>
+    private IReadOnlyDictionary<string, string>? FanHeaderNames()
+    {
+        if (_fans is null) return null;
+        var fanNames = _store.Load().Cooling.FanNames;
+        if (fanNames.Count == 0) return null;
+        try { return FanSensorNames.BuildMap(_fans.GetFanChannels(), fanNames); }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[streamdeck] fan header names skipped: {ex.GetType().Name}: {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>

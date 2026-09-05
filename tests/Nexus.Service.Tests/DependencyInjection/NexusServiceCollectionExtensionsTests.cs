@@ -140,4 +140,23 @@ public class NexusServiceCollectionExtensionsTests
         var b = sp.GetRequiredService<MultiplexHub>();
         Assert.Same(a, b);
     }
+
+    [Fact]
+    public void Monitoring_broadcaster_gets_both_halves_of_the_fan_header_rename_join()
+    {
+        // Optional constructor parameters: an unregistered dependency binds to null and
+        // turns the rename off with nothing failing anywhere else.
+        var sp = Build();
+        Assert.True(sp!.GetRequiredService<Nexus.Service.Monitoring.MonitoringBroadcaster>().FanHeaderRenamesWired);
+    }
+
+    [Fact]
+    public void Stream_deck_worker_gets_the_fan_provider_the_rename_join_needs()
+    {
+        // Constructed by an explicit factory, so a missed argument there disables renamed
+        // fan names on physical keys while every other deck test stays green.
+        var sp = Build();
+        Assert.True(sp!.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>()
+            .FanHeaderRenamesWired);
+    }
 }

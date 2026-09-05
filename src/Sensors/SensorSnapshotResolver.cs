@@ -24,10 +24,19 @@ namespace Nexus.Service.Sensors;
 /// caller wants the aggregate and there is none, so the category resolves to
 /// nothing rather than silently falling back to a per-adapter reading.
 /// </param>
+/// <param name="FanHeaderNames">
+/// Cooling-page fan-header renames keyed by tach sensor id, from
+/// <see cref="Nexus.Service.Monitoring.FanSensorNames.BuildMap"/>, null when nothing is
+/// renamed. Callers that RENDER a sensor's name must pass it, or a renamed header reads
+/// differently here than in the monitoring topic the pickers are built from. Applied to the
+/// resolved sensor, never to the category list, so a key stored by the hardware name still
+/// matches after a rename.
+/// </param>
 public readonly record struct SensorSnapshotSources(
     SensorExtras? Extras = null,
     IReadOnlyList<HardwareSensor>? FpsSensors = null,
-    IReadOnlyList<HardwareSensor>? NetworkSensors = null);
+    IReadOnlyList<HardwareSensor>? NetworkSensors = null,
+    IReadOnlyDictionary<string, string>? FanHeaderNames = null);
 
 /// <summary>
 /// Resolves a single sensor by (category, sensorId) over an ISensorProvider
@@ -54,7 +63,7 @@ public static class SensorSnapshotResolver
         {
             if (list[i].Id == sensorId)
             {
-                return list[i];
+                return Nexus.Service.Monitoring.FanSensorNames.WithRename(list[i], sources.FanHeaderNames);
             }
         }
         return null;
@@ -77,6 +86,23 @@ public static class SensorSnapshotResolver
         string sensorId,
         SensorSnapshotSources sources = default)
     {
+        var match = ResolveOrDefaultRaw(sensors, category, sensorId, sources);
+        return match is null
+            ? null
+            : Nexus.Service.Monitoring.FanSensorNames.WithRename(match, sources.FanHeaderNames);
+    }
+
+    /// <summary>
+    /// The lookup itself, against hardware names, so a key stored before a rename still
+    /// matches. A key stored AFTER one holds the custom name, which no hardware sensor
+    /// carries, so that is tried too before falling through to the category default.
+    /// </summary>
+    private static HardwareSensor? ResolveOrDefaultRaw(
+        ISensorProvider sensors,
+        string category,
+        string sensorId,
+        SensorSnapshotSources sources)
+    {
         var list = GetCategorySensors(sensors, category, sources);
         if (list.Count == 0)
         {
@@ -84,7 +110,9 @@ public static class SensorSnapshotResolver
         }
         if (!string.IsNullOrEmpty(sensorId))
         {
-            var match = FindById(list, sensorId) ?? FindByName(list, sensorId);
+            var match = FindById(list, sensorId)
+                ?? FindByName(list, sensorId)
+                ?? FindByFanHeaderName(list, sensorId, sources.FanHeaderNames);
             if (match is not null)
             {
                 return match;
@@ -109,6 +137,20 @@ public static class SensorSnapshotResolver
             "memory" => FindByName(list, "Memory Usage") ?? list[0],
             _ => list[0],
         };
+    }
+
+    /// <summary>Matches a key that holds a renamed header's custom name back to its tach sensor.</summary>
+    private static HardwareSensor? FindByFanHeaderName(
+        IReadOnlyList<HardwareSensor> list, string name, IReadOnlyDictionary<string, string>? byRpmSensor)
+    {
+        if (byRpmSensor is null) return null;
+        foreach (var pair in byRpmSensor)
+        {
+            if (!string.Equals(pair.Value, name, StringComparison.Ordinal)) continue;
+            var match = FindById(list, pair.Key);
+            if (match is not null) return match;
+        }
+        return null;
     }
 
     private static HardwareSensor? FindById(IReadOnlyList<HardwareSensor> list, string id)

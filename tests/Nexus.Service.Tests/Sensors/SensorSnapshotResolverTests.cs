@@ -673,4 +673,88 @@ public class SensorSnapshotResolverTests
 
         Assert.Equal(expected, SensorSnapshotResolver.BuildNicNetworkSensors(sensors.Nics)[1].Formatted);
     }
+
+    private static StubSensors MotherboardFans() => new()
+    {
+        MotherboardSensors = new HardwareSensor[]
+        {
+            new() { Id = "/lpc/nct6797d/fan/0", Name = "Fan #1", Type = "Fan", Value = 900f },
+            new() { Id = "/lpc/nct6797d/fan/1", Name = "Fan #2", Type = "Fan", Value = 1200f },
+        },
+    };
+
+    private static SensorSnapshotSources RenamedFirstHeader() => new(
+        FanHeaderNames: new Dictionary<string, string> { ["/lpc/nct6797d/fan/0"] = "Radiator Fans" });
+
+    [Fact]
+    public void A_renamed_fan_header_reaches_the_resolved_sensor()
+    {
+        // Deck keys and the touch tile render sensor.Name, so this keeps a physical key
+        // reading the same as the editor that picked the sensor.
+        var resolved = SensorSnapshotResolver.Resolve(
+            MotherboardFans(), "motherboard", "/lpc/nct6797d/fan/0", RenamedFirstHeader());
+
+        Assert.Equal("Radiator Fans", resolved!.Name);
+        Assert.Equal(900f, resolved.Value);
+    }
+
+    [Fact]
+    public void Without_a_rename_map_the_hardware_name_stands()
+    {
+        Assert.Equal("Fan #1", SensorSnapshotResolver.Resolve(
+            MotherboardFans(), "motherboard", "/lpc/nct6797d/fan/0")!.Name);
+    }
+
+    [Fact]
+    public void A_key_stored_by_hardware_name_still_matches_after_a_rename()
+    {
+        // ResolveOrDefault falls back to a name match for keys whose id was never concrete
+        // (an imported Elgato profile). Renaming the list before that lookup would drop the
+        // match and silently land on the category default - a different sensor, not a blank.
+        // The second header is the one renamed here, so that wrong fallback reads 900, not 1200.
+        var sources = new SensorSnapshotSources(
+            FanHeaderNames: new Dictionary<string, string> { ["/lpc/nct6797d/fan/1"] = "Radiator Fans" });
+
+        var resolved = SensorSnapshotResolver.ResolveOrDefault(
+            MotherboardFans(), "motherboard", "Fan #2", sources);
+
+        Assert.Equal(1200f, resolved!.Value);
+        Assert.Equal("Radiator Fans", resolved.Name);
+    }
+
+    [Fact]
+    public void A_key_stored_as_the_custom_name_resolves_to_that_header()
+    {
+        // A key picked AFTER a rename holds the custom name, which no hardware sensor
+        // carries; without the fan-name fallback it lands on the category default.
+        var sources = new SensorSnapshotSources(
+            FanHeaderNames: new Dictionary<string, string> { ["/lpc/nct6797d/fan/1"] = "Radiator Fans" });
+
+        var resolved = SensorSnapshotResolver.ResolveOrDefault(
+            MotherboardFans(), "motherboard", "Radiator Fans", sources);
+
+        Assert.Equal(1200f, resolved!.Value);
+        Assert.Equal("Radiator Fans", resolved.Name);
+    }
+
+    [Fact]
+    public void An_unmatched_key_still_falls_back_to_the_category_default()
+    {
+        var resolved = SensorSnapshotResolver.ResolveOrDefault(
+            MotherboardFans(), "motherboard", "No Such Sensor", RenamedFirstHeader());
+
+        Assert.Equal(900f, resolved!.Value);
+    }
+
+    [Fact]
+    public void A_rename_never_reaches_the_providers_own_sensors()
+    {
+        var sensors = MotherboardFans();
+
+        SensorSnapshotResolver.Resolve(sensors, "motherboard", "/lpc/nct6797d/fan/0", RenamedFirstHeader());
+
+        Assert.Equal("Fan #1", sensors.MotherboardSensors[0].Name);
+        Assert.Equal("Fan #1", SensorSnapshotResolver.Resolve(
+            sensors, "motherboard", "/lpc/nct6797d/fan/0")!.Name);
+    }
 }
