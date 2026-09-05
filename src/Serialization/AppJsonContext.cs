@@ -1055,6 +1055,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.Slv3LcdScreenDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Slv3LcdScreensResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Slv3LcdSettingsRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Slv3LcdOrderRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Slv3LcdContentRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Slv3LcdMediaDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Slv3LcdMediaListResponse))]
