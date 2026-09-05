@@ -1325,6 +1325,8 @@ public sealed class LianLiWirelessScreenSettings
     public string? ColorB { get; set; }
     /// <summary>"c" | "f". Display unit for a temperature sensor source.</summary>
     public string? TempUnit { get; set; }
+    /// <summary>User-chosen list position (0-based) so the numbered tiles match the physical fans; -1 = not set.</summary>
+    public int Order { get; set; } = -1;
 }
 
 public sealed class LianLiLightingSettings

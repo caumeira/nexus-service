@@ -74,6 +74,21 @@ public static class PanelTopics
     /// without polling.
     /// </summary>
     public const string Focus = "focus";
+    /// <summary>
+    /// The active cloud account changed (login, logout, switch, or a recovery
+    /// approved by the service's own poll loop while no page was watching).
+    /// Subscribers refetch GET /cloud/accounts.
+    /// </summary>
+    public const string CloudAccounts = "cloud/accounts";
+
+    public static void BroadcastCloudAccounts(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(CloudAccounts))
+            return;
+        var frame = new Models.Cloud.CloudAccountsChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(CloudAccounts, frame, AppJsonContext.Default.CloudAccountsChangedFrame);
+        _ = hub.BroadcastTopicAsync(CloudAccounts, env);
+    }
 
     public static void BroadcastFocus(MultiplexHub hub)
     {

@@ -60,7 +60,8 @@ is called out here:
   topic.
 - `/cloud/*` - online account registration/login/sync endpoints
   (`nexus-api`-backed), plus device reporting/management and the
-  `/cloud/benchmarks/submit` leaderboard forwarder. No WebSocket topic.
+  `/cloud/benchmarks/submit` leaderboard forwarder. The `cloud/accounts`
+  topic fires when the active account changes.
 - `/home-assistant/*` - Home Assistant entity config and control. Introduces
   the `homeAssistant` multiplex topic (see below).
 - `/rtc/offer` - WebRTC DataChannel direct P2P signaling: the phone posts an
@@ -231,6 +232,7 @@ Other slow / event-driven topics (e.g. `prefs`, `lighting`, `cooling`,
 | `cooling/warnings` | event-driven on an active-warning-set transition (NP50 heartbeat worker; future warning producers) | `{revision: long, deviceId: string}` | no current REST endpoint or React subscriber found | Broadcast infrastructure only; not yet wired to a route or UI. |
 | `panel/device` | event-driven on every panel device CRUD (`POST /panel/devices`, `POST /panel/devices/{id}`, `DELETE /panel/devices/{id}`) | `{revision: long, deviceId: string}` | `usePanelLayout` filters by `deviceId === mine` and refetches the device record | Cross-device layout sync; replaces the BroadcastChannel cross-tab path for cross-device updates. |
 | `gallery` | event-driven on gallery source add/remove/upload | `{revision: long}` | `GalleryPage`, `useGallery()` | Push-driven refetch of `GET /gallery/items`. |
+| `cloud/accounts` | event-driven on account activation or logout (login, switch, or a recovery the service's own poll loop approved) | `{revision: long}` | `useCloudAccounts()` | Push-driven refetch of `GET /cloud/accounts`, so a sign-in that no page requested still shows without a reload. |
 | `displays` | event-driven on display topology or monitor-panel assignment change | `{revision: long}` | `useDisplayTopology()` | Push-driven refetch of `GET /displays/topology`. |
 | `homeAssistant` | event-driven on Home Assistant entity cache change | `{revision: long}` | `HomeAssistantPage` | Push-driven refetch of `GET /home-assistant/entities`. |
 | `mediaLibrary` | event-driven on lighting media library mutation (import/commit/delete) | `{revision: long}` | `useMediaLibrary()` | Push-driven refetch of `GET /media/library`. |
