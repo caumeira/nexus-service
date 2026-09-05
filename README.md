@@ -136,7 +136,6 @@ installer/
 tests/
   Nexus.Service.Tests       # xUnit, AOT-safe
   Nexus.Service.Benchmarks  # BenchmarkDotNet hot-path CPU/alloc, on-demand
-  aot-smoke.sh              # publishes the real AOT binary, smoke-tests JSON endpoints
 ```
 
 ## Build
@@ -217,10 +216,9 @@ Regenerate `docs/openapi.json` whenever a route is added, removed, or renamed. T
 
 ```sh
 dotnet test          # xUnit suite (JIT)
-tests/aot-smoke.sh   # publishes the real AOT binary and probes data endpoints
 ```
 
-All tests are AOT-safe (no reflection-heavy frameworks). Network/parsing/state-machine logic is unit-tested; hardware drivers have provider-interface seams for fake implementations. The AOT smoke script exists because source-generated JSON gaps only show up in the trimmed binary, not under the JIT test host.
+All tests are AOT-safe (no reflection-heavy frameworks). Network/parsing/state-machine logic is unit-tested; hardware drivers have provider-interface seams for fake implementations.
 
 The xUnit suite includes allocation-budget guards (`AllocationBudgetTests`) that
 assert the per-frame hot paths (lighting canvas, curve evaluation) stay
