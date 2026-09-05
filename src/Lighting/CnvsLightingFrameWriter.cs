@@ -202,11 +202,7 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
         {
             foreach (var d in disabled) if (d == id) return 0.0;
         }
-        // One dictionary lookup serves both the brightness and the colour trim:
-        // an untuned device must not pay a second one just because colour
-        // tuning exists. The guard is the same as before - the preference
-        // dictionary is mutated in place by the settings writers, so a
-        // concurrent insert can throw mid-read.
+        // One lookup feeds both the brightness and the colour trim.
         int devBrightness;
         try
         {

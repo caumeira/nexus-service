@@ -175,11 +175,7 @@ public static class SegmentFrameComposer
             }
         }
         int devBrightness;
-        // One dictionary lookup serves both the brightness and the colour trim:
-        // an untuned zone must not pay a second one just because colour tuning
-        // exists. Prefs dictionary is mutated in place by the brightness
-        // setters; a concurrent insert during this lock-free read can throw.
-        // Fall back to full brightness for this frame.
+        // One lookup feeds both the brightness and the colour trim.
         try
         {
             if (prefs.TryGetValue(id, out var pref) && pref is not null)

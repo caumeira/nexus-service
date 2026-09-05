@@ -1205,15 +1205,12 @@ public sealed class LightingDevicePreference
     // Colour-tuning trims, applied to the frame on its way to the hardware.
     // Distinct from Hue/Saturation above, which are a smart light's own colour
     // rather than a correction: these five never change what the canvas shows.
-    /// <summary>Red channel gain, 0.3..1.7. 1 leaves the channel alone.</summary>
+    // Neutral defaults, and DeviceColorAdjust owns the bounds these clamp to.
     public float AdjustRed { get; set; } = 1f;
-    /// <summary>Green channel gain, 0.3..1.7.</summary>
     public float AdjustGreen { get; set; } = 1f;
-    /// <summary>Blue channel gain, 0.3..1.7.</summary>
     public float AdjustBlue { get; set; } = 1f;
-    /// <summary>Colour-temperature shift, -1 (cool) .. +1 (warm). 0 leaves it alone.</summary>
+    /// <summary>Negative is cooler, positive warmer.</summary>
     public float AdjustTemperature { get; set; }
-    /// <summary>Saturation multiplier around luma, 0..2. 1 leaves it alone.</summary>
     public float AdjustSaturation { get; set; } = 1f;
 }
 

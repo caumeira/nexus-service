@@ -18,21 +18,23 @@ namespace Nexus.Service.Lighting;
 /// </summary>
 public readonly struct DeviceColorAdjust
 {
-    /// <summary>Widest per-channel gain the UI offers, matching the slider range (30%..170%).</summary>
+    /// <summary>Per-channel gain bounds, matching the slider range the UI offers.</summary>
     public const float MinChannel = 0.3f;
     public const float MaxChannel = 1.7f;
-    /// <summary>Saturation multiplier bounds (0% = greyscale, 200% = doubled).</summary>
+    /// <summary>Saturation multiplier bounds, from greyscale to doubled.</summary>
     public const float MinSaturation = 0f;
     public const float MaxSaturation = 2f;
     /// <summary>How far a full-scale temperature shift moves the red/blue gains.</summary>
     private const float TemperatureSpan = 0.35f;
 
-    /// <summary>Effective red gain: the red slider folded together with the warm/cool shift.</summary>
-    public readonly float R;
-    public readonly float G;
-    public readonly float B;
-    /// <summary>Saturation multiplier around Rec.709 luma. 1 leaves the colour alone.</summary>
-    public readonly float Saturation;
+    // Effective gains: the channel sliders with the warm/cool shift folded in,
+    // plus the saturation multiplier around Rec.709 luma. Private because they
+    // read zero on Identity, where nothing consults them - a caller reaching
+    // for them directly would drive an untuned device black.
+    private readonly float _r;
+    private readonly float _g;
+    private readonly float _b;
+    private readonly float _saturation;
     /// <summary>False for the default-constructed value, which is why the flag
     ///  is stored this way round: `default(DeviceColorAdjust)` must read as a
     ///  no-op, not as three zeroed gains that would drive the strip black.</summary>
@@ -45,10 +47,10 @@ public readonly struct DeviceColorAdjust
 
     private DeviceColorAdjust(float r, float g, float b, float saturation)
     {
-        R = r;
-        G = g;
-        B = b;
-        Saturation = saturation;
+        _r = r;
+        _g = g;
+        _b = b;
+        _saturation = saturation;
         HasEffect = true;
     }
 
@@ -78,12 +80,10 @@ public readonly struct DeviceColorAdjust
     /// <summary>
     /// Resolve one card's correction from the preference the caller already
     /// looked up for its brightness. Takes the object rather than the id on
-    /// purpose: the frame writers do exactly one dictionary lookup per device
-    /// per frame, and colour tuning must not add a second one.
-    ///
-    /// An untouched device costs five float compares and nothing else - no
-    /// clamping, no multiplies, no allocation - and the caller's per-LED loop
-    /// then runs its original untouched path.
+    /// purpose: the frame writers do one dictionary lookup per device per
+    /// frame, and colour tuning must not add a second one. An untouched
+    /// device early-outs here, so the caller's per-LED loop stays on its
+    /// original path.
     /// </summary>
     public static DeviceColorAdjust For(LightingDevicePreference? pref)
     {
@@ -117,17 +117,17 @@ public readonly struct DeviceColorAdjust
         float r = sr;
         float g = sg;
         float b = sb;
-        if (Saturation != 1f)
+        if (_saturation != 1f)
         {
             var luma = 0.2126f * r + 0.7152f * g + 0.0722f * b;
-            r = luma + (r - luma) * Saturation;
-            g = luma + (g - luma) * Saturation;
-            b = luma + (b - luma) * Saturation;
+            r = luma + (r - luma) * _saturation;
+            g = luma + (g - luma) * _saturation;
+            b = luma + (b - luma) * _saturation;
         }
         var m = (float)mul;
-        or = ToByte(r * R * m);
-        og = ToByte(g * G * m);
-        ob = ToByte(b * B * m);
+        or = ToByte(r * _r * m);
+        og = ToByte(g * _g * m);
+        ob = ToByte(b * _b * m);
     }
 
     private static byte ToByte(float v) => (byte)Math.Clamp(v, 0f, 255f);

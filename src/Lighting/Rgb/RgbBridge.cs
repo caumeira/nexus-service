@@ -1827,9 +1827,7 @@ public sealed class RgbBridge : IDisposable
             // SetBrightness writers; a concurrent insert during this read can
             // throw InvalidOperationException. Catch it and fall back to full
             // brightness for this frame; the next frame will see the new state.
-            // One dictionary lookup serves both the brightness and the colour
-            // trim: an untuned device must not pay a second one just because
-            // colour tuning exists.
+            // One lookup feeds both the brightness and the colour trim.
             int devBrightness;
             var adjust = Nexus.Service.Lighting.DeviceColorAdjust.Identity;
             try
