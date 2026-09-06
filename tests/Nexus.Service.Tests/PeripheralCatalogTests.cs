@@ -67,6 +67,7 @@ public class PeripheralCatalogTests
     {
         var hyte = LightingDevicesCatalog.All.Where(d => d.Vendor == "HYTE").ToList();
         Assert.Contains(hyte, d => d.Model == "THICC Q60");
+        Assert.Contains(hyte, d => d.Model == "THICC Q80");
         Assert.Contains(hyte, d => d.Model == "Nexus Portal NP50");
         // The OpenRGB fork's own HYTE rows are suppressed, so every HYTE row is first-party.
         Assert.All(hyte, d => Assert.Equal("nexus", d.Source));
