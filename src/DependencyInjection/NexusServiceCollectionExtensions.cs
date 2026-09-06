@@ -1661,6 +1661,7 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Widgets.AppActions.LightingActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.AppInstallActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.SystemSpecsActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.OpenUrlActions.RegisterAll(registry);
             return registry;
         });
         services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();

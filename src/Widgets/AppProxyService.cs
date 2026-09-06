@@ -4,11 +4,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Cloud;
+using Nexus.Service.Common;
 using Nexus.Service.Models.Widgets;
 
 namespace Nexus.Service.Widgets;
@@ -27,8 +30,11 @@ namespace Nexus.Service.Widgets;
 ///         responses are truncated + flagged.</item>
 ///   <item>Per-widget rate limit (<see cref="MaxRequestsPerMinute"/> rolling).</item>
 ///   <item>Method allowlist: GET / POST / PUT / PATCH / DELETE / HEAD.</item>
-///   <item>Forbidden headers (Cookie, Authorization, Host) silently dropped
-///         so the widget can't reuse the user's host-session credentials.</item>
+///   <item>Forbidden headers (Cookie, Authorization, Host, the build
+///         credential) silently dropped so the widget can't reuse the
+///         user's host-session credentials nor forge our own.</item>
+///   <item>Our own cloud API host, and only that host, receives the build
+///         credential this service was published with.</item>
 /// </list>
 /// </summary>
 public sealed class AppProxyService
@@ -52,7 +58,7 @@ public sealed class AppProxyService
     private static readonly HashSet<string> ForbiddenRequestHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Cookie", "Authorization", "Host", "Proxy-Authorization",
-        "Set-Cookie", "Cookie2",
+        "Set-Cookie", "Cookie2", ClientCredential.HeaderName,
     };
 
     // Tight allowlist for response headers proxied back to the widget. We
@@ -161,9 +167,19 @@ public sealed class AppProxyService
             msg.Headers.TryAddWithoutValidation("User-Agent", DefaultUserAgent);
         if (!widgetSetAccept)
             msg.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain;q=0.9, */*;q=0.1");
+        // Our API gates on the build credential; every other upstream keeps
+        // seeing none, and an unofficial build sends none anywhere.
+        if (IsCloudApiHost(uri))
+        {
+            ClientCredential.Apply(msg);
+        }
         if (req.Body is not null && method != "GET" && method != "HEAD")
         {
-            msg.Content = new StringContent(req.Body, Encoding.UTF8);
+            var content = new StringContent(req.Body, Encoding.UTF8);
+            // Content-Type is a content header, so the loop above could not
+            // carry it: HttpRequestHeaders drops it without an error.
+            content.Headers.ContentType = ResolveContentType(HeaderValue(req.Headers, "Content-Type"));
+            msg.Content = content;
         }
 
         try
@@ -255,7 +271,44 @@ public sealed class AppProxyService
         }
     }
 
-    private static bool HostInAllowlist(string host, IReadOnlyList<string> allowlist)
+    /// <summary>True when a widget's target is the cloud API this build talks to.</summary>
+    internal static bool IsCloudApiHost(Uri uri) => IsCloudApiHost(uri, CloudApiEndpoint.Host);
+
+    internal static bool IsCloudApiHost(Uri? uri, string cloudHost) =>
+        uri is not null && !string.IsNullOrEmpty(cloudHost) &&
+        string.Equals(uri.Host, cloudHost, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Content type for a widget-supplied body: the header it declared when
+    /// that parses, else the plain-text default a bare StringContent carries.
+    /// </summary>
+    internal static MediaTypeHeaderValue ResolveContentType(string? declared)
+    {
+        if (!string.IsNullOrWhiteSpace(declared) &&
+            MediaTypeHeaderValue.TryParse(declared, out var parsed) &&
+            !string.IsNullOrEmpty(parsed.MediaType))
+        {
+            return parsed;
+        }
+        return new MediaTypeHeaderValue("text/plain") { CharSet = "utf-8" };
+    }
+
+    /// <summary>Header lookup over the request's case-sensitive dictionary.</summary>
+    private static string? HeaderValue(Dictionary<string, string>? headers, string name)
+    {
+        if (headers is null) return null;
+        foreach (var kv in headers)
+        {
+            if (string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase)) return kv.Value;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Manifest <c>net.fetch</c> host match, shared with the openUrl host
+    /// action so both gates agree on what a manifest entry permits.
+    /// </summary>
+    internal static bool HostInAllowlist(string host, IReadOnlyList<string> allowlist)
     {
         if (allowlist is null || allowlist.Count == 0) return false;
         foreach (var entry in allowlist)
