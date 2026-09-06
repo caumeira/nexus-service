@@ -35,6 +35,8 @@ namespace Nexus.Service.Widgets;
 ///         user's host-session credentials nor forge our own.</item>
 ///   <item>Our own cloud API host, and only that host, receives the build
 ///         credential this service was published with.</item>
+///   <item>Redirects are never followed; a 3xx is returned to the widget as
+///         it stands, so no hop escapes the checks above.</item>
 /// </list>
 /// </summary>
 public sealed class AppProxyService
@@ -49,6 +51,9 @@ public sealed class AppProxyService
     /// is also more honest than impersonating a browser.
     /// </summary>
     public const string DefaultUserAgent = "Nexus-Widget-Proxy/1.0 (+https://hellonexus.com)";
+
+    /// <summary>Named client every proxied request uses, registered with redirects off.</summary>
+    public const string ClientName = "AppProxy";
 
     private static readonly HashSet<string> AllowedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -140,7 +145,12 @@ public sealed class AppProxyService
             return resp;
         }
 
-        using var http = _httpFactory.CreateClient();
+        // Redirects are handed back to the widget rather than followed. A
+        // followed hop escapes both the allowlist and the reserved-address
+        // check, and HttpClient strips only Authorization when the origin
+        // changes, so the build credential would ride along to the new host.
+        bool credentialed = IsCloudApiHost(uri);
+        using var http = _httpFactory.CreateClient(ClientName);
         http.Timeout = TimeSpan.FromSeconds(20);
 
         using var msg = new HttpRequestMessage(new HttpMethod(method), uri);
@@ -169,7 +179,7 @@ public sealed class AppProxyService
             msg.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain;q=0.9, */*;q=0.1");
         // Our API gates on the build credential; every other upstream keeps
         // seeing none, and an unofficial build sends none anywhere.
-        if (IsCloudApiHost(uri))
+        if (credentialed)
         {
             ClientCredential.Apply(msg);
         }
@@ -288,6 +298,14 @@ public sealed class AppProxyService
             MediaTypeHeaderValue.TryParse(declared, out var parsed) &&
             !string.IsNullOrEmpty(parsed.MediaType))
         {
+            // The body goes out UTF-8 encoded whatever the widget declared, so
+            // any other charset would only mislead the upstream decoder. A
+            // declaration carrying no charset keeps none.
+            if (!string.IsNullOrEmpty(parsed.CharSet) &&
+                !string.Equals(parsed.CharSet, "utf-8", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.CharSet = "utf-8";
+            }
             return parsed;
         }
         return new MediaTypeHeaderValue("text/plain") { CharSet = "utf-8" };
@@ -348,7 +366,7 @@ public sealed class AppProxyService
     /// as suspicious and refused (better than letting a stub-resolver
     /// poison split the decision later).
     /// </summary>
-    private static bool IsPrivateOrReservedAddress(string host)
+    internal static bool IsPrivateOrReservedAddress(string host)
     {
         if (string.IsNullOrWhiteSpace(host)) return true;
 

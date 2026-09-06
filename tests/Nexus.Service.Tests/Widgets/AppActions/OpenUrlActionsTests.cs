@@ -49,6 +49,9 @@ public class OpenUrlActionsTests : IDisposable
     [InlineData("https://hyte.com/\"x\"", false)]
     [InlineData("https://hyte.com/caf\u00e9", false)]
     [InlineData("https://hyte.com/support?ref=nexus&v=1", true)]
+    [InlineData("HTTPS://hyte.com/account", true)]
+    [InlineData("https://hyte.com:8443/account", true)]
+    [InlineData("https://hyte.com./account", false)]
     [InlineData("mailto:support@hyte.com", true)]
     [InlineData("mailto:support@hyte.com?subject=x", true)]
     [InlineData("mailto:support@hyte.com?subject=x&body=hello%20there", true)]
@@ -57,6 +60,14 @@ public class OpenUrlActionsTests : IDisposable
     [InlineData("mailto:not-an-address", false)]
     [InlineData("mailto:support@hyte.com#evil", false)]
     [InlineData("mailto:one@hyte.com,two@hyte.com", false)]
+    [InlineData("MAILTO:support@hyte.com", true)]
+    [InlineData("mailto:support@hyte.com?to=evil@x.test", false)]
+    [InlineData("mailto:support@hyte.com?bcc=evil@x.test", false)]
+    [InlineData("mailto:support@hyte.com?subject=x%0d%0aBcc:evil@x.test", false)]
+    [InlineData("mailto:support@hyte.com?body=x%0ABcc:evil@x.test", false)]
+    [InlineData("mailto:support@hyte.com?subject=x%00y", false)]
+    [InlineData("mailto:support@hyte.com?subject=%22x%22", false)]
+    [InlineData("mailto:support%40hyte.com", false)]
     [InlineData("mailto:", false)]
     [InlineData("", false)]
     [InlineData("   ", false)]
@@ -115,6 +126,24 @@ public class OpenUrlActionsTests : IDisposable
         Assert.NotNull(result);
         Assert.False(result!.Value.GetProperty("ok").GetBoolean());
         Assert.Equal("url not permitted", result.Value.GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public void Launch_limiter_caps_a_runaway_app_and_recovers_after_the_window()
+    {
+        var limiter = new OpenUrlActions.LaunchLimiter();
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (int i = 0; i < OpenUrlActions.LaunchLimiter.MaxPerWindow; i++)
+        {
+            Assert.True(limiter.TryAcquire("com.hyte.account", start));
+        }
+        Assert.False(limiter.TryAcquire("com.hyte.account", start));
+
+        // A second app has its own bucket.
+        Assert.True(limiter.TryAcquire("com.other.app", start));
+
+        Assert.True(limiter.TryAcquire("com.hyte.account", start + OpenUrlActions.LaunchLimiter.Window));
     }
 
     [Fact]

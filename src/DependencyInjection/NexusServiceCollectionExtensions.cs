@@ -1640,6 +1640,14 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Widgets.AppRegistry>();
         services.AddSingleton<Nexus.Service.Widgets.WidgetSettingsService>();
         services.AddSingleton<Nexus.Service.Widgets.AppProxyService>();
+        // Every widget fetch runs through this one: a followed redirect would
+        // escape the proxy's host allowlist and carry the build credential off
+        // our own API host, so the widget receives the 3xx instead.
+        services.AddHttpClient(Nexus.Service.Widgets.AppProxyService.ClientName)
+            .ConfigurePrimaryHttpMessageHandler(static () => new System.Net.Http.HttpClientHandler
+            {
+                AllowAutoRedirect = false,
+            });
         services.AddSingleton<Nexus.Service.Widgets.AppInstaller>();
         services.AddSingleton<Nexus.Service.Store.StoreInstaller>(sp => new Nexus.Service.Store.StoreInstaller(
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("StoreInstall"),

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
@@ -19,6 +20,11 @@ public static partial class OpenUrlActions
     // Unreserved, gen-delims, sub-delims and the percent sign of RFC 3986.
     private const string UrlPunctuation = "-._~:/?#[]@!$&'()*+,;=%";
 
+    // The shared dispatch limiter is sized for in-process reads and writes.
+    // A launch opens a window in the user's face and cannot be taken back, so
+    // this action carries its own far tighter bucket.
+    private static readonly LaunchLimiter Launches = new();
+
     public static void RegisterAll(AppActionRegistry registry)
     {
         registry.Register("system.openUrl", async (services, args, ct) =>
@@ -37,6 +43,18 @@ public static partial class OpenUrlActions
             if (!TryValidate(url, allowlist, out var target, out _))
             {
                 return AppActionHelpers.Ack(false, "url not permitted");
+            }
+            // A manifest entry is not proof the host is public. The proxy
+            // refuses the non-routable hosts of that same allowlist, and a
+            // browser pointed at one reaches services only this box can see.
+            if (target.StartsWith("https:", StringComparison.Ordinal) &&
+                AppProxyService.IsPrivateOrReservedAddress(new Uri(target).Host))
+            {
+                return AppActionHelpers.Ack(false, "url not permitted");
+            }
+            if (!Launches.TryAcquire(appId, DateTime.UtcNow))
+            {
+                return AppActionHelpers.Ack(false, "rate limit exceeded");
             }
 
             var opened = await services.GetRequiredService<SystemActions>()
@@ -70,9 +88,9 @@ public static partial class OpenUrlActions
         }
         foreach (var ch in trimmed)
         {
-            // Only what a URL may carry unencoded. That drops whitespace,
-            // control and non-ASCII characters, and the quoting characters a
-            // protocol-handler command template would read as structure.
+            // Only what a URL may carry unencoded, which drops whitespace,
+            // control and non-ASCII characters. Percent escapes pass here and
+            // are judged where something would decode them.
             if (!char.IsAsciiLetterOrDigit(ch) && !UrlPunctuation.Contains(ch))
             {
                 reason = "url has an unsupported character";
@@ -125,6 +143,10 @@ public static partial class OpenUrlActions
         if (rest.Length == 0 || rest.Contains('#')) return false;
         var mark = rest.IndexOf('?');
         var address = mark < 0 ? rest : rest[..mark];
+        // The address reaches the mail client percent-decoded, and no support
+        // address needs an escape, so one is only ever hiding a character the
+        // gate above would have refused.
+        if (address.Contains('%')) return false;
         if (!MailAddress().IsMatch(address)) return false;
         if (mark < 0) return true;
 
@@ -138,6 +160,30 @@ public static partial class OpenUrlActions
             {
                 return false;
             }
+            if (eq >= 0 && !IsSafeDecodedText(field[(eq + 1)..])) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Guards what the mail client sees after it percent-decodes a field: a
+    /// line break turns a subject into an extra message header, and a quote
+    /// is what closes an argument in a handler's command template.
+    /// </summary>
+    private static bool IsSafeDecodedText(string value)
+    {
+        string decoded;
+        try
+        {
+            decoded = Uri.UnescapeDataString(value);
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
+        foreach (var ch in decoded)
+        {
+            if (char.IsControl(ch) || ch == '"') return false;
         }
         return true;
     }
@@ -145,4 +191,28 @@ public static partial class OpenUrlActions
     // Anchored, so a second address (which needs a second @) cannot ride along.
     [GeneratedRegex(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.CultureInvariant)]
     private static partial Regex MailAddress();
+
+    /// <summary>Rolling per-app cap on how many links one app may open.</summary>
+    internal sealed class LaunchLimiter
+    {
+        public const int MaxPerWindow = 5;
+        public static readonly TimeSpan Window = TimeSpan.FromSeconds(10);
+
+        private readonly ConcurrentDictionary<string, Queue<DateTime>> _buckets = new(StringComparer.Ordinal);
+
+        public bool TryAcquire(string appId, DateTime now)
+        {
+            var bucket = _buckets.GetOrAdd(appId, static _ => new Queue<DateTime>());
+            lock (bucket)
+            {
+                while (bucket.Count > 0 && now - bucket.Peek() >= Window)
+                {
+                    bucket.Dequeue();
+                }
+                if (bucket.Count >= MaxPerWindow) return false;
+                bucket.Enqueue(now);
+                return true;
+            }
+        }
+    }
 }

@@ -18,6 +18,7 @@ internal static class CloudApiEndpoint
     /// <summary>Host of <see cref="BaseUrl"/>, or empty when the override is not a parsable absolute URL.</summary>
     public static string Host => HostOf(BaseUrl);
 
+    /// <summary>Tolerant host parse: an unusable base URL yields empty rather than throwing.</summary>
     public static string HostOf(string? baseUrl) =>
         Uri.TryCreate(baseUrl, UriKind.Absolute, out var parsed) ? parsed.Host : "";
 }
