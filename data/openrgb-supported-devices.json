@@ -1,5 +1,5 @@
 {
-  "count": 1965,
+  "count": 1964,
   "devices": [
     {
       "name": "Bloody B820R",
@@ -107,7 +107,21 @@
       "kind": "i2c"
     },
     {
+      "name": "ASRock Radeon RX 9060 XT Steel Legend",
+      "vid": null,
+      "pid": null,
+      "controller": "ASRockSMBusController",
+      "kind": "i2c"
+    },
+    {
       "name": "ASRock Radeon RX 9070 XT Steel Legend",
+      "vid": null,
+      "pid": null,
+      "controller": "ASRockSMBusController",
+      "kind": "i2c"
+    },
+    {
+      "name": "ASRock Radeon RX 9070 XT Taichi 16GB OC",
       "vid": null,
       "pid": null,
       "controller": "ASRockSMBusController",
@@ -1395,6 +1409,20 @@
       "kind": "hid"
     },
     {
+      "name": "Asus ROG Aura Monitor Light Bar",
+      "vid": "0x0B05",
+      "pid": "0x1AC8",
+      "controller": "AsusMonitorController",
+      "kind": "hid"
+    },
+    {
+      "name": "Asus ROG STRIX XG27ACDNG",
+      "vid": "0x0B05",
+      "pid": "0x1BC9",
+      "controller": "AsusMonitorController",
+      "kind": "hid"
+    },
+    {
       "name": "Asus ROG STRIX XG27AQDMG",
       "vid": "0x0B05",
       "pid": "0x1BA3",
@@ -1419,6 +1447,13 @@
       "name": "Asus ROG SWIFT PG32UCDMR",
       "vid": "0x0B05",
       "pid": "0x1C9B",
+      "controller": "AsusMonitorController",
+      "kind": "hid"
+    },
+    {
+      "name": "Asus ROG SWIFT PG32UCDP",
+      "vid": "0x0B05",
+      "pid": "0x1BCA",
       "controller": "AsusMonitorController",
       "kind": "hid"
     },
@@ -5455,6 +5490,13 @@
       "kind": "i2c"
     },
     {
+      "name": "Gigabyte Radeon RX 9060 GAMING OC 8G",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2BlackwellGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "Gigabyte Radeon RX 9060 XT GAMING",
       "vid": null,
       "pid": null,
@@ -5910,6 +5952,13 @@
       "kind": "i2c"
     },
     {
+      "name": "Gigabyte GeForce RTX 5080 GAMING OC",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2GPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "Gigabyte GeForce RTX 5090 GAMING OC",
       "vid": null,
       "pid": null,
@@ -5995,6 +6044,13 @@
     },
     {
       "name": "Gigabyte Radeon RX 7900 XTX GAMING OC",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2GPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "Gigabyte Radeon RX 9060 XT GAMING OC 8G",
       "vid": null,
       "pid": null,
       "controller": "GigabyteRGBFusion2GPUController",
@@ -7282,13 +7338,6 @@
       "kind": "hid"
     },
     {
-      "name": "Logitech G Pro RGB Mechanical Gaming Keyboard",
-      "vid": "0x046D",
-      "pid": "0xC339",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
       "name": "Logitech G Pro Wireless Gaming Mouse",
       "vid": "0x046D",
       "pid": "0x4079",
@@ -7394,37 +7443,9 @@
       "kind": "hid"
     },
     {
-      "name": "Logitech G512",
-      "vid": "0x046D",
-      "pid": "0xC342",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech G512 RGB",
-      "vid": "0x046D",
-      "pid": "0xC33C",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
       "name": "Logitech G600 Gaming Mouse",
       "vid": "0x046D",
       "pid": "0xC24A",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech G610 Orion",
-      "vid": "0x046D",
-      "pid": "0xC333",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech G610 Orion",
-      "vid": "0x046D",
-      "pid": "0xC338",
       "controller": "LogitechController",
       "kind": "hid"
     },
@@ -7492,20 +7513,6 @@
       "kind": "hid"
     },
     {
-      "name": "Logitech G810 Orion Spectrum",
-      "vid": "0x046D",
-      "pid": "0xC331",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech G810 Orion Spectrum",
-      "vid": "0x046D",
-      "pid": "0xC337",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
       "name": "Logitech G813 RGB Mechanical Gaming Keyboard",
       "vid": "0x046D",
       "pid": "0xC232",
@@ -7562,20 +7569,6 @@
       "kind": "hid"
     },
     {
-      "name": "Logitech G910 Orion Spark",
-      "vid": "0x046D",
-      "pid": "0xC32B",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
-      "name": "Logitech G910 Orion Spectrum",
-      "vid": "0x046D",
-      "pid": "0xC335",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
       "name": "Logitech G915 Wireless RGB Mechanical Gaming Keyboard",
       "vid": "0x046D",
       "pid": "0xC541",
@@ -7625,9 +7618,9 @@
       "kind": "hid"
     },
     {
-      "name": "Logitech HID++ 2.0 (C547 receiver)",
+      "name": "Logitech HID++ 2.0",
       "vid": "0x046D",
-      "pid": "0xC547",
+      "pid": null,
       "controller": "LogitechController",
       "kind": "hid"
     },
@@ -10362,7 +10355,7 @@
       "kind": "i2c"
     },
     {
-      "name": "Keychron RGB",
+      "name": "Keychron RGB QMK/ZMK Keyboard",
       "vid": null,
       "pid": null,
       "controller": "QMKController",
