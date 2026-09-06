@@ -113,7 +113,7 @@ docs/
   network-transport.md # WebSocket topics, polling cadence, reconnect semantics
   ws-topic-rbac.md     # design note on per-topic WebSocket authorization
   shader-benchmark.md  # Q-series shader performance baseline
-data/                  # shipped defaults: firmware images, install defaults, animate templates, OpenRGB device catalog
+data/                  # shipped defaults: install defaults, animate templates, OpenRGB device catalog
 Bundled/               # per-RID third-party binaries (adb, dfu-util, pawnio, gamesync, bench CLIs), openrgb + ffmpeg added at publish; macos/ linux/ windows/ = first-party helpers, icons, macOS build scripts
 installer/             # Windows Inno Setup + web installer, MSIX, Linux tarball packager
 tests/
@@ -140,6 +140,11 @@ dotnet publish -c Release -r linux-x64 -o publish-linux
   configuration, compiled by `scripts/build-ffmpeg-minimal.sh`. It is optional
   at build time: `bash scripts/fetch-ffmpeg.sh all` (or `mac | win | linux`)
   produces it once per RID.
+- Device firmware images are vendor files kept outside this repository. The
+  csproj embeds them from `NEXUS_FIRMWARE_DIR` (or `-p:NexusFirmwareDir=`), a
+  gitignored `data/firmware/`, or a sibling `firmware/` directory when one
+  exists. A public clone builds with an empty firmware catalog; an official
+  publish (one carrying the client token) fails without the images.
 - `-p:DevTools=true` compiles in internal tooling (the local AI assistant,
   firmware downgrade paths, D213 panel discovery, the simulated Nexus 2
   install). Distribution builds leave it unset.

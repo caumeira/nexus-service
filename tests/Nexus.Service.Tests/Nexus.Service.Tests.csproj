@@ -65,4 +65,13 @@
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Fixture firmware images under the same firmware/<deviceId>/<version>.hex
+       logical names the service build uses, so BundledFirmwareCatalog is tested
+       without the real vendor images (which live outside the repository). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Fixtures\firmware\**\*.hex">
+      <LogicalName>firmware/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
 </Project>

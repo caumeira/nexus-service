@@ -53,7 +53,8 @@ Q-series screens.
 
 - `Devices/DeviceManager` aggregates every `IDeviceHandler` and coordinates
   USB enumeration into the unified device list; `Devices/Firmware/` handles
-  updates from the bundled images under `data/firmware/`.
+  updates from the firmware images embedded at build time (vendor files kept
+  outside this repository; see the README's Build section).
 - First-party drivers under `Peripherals/`: HYTE Keeb, CNVS, hubs, Y70,
   Q-series; iBUYPOWER keyboards and mice; the Lian Li Uni fan family, Galahad
   II AIO, Strimer, SL wireless; Corsair iCUE LINK and Xeneon Edge; NZXT Kraken;

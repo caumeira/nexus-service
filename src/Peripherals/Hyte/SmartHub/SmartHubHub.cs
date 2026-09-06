@@ -28,7 +28,7 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
     /// </summary>
     public const string ProductName = "HYTE SmartHub";
 
-    /// <summary>Device id + firmware-catalog key (<c>data/firmware/smarthub/</c>).</summary>
+    /// <summary>Device id + firmware-catalog key (the bundled <c>smarthub/</c> image directory).</summary>
     public const string DeviceType = "smarthub";
 
     private readonly INp50PortDiscovery _discovery;
