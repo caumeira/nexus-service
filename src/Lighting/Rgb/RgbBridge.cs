@@ -186,11 +186,13 @@ public sealed class RgbBridge : IDisposable
     private readonly IReadOnlyList<Nexus.Service.Lighting.IOpenRgbDeviceOwner> _deviceOwners;
 
     private readonly FeatureGates _gates;
+    private readonly Nexus.Service.Devices.DeviceControlGate? _controlGate;
 
     public RgbBridge(OpenRgbProcessManager proc, IRgbController controller, LightingEngine engine, IConfigStore store, IUsbEnumerator usb,
         IEnumerable<ILightingFrameContributor>? frameContributors = null,
         Nexus.Service.Lighting.Mappings.ContributorFrameLayouts? contributorLayouts = null,
-        FeatureGates? gates = null)
+        FeatureGates? gates = null,
+        Nexus.Service.Devices.DeviceControlGate? controlGate = null)
     {
         _proc = proc;
         _controller = controller;
@@ -198,6 +200,7 @@ public sealed class RgbBridge : IDisposable
         _store = store;
         _usb = usb;
         _gates = gates ?? FeatureGates.AllEnabled;
+        _controlGate = controlGate;
         _contributorLayouts = contributorLayouts ?? new Nexus.Service.Lighting.Mappings.ContributorFrameLayouts();
         _frameContributors = frameContributors is null
             ? Array.Empty<ILightingFrameContributor>()
@@ -218,6 +221,26 @@ public sealed class RgbBridge : IDisposable
         {
             c.DevicesChanged += OnContributorDevicesChanged;
         }
+        // Last: the handler runs on the caller's thread and reads this instance.
+        if (controlGate is { } gate)
+        {
+            gate.Changed += OnControlGateChanged;
+        }
+    }
+
+    /// <summary>
+    /// The SMBus device's toggle rewrites the daemon's DRAM-detector denylist,
+    /// which it reads only at process start, so relaunch it. Every other
+    /// handler's gate is honored by its own connection worker.
+    /// </summary>
+    private void OnControlGateChanged(string handlerId, bool enabled)
+    {
+        if (!string.Equals(handlerId, Nexus.Service.Devices.Handlers.SmbusDramHandler.HandlerId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        ServiceLog.Info($"[rgb-bridge] SMBus DRAM detectors {(enabled ? "re-enabled" : "disabled")}: Nexus Control for the memory device turned {(enabled ? "on" : "off")}");
+        BounceSubprocess("smbus-dram-gate");
     }
 
     private void OnContributorDevicesChanged()
@@ -333,9 +356,10 @@ public sealed class RgbBridge : IDisposable
             // startup hazards make that likely, and waiting for LHM's open
             // clears both: PawnIO may still be installing (OpenRGB then finds
             // zero busses and skips DIMMs entirely), and LHM's own SPD reads
-            // drive the same controller without taking OpenRGB's
-            // Global\Access_SMBUS.HTP.Method mutex, so concurrent transactions
-            // are unarbitrated. Completes immediately once startup is past.
+            // drive the same controller; both sides take the
+            // Global\Access_SMBUS.HTP.Method mutex per transaction, but a probe
+            // that loses the race reads as an empty address for the whole
+            // session. Completes immediately once startup is past.
             if (Nexus.Service.Lifecycle.PawnIoBootGate.IsArmed)
             {
                 await Nexus.Service.Lifecycle.PawnIoBootGate
@@ -1958,6 +1982,10 @@ public sealed class RgbBridge : IDisposable
 
     public void Dispose()
     {
+        if (_controlGate is { } gate)
+        {
+            gate.Changed -= OnControlGateChanged;
+        }
         lock (_lock)
         {
             if (_disposed)

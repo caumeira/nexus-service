@@ -54,7 +54,12 @@ Q-series screens.
 - `Devices/DeviceManager` aggregates every `IDeviceHandler` and coordinates
   USB enumeration into the unified device list; `Devices/Firmware/` handles
   updates from the firmware images embedded at build time (vendor files kept
-  outside this repository; see the README's Build section).
+  outside this repository; see the README's Build section). One handler is
+  not a USB device: `SmbusDramHandler` lists the chipset SMBus (the DIMMs)
+  so its Nexus Control toggle can silence every in-process SMBus consumer
+  at once, LibreHardwareMonitor's SPD path and the OpenRGB DRAM detectors,
+  for boxes where a vendor app such as iCUE owns that bus. It defaults off
+  where that app is installed.
 - First-party drivers under `Peripherals/`: HYTE Keeb, CNVS, hubs, Y70,
   Q-series; iBUYPOWER keyboards and mice; the Lian Li Uni fan family, Galahad
   II AIO, Strimer, SL wireless; Corsair iCUE LINK and Xeneon Edge; NZXT Kraken;

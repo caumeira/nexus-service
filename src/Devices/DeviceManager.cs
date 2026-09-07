@@ -56,6 +56,7 @@ public sealed class DeviceManager
                 Warning = h.GetWarning(usbDevices),
                 ConflictAppId = DeviceControlPolicy.ConflictAppFor(h.Id),
                 HasPage = h.HasPage,
+                Bus = DeviceControlPolicy.BusFor(h.Id),
             };
         }).ToList();
     }

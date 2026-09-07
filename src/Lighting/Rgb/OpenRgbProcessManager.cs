@@ -36,16 +36,19 @@ public sealed class OpenRgbProcessManager : IDisposable
     private readonly object _lock = new();
     private readonly string _exePath;
     private readonly Nexus.Service.Persistence.IConfigStore? _store;
+    private readonly Nexus.Service.Devices.DeviceControlGate? _gate;
     private Process? _proc;
     private DateTime _startedUtc;
     private TimeSpan _backoff = InitialBackoff;
     private CancellationTokenSource? _supervisorCts;
     private bool _disposed;
 
-    public OpenRgbProcessManager(string? overrideExePath = null, Nexus.Service.Persistence.IConfigStore? store = null)
+    public OpenRgbProcessManager(string? overrideExePath = null, Nexus.Service.Persistence.IConfigStore? store = null,
+        Nexus.Service.Devices.DeviceControlGate? gate = null)
     {
         _exePath = overrideExePath ?? ResolveDefaultPath();
         _store = store;
+        _gate = gate;
     }
 
     public bool IsAvailable => (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux()) && File.Exists(_exePath);
@@ -220,6 +223,47 @@ public sealed class OpenRgbProcessManager : IDisposable
     private static readonly string[] DisabledDetectors = BuildDisabledDetectors(OperatingSystem.IsMacOS());
 
     /// <summary>
+    /// Every detector in the bundled fork that reaches a DIMM over the chipset
+    /// SMBus, disabled together while Nexus Control for the SMBus device is
+    /// off. Two families, and both must be here:
+    ///
+    /// The seven <c>REGISTER_I2C_DRAM_DETECTOR</c> names are what
+    /// <c>DetectionManager::IsAnyDimmDetectorEnabled</c> reads
+    /// (DetectionManager.cpp:2473); the 0x50-0x57 SPD probe loop at :1219 runs
+    /// while ANY of them is still true in the config, so one missing name
+    /// leaves the whole scan running. "Corsair Vengeance RGB DRAM" is the DDR4
+    /// detector and is separate from "Corsair DRAM", the DDR5 one.
+    ///
+    /// The four <c>REGISTER_I2C_DETECTOR</c> names run outside that gate and
+    /// walk DIMM addresses themselves, so they are listed too.
+    ///
+    /// Names are the registration strings, verbatim
+    /// (CorsairDRAMControllerDetect.cpp defines CORSAIR_DRAM_NAME; the two
+    /// Patriot files each define their own PATRIOT_CONTROLLER_NAME). The
+    /// bundled catalog cannot supply this list: it names controllers, not
+    /// detectors. A one-shot probe lost to another SMBus master is a stick
+    /// missing for the whole session, so this is about presence, not lighting.
+    ///
+    /// Motherboard and GPU I2C detectors (ASUS Aura, ASRock, EVGA, Gigabyte)
+    /// still run and still drive the same bus; this device covers the DIMMs.
+    /// </summary>
+    internal static readonly string[] SmbusDramDetectors =
+    {
+        // REGISTER_I2C_DRAM_DETECTOR - the IsAnyDimmDetectorEnabled gate.
+        "Corsair Vengeance RGB DRAM", "HyperX DRAM", "Kingston Fury DDR4 DRAM",
+        "Kingston Fury DDR5 DRAM", "Patriot Viper", "Patriot Viper Steel",
+        "T-Force Xtreem DDR4 DRAM",
+        // REGISTER_I2C_DETECTOR - probe DIMM addresses on their own.
+        "Corsair DRAM", "Crucial Ballistix", "ENE SMBus DRAM", "Gigabyte RGB Fusion 2 DRAM",
+    };
+
+    /// <summary>The DRAM detectors to keep off for this launch: all of them while the SMBus device is toggled off, none otherwise.</summary>
+    internal System.Collections.Generic.IReadOnlyCollection<string> ResolveBusDisabledDetectors()
+        => _gate is not null && !_gate.IsEnabled(Nexus.Service.Devices.Handlers.SmbusDramHandler.HandlerId)
+            ? SmbusDramDetectors
+            : Array.Empty<string>();
+
+    /// <summary>
     /// Detector names the user excluded by turning Nexus Control off for every
     /// card of the device. Written as disabled + <c>placeholder_only</c> so the
     /// fork reports a zero-LED presence dummy instead of claiming the hardware.
@@ -267,7 +311,9 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// means OpenRGB might surface a zombie entry, which
     /// CompositeLightingDeviceProvider also strips.
     /// </summary>
-    internal static void EnsureDetectorOverrides(string configDir, System.Collections.Generic.IReadOnlyCollection<string>? placeholderOnlyDetectors)
+    /// <param name="busDisabledDetectors">Detectors held off because their shared bus is toggled off (<see cref="SmbusDramDetectors"/>). Tracked in the service-owned <c>Detectors.bus_disabled</c> array with the same drop-to-re-enable rule as placeholders, and without a placeholder dummy: the device's row lives on the Devices page, not in Lighting.</param>
+    internal static void EnsureDetectorOverrides(string configDir, System.Collections.Generic.IReadOnlyCollection<string>? placeholderOnlyDetectors,
+        System.Collections.Generic.IReadOnlyCollection<string>? busDisabledDetectors = null)
     {
         try
         {
@@ -355,10 +401,58 @@ public sealed class OpenRgbProcessManager : IDisposable
                 }
             }
 
+            if (busDisabledDetectors is not null)
+            {
+                var previous = new System.Collections.Generic.List<string>();
+                if (detectors["bus_disabled"] is System.Text.Json.Nodes.JsonArray prevArr)
+                {
+                    foreach (var node in prevArr)
+                    {
+                        if (node is System.Text.Json.Nodes.JsonValue pv && pv.TryGetValue<string>(out var s) && !string.IsNullOrEmpty(s))
+                        {
+                            previous.Add(s);
+                        }
+                    }
+                }
+                var desired = new System.Collections.Generic.HashSet<string>(busDisabledDetectors, StringComparer.Ordinal);
+                var placeholders = placeholderOnlyDetectors is null
+                    ? new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+                    : new System.Collections.Generic.HashSet<string>(placeholderOnlyDetectors, StringComparer.Ordinal);
+                foreach (var name in previous)
+                {
+                    // A dropped name re-enables unless another list still holds it.
+                    if (!desired.Contains(name) && !placeholders.Contains(name) && Array.IndexOf(DisabledDetectors, name) < 0)
+                    {
+                        map[name] = true;
+                        changed = true;
+                    }
+                }
+                foreach (var name in busDisabledDetectors)
+                {
+                    var alreadyDisabled = map[name] is System.Text.Json.Nodes.JsonValue v
+                        && v.TryGetValue<bool>(out var b) && b == false;
+                    if (!alreadyDisabled)
+                    {
+                        map[name] = false;
+                        changed = true;
+                    }
+                }
+                if (!desired.SetEquals(previous))
+                {
+                    var arr = new System.Text.Json.Nodes.JsonArray();
+                    foreach (var name in busDisabledDetectors)
+                    {
+                        arr.Add((System.Text.Json.Nodes.JsonNode?)System.Text.Json.Nodes.JsonValue.Create(name));
+                    }
+                    detectors["bus_disabled"] = arr;
+                    changed = true;
+                }
+            }
+
             if (changed)
             {
                 File.WriteAllText(path, root.ToJsonString());
-                ServiceLog.Info($"[openrgb-proc] detector overrides written ({DisabledDetectors.Length} first-party, {(placeholderOnlyDetectors is null ? "unchanged" : placeholderOnlyDetectors.Count.ToString())} placeholder-only) in {path}");
+                ServiceLog.Info($"[openrgb-proc] detector overrides written ({DisabledDetectors.Length} first-party, {(placeholderOnlyDetectors is null ? "unchanged" : placeholderOnlyDetectors.Count.ToString())} placeholder-only, {(busDisabledDetectors is null ? "unchanged" : busDisabledDetectors.Count.ToString())} bus-disabled) in {path}");
             }
         }
         catch (Exception ex)
@@ -491,7 +585,7 @@ public sealed class OpenRgbProcessManager : IDisposable
             // Keep OpenRGB from claiming devices nexus-service drives directly
             // or the user excluded. Re-asserted on every (re)launch so a
             // supervisor restart can't run an instance that re-grabs them.
-            EnsureDetectorOverrides(configDir, ResolvePlaceholderDetectors());
+            EnsureDetectorOverrides(configDir, ResolvePlaceholderDetectors(), ResolveBusDisabledDetectors());
 
             // Registrations for hardware no detector can match on its own (QMK
             // boards, E1.31 devices). Re-asserted per launch for the same

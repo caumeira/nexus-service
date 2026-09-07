@@ -93,6 +93,109 @@ public class OpenRgbDetectorOverridesTests : IDisposable
         Assert.False(DetectorEnabled(root, "Corsair iCUE Link System Hub"));
     }
 
+    private static List<string> BusDisabled(JsonObject root)
+    {
+        var result = new List<string>();
+        if (root["Detectors"]!["bus_disabled"] is JsonArray arr)
+        {
+            foreach (var node in arr)
+            {
+                result.Add(node!.GetValue<string>());
+            }
+        }
+        return result;
+    }
+
+    [Fact]
+    public void Smbus_dram_detectors_cover_every_name_the_forks_dimm_gate_reads()
+    {
+        // DetectionManager::IsAnyDimmDetectorEnabled runs the 0x50-0x57 SPD
+        // scan while ANY REGISTER_I2C_DRAM_DETECTOR name is still enabled, so
+        // one missing name leaves the whole scan running. These seven are that
+        // set in the bundled fork; "Corsair Vengeance RGB DRAM" (DDR4) and
+        // "Corsair DRAM" (DDR5) are different detectors, both needed.
+        var gateNames = new[]
+        {
+            "Corsair Vengeance RGB DRAM", "HyperX DRAM", "Kingston Fury DDR4 DRAM",
+            "Kingston Fury DDR5 DRAM", "Patriot Viper", "Patriot Viper Steel",
+            "T-Force Xtreem DDR4 DRAM",
+        };
+        Assert.All(gateNames, name => Assert.Contains(name, OpenRgbProcessManager.SmbusDramDetectors));
+        // Plain REGISTER_I2C_DETECTOR DRAM detectors probe DIMM addresses
+        // outside that gate and are disabled too.
+        Assert.All(new[] { "Corsair DRAM", "Crucial Ballistix", "ENE SMBus DRAM", "Gigabyte RGB Fusion 2 DRAM" },
+            name => Assert.Contains(name, OpenRgbProcessManager.SmbusDramDetectors));
+        // Motherboard and GPU detectors share the bus but are not this device.
+        Assert.DoesNotContain("ASUS Aura SMBus Motherboard", OpenRgbProcessManager.SmbusDramDetectors);
+        Assert.DoesNotContain("ASRock Motherboard SMBus Controllers", OpenRgbProcessManager.SmbusDramDetectors);
+    }
+
+    [Fact]
+    public void Launch_disables_the_dram_detectors_exactly_while_the_device_is_off()
+    {
+        var gate = new Nexus.Service.Devices.DeviceControlGate(new InMemoryConfigStore());
+        var proc = new OpenRgbProcessManager(overrideExePath: Path.Combine(_dir, "missing"), store: null, gate: gate);
+
+        Assert.Empty(proc.ResolveBusDisabledDetectors());
+
+        gate.SetEnabled(Nexus.Service.Devices.Handlers.SmbusDramHandler.HandlerId, false);
+        Assert.Equal(OpenRgbProcessManager.SmbusDramDetectors, proc.ResolveBusDisabledDetectors());
+
+        gate.SetEnabled(Nexus.Service.Devices.Handlers.SmbusDramHandler.HandlerId, true);
+        Assert.Empty(proc.ResolveBusDisabledDetectors());
+    }
+
+    [Fact]
+    public void Without_a_gate_no_detector_is_bus_disabled()
+    {
+        var proc = new OpenRgbProcessManager(overrideExePath: Path.Combine(_dir, "missing"));
+        Assert.Empty(proc.ResolveBusDisabledDetectors());
+    }
+
+    [Fact]
+    public void Bus_disabled_detectors_land_as_disabled_without_placeholders()
+    {
+        OpenRgbProcessManager.EnsureDetectorOverrides(_dir, Array.Empty<string>(), OpenRgbProcessManager.SmbusDramDetectors);
+
+        var root = ReadConfig();
+        Assert.All(OpenRgbProcessManager.SmbusDramDetectors, name => Assert.False(DetectorEnabled(root, name)));
+        Assert.Equal(OpenRgbProcessManager.SmbusDramDetectors, BusDisabled(root));
+        Assert.Empty(PlaceholderOnly(root));
+    }
+
+    [Fact]
+    public void Dropped_bus_disabled_detectors_reenable()
+    {
+        OpenRgbProcessManager.EnsureDetectorOverrides(_dir, Array.Empty<string>(), OpenRgbProcessManager.SmbusDramDetectors);
+        OpenRgbProcessManager.EnsureDetectorOverrides(_dir, Array.Empty<string>(), Array.Empty<string>());
+
+        var root = ReadConfig();
+        Assert.All(OpenRgbProcessManager.SmbusDramDetectors, name => Assert.True(DetectorEnabled(root, name)));
+        Assert.Empty(BusDisabled(root));
+    }
+
+    [Fact]
+    public void Dropped_bus_disabled_detector_stays_off_while_a_user_exclusion_holds_it()
+    {
+        OpenRgbProcessManager.EnsureDetectorOverrides(_dir, new[] { "Corsair DRAM" }, new[] { "Corsair DRAM" });
+        OpenRgbProcessManager.EnsureDetectorOverrides(_dir, new[] { "Corsair DRAM" }, Array.Empty<string>());
+
+        var root = ReadConfig();
+        Assert.False(DetectorEnabled(root, "Corsair DRAM"));
+        Assert.Equal(new[] { "Corsair DRAM" }, PlaceholderOnly(root));
+    }
+
+    [Fact]
+    public void Null_bus_disabled_list_leaves_bus_state_untouched()
+    {
+        OpenRgbProcessManager.EnsureDetectorOverrides(_dir, Array.Empty<string>(), new[] { "Corsair DRAM" });
+        OpenRgbProcessManager.EnsureDetectorOverrides(_dir, Array.Empty<string>(), null);
+
+        var root = ReadConfig();
+        Assert.False(DetectorEnabled(root, "Corsair DRAM"));
+        Assert.Equal(new[] { "Corsair DRAM" }, BusDisabled(root));
+    }
+
     [Fact]
     public void Null_placeholder_list_leaves_placeholder_state_untouched()
     {
