@@ -70,7 +70,7 @@ public sealed class DeviceAdoptionService : BackgroundService
         foreach (var device in _deviceManager.GetAll())
         {
             if (device.Connected
-                && DeviceControlPolicy.ConflictAppFor(device.Id) is not null
+                && DeviceControlPolicy.AdoptionConflictAppFor(device.Id) is not null
                 && _gate.IsUnset(device.Id))
             {
                 anyCandidate = true;
@@ -122,7 +122,7 @@ public sealed class DeviceAdoptionService : BackgroundService
         {
             return false;
         }
-        var conflictApp = DeviceControlPolicy.ConflictAppFor(deviceId);
+        var conflictApp = DeviceControlPolicy.AdoptionConflictAppFor(deviceId);
         if (conflictApp is null)
         {
             return false;

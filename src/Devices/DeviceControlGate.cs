@@ -16,11 +16,24 @@ namespace Nexus.Service.Devices;
 public sealed class DeviceControlGate
 {
     private readonly IConfigStore _store;
+    private readonly Func<string, bool>? _conflictAppInstalled;
 
-    public DeviceControlGate(IConfigStore store)
+    /// <param name="installProbe">Answers whether a competing app is installed, for the shared-bus default (<see cref="DeviceControlPolicy.DefaultOn"/>). Null reads as nothing installed.</param>
+    public DeviceControlGate(IConfigStore store, Nexus.Service.Conflicts.IConflictAppInstallProbe? installProbe = null)
     {
         _store = store;
+        _conflictAppInstalled = installProbe is null ? null : installProbe.IsInstalled;
     }
+
+    /// <summary>
+    /// Raised after <see cref="SetEnabled"/> persists a choice, for consumers
+    /// holding hardware open. Fired outside the mutation on the caller's thread,
+    /// so concurrent writers can notify in the opposite order to the one they
+    /// persisted in; a subscriber that must not act on a stale value re-reads
+    /// <see cref="IsEnabled"/>. <see cref="TryAdopt"/> does not raise it, and no
+    /// shared-bus handler is adoptable.
+    /// </summary>
+    public event Action<string, bool>? Changed;
 
     // Read lock-free from ~13 worker threads. Safe because every write replaces
     // each list reference (never mutates in place) and adds to the destination
@@ -39,7 +52,7 @@ public sealed class DeviceControlGate
         {
             return true;
         }
-        return DeviceControlPolicy.DefaultOn(handlerId);
+        return DeviceControlPolicy.DefaultOn(handlerId, _conflictAppInstalled);
     }
 
     /// <summary>True when the user has made no explicit on/off choice for this handler (in neither list).</summary>
@@ -50,20 +63,32 @@ public sealed class DeviceControlGate
             && !devices.NexusControlEnabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase);
     }
 
-    public void SetEnabled(string handlerId, bool enabled) => _store.Update(s =>
+    public void SetEnabled(string handlerId, bool enabled)
     {
-        var devices = s.Devices;
-        if (enabled)
+        _store.Update(s =>
         {
-            devices.NexusControlEnabled = WithId(devices.NexusControlEnabled, handlerId);
-            devices.NexusControlDisabled = WithoutId(devices.NexusControlDisabled, handlerId);
-        }
-        else
+            var devices = s.Devices;
+            if (enabled)
+            {
+                devices.NexusControlEnabled = WithId(devices.NexusControlEnabled, handlerId);
+                devices.NexusControlDisabled = WithoutId(devices.NexusControlDisabled, handlerId);
+            }
+            else
+            {
+                devices.NexusControlDisabled = WithId(devices.NexusControlDisabled, handlerId);
+                devices.NexusControlEnabled = WithoutId(devices.NexusControlEnabled, handlerId);
+            }
+        });
+        // The choice is persisted; a throwing subscriber must not fail the request.
+        try
         {
-            devices.NexusControlDisabled = WithId(devices.NexusControlDisabled, handlerId);
-            devices.NexusControlEnabled = WithoutId(devices.NexusControlEnabled, handlerId);
+            Changed?.Invoke(handlerId, enabled);
         }
-    });
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[device-control] '{handlerId}' change handler failed: {ex.Message}");
+        }
+    }
 
     /// <summary>
     /// Puts a never-set handler on the enabled list, for

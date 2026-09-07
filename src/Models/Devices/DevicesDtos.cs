@@ -25,6 +25,8 @@ public sealed class DeviceListItem
     public string? ConflictAppId { get; set; }
     /// <summary>False when the device's controls live on shared pages (Cooling/Lighting), so the sidebar omits its row rather than linking to an empty page.</summary>
     public bool HasPage { get; set; } = true;
+    /// <summary>Interface the device hangs off: "usb" for every handler holding a USB handle, "smbus" for the chipset bus. A USB device is exclusive to whoever opens it, a shared bus is not, which is why turning Nexus Control off for one also stops its monitoring. Absent on an older service, which the UI reads as "usb".</summary>
+    public string Bus { get; set; } = "usb";
 }
 
 /// <summary>Body for POST /devices/control.</summary>

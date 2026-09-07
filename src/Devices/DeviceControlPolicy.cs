@@ -49,15 +49,48 @@ public static class DeviceControlPolicy
         "thermalright-lcd", "asus-ryujin-lcd", "lianli-screen88",
     };
 
-    public static bool DefaultOn(string handlerId) =>
-        !ConflictAppByHandler.ContainsKey(handlerId) && !UnverifiedHandlers.Contains(handlerId);
+    /// <summary>
+    /// Shared-bus devices default off only where the competing app is installed,
+    /// since that bus also carries monitoring nothing else provides. They never
+    /// auto-adopt: the vendor app is not running at service start (session 0,
+    /// before logon), so adoption would claim the bus on the boxes that yield.
+    /// </summary>
+    private static readonly Dictionary<string, string> YieldsToInstalledApp = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [SmbusDramHandler.HandlerId] = "icue",
+    };
+
+    private static readonly Dictionary<string, string> BusByHandler = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [SmbusDramHandler.HandlerId] = "smbus",
+    };
+
+    /// <param name="conflictAppInstalled">Whether a catalog app id is installed on this box; null means unknown, which reads as not installed.</param>
+    public static bool DefaultOn(string handlerId, Func<string, bool>? conflictAppInstalled = null)
+    {
+        if (YieldsToInstalledApp.TryGetValue(handlerId, out var app))
+        {
+            return conflictAppInstalled is null || !conflictAppInstalled(app);
+        }
+        return !ConflictAppByHandler.ContainsKey(handlerId) && !UnverifiedHandlers.Contains(handlerId);
+    }
 
     public static string? ConflictAppFor(string handlerId)
+        => ConflictAppByHandler.TryGetValue(handlerId, out var id) ? id
+            : YieldsToInstalledApp.TryGetValue(handlerId, out var yieldsTo) ? yieldsTo
+            : null;
+
+    /// <summary>The competing app whose absence lets <see cref="DeviceAdoptionService"/> flip the handler on; null for handlers that never auto-adopt.</summary>
+    public static string? AdoptionConflictAppFor(string handlerId)
         => ConflictAppByHandler.TryGetValue(handlerId, out var id) ? id : null;
+
+    /// <summary>"usb" for every USB handler, "smbus" for the chipset-bus pseudo-device.</summary>
+    public static string BusFor(string handlerId)
+        => BusByHandler.TryGetValue(handlerId, out var bus) ? bus : "usb";
 
     /// <summary>
     /// True for handlers driving non-Hyte/iBUYPOWER hardware, whose support is
     /// experimental. Drives the "Experimental" badge in the UI.
     /// </summary>
-    public static bool IsExperimental(string handlerId) => !FirstPartyHandlers.Contains(handlerId);
+    public static bool IsExperimental(string handlerId) => !FirstPartyHandlers.Contains(handlerId) && !BusByHandler.ContainsKey(handlerId);
 }

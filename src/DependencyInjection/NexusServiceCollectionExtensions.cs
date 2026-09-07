@@ -1053,6 +1053,10 @@ public static class NexusServiceCollectionExtensions
         }
 
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CnvsHandler>();
+        // The chipset SMBus as a device (present on Windows only): its Nexus
+        // Control toggle is what lets a user hand the DIMMs to iCUE or another
+        // vendor app. LhmComputer and OpenRgbProcessManager consult the gate.
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.SmbusDramHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.QSeriesHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Y70Handler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.KeebHandler>();
@@ -1273,7 +1277,10 @@ public static class NexusServiceCollectionExtensions
         // used to gate per-device heartbeat workers so they stay silent on hosts
         // where their hardware isn't attached.
         services.AddSingleton<Nexus.Service.Devices.Detection.HardwarePresence>();
-        services.AddSingleton<Nexus.Service.Devices.DeviceControlGate>();
+        services.AddSingleton<Nexus.Service.Conflicts.IConflictAppInstallProbe, Nexus.Service.Conflicts.ConflictAppInstallProbe>();
+        services.AddSingleton(sp => new Nexus.Service.Devices.DeviceControlGate(
+            sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
+            sp.GetRequiredService<Nexus.Service.Conflicts.IConflictAppInstallProbe>()));
         services.AddSingleton<DeviceManager>();
         services.AddSingleton<Nexus.Service.Devices.DeviceBroadcaster>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Devices.DeviceBroadcaster>());

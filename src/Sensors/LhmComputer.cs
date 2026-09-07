@@ -3,8 +3,12 @@ using System.Diagnostics;
 using System.Threading.Tasks;
 using LibreHardwareMonitor.Hardware;
 using LibreHardwareMonitor.Hardware.Storage;
+using Nexus.Service.Devices;
+using Nexus.Service.Devices.Handlers;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Persistence;
+using RAMSPDToolkit.Windows.Driver;
+using RAMSPDToolkit.Windows.Driver.Interfaces;
 
 namespace Nexus.Service.Sensors;
 
@@ -37,6 +41,7 @@ public sealed class LhmComputer : IDisposable
     private readonly object _updateLock = new();
     private long _lastUpdateTicks;
     private readonly IConfigStore _config;
+    private readonly DeviceControlGate _gate;
     private readonly HashSet<string> _smartSeeded = new(StringComparer.Ordinal);
     private readonly Dictionary<string, bool?> _rotational = new(StringComparer.Ordinal);
 
@@ -52,9 +57,20 @@ public sealed class LhmComputer : IDisposable
     // floor would feed it the same cached value four times.
     private const long FastFloorMs = 100;
 
-    public LhmComputer(IConfigStore config)
+    public LhmComputer(IConfigStore config, DeviceControlGate gate)
     {
         _config = config;
+        _gate = gate;
+        // MemoryGroup probes 0x50-0x57 through its own PawnIO SMBus module at
+        // Open and reads each DIMM thermal sensor per walk, which knocks iCUE
+        // off the same bus. Seated before Open, the stub keeps the group's
+        // RAM-usage sensors and skips the DIMM path.
+        var spdDisabled = !_gate.IsEnabled(SmbusDramHandler.HandlerId);
+        if (spdDisabled)
+        {
+            DriverManager.Driver = NoSpdDriver.Instance;
+            Console.WriteLine("[lhm] DIMM SPD polling off: Nexus Control for the memory device is off");
+        }
         // With GPU disabled LHM never constructs its AMD/NVIDIA GPU nodes, so
         // no ADL FrameMetrics/PMLog session is opened and no per-node D3DKMT
         // statistics are queried for the process lifetime (the
@@ -105,9 +121,67 @@ public sealed class LhmComputer : IDisposable
                 PawnIoBootGate.SignalLhmOpened();
             }
         });
+        _gate.Changed += OnControlGateChanged;
+        // A toggle between the read above and this subscription would otherwise
+        // hold until the next restart.
+        if (_gate.IsEnabled(SmbusDramHandler.HandlerId) == spdDisabled)
+        {
+            OnControlGateChanged(SmbusDramHandler.HandlerId, !spdDisabled);
+        }
     }
 
     public Computer Instance => _computer;
+
+    private void OnControlGateChanged(string handlerId, bool enabled)
+    {
+        if (!string.Equals(handlerId, SmbusDramHandler.HandlerId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        // The swap needs Open() finished; the open task never faults, so the
+        // continuation always runs. State is re-read under the lock rather than
+        // captured here, so two racing toggles cannot land out of order.
+        _ = _openTask.ContinueWith(_ => ApplySpdGate(), TaskScheduler.Default);
+    }
+
+    /// <summary>Rebuilds the memory group live: IsMemoryEnabled removes and re-adds it on an open Computer, and the driver seated at that moment decides whether the new group probes SPD.</summary>
+    private void ApplySpdGate()
+    {
+        try
+        {
+            bool enabled;
+            lock (_updateLock)
+            {
+                enabled = _gate.IsEnabled(SmbusDramHandler.HandlerId);
+                // Group first (cancels its retry task, closes its DIMMs), then
+                // the driver whose PawnIO modules those DIMMs read through.
+                // Re-enabling probes eight addresses synchronously under the lock.
+                _computer.IsMemoryEnabled = false;
+                DriverManager.UnloadDriver();
+                if (!enabled)
+                {
+                    DriverManager.Driver = NoSpdDriver.Instance;
+                }
+                _computer.IsMemoryEnabled = true;
+            }
+            Console.WriteLine(enabled
+                ? "[lhm] DIMM SPD polling on: Nexus Control for the memory device turned on"
+                : "[lhm] DIMM SPD polling off: Nexus Control for the memory device turned off");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[lhm] DIMM SPD gate apply failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>A RAMSPDToolkit driver that reports open so MemoryGroup keeps it instead of installing its PawnIO one, and fails to load because it is none of the three kinds DriverManager accepts, so no bus is ever detected.</summary>
+    private sealed class NoSpdDriver : IDriver
+    {
+        public static readonly NoSpdDriver Instance = new();
+        public bool IsOpen => true;
+        public bool Load() => false;
+        public void Unload() { }
+    }
 
     /// <summary>
     /// Completes when the background <see cref="Computer.Open"/> has finished
@@ -210,6 +284,7 @@ public sealed class LhmComputer : IDisposable
 
     public void Dispose()
     {
+        _gate.Changed -= OnControlGateChanged;
         // Wait for the background open to finish before Close(): LHM's
         // Computer.Close() isn't documented thread-safe against an in-flight
         // Open(), and Dispose() is only called at service shutdown so the
