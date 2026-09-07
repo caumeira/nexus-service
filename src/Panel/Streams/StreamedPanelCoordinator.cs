@@ -47,7 +47,6 @@ public sealed class StreamedPanelCoordinator : BackgroundService
     private readonly StreamedPanelStore _store;
     private readonly PanelDeviceRegistry _registry;
     private readonly DeviceControlGate _gate;
-    private readonly IOverlayHost _overlayHost;
     private readonly Action? _notifyOverlay;
     private readonly Func<long> _nowMs;
 
@@ -56,7 +55,6 @@ public sealed class StreamedPanelCoordinator : BackgroundService
         StreamedPanelStore store,
         PanelDeviceRegistry registry,
         DeviceControlGate gate,
-        IOverlayHost overlayHost,
         Action? notifyOverlay = null,
         Func<long>? nowMs = null)
     {
@@ -64,7 +62,6 @@ public sealed class StreamedPanelCoordinator : BackgroundService
         _store = store;
         _registry = registry;
         _gate = gate;
-        _overlayHost = overlayHost;
         _notifyOverlay = notifyOverlay;
         _nowMs = nowMs ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
@@ -174,10 +171,6 @@ public sealed class StreamedPanelCoordinator : BackgroundService
             }
         }
 
-        bool anySessions;
-        lock (_lock) anySessions = _bySerial.Count > 0;
-        if (anySessions && !_overlayHost.IsRunning)
-            _overlayHost.Start();
         if (changed)
             _notifyOverlay?.Invoke();
     }

@@ -341,6 +341,28 @@ public sealed class PanelDeviceRegistry
         return Clone(record);
     }
 
+    private const long TouchIntervalMs = 30_000;
+
+    // A single-instance surface is the record's identity, not a viewport sample:
+    // a Y70 kiosk that first maps on the desktop monitor would rename itself
+    // "phone". Every other field a patch omits keeps its stored value.
+    private static PanelDeviceCapabilities MergeCapabilities(PanelDeviceCapabilities? existing, PanelDeviceCapabilities patch)
+    {
+        var keepSurface = existing?.Surface is PanelSurfaces.Y70 or PanelSurfaces.Q60 ? existing.Surface : null;
+        return new PanelDeviceCapabilities
+        {
+            Surface = keepSurface ?? patch.Surface ?? existing?.Surface,
+            Grid = patch.Grid ?? existing?.Grid,
+            Touch = patch.Touch ?? existing?.Touch,
+            Orientation = patch.Orientation ?? existing?.Orientation,
+            CssWidth = patch.CssWidth ?? existing?.CssWidth,
+            CssHeight = patch.CssHeight ?? existing?.CssHeight,
+            Dpr = patch.Dpr ?? existing?.Dpr,
+            Dpi = patch.Dpi ?? existing?.Dpi,
+            Family = patch.Family ?? existing?.Family,
+        };
+    }
+
     public PanelDeviceRecord? Touch(string id)
     {
         if (string.IsNullOrWhiteSpace(id))
@@ -348,6 +370,9 @@ public sealed class PanelDeviceRegistry
 
         PanelDeviceRecord? snapshot = null;
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var current = _store.Load().PanelDevices.GetValueOrDefault(id);
+        if (current is null) return null;
+        if (now - current.LastSeenAt < TouchIntervalMs) return Clone(current);
         _store.Update(s =>
         {
             if (!s.PanelDevices.TryGetValue(id, out var record))
@@ -434,20 +459,7 @@ public sealed class PanelDeviceRegistry
             // sync (rebuilt from OS facts); a client value would ping-pong
             // with the next sync pass.
             if (patch.Capabilities is not null && string.IsNullOrEmpty(record.DisplayId))
-            {
-                // A single-instance surface is the record's identity, not a
-                // viewport sample: a Y70 kiosk that maps on the desktop monitor
-                // before the compositor moves it reports that monitor's shape
-                // and would rename the Y70 record "phone"; it re-reports the
-                // real size on the resize that follows. Keep the surface.
-                var keep = record.Capabilities?.Surface;
-                if (keep is PanelSurfaces.Y70 or PanelSurfaces.Q60
-                    && !string.Equals(patch.Capabilities.Surface, keep, StringComparison.Ordinal))
-                {
-                    patch.Capabilities.Surface = keep;
-                }
-                record.Capabilities = patch.Capabilities;
-            }
+                record.Capabilities = MergeCapabilities(record.Capabilities, patch.Capabilities);
 
             record.LastSeenAt = now;
             snapshot = Clone(record);

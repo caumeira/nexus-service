@@ -526,7 +526,14 @@ app.Use(async (ctx, next) =>
 });
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        if (ctx.Context.Request.Path.StartsWithSegments("/assets"))
+            ctx.Context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+    },
+});
 
 app.UseRouting();
 
@@ -694,10 +701,11 @@ if (!testHost)
     Nexus.Service.Lifecycle.BootTimer.Mark("after ProtocolHandler.Register");
 }
 
-Console.WriteLine($"[nexus-service] listening on {url}");
-
 app.Lifetime.ApplicationStarted.Register(() =>
-    Nexus.Service.Lifecycle.BootTimer.Mark("ApplicationStarted (host start complete, Kestrel bound)"));
+{
+    Console.WriteLine($"[nexus-service] listening on {url}");
+    Nexus.Service.Lifecycle.BootTimer.Mark("ApplicationStarted (host start complete, Kestrel bound)");
+});
 
 // GUI/tray/overlay wiring and the platform service host. The integration-test
 // host skips all of it and falls through to the plain app.Run() below, which

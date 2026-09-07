@@ -1759,6 +1759,11 @@ public static class NexusServiceCollectionExtensions
         Nexus.Service.Platform.Linux.LinuxPanelKioskHost.Configure(servicePort);
         services.AddSingleton<Nexus.Service.Platform.Linux.LinuxPanelKioskHost>();
 #endif
+        services.AddHostedService(sp => new Nexus.Service.Panel.OverlaySupervisor(
+            sp.GetRequiredService<Nexus.Service.Panel.IOverlayHost>(),
+            sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
+            () => sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHeartbeatWorker>().Detected,
+            () => sp.GetRequiredService<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>().GetAssignments().Assignments.Count > 0));
         services.AddSingleton<Nexus.Service.Panel.PanelPhonePairingService>();
         services.AddSingleton<Nexus.Service.Panel.PanelDeviceRegistry>();
         services.AddSingleton<Nexus.Service.Panel.PanelAutoPromotion>();
@@ -1820,7 +1825,6 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Panel.Streams.StreamedPanelStore>(),
                 sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>(),
                 sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>(),
-                sp.GetRequiredService<Nexus.Service.Panel.IOverlayHost>(),
                 notifyOverlay);
         });
         services.AddHostedService(sp =>
