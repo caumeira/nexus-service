@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Cloud;
 using Nexus.Service.Models.Widgets;
 using Nexus.Service.Widgets;
 
@@ -65,6 +66,12 @@ public class AppProxyServiceTests : IDisposable
     {
         var factory = new StubHttpFactory(new HttpClient(handler));
         return new AppProxyService(factory, _registry);
+    }
+
+    private (AppProxyService Service, StubHttpFactory Factory) MakeTracked(HttpMessageHandler handler)
+    {
+        var factory = new StubHttpFactory(new HttpClient(handler));
+        return (new AppProxyService(factory, _registry), factory);
     }
 
     [Fact]
@@ -191,11 +198,124 @@ public class AppProxyServiceTests : IDisposable
         Assert.DoesNotContain("Nexus-Widget-Proxy", ua);
     }
 
+    [Theory]
+    [InlineData("https://api.hellonexus.com/hyte/me", "api.hellonexus.com", true)]
+    [InlineData("https://API.HelloNexus.com/hyte/me", "api.hellonexus.com", true)]
+    [InlineData("https://hyte.com/account", "api.hellonexus.com", false)]
+    [InlineData("https://api.hellonexus.com.evil.test/x", "api.hellonexus.com", false)]
+    [InlineData("https://evil.test/api.hellonexus.com", "api.hellonexus.com", false)]
+    [InlineData("https://api.hellonexus.com/x", "", false)]
+    public void Cloud_api_host_is_matched_whole(string url, string cloudHost, bool expected)
+    {
+        Assert.Equal(expected, AppProxyService.IsCloudApiHost(new Uri(url), cloudHost));
+    }
+
+    [Theory]
+    [InlineData("https://api.hellonexus.com", "api.hellonexus.com")]
+    [InlineData("https://staging.hellonexus.com:8443/", "staging.hellonexus.com")]
+    [InlineData("not-a-url", "")]
+    [InlineData("", "")]
+    [InlineData(null, "")]
+    public void Endpoint_host_parsing_is_tolerant(string? baseUrl, string expected)
+    {
+        Assert.Equal(expected, CloudApiEndpoint.HostOf(baseUrl));
+    }
+
+    [Fact]
+    public void Credential_targets_whichever_host_the_endpoint_resolves_to()
+    {
+        // Tolerant on purpose: the base URL is environment-derived, so the test
+        // pins the relationship rather than a value.
+        var host = CloudApiEndpoint.HostOf(CloudApiEndpoint.BaseUrl);
+
+        Assert.Equal(
+            string.Equals(host, "api.hellonexus.com", StringComparison.OrdinalIgnoreCase),
+            AppProxyService.IsCloudApiHost(new Uri("https://api.hellonexus.com/hyte/me")));
+        Assert.False(AppProxyService.IsCloudApiHost(new Uri("https://hyte.com/account")));
+    }
+
+    [Fact]
+    public async Task Every_fetch_runs_on_the_client_registered_without_redirects()
+    {
+        var (svc, factory) = MakeTracked(new CapturingHandler());
+
+        await svc.ExecuteAsync(new AppProxyRequest
+        {
+            AppId = "com.hellonexus.allowed",
+            Url = "https://api.weather.gov/points",
+        });
+
+        Assert.Equal(AppProxyService.ClientName, factory.LastName);
+    }
+
+    [Theory]
+    [InlineData("application/json", "application/json", null)]
+    [InlineData("application/json; charset=utf-8", "application/json", "utf-8")]
+    [InlineData("application/json; charset=UTF-8", "application/json", "UTF-8")]
+    [InlineData("application/json; charset=iso-8859-1", "application/json", "utf-8")]
+    [InlineData("text/csv; charset=", "text/plain", "utf-8")]
+    [InlineData("text/csv; charset=\"\"", "text/csv", "utf-8")]
+    [InlineData("APPLICATION/JSON", "APPLICATION/JSON", null)]
+    [InlineData(null, "text/plain", "utf-8")]
+    [InlineData("", "text/plain", "utf-8")]
+    [InlineData("   ", "text/plain", "utf-8")]
+    [InlineData("nonsense", "text/plain", "utf-8")]
+    public void Widget_content_type_is_honoured_with_a_plain_text_fallback(string? declared, string media, string? charset)
+    {
+        var resolved = AppProxyService.ResolveContentType(declared);
+
+        Assert.Equal(media, resolved.MediaType);
+        Assert.Equal(charset, resolved.CharSet);
+    }
+
+    [Fact]
+    public async Task Widget_supplied_client_credential_is_dropped_and_its_content_type_kept()
+    {
+        var capture = new CapturingHandler();
+        var svc = MakeService(capture);
+        var resp = await svc.ExecuteAsync(new AppProxyRequest
+        {
+            AppId = "com.hellonexus.allowed",
+            Url = "https://api.weather.gov/points",
+            Method = "POST",
+            Body = "{\"a\":1}",
+            Headers = new Dictionary<string, string>
+            {
+                ["X-Nexus-Client"] = "forged",
+                ["content-type"] = "application/json",
+            },
+        });
+
+        Assert.True(resp.Ok);
+        Assert.NotNull(capture.LastRequest);
+        Assert.False(capture.LastRequest!.Headers.Contains("X-Nexus-Client"));
+        Assert.Equal("application/json", capture.LastRequest.Content!.Headers.ContentType!.MediaType);
+    }
+
+    [Fact]
+    public async Task Body_without_a_declared_content_type_stays_plain_text()
+    {
+        var capture = new CapturingHandler();
+        var svc = MakeService(capture);
+        var resp = await svc.ExecuteAsync(new AppProxyRequest
+        {
+            AppId = "com.hellonexus.allowed",
+            Url = "https://api.weather.gov/points",
+            Method = "POST",
+            Body = "plain",
+        });
+
+        Assert.True(resp.Ok);
+        Assert.Equal("text/plain", capture.LastRequest!.Content!.Headers.ContentType!.MediaType);
+        Assert.Equal("utf-8", capture.LastRequest.Content.Headers.ContentType!.CharSet);
+    }
+
     private sealed class StubHttpFactory : IHttpClientFactory
     {
         private readonly HttpClient _client;
         public StubHttpFactory(HttpClient client) { _client = client; }
-        public HttpClient CreateClient(string name) => _client;
+        public string? LastName { get; private set; }
+        public HttpClient CreateClient(string name) { LastName = name; return _client; }
     }
 
     private sealed class StubHandler : HttpMessageHandler

@@ -25,7 +25,7 @@ internal static class ClientCredential
     {
         if (IsOfficial)
         {
-            request.Headers.TryAddWithoutValidation(HeaderName, Token);
+            Apply(request, Token);
         }
     }
 
@@ -35,6 +35,15 @@ internal static class ClientCredential
         if (!string.IsNullOrEmpty(token))
         {
             client.DefaultRequestHeaders.TryAddWithoutValidation(HeaderName, token);
+        }
+    }
+
+    // Same reason as the HttpClient overload: the only way a test reaches the official path.
+    internal static void Apply(HttpRequestMessage request, string token)
+    {
+        if (!string.IsNullOrEmpty(token))
+        {
+            request.Headers.TryAddWithoutValidation(HeaderName, token);
         }
     }
 }

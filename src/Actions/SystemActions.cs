@@ -200,6 +200,17 @@ public sealed class SystemActions
             return ApiResponse.Fail("invalid url - must be an absolute http or https URL");
         }
 
+        return await LaunchUrlAsync(parsed.AbsoluteUri).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Hands an absolute URI to the user session's default handler. The
+    /// caller owns the scheme allowlist, so a caller that permits more than
+    /// http/https (the SDK openUrl host action) shares this launch path
+    /// without widening what the REST route accepts.
+    /// </summary>
+    internal async Task<ApiResponse> LaunchUrlAsync(string absoluteUri)
+    {
         try
         {
 #if WINDOWS
@@ -208,7 +219,7 @@ public sealed class SystemActions
                 var registry = _sp.GetService<Nexus.Service.Helper.HelperRegistry>();
                 if (registry?.GetAny() is not null)
                 {
-                    await Nexus.Service.Helper.Domains.SystemCommands.OpenUrlAsync(registry, parsed.AbsoluteUri).ConfigureAwait(false);
+                    await Nexus.Service.Helper.Domains.SystemCommands.OpenUrlAsync(registry, absoluteUri).ConfigureAwait(false);
                     return ApiResponse.Ok("opened");
                 }
                 if (!Environment.UserInteractive)
@@ -224,7 +235,7 @@ public sealed class SystemActions
                 // UseShellExecute's URL handoff has no session-aware spawn point to
                 // wrap, so a root daemon must invoke xdg-open explicitly instead.
                 var (file, args) = Nexus.Service.Platform.Linux.LinuxSession.WrapSpawnAsSessionUser(
-                    "xdg-open", new List<string> { parsed.AbsoluteUri });
+                    "xdg-open", new List<string> { absoluteUri });
                 var psi = new ProcessStartInfo(file) { UseShellExecute = false };
                 foreach (var a in args)
                     psi.ArgumentList.Add(a);
@@ -233,7 +244,7 @@ public sealed class SystemActions
             else
 #endif
             {
-                Process.Start(new ProcessStartInfo(parsed.AbsoluteUri) { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo(absoluteUri) { UseShellExecute = true });
             }
             return ApiResponse.Ok("opened");
         }

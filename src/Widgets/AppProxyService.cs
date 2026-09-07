@@ -4,11 +4,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Cloud;
+using Nexus.Service.Common;
 using Nexus.Service.Models.Widgets;
 
 namespace Nexus.Service.Widgets;
@@ -27,8 +30,13 @@ namespace Nexus.Service.Widgets;
 ///         responses are truncated + flagged.</item>
 ///   <item>Per-widget rate limit (<see cref="MaxRequestsPerMinute"/> rolling).</item>
 ///   <item>Method allowlist: GET / POST / PUT / PATCH / DELETE / HEAD.</item>
-///   <item>Forbidden headers (Cookie, Authorization, Host) silently dropped
-///         so the widget can't reuse the user's host-session credentials.</item>
+///   <item>Forbidden headers (Cookie, Authorization, Host, the build
+///         credential) silently dropped so the widget can't reuse the
+///         user's host-session credentials nor forge our own.</item>
+///   <item>Our own cloud API host, and only that host, receives the build
+///         credential this service was published with.</item>
+///   <item>Redirects are never followed; a 3xx is returned to the widget as
+///         it stands, so no hop escapes the checks above.</item>
 /// </list>
 /// </summary>
 public sealed class AppProxyService
@@ -44,6 +52,9 @@ public sealed class AppProxyService
     /// </summary>
     public const string DefaultUserAgent = "Nexus-Widget-Proxy/1.0 (+https://hellonexus.com)";
 
+    /// <summary>Named client every proxied request uses, registered with redirects off.</summary>
+    public const string ClientName = "AppProxy";
+
     private static readonly HashSet<string> AllowedMethods = new(StringComparer.OrdinalIgnoreCase)
     {
         "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD",
@@ -52,7 +63,7 @@ public sealed class AppProxyService
     private static readonly HashSet<string> ForbiddenRequestHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Cookie", "Authorization", "Host", "Proxy-Authorization",
-        "Set-Cookie", "Cookie2",
+        "Set-Cookie", "Cookie2", ClientCredential.HeaderName,
     };
 
     // Tight allowlist for response headers proxied back to the widget. We
@@ -134,7 +145,12 @@ public sealed class AppProxyService
             return resp;
         }
 
-        using var http = _httpFactory.CreateClient();
+        // Redirects are handed back to the widget rather than followed. A
+        // followed hop escapes both the allowlist and the reserved-address
+        // check, and HttpClient strips only Authorization when the origin
+        // changes, so the build credential would ride along to the new host.
+        bool credentialed = IsCloudApiHost(uri);
+        using var http = _httpFactory.CreateClient(ClientName);
         http.Timeout = TimeSpan.FromSeconds(20);
 
         using var msg = new HttpRequestMessage(new HttpMethod(method), uri);
@@ -161,9 +177,19 @@ public sealed class AppProxyService
             msg.Headers.TryAddWithoutValidation("User-Agent", DefaultUserAgent);
         if (!widgetSetAccept)
             msg.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain;q=0.9, */*;q=0.1");
+        // Our API gates on the build credential; every other upstream keeps
+        // seeing none, and an unofficial build sends none anywhere.
+        if (credentialed)
+        {
+            ClientCredential.Apply(msg);
+        }
         if (req.Body is not null && method != "GET" && method != "HEAD")
         {
-            msg.Content = new StringContent(req.Body, Encoding.UTF8);
+            var content = new StringContent(req.Body, Encoding.UTF8);
+            // Content-Type is a content header, so the loop above could not
+            // carry it: HttpRequestHeaders drops it without an error.
+            content.Headers.ContentType = ResolveContentType(HeaderValue(req.Headers, "Content-Type"));
+            msg.Content = content;
         }
 
         try
@@ -255,7 +281,52 @@ public sealed class AppProxyService
         }
     }
 
-    private static bool HostInAllowlist(string host, IReadOnlyList<string> allowlist)
+    /// <summary>True when a widget's target is the cloud API this build talks to.</summary>
+    internal static bool IsCloudApiHost(Uri uri) => IsCloudApiHost(uri, CloudApiEndpoint.Host);
+
+    internal static bool IsCloudApiHost(Uri? uri, string cloudHost) =>
+        uri is not null && !string.IsNullOrEmpty(cloudHost) &&
+        string.Equals(uri.Host, cloudHost, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Content type for a widget-supplied body: the header it declared when
+    /// that parses, else the plain-text default a bare StringContent carries.
+    /// </summary>
+    internal static MediaTypeHeaderValue ResolveContentType(string? declared)
+    {
+        if (!string.IsNullOrWhiteSpace(declared) &&
+            MediaTypeHeaderValue.TryParse(declared, out var parsed) &&
+            !string.IsNullOrEmpty(parsed.MediaType))
+        {
+            // The body goes out UTF-8 encoded whatever the widget declared, so
+            // any other charset would only mislead the upstream decoder. A
+            // declaration carrying no charset keeps none.
+            if (!string.IsNullOrEmpty(parsed.CharSet) &&
+                !string.Equals(parsed.CharSet, "utf-8", StringComparison.OrdinalIgnoreCase))
+            {
+                parsed.CharSet = "utf-8";
+            }
+            return parsed;
+        }
+        return new MediaTypeHeaderValue("text/plain") { CharSet = "utf-8" };
+    }
+
+    /// <summary>Header lookup over the request's case-sensitive dictionary.</summary>
+    private static string? HeaderValue(Dictionary<string, string>? headers, string name)
+    {
+        if (headers is null) return null;
+        foreach (var kv in headers)
+        {
+            if (string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase)) return kv.Value;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Manifest <c>net.fetch</c> host match, shared with the openUrl host
+    /// action so both gates agree on what a manifest entry permits.
+    /// </summary>
+    internal static bool HostInAllowlist(string host, IReadOnlyList<string> allowlist)
     {
         if (allowlist is null || allowlist.Count == 0) return false;
         foreach (var entry in allowlist)
@@ -295,7 +366,7 @@ public sealed class AppProxyService
     /// as suspicious and refused (better than letting a stub-resolver
     /// poison split the decision later).
     /// </summary>
-    private static bool IsPrivateOrReservedAddress(string host)
+    internal static bool IsPrivateOrReservedAddress(string host)
     {
         if (string.IsNullOrWhiteSpace(host)) return true;
 

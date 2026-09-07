@@ -96,7 +96,6 @@ public interface ICloudApiClient
 
 public sealed class CloudApiClient : ICloudApiClient
 {
-    private const string DefaultBaseUrl = "https://api.hellonexus.com";
     private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(10);
 
     private readonly IHttpClientFactory _http;
@@ -104,7 +103,7 @@ public sealed class CloudApiClient : ICloudApiClient
     private readonly TimeSpan _requestTimeout;
 
     public CloudApiClient(IHttpClientFactory http)
-        : this(http, Environment.GetEnvironmentVariable("NEXUS_API_BASE")?.TrimEnd('/') ?? DefaultBaseUrl, DefaultRequestTimeout)
+        : this(http, CloudApiEndpoint.BaseUrl, DefaultRequestTimeout)
     {
     }
 

@@ -62,6 +62,40 @@ public sealed class ClientCredentialTests
     }
 
     [Fact]
+    public void Default_request_apply_follows_the_baked_credential()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.hellonexus.com/hyte/me");
+
+        ClientCredential.Apply(request);
+
+        Assert.Equal(
+            ClientCredential.IsOfficial,
+            request.Headers.Contains(ClientCredential.HeaderName));
+    }
+
+    [Fact]
+    public void Official_build_stamps_the_token_on_a_single_request()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.hellonexus.com/hyte/login");
+
+        ClientCredential.Apply(request, "eyJ2IjoiMi40LjEifQ.SIG");
+
+        Assert.Equal(
+            "eyJ2IjoiMi40LjEifQ.SIG",
+            Assert.Single(request.Headers.GetValues(ClientCredential.HeaderName)));
+    }
+
+    [Fact]
+    public void Empty_token_is_omitted_from_a_single_request_too()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.hellonexus.com/hyte/me");
+
+        ClientCredential.Apply(request, "");
+
+        Assert.False(request.Headers.Contains(ClientCredential.HeaderName));
+    }
+
+    [Fact]
     public void Empty_token_is_omitted_rather_than_sent_blank()
     {
         using var client = new HttpClient();
