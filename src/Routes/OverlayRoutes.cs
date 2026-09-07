@@ -4,6 +4,9 @@ using System.Linq;
 using Nexus.Service.Auth;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Panel;
+using Nexus.Service.Panel.Streams;
+using Nexus.Service.Panel;
+using Nexus.Service.Models.Displays;
 using Nexus.Service.Persistence;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
@@ -40,6 +43,38 @@ public static class OverlayRoutes
 
     public static void MapOverlayEndpoints(this WebApplication app)
     {
+        // Everything nexus-overlay reconciles against, in one read: a failed
+        // read must leave the host's kiosks and widgets exactly as they are,
+        // which per-setting reads could not express.
+        app.MapGet("/overlay/state", (HttpContext ctx, IConfigStore store, PanelDeviceRegistry registry, StreamedPanelCoordinator streams, TokenService tokens) =>
+        {
+            if (!ServiceTokenRequests.HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            var s = store.Load();
+            var state = new OverlayStateResponse
+            {
+                AutoLaunch = s.Panel.AutoLaunch,
+                ReserveMonitor = s.Panel.ReserveMonitor,
+                Y70Backdrop = registry.GetY70Backdrop(),
+                OverlayEnabled = s.Overlay.Enabled,
+                AlwaysOnTop = s.Overlay.AlwaysOnTop,
+                Monitor = s.Overlay.Monitor,
+                Pinned = s.Overlay.Layout.Count,
+                Streams = streams.GetAssignments().Assignments,
+            };
+            foreach (var (displayId, panelDeviceId, reserveMonitor, backdrop) in registry.ListAssignments())
+            {
+                state.Assignments.Add(new DisplayAssignmentDto
+                {
+                    DisplayId = displayId,
+                    PanelDeviceId = panelDeviceId,
+                    ReserveMonitor = reserveMonitor,
+                    Backdrop = backdrop,
+                });
+            }
+            return Results.Json(state, AppJsonContext.Default.OverlayStateResponse);
+        });
+
         app.MapGet("/overlay/widgets", (IConfigStore store) =>
         {
             return Results.Json(

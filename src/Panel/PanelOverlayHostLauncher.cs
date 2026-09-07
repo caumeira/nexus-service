@@ -17,11 +17,8 @@ namespace Nexus.Service.Panel;
 /// direct WebView2 C-API P/Invoke binary published with PublishAot=true -
 /// the only files in overlay/ are nexus-overlay.exe and WebView2Loader.dll.
 ///
-/// Lifecycle:
-/// - Started at service boot when <c>UiSettings.OverlayWidgetsEnabled</c>
-///   is true (set automatically the first time the user pins a widget).
-/// - Restarted on crash with simple linear backoff.
-/// - Killed on service shutdown.
+/// Started and restarted by <see cref="OverlaySupervisor"/>; killed on service
+/// shutdown.
 /// </summary>
 public sealed class PanelOverlayHostLauncher : IOverlayHost
 {
@@ -36,15 +33,9 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     public void NotifyDisplayAssignmentsChanged() { }
 
     private Process? _process;
-    private DateTime _lastSpawnUtc = DateTime.MinValue;
-    private int _consecutiveFailures;
     private readonly IntPtr _jobHandle = IntPtr.Zero;
     private readonly object _lock = new();
-    /// <summary>
-    /// Stop() sets this true so a queued OnExited callback - already on
-    /// the threadpool when Stop ran - won't respawn the host. Re-armed on
-    /// the next Start().
-    /// </summary>
+    /// <summary>Stop() sets this so an in-flight spawn does not adopt the process it started. Re-armed by the next Start().</summary>
     private volatile bool _stopRequested;
     /// <summary>
     /// True while a background spawn is in flight. We dispatch the
@@ -55,15 +46,10 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     /// schtasks tasks.
     /// </summary>
     private volatile bool _starting;
-    /// <summary>
-    /// Bumped (under _lock) by every Start() and Stop(). An in-flight spawn
-    /// task carries the generation it was started with and abandons itself
-    /// when a newer Start/Stop has bumped it - otherwise a Stop-then-Start
-    /// during the console-user wait would revive the ordered-dead loop and
-    /// two spawn tasks would race to write _process and the PID file.
-    /// </summary>
+    private bool _waitingForLogon;
+    private bool _missingHostLogged;
+    /// <summary>Bumped by every Stop so an in-flight spawn abandons the process it started instead of adopting it.</summary>
     private int _spawnGeneration;
-
     private static readonly string PidFilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "Nexus", "panel-desktop-pid.txt");
@@ -81,16 +67,40 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         }
     }
 
-    public bool IsRunning => _process is { HasExited: false } || _starting;
+    // Also true for an overlay this instance did not spawn: the tray starts one
+    // for the dashboard, and a second copy would only lose the singleton mutex.
+    public bool IsRunning => _process is { HasExited: false } || _starting
+        || (OperatingSystem.IsWindows() && HostInConsoleSession());
 
-    /// <summary>
-    /// Request the host process be started if it isn't already running or
-    /// being started. Non-blocking: the actual schtasks dance runs on a
-    /// background Task so the HTTP request thread that triggered the
-    /// reconcile (profile switch, widget add, etc.) doesn't wait for
-    /// Task Scheduler to materialize the new process. Returns true if a
-    /// spawn was requested or one was already in flight.
-    /// </summary>
+    private static long _sessionScanTick;
+    private static bool _sessionScanResult;
+
+    /// <summary>Any nexus-overlay alive in the console session. Cached briefly:
+    /// this is the steady state when the tray owns the host, so it is read on
+    /// every supervisor tick and every settings change.</summary>
+    [SupportedOSPlatform("windows")]
+    private static bool HostInConsoleSession()
+    {
+        var now = Environment.TickCount64;
+        if (now - Volatile.Read(ref _sessionScanTick) < 2000) return Volatile.Read(ref _sessionScanResult);
+        var session = WTSGetActiveConsoleSessionId();
+        var found = false;
+        if (session != 0xFFFFFFFF)
+        {
+            foreach (var p in Process.GetProcessesByName("nexus-overlay"))
+            {
+                using (p)
+                {
+                    try { if (!found && (uint)p.SessionId == session && !p.HasExited) found = true; }
+                    catch { }
+                }
+            }
+        }
+        Volatile.Write(ref _sessionScanResult, found);
+        Volatile.Write(ref _sessionScanTick, now);
+        return found;
+    }
+
     public bool Start()
     {
         if (!OperatingSystem.IsWindows()) return false;
@@ -99,56 +109,45 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         var hostPath = ResolveHostPath();
         if (hostPath is null || !File.Exists(hostPath))
         {
-            Console.Error.WriteLine($"[overlay-host] nexus-overlay.exe not found at expected path '{hostPath ?? "<null>"}'; the PublishOverlayHost target must populate <publish>/overlay/. Desktop widgets disabled.");
+            if (!_missingHostLogged)
+            {
+                _missingHostLogged = true;
+                Console.Error.WriteLine($"[overlay-host] nexus-overlay.exe not found at expected path '{hostPath ?? "<null>"}'; the PublishOverlayHost target must populate <publish>/overlay/. Desktop widgets disabled.");
+            }
             return false;
         }
+        if (System.Security.Principal.WindowsIdentity.GetCurrent().IsSystem
+            && string.IsNullOrEmpty(ResolveActiveConsoleUsername()))
+        {
+            if (!_waitingForLogon) Console.WriteLine("[overlay-host] no active console user; waiting for logon");
+            _waitingForLogon = true;
+            return false;
+        }
+        _waitingForLogon = false;
 
-        // Dedupe concurrent Start calls. A reconcile that fires Start()
-        // back-to-back (e.g., the widget-add path that flips both
-        // OverlayLayout and OverlayWidgetsEnabled in the same Update)
-        // would otherwise queue multiple background tasks.
         int generation;
         lock (_lock)
         {
             if (_starting) return true;
-            if (IsRunning) return true;
             _starting = true;
             _stopRequested = false;
-            _lastSpawnUtc = DateTime.UtcNow;
-            generation = ++_spawnGeneration;
+            generation = _spawnGeneration;
         }
-
         _ = System.Threading.Tasks.Task.Run(() =>
         {
-            if (!OperatingSystem.IsWindows()) return;
-            SpawnHostBlocking(hostPath, generation);
+            if (OperatingSystem.IsWindows()) SpawnHostBlocking(hostPath, generation);
         });
         return true;
     }
 
-    /// <summary>
-    /// The actual spawn path - blocking. Always runs on a background
-    /// thread via <see cref="Start"/>. Sets <c>_process</c> on success,
-    /// wires the kill-on-close job + exit handler, and clears
-    /// <c>_starting</c> before returning so that an OnExited-triggered
-    /// respawn (process died immediately after spawn) doesn't see a
-    /// stale "starting in progress" flag and short-circuit.
-    /// </summary>
     [SupportedOSPlatform("windows")]
     private void SpawnHostBlocking(string hostPath, int generation)
     {
         try
         {
-            // Spawn in the active console user session when we're running
-            // as LocalSystem (the service case). Without this the overlay
-            // process lands in Session 0, where (a) no windows it draws are
-            // ever visible to the user, and (b) WebView2 refuses to use the
-            // SYSTEM profile's AppData path. When running in user mode
-            // (e.g., a future broker split, or dev / standalone runs), fall
-            // back to a plain Process.Start.
             var workingDir = Path.GetDirectoryName(hostPath)!;
             var proc = System.Security.Principal.WindowsIdentity.GetCurrent().IsSystem
-                ? StartInActiveUserSessionWhenReady(hostPath, workingDir, generation)
+                ? StartInActiveUserSession(hostPath, workingDir)
                 : Process.Start(new ProcessStartInfo
                 {
                     FileName = hostPath,
@@ -159,14 +158,9 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             if (proc is null) return;
             lock (_lock)
             {
-                // A Stop() (or a Stop-then-Start) can land mid-spawn - the
-                // cross-session dance can block on the console-user wait.
-                // A superseded task must not adopt the process it spawned:
-                // kill it instead of clobbering the current generation's
-                // _process / PID file.
                 if (_stopRequested || generation != _spawnGeneration)
                 {
-                    try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { /* gone */ }
+                    try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
                     try { proc.Dispose(); } catch { }
                     return;
                 }
@@ -188,31 +182,16 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         }
         finally
         {
-            // Clear before returning so a same-thread OnExited that
-            // synchronously queued its respawn Task (with 2s delay) sees
-            // _starting=false by the time the respawn runs. A superseded
-            // task leaves the flag alone - it belongs to the newer spawn.
-            lock (_lock)
-            {
-                if (generation == _spawnGeneration) _starting = false;
-            }
+            lock (_lock) { if (generation == _spawnGeneration) _starting = false; }
         }
     }
 
     public void Stop()
     {
-        // Latch the stop intent BEFORE attempting Kill so that a queued
-        // OnExited (already on the threadpool) sees it and skips respawn.
         _stopRequested = true;
         lock (_lock)
         {
-            // Supersede any in-flight spawn task so it abandons itself even
-            // if a later Start() clears _stopRequested.
             _spawnGeneration++;
-            // Also clear the spawn-in-flight flag; otherwise IsRunning would
-            // keep returning true until the background SpawnHostBlocking
-            // finishes, blocking a subsequent Start() during a quick stop /
-            // re-enable cycle.
             _starting = false;
         }
         var proc = _process;
@@ -285,39 +264,6 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     // windows actually render on the desktop. Implementation uses schtasks
     // (see comment inside StartInActiveUserSession for why).
     // -----------------------------------------------------------------------
-
-    /// <summary>
-    /// On a cold boot the service's ApplicationStarted fires before the
-    /// auto-login console session exists, so a cross-session spawn has no
-    /// launch target yet. Wait for the console session first, the same
-    /// shape as UserHelperBootstrapper.EnsureLaunched. Runs on the Start()
-    /// background task; a Stop() or superseding Start() abandons the wait.
-    /// </summary>
-    [SupportedOSPlatform("windows")]
-    private Process? StartInActiveUserSessionWhenReady(string exePath, string workingDir, int generation)
-    {
-        var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(5);
-        var waitLogged = false;
-        while (!_stopRequested && generation == Volatile.Read(ref _spawnGeneration))
-        {
-            if (!string.IsNullOrEmpty(ResolveActiveConsoleUsername()))
-            {
-                return StartInActiveUserSession(exePath, workingDir);
-            }
-            if (!waitLogged)
-            {
-                waitLogged = true;
-                Console.WriteLine("[overlay-host] no active console user; waiting for logon");
-            }
-            if (DateTime.UtcNow >= deadline)
-            {
-                Console.Error.WriteLine("[overlay-host] no active console user after 5 min; giving up");
-                return null;
-            }
-            Thread.Sleep(2000);
-        }
-        return null;
-    }
 
     [SupportedOSPlatform("windows")]
     private static Process? StartInActiveUserSession(string exePath, string workingDir)
@@ -579,70 +525,13 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     {
         var exited = sender as Process;
         var exitCode = "?";
-        int? rawExitCode = null;
-        try { if (exited is not null) { rawExitCode = exited.ExitCode; exitCode = rawExitCode.Value.ToString(); } }
-        catch { /* handle already gone */ }
-        Console.WriteLine($"[overlay-host] OnExited fired; exit code {exitCode}");
-
-        // Stop() was called; this callback was already in flight on the
-        // threadpool when Stop ran (handler unsubscribe doesn't drain
-        // pending invocations). Don't respawn.
-        if (_stopRequested) return;
-
+        try { if (exited is not null) exitCode = exited.ExitCode.ToString(); }
+        catch { }
+        Console.WriteLine($"[overlay-host] exited (code {exitCode})");
         lock (_lock)
         {
-            // A stale callback from a superseded process (a Stop-then-Start
-            // adopted a newer host while this one's Exited was already
-            // queued) must not detach or respawn over the current
-            // generation's process.
-            if (!ReferenceEquals(exited, _process)) return;
-            _process = null;
+            if (ReferenceEquals(exited, _process)) _process = null;
         }
-
-        // Exit code 0 = deliberate self-shutdown (overlay idled out: no
-        // widgets, no dashboard). The reconcile and the tray's
-        // EnsureOverlayRunning re-spawn the host when something actually
-        // needs it again, so we deliberately do NOT restart here.
-        if (rawExitCode == 0)
-        {
-            Console.WriteLine("[overlay-host] clean exit; not respawning");
-            _consecutiveFailures = 0;
-            return;
-        }
-
-        // Linear backoff cap: don't restart more than 3 times in a row
-        // within 30s. Prevents tight crash-loop hammering.
-        var since = DateTime.UtcNow - _lastSpawnUtc;
-        if (since < TimeSpan.FromSeconds(30))
-        {
-            _consecutiveFailures++;
-            if (_consecutiveFailures > 3)
-            {
-                Console.Error.WriteLine($"[overlay-host] giving up after {_consecutiveFailures} rapid failures (last exit code {exitCode})");
-                return;
-            }
-        }
-        else
-        {
-            _consecutiveFailures = 0;
-        }
-        Console.WriteLine($"[overlay-host] exited (code {exitCode}); restarting");
-        // Give the host a moment before respawning. Run on the default
-        // scheduler with explicit error handling so a Start() throw is
-        // reported instead of disappearing into an unobserved task.
-        _ = System.Threading.Tasks.Task.Run(async () =>
-        {
-            try
-            {
-                await System.Threading.Tasks.Task.Delay(2000);
-                if (_stopRequested) return;
-                Start();
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[overlay-host] respawn task failed: {ex.Message}");
-            }
-        });
     }
 
     private static void WritePidFile(int pid)

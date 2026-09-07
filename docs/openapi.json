@@ -10667,6 +10667,18 @@
         }
       }
     },
+    "/overlay/state": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/overlay/widgets": {
       "get": {
         "tags": [

@@ -54,7 +54,6 @@ public sealed class StreamedPanelCoordinatorTests : IDisposable
             _store,
             _registry,
             _gate,
-            new NoopOverlayHost(),
             notifyOverlay: null,
             nowMs: () => _nowMs);
         return _coordinator;
