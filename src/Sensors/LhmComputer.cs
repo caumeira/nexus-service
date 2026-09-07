@@ -61,12 +61,10 @@ public sealed class LhmComputer : IDisposable
     {
         _config = config;
         _gate = gate;
-        // The chipset SMBus device (Devices page, "Memory") toggled off means
-        // no SPD traffic at all: LHM's MemoryGroup otherwise probes 0x50-0x57
-        // through its own PawnIO SMBus module at Open and reads each DIMM's
-        // thermal sensor on every walk, which is enough to knock iCUE off its
-        // DDR5 telemetry and RGB. Seated before Open, the stub keeps the
-        // group's RAM-usage sensors and skips the whole DIMM path.
+        // MemoryGroup probes 0x50-0x57 through its own PawnIO SMBus module at
+        // Open and reads each DIMM thermal sensor per walk, which knocks iCUE
+        // off the same bus. Seated before Open, the stub keeps the group's
+        // RAM-usage sensors and skips the DIMM path.
         var spdDisabled = !_gate.IsEnabled(SmbusDramHandler.HandlerId);
         if (spdDisabled)
         {
@@ -140,21 +138,13 @@ public sealed class LhmComputer : IDisposable
         {
             return;
         }
-        // Open() may still be running; the group swap needs it finished. The
-        // open task never faults (its body catches), so the continuation runs.
-        // The value carried here is not used: two rapid toggles queue two
-        // continuations that race for the lock, so the state is re-read there
-        // and the store, not the arrival order, decides.
+        // The swap needs Open() finished; the open task never faults, so the
+        // continuation always runs. State is re-read under the lock rather than
+        // captured here, so two racing toggles cannot land out of order.
         _ = _openTask.ContinueWith(_ => ApplySpdGate(), TaskScheduler.Default);
     }
 
-    /// <summary>
-    /// Rebuilds LHM's memory group with or without the SPD path, live. The
-    /// IsMemoryEnabled setter removes and re-adds the group on an open
-    /// Computer; which driver RAMSPDToolkit finds seated decides whether the
-    /// new group probes. Under the update lock so no walk iterates a group
-    /// mid-swap.
-    /// </summary>
+    /// <summary>Rebuilds the memory group live: IsMemoryEnabled removes and re-adds it on an open Computer, and the driver seated at that moment decides whether the new group probes SPD.</summary>
     private void ApplySpdGate()
     {
         try
@@ -165,8 +155,7 @@ public sealed class LhmComputer : IDisposable
                 enabled = _gate.IsEnabled(SmbusDramHandler.HandlerId);
                 // Group first (cancels its retry task, closes its DIMMs), then
                 // the driver whose PawnIO modules those DIMMs read through.
-                // Re-enabling probes eight SPD addresses synchronously here,
-                // so a walk waits out one bus scan; only a user toggle gets here.
+                // Re-enabling probes eight addresses synchronously under the lock.
                 _computer.IsMemoryEnabled = false;
                 DriverManager.UnloadDriver();
                 if (!enabled)
@@ -185,13 +174,7 @@ public sealed class LhmComputer : IDisposable
         }
     }
 
-    /// <summary>
-    /// A RAMSPDToolkit driver that is "open" but loads nothing. MemoryGroup
-    /// keeps a seated open driver instead of installing its PawnIO one, and
-    /// DriverManager.LoadDriver returns false for a driver that is none of
-    /// the WinRing0 / PawnIO / generic kinds, so the group never detects
-    /// SMBuses, never starts its retry task, and adds no DIMM hardware.
-    /// </summary>
+    /// <summary>A RAMSPDToolkit driver that reports open so MemoryGroup keeps it instead of installing its PawnIO one, and fails to load because it is none of the three kinds DriverManager accepts, so no bus is ever detected.</summary>
     private sealed class NoSpdDriver : IDriver
     {
         public static readonly NoSpdDriver Instance = new();

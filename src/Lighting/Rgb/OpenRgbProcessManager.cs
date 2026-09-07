@@ -224,28 +224,14 @@ public sealed class OpenRgbProcessManager : IDisposable
 
     /// <summary>
     /// Every detector in the bundled fork that reaches a DIMM over the chipset
-    /// SMBus, disabled together while Nexus Control for the SMBus device is
-    /// off. Two families, and both must be here:
-    ///
-    /// The seven <c>REGISTER_I2C_DRAM_DETECTOR</c> names are what
-    /// <c>DetectionManager::IsAnyDimmDetectorEnabled</c> reads
-    /// (DetectionManager.cpp:2473); the 0x50-0x57 SPD probe loop at :1219 runs
-    /// while ANY of them is still true in the config, so one missing name
-    /// leaves the whole scan running. "Corsair Vengeance RGB DRAM" is the DDR4
-    /// detector and is separate from "Corsair DRAM", the DDR5 one.
-    ///
-    /// The four <c>REGISTER_I2C_DETECTOR</c> names run outside that gate and
-    /// walk DIMM addresses themselves, so they are listed too.
-    ///
-    /// Names are the registration strings, verbatim
-    /// (CorsairDRAMControllerDetect.cpp defines CORSAIR_DRAM_NAME; the two
-    /// Patriot files each define their own PATRIOT_CONTROLLER_NAME). The
-    /// bundled catalog cannot supply this list: it names controllers, not
-    /// detectors. A one-shot probe lost to another SMBus master is a stick
-    /// missing for the whole session, so this is about presence, not lighting.
-    ///
-    /// Motherboard and GPU I2C detectors (ASUS Aura, ASRock, EVGA, Gigabyte)
-    /// still run and still drive the same bus; this device covers the DIMMs.
+    /// SMBus, disabled together while Nexus Control for the SMBus device is off.
+    /// DetectionManager::IsAnyDimmDetectorEnabled runs the 0x50-0x57 SPD scan
+    /// while ANY REGISTER_I2C_DRAM_DETECTOR name is still enabled, so a missing
+    /// name leaves the whole scan running; the plain REGISTER_I2C_DETECTOR ones
+    /// walk DIMM addresses outside that gate. Names are the registration
+    /// strings verbatim: "Corsair Vengeance RGB DRAM" is DDR4, "Corsair DRAM"
+    /// DDR5, and each Patriot file defines its own PATRIOT_CONTROLLER_NAME.
+    /// Motherboard and GPU I2C detectors share the bus and stay enabled.
     /// </summary>
     internal static readonly string[] SmbusDramDetectors =
     {

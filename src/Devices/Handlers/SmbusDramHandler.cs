@@ -4,15 +4,12 @@ using System.Collections.Generic;
 namespace Nexus.Service.Devices.Handlers;
 
 /// <summary>
-/// The DIMMs on the chipset SMBus, listed as one device so the user can tell
-/// Nexus to leave them alone. Nothing here is a USB handle: the bus is
-/// multi-master with only the Global\Access_SMBUS mutex convention between
-/// Nexus, its OpenRGB subprocess and vendor apps (iCUE, Armoury Crate), and
-/// DIMM detection is a one-shot address probe, so the unit of Nexus Control
-/// is the whole bus, never a single stick. Off means every in-process SMBus
-/// consumer yields: LibreHardwareMonitor's SPD path (LhmComputer) and the
-/// OpenRGB DRAM detectors (OpenRgbProcessManager). Present on Windows only,
-/// where the SPD path exists.
+/// The DIMMs on the chipset SMBus as one device. The bus is multi-master with
+/// only the Global\Access_SMBUS mutex between Nexus, its OpenRGB subprocess and
+/// vendor apps, and DIMM detection is a one-shot address probe, so the unit of
+/// Nexus Control is the whole bus, never a stick. Off means every in-process
+/// consumer yields: LHM's SPD path and the OpenRGB DRAM detectors. Windows
+/// only, where that SPD path exists.
 /// </summary>
 public sealed class SmbusDramHandler : IDeviceHandler
 {

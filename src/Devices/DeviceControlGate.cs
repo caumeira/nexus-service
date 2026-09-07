@@ -26,14 +26,12 @@ public sealed class DeviceControlGate
     }
 
     /// <summary>
-    /// Raised after <see cref="SetEnabled"/> persists a choice, with the handler
-    /// id and its new state. Consumers that hold hardware open (the SMBus SPD
-    /// path, the OpenRGB subprocess) re-evaluate on it. Raised outside the store
-    /// mutation and inline on the caller's thread, so two concurrent writers can
-    /// notify in the opposite order to the one they persisted in: a subscriber
-    /// that must not act on a stale value re-reads <see cref="IsEnabled"/>.
-    /// <see cref="TryAdopt"/> deliberately does not raise it - no shared-bus
-    /// handler is adoptable (<see cref="DeviceControlPolicy.AdoptionConflictAppFor"/>).
+    /// Raised after <see cref="SetEnabled"/> persists a choice, for consumers
+    /// holding hardware open. Fired outside the mutation on the caller's thread,
+    /// so concurrent writers can notify in the opposite order to the one they
+    /// persisted in; a subscriber that must not act on a stale value re-reads
+    /// <see cref="IsEnabled"/>. <see cref="TryAdopt"/> does not raise it, and no
+    /// shared-bus handler is adoptable.
     /// </summary>
     public event Action<string, bool>? Changed;
 
@@ -81,8 +79,7 @@ public sealed class DeviceControlGate
                 devices.NexusControlEnabled = WithoutId(devices.NexusControlEnabled, handlerId);
             }
         });
-        // The choice is already persisted; a subscriber that throws must not
-        // turn a saved change into a failed /devices/control.
+        // The choice is persisted; a throwing subscriber must not fail the request.
         try
         {
             Changed?.Invoke(handlerId, enabled);

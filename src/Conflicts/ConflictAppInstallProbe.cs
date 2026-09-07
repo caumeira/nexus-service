@@ -40,11 +40,9 @@ public sealed class ConflictAppInstallProbe : IConflictAppInstallProbe
         {
             return false;
         }
-        // A catalog entry names services by key and processes by executable
-        // basename, and which of the two a vendor used is not knowable here:
-        // iCUE's control service is registered as CorsairDeviceControlService
-        // and displayed as "Corsair Device Control Service". Match both fields
-        // of every installed service against both lists.
+        // A catalog names services by key and processes by executable basename,
+        // and a vendor may register either as the service key, so match both
+        // fields of every installed service against both lists.
         var wanted = new List<string>(def.WindowsServiceNames.Length + def.ProcessNames.Length);
         wanted.AddRange(def.WindowsServiceNames);
         wanted.AddRange(def.ProcessNames);

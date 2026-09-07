@@ -50,12 +50,10 @@ public static class DeviceControlPolicy
     };
 
     /// <summary>
-    /// Shared-bus devices default off only where the competing app is
-    /// installed, since the same bus carries monitoring nobody else provides
-    /// on a box without that app. These never auto-adopt either: the vendor
-    /// app is not running at service start (session 0, before logon), and
-    /// adopting then would hand the bus to Nexus on exactly the boxes that
-    /// asked it to yield.
+    /// Shared-bus devices default off only where the competing app is installed,
+    /// since that bus also carries monitoring nothing else provides. They never
+    /// auto-adopt: the vendor app is not running at service start (session 0,
+    /// before logon), so adoption would claim the bus on the boxes that yield.
     /// </summary>
     private static readonly Dictionary<string, string> YieldsToInstalledApp = new(StringComparer.OrdinalIgnoreCase)
     {
