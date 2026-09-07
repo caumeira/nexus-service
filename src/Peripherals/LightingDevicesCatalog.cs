@@ -198,7 +198,7 @@ public static class LightingDevicesCatalog
     {
         // HYTE - PIDs from src/Peripherals/Hyte/*. Q60/Q80 are LCD-screen AIOs.
         Native("HYTE",    "THICC Q60",              "aio",      "0x3402", "0x0400", screen: true),
-        Native("HYTE",    "Q80",                    "aio",      "0x3402", "0x0403", screen: true),
+        Native("HYTE",    "THICC Q80",              "aio",      "0x3402", "0x0403", screen: true),
         Native("HYTE",    "Nexus Portal NP50",      "light",    "0x3402", "0x0901"),
         Native("HYTE",    "CNVS",                   "mousemat", "0x3402", "0x0B00"),
         Native("HYTE",    "Keeb TKL",               "keyboard", "0x3402", "0x0300"),
