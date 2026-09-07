@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Models.Conflicts;
+using Nexus.Service.Platform;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
 using Microsoft.Extensions.Hosting;
@@ -22,6 +23,9 @@ public interface IConflictDetector
 {
     /// <summary>True if the competing app with this <see cref="ConflictAppCatalog"/> id is currently running.</summary>
     bool IsAppRunning(string appId);
+
+    /// <summary>Every competing app currently running, for callers that report the set rather than test one id.</summary>
+    IReadOnlyList<DetectedConflict> GetConflicts();
 
     /// <summary>False until the first process scan completes, so callers do not treat "not yet scanned" as "no apps running".</summary>
     bool DetectionReady { get; }
@@ -48,6 +52,18 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// A gap longer than this between scans means scanning had stopped, so the
+    /// next pass restates what is running instead of dating every app's launch
+    /// to the moment scanning resumed.
+    /// </summary>
+    private static readonly TimeSpan TransitionGapLimit = TimeSpan.FromSeconds(30);
+
+    /// <summary>Transitions one app may log per <see cref="FlapWindow"/> before it is summarised instead.</summary>
+    private const int MaxTransitionsPerWindow = 6;
+
+    private static readonly TimeSpan FlapWindow = TimeSpan.FromMinutes(10);
+
+    /// <summary>
     /// Last-published snapshot. Reads on broadcaster thread, also read on
     /// receive threads via <see cref="GetCachedSnapshotEnvelope"/>; the byte
     /// array is replaced atomically (volatile reference-assignment is atomic
@@ -62,6 +78,20 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
     private string[] _lastDetectedIds = Array.Empty<string>();
 
     private volatile bool _detectionReady;
+
+    /// <summary>
+    /// Ids logged as present by the last transition pass. Separate from
+    /// <see cref="_lastDetectedIds"/>, which keys on id:pid so the UI sees a
+    /// restart; the log wants open/close, not a pid churn.
+    /// </summary>
+    private string[] _lastLoggedIds = Array.Empty<string>();
+
+    /// <summary>Tick of the scan that produced <see cref="_lastLoggedIds"/>.</summary>
+    private long _lastLoggedTicks;
+
+    /// <summary>Transitions logged per app in the open flap window, and when it opened.</summary>
+    private readonly Dictionary<string, int> _transitionCounts = new(StringComparer.OrdinalIgnoreCase);
+    private long _flapWindowTicks;
     private readonly object _scanLock = new();
     private long _lastScanTicks = long.MinValue / 2;
 
@@ -182,7 +212,7 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[conflict-watcher] scan failed: {ex.Message}");
+                Console.Error.WriteLine($"[conflicts] scan failed: {ex.Message}");
             }
 
             try { await Task.Delay(PollInterval, stoppingToken); }
@@ -195,6 +225,8 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
         var detected = DetectRunningConflicts();
 
         var ids = ChangeKey(detected);
+
+        LogTransitions(detected, first: !_detectionReady);
 
         bool changed = !ArraysEqual(ids, _lastDetectedIds);
         _lastDetectedIds = ids;
@@ -356,6 +388,128 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
             ids[i] = $"{detected[i].Id}:{detected[i].Pid}";
         Array.Sort(ids, StringComparer.Ordinal);
         return ids;
+    }
+
+    /// <summary>
+    /// Log each competing app as it opens and closes. The service starts in
+    /// session 0, so the vendor app that actually contends for the hardware
+    /// launches at logon, minutes after the startup snapshot is written - without
+    /// these lines a submitted log cannot say whether one was ever running.
+    /// </summary>
+    private void LogTransitions(IReadOnlyList<DetectedConflict> detected, bool first)
+    {
+        var ids = SortedIds(detected);
+        var previous = _lastLoggedIds;
+        var previousTicks = _lastLoggedTicks;
+        var now = Environment.TickCount64;
+        _lastLoggedIds = ids;
+        _lastLoggedTicks = now;
+
+        // The loop scans only while the topic has subscribers, so a dashboard
+        // opened hours after boot produces the first scan since startup. Diffing
+        // across that gap would stamp every running app as opened just now,
+        // which reads as a launch time and sends a triager after the wrong hour.
+        if (first || now - previousTicks > (long)TransitionGapLimit.TotalMilliseconds)
+        {
+            // An on-demand reader can force a scan at any cadence - every new topic
+            // subscription does - so restate only when the set actually moved, or a
+            // reconnect loop republishes the same baseline without bound.
+            if (first || !ArraysEqual(ids, previous))
+            {
+                var scope = first ? " at startup" : "";
+                ServiceLog.Info(detected.Count == 0
+                    ? $"[conflicts] none running{scope}"
+                    : $"[conflicts] running{scope}: {string.Join(", ", ids)}");
+            }
+            return;
+        }
+
+        foreach (var (id, message) in TransitionLines(previous, detected))
+        {
+            LogTransition(id, message);
+        }
+    }
+
+    /// <summary>Ids of the detected set, sorted, for diffing one scan against the next.</summary>
+    internal static string[] SortedIds(IReadOnlyList<DetectedConflict> detected)
+    {
+        var ids = new string[detected.Count];
+        for (var i = 0; i < detected.Count; i++)
+        {
+            ids[i] = detected[i].Id;
+        }
+        Array.Sort(ids, StringComparer.OrdinalIgnoreCase);
+        return ids;
+    }
+
+    /// <summary>
+    /// The open/close lines one scan produces against the previous id set. Keys
+    /// on id, not <see cref="ChangeKey"/>'s id:pid, so an app that restarted
+    /// between scans does not read as having closed and reopened. Pure; the
+    /// caller owns rate limiting and the log.
+    /// </summary>
+    internal static List<(string Id, string Message)> TransitionLines(
+        IReadOnlyList<string> previous, IReadOnlyList<DetectedConflict> detected)
+    {
+        var lines = new List<(string, string)>();
+        var current = SortedIds(detected);
+        foreach (var conflict in detected)
+        {
+            if (!Contains(previous, conflict.Id))
+            {
+                lines.Add((conflict.Id, $"{conflict.DisplayName} opened (id={conflict.Id} pid={conflict.Pid})"));
+            }
+        }
+        foreach (var id in previous)
+        {
+            if (!Contains(current, id))
+            {
+                lines.Add((id, $"{FindById(id)?.DisplayName ?? id} closed (id={id})"));
+            }
+        }
+        return lines;
+    }
+
+    /// <summary>
+    /// One line per transition until an app has cycled past
+    /// <see cref="MaxTransitionsPerWindow"/>, then one line saying so and silence
+    /// until the window rolls. ServiceLog rotates per run and never by size, so
+    /// an app restarting on a loop would otherwise bury what this logging exists
+    /// to surface.
+    /// </summary>
+    private void LogTransition(string id, string message)
+    {
+        var now = Environment.TickCount64;
+        if (now - _flapWindowTicks > (long)FlapWindow.TotalMilliseconds)
+        {
+            _flapWindowTicks = now;
+            _transitionCounts.Clear();
+        }
+
+        _transitionCounts.TryGetValue(id, out var seen);
+        _transitionCounts[id] = seen + 1;
+
+        if (seen < MaxTransitionsPerWindow)
+        {
+            ServiceLog.Info($"[conflicts] {message}");
+        }
+        else if (seen == MaxTransitionsPerWindow)
+        {
+            ServiceLog.Info($"[conflicts] {FindById(id)?.DisplayName ?? id} is cycling; "
+                + $"further transitions suppressed for {FlapWindow.TotalMinutes:0} min");
+        }
+    }
+
+    private static bool Contains(IReadOnlyList<string> ids, string id)
+    {
+        foreach (var candidate in ids)
+        {
+            if (string.Equals(candidate, id, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static bool ArraysEqual(string[] a, string[] b)

@@ -14,6 +14,9 @@ namespace Nexus.Service.Conflicts;
 public interface IConflictAppInstallProbe
 {
     bool IsInstalled(string appId);
+
+    /// <summary>Every catalog app installed on this box, resolved against one service enumeration.</summary>
+    IReadOnlyList<string> InstalledAppIds();
 }
 
 /// <summary>
@@ -27,19 +30,64 @@ public sealed class ConflictAppInstallProbe : IConflictAppInstallProbe
 {
     private readonly ConcurrentDictionary<string, bool> _cache = new(StringComparer.OrdinalIgnoreCase);
 
-    public bool IsInstalled(string appId) => _cache.GetOrAdd(appId, Probe);
-
-    private static bool Probe(string appId)
+    public bool IsInstalled(string appId)
     {
+        if (_cache.TryGetValue(appId, out var cached))
+        {
+            return cached;
+        }
         if (!OperatingSystem.IsWindows())
         {
             return false;
         }
-        var def = ConflictWatcher.FindById(appId);
-        if (def is null)
+        var services = WindowsServiceController.ListServices();
+        if (services.Count == 0)
         {
+            // Empty reads the same whether the SCM is empty or the enumeration
+            // failed, and a cached answer is permanent - so decline to cache one.
             return false;
         }
+        var def = ConflictWatcher.FindById(appId);
+        return _cache.GetOrAdd(appId, def is not null && HasService(def, services));
+    }
+
+    /// <summary>
+    /// One service enumeration answers the whole catalog, where per-app
+    /// <see cref="IsInstalled"/> walks the full list again for every entry.
+    /// Seeds the same cache, so a later single-app check is free, and reports
+    /// the cached answer rather than this pass's, so the log cannot disagree
+    /// with the value the Nexus Control gate already acted on.
+    /// </summary>
+    public IReadOnlyList<string> InstalledAppIds()
+    {
+        var installed = new List<string>();
+        if (!OperatingSystem.IsWindows())
+        {
+            return installed;
+        }
+        var services = WindowsServiceController.ListServices();
+        if (services.Count == 0)
+        {
+            // The enumeration returns empty on failure as readily as on an empty
+            // SCM, and a false seed here is permanent. Answer nothing instead.
+            return installed;
+        }
+        foreach (var def in ConflictAppCatalog.All)
+        {
+            if (_cache.GetOrAdd(def.Id, HasService(def, services)))
+            {
+                installed.Add(def.Id);
+            }
+        }
+        return installed;
+    }
+
+    /// <summary>
+    /// Whether one catalog app owns any service in an already-enumerated list.
+    /// Exposed for tests, which cannot enumerate a real SCM.
+    /// </summary>
+    internal static bool HasService(ConflictAppDefinition def, IReadOnlyList<(string Key, string DisplayName)> services)
+    {
         // A catalog names services by key and processes by executable basename,
         // and a vendor may register either as the service key, so match both
         // fields of every installed service against both lists.
@@ -50,7 +98,7 @@ public sealed class ConflictAppInstallProbe : IConflictAppInstallProbe
         {
             return false;
         }
-        foreach (var svc in WindowsServiceController.ListServices())
+        foreach (var svc in services)
         {
             if (Matches(wanted, svc.Key) || Matches(wanted, svc.DisplayName))
             {

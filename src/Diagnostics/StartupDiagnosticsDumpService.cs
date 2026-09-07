@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Conflicts;
 using Nexus.Service.Cooling;
 using Nexus.Service.Devices;
 using Nexus.Service.Models.Sensors;
@@ -33,6 +34,8 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
     private readonly ICoolingProvider _cooling;
     private readonly IMonitorEnumerator _monitors;
     private readonly IHidEnumerator _hid;
+    private readonly IConflictDetector _conflicts;
+    private readonly IConflictAppInstallProbe _conflictInstalls;
 
     public StartupDiagnosticsDumpService(
         SystemSpecsCollector specs,
@@ -40,7 +43,9 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
         ILightingDeviceProvider lighting,
         ICoolingProvider cooling,
         IMonitorEnumerator monitors,
-        IHidEnumerator hid)
+        IHidEnumerator hid,
+        IConflictDetector conflicts,
+        IConflictAppInstallProbe conflictInstalls)
     {
         _specs = specs;
         _devices = devices;
@@ -48,6 +53,8 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
         _cooling = cooling;
         _monitors = monitors;
         _hid = hid;
+        _conflicts = conflicts;
+        _conflictInstalls = conflictInstalls;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -86,6 +93,34 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
             Emit($"audio: {specs.SoundCard}");
             Emit($"network: {specs.NetworkCard}");
         }
+
+        try
+        {
+            // Which vendor app is on the box is the first question a "Nexus stopped
+            // driving my hardware" report raises, and nothing else in a submitted log
+            // answers it. Installed, not running, is the useful column here: the
+            // service starts in session 0, so an app that launches at logon is still
+            // absent at this point. ConflictWatcher logs each one as it opens and closes.
+            // Read before the device blocks: GetConflicts forces the watcher's first
+            // scan, whose own line would otherwise land inside another section.
+            var installed = _conflictInstalls.InstalledAppIds();
+            var running = _conflicts.GetConflicts();
+            Emit($"conflicts ({installed.Count} installed, {running.Count} running):");
+            foreach (var def in ConflictAppCatalog.All)
+            {
+                if (!installed.Contains(def.Id, StringComparer.OrdinalIgnoreCase)) continue;
+                var live = running.FirstOrDefault(c => string.Equals(c.Id, def.Id, StringComparison.OrdinalIgnoreCase));
+                var state = live is null ? "installed" : $"running pid={live.Pid}";
+                Emit($"  - [{def.Category}] {def.DisplayName} id={def.Id} {state}");
+            }
+            // A portable build registers no service, so it only ever shows up here.
+            foreach (var c in running)
+            {
+                if (installed.Contains(c.Id, StringComparer.OrdinalIgnoreCase)) continue;
+                Emit($"  - [{c.Category}] {c.DisplayName} id={c.Id} running pid={c.Pid} (no service)");
+            }
+        }
+        catch (Exception ex) { Emit($"conflicts read failed: {ex.Message}"); }
 
         try
         {

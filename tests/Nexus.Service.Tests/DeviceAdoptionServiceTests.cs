@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Nexus.Service.Conflicts;
 using Nexus.Service.Devices;
+using Nexus.Service.Models.Conflicts;
 using Xunit;
 
 namespace Nexus.Service.Tests;
@@ -15,6 +17,9 @@ public class DeviceAdoptionServiceTests
         public HashSet<string> RunningApps { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public bool IsAppRunning(string appId) => RunningApps.Contains(appId);
+
+        public IReadOnlyList<DetectedConflict> GetConflicts() =>
+            RunningApps.Select(id => new DetectedConflict { Id = id }).ToList();
     }
 
     [Fact]

@@ -20,6 +20,7 @@ public class SmbusDramDeviceTests
         private readonly HashSet<string> _installed;
         public FixedInstallProbe(params string[] installed) => _installed = new HashSet<string>(installed, StringComparer.OrdinalIgnoreCase);
         public bool IsInstalled(string appId) => _installed.Contains(appId);
+        public IReadOnlyList<string> InstalledAppIds() => _installed.ToList();
     }
 
     [Fact]
