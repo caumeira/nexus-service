@@ -46,6 +46,8 @@ public sealed class PanelDeviceRecord
     /// does not need to refetch the library to know whether to use an img or
     /// video element.</summary>
     public string? BackgroundMediaType { get; set; }
+    /// <summary>The selected asset kept its transparency, so it is a png/gif and renders in an img even when animated.</summary>
+    public bool? BackgroundMediaAlpha { get; set; }
     /// <summary>Frosted-glass blur over the background layer (shader / media /
     /// desktop wallpaper), percent 0-100. Null is unset; the client applies its
     /// own default. Never rename this to "backgroundFrost": stored records hold
@@ -186,6 +188,7 @@ public sealed class PanelDevicePatch
     public string? Backdrop { get; set; }
     public string? BackgroundMediaId { get; set; }
     public string? BackgroundMediaType { get; set; }
+    public bool? BackgroundMediaAlpha { get; set; }
     public double? BackgroundFrostLevel { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }

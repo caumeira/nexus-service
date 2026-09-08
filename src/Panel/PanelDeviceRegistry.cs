@@ -429,6 +429,8 @@ public sealed class PanelDeviceRegistry
                 record.BackgroundMediaId = NullIfEmpty(patch.BackgroundMediaId);
             if (patch.BackgroundMediaType is not null)
                 record.BackgroundMediaType = NullIfEmpty(patch.BackgroundMediaType);
+            if (patch.BackgroundMediaAlpha.HasValue)
+                record.BackgroundMediaAlpha = patch.BackgroundMediaAlpha.Value;
             if (patch.BackgroundFrostLevel.HasValue)
                 record.BackgroundFrostLevel = patch.BackgroundFrostLevel.Value;
             if (patch.WidgetOpacity.HasValue)
@@ -514,6 +516,7 @@ public sealed class PanelDeviceRegistry
             record.Backdrop = null;
             record.BackgroundMediaId = null;
             record.BackgroundMediaType = null;
+            record.BackgroundMediaAlpha = null;
             record.BackgroundFrostLevel = null;
             record.WidgetOpacity = null;
             record.WidgetLabels = null;
@@ -617,6 +620,7 @@ public sealed class PanelDeviceRegistry
             Backdrop = r.Backdrop,
             BackgroundMediaId = r.BackgroundMediaId,
             BackgroundMediaType = r.BackgroundMediaType,
+            BackgroundMediaAlpha = r.BackgroundMediaAlpha,
             BackgroundFrostLevel = r.BackgroundFrostLevel,
             WidgetOpacity = r.WidgetOpacity,
             WidgetLabels = r.WidgetLabels,

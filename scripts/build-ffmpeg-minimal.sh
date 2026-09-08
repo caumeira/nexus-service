@@ -2,7 +2,7 @@
 # Builds a minimal ffmpeg binary sized for nexus-service's narrow use cases:
 #   - decode images / gifs / common video containers (jpg, png, gif, mp4, webm, mov, avi, mkv, wmv, m4v, mpg)
 #   - downscale + pad (libswscale via scale/pad filters)
-#   - write raw rgb24 pipe/file and mjpeg thumbnails
+#   - write raw rgb24 pipe/file, mjpeg thumbnails, and png/gif with alpha
 #   - capture video: gdigrab (Win), avfoundation (macOS)
 #   - capture audio: dshow (Win), avfoundation (macOS), pulse (Linux)
 #
@@ -84,6 +84,14 @@ COMMON_CONFIG=(
   --enable-filter=crop
   --enable-filter=format
   --enable-filter=fps
+  # Transparency import: color+overlay mattes alpha onto black when the user
+  # turns "keep transparency" off; split+palettegen+paletteuse are the only way
+  # to write a GIF that keeps its transparent index (PanelBgImporter.cs).
+  --enable-filter=color
+  --enable-filter=overlay
+  --enable-filter=split
+  --enable-filter=palettegen
+  --enable-filter=paletteuse
   --enable-filter=aresample
   --enable-filter=setpts
   --enable-filter=asetpts
@@ -138,16 +146,23 @@ COMMON_CONFIG=(
   --enable-decoder=pcm_s24le
 
   # Encoders: rawvideo passthrough + mjpeg thumbnails/images + libx264 for the
-  # per-device H.264 panel background + audio pipe
+  # per-device H.264 panel background + audio pipe. png/gif carry the alpha the
+  # mjpeg/x264 pair cannot: neither has an alpha channel, so a transparent
+  # source imported without these silently flattens onto whatever RGB sat under
+  # its transparent pixels.
   --enable-encoder=rawvideo
   --enable-encoder=mjpeg
   --enable-encoder=libx264
+  --enable-encoder=png
+  --enable-encoder=gif
   --enable-encoder=pcm_s16le
   --enable-encoder=pcm_f32le
 
-  # Muxers (mp4/mov carry the H.264 panel background)
+  # Muxers (mp4/mov carry the H.264 panel background; gif carries a transparent
+  # animated background, image2 the single-frame png/jpg ones)
   --enable-muxer=rawvideo
   --enable-muxer=image2
+  --enable-muxer=gif
   --enable-muxer=mp4
   --enable-muxer=mov
   --enable-muxer=wav
