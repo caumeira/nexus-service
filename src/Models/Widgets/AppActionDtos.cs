@@ -75,3 +75,22 @@ public sealed class SystemInfoResponse
     [JsonPropertyName("soundCard")] public string SoundCard { get; set; } = "";
     [JsonPropertyName("networkCard")] public string NetworkCard { get; set; } = "";
 }
+
+/// <summary>One device row returned by the <c>devices.list</c> host action.
+/// Deliberately narrower than the internal device list: only identity,
+/// display name, category, presence and firmware string cross into an app.</summary>
+public sealed class AppDeviceListItem
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("category")] public string Category { get; set; } = "";
+    [JsonPropertyName("connected")] public bool Connected { get; set; }
+    [JsonPropertyName("firmwareVersion")] public string FirmwareVersion { get; set; } = "";
+}
+
+/// <summary>Payload returned by the <c>devices.list</c> host action: every
+/// registered device with its presence flag, so the app filters itself.</summary>
+public sealed class AppDeviceListResponse
+{
+    [JsonPropertyName("devices")] public List<AppDeviceListItem> Devices { get; set; } = new();
+}
