@@ -16,16 +16,26 @@ public static class LightingDeviceNames
     /// Renames in place - every provider builds its cards fresh per GetAll, so
     /// nothing cached is mutated. The replaced hardware name moves to
     /// <see cref="LightingDevice.OriginalName"/> so the UI can still show it.
+    /// A group header carries no card of its own, so its rename is stored under
+    /// the parent device id and handed to every member as
+    /// <see cref="LightingDevice.ParentName"/>.
     /// </summary>
     public static void Apply(List<LightingDevice> devices, IReadOnlyDictionary<string, string> names)
     {
         if (names.Count == 0) return;
         foreach (var dev in devices)
         {
-            if (!names.TryGetValue(dev.Id, out var custom)) continue;
-            if (string.IsNullOrWhiteSpace(custom)) continue;
-            dev.OriginalName = dev.Name;
-            dev.Name = custom;
+            if (names.TryGetValue(dev.Id, out var custom) && !string.IsNullOrWhiteSpace(custom))
+            {
+                dev.OriginalName = dev.Name;
+                dev.Name = custom;
+            }
+            if (dev.ParentDeviceId is { } parentId
+                && names.TryGetValue(parentId, out var parentCustom)
+                && !string.IsNullOrWhiteSpace(parentCustom))
+            {
+                dev.ParentName = parentCustom;
+            }
         }
     }
 }

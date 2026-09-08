@@ -212,6 +212,8 @@ public class LightingDevice
     public string Name { get; set; } = "";
     /// <summary>The hardware name <see cref="Name"/> replaced, set only on a renamed card. Null means <see cref="Name"/> IS the hardware name.</summary>
     public string? OriginalName { get; set; }
+    /// <summary>Custom name for the group this card sits under, set only when <see cref="ParentDeviceId"/> itself has been renamed. The group header is otherwise derived from the members' hardware names.</summary>
+    public string? ParentName { get; set; }
     public string Type { get; set; } = "";
     public string IconType { get; set; } = "";
     public bool LedsOn { get; set; }
