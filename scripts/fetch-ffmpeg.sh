@@ -16,6 +16,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_SCRIPT="${REPO_ROOT}/scripts/build-ffmpeg-minimal.sh"
 
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) HOST_RID="osx-arm64" ;;
+  Darwin-*)     HOST_RID="osx-x64" ;;
+  Linux-*)      HOST_RID="linux-x64" ;;
+  *)            HOST_RID="" ;;
+esac
+
 fetch_one() {
   local target="$1"
   local rid bin
@@ -30,9 +37,17 @@ fetch_one() {
   esac
 
   local dest="${REPO_ROOT}/Bundled/${rid}/ffmpeg"
+  # A bundled binary from before an encoder was added to the configure line
+  # produces a service that builds, imports, and silently drops the feature -
+  # transparent backgrounds flatten. Re-check the capability, not just the path.
+  # Only the host's own binary is runnable, so a cross-built one is taken on trust.
   if [[ -f "${dest}/${bin}" ]]; then
-    echo "[fetch-ffmpeg] ${rid}: already bundled at ${dest}/${bin}"
-    return 0
+    if [[ "${rid}" == "${HOST_RID}" ]] && ! "${dest}/${bin}" -hide_banner -encoders 2>/dev/null | grep -qE '^ [A-Z.]+ png' ; then
+      echo "[fetch-ffmpeg] ${rid}: bundled binary predates the png/gif encoders; rebuilding"
+    else
+      echo "[fetch-ffmpeg] ${rid}: already bundled at ${dest}/${bin}"
+      return 0
+    fi
   fi
 
   echo "[fetch-ffmpeg] ${rid}: building from source..."

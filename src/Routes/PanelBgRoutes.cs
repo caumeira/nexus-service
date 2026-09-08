@@ -8,6 +8,19 @@ namespace Nexus.Service.Routes;
 
 public static class PanelBgRoutes
 {
+    /// <summary>The file an asset was baked to.</summary>
+    private static string MediaExtFor(PanelBgItem item) => item.Type == "animated"
+        ? (item.Alpha ? ".gif" : ".mp4")
+        : (item.Alpha ? ".png" : ".jpg");
+
+    private static string ContentTypeFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".png" => "image/png",
+        ".gif" => "image/gif",
+        ".mp4" => "video/mp4",
+        _ => "image/jpeg",
+    };
+
     public static void MapPanelBgEndpoints(this WebApplication app)
     {
         app.MapGet("/panel/devices/{deviceId}/background-media/library",
@@ -69,7 +82,7 @@ public static class PanelBgRoutes
                         return Results.BadRequest(new PanelBgStageResponse { Error = true, Msg = result.Error ?? "Stage failed" });
                     }
 
-                    return Results.Ok(new PanelBgStageResponse { StageId = result.StageId });
+                    return Results.Ok(new PanelBgStageResponse { StageId = result.StageId, Alpha = result.Alpha });
                 }
                 finally
                 {
@@ -87,14 +100,14 @@ public static class PanelBgRoutes
                     return Results.BadRequest("invalid deviceId");
                 }
 
-                var previewPath = lib.GetStagePreviewPath(deviceId, stageId);
-                if (!File.Exists(previewPath))
+                var previewPath = lib.FindStagedPreview(deviceId, stageId);
+                if (previewPath is null)
                 {
                     return Results.NotFound();
                 }
 
                 ctx.Response.Headers.CacheControl = "no-store";
-                return Results.File(previewPath, "image/jpeg");
+                return Results.File(previewPath, ContentTypeFor(previewPath));
             }).AllowPanel();
 
         // --- Commit phase: bake from staged raw using crop/dimensions ---
@@ -141,7 +154,11 @@ public static class PanelBgRoutes
                     return Results.NotFound(new PanelBgImportResponse { Error = true, Msg = "Stage not found or expired" });
                 }
 
-                var result = await PanelBgImporter.CommitAsync(lib, deviceId, stageId, cropRect, targetW, targetH);
+                // Absent means keep: a client too old to send the field gets the default.
+                var keepTransparency = form["keepTransparency"].ToString() is not "0" and not "false";
+
+                var result = await PanelBgImporter.CommitAsync(
+                    lib, deviceId, stageId, cropRect, targetW, targetH, keepTransparency);
                 if (!result.Ok)
                 {
                     return Results.BadRequest(new PanelBgImportResponse { Error = true, Msg = result.Error ?? "Commit failed" });
@@ -195,8 +212,8 @@ public static class PanelBgRoutes
                     return Results.BadRequest("invalid id");
                 }
 
-                var path = lib.GetThumbPath(deviceId, id);
-                return File.Exists(path) ? Results.File(path, "image/jpeg") : Results.NotFound();
+                var path = lib.GetThumbPath(deviceId, id, lib.GetItem(deviceId, id)?.Alpha ?? false);
+                return File.Exists(path) ? Results.File(path, ContentTypeFor(path)) : Results.NotFound();
             }).AllowPanel();
 
         app.MapGet("/panel/devices/{deviceId}/background-media/{id}/file",
@@ -218,16 +235,14 @@ public static class PanelBgRoutes
                     return Results.NotFound();
                 }
 
-                var isVideo = item.Type == "animated";
-                var mediaExt = isVideo ? ".mp4" : ".jpg";
-                var mediaPath = lib.GetMediaPath(deviceId, id, mediaExt);
+                var mediaPath = lib.GetMediaPath(deviceId, id, MediaExtFor(item));
                 if (!File.Exists(mediaPath))
                 {
                     return Results.NotFound();
                 }
 
                 ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
-                return Results.File(mediaPath, isVideo ? "video/mp4" : "image/jpeg");
+                return Results.File(mediaPath, ContentTypeFor(mediaPath));
             }).AllowPanel();
 
         app.MapPost("/panel/devices/{deviceId}/background-media/library/open",

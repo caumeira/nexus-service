@@ -7,6 +7,8 @@ namespace Nexus.Service.Models.Panel;
 /// panel-backgrounds/&lt;deviceId&gt;/&lt;id&gt;/ as media.mp4 or media.jpg
 /// (already cropped and scaled to the device's native resolution), plus
 /// thumb.jpg and meta.json. Source file is not retained.
+/// An asset that kept its transparency uses media.png / media.gif and thumb.png
+/// instead; <see cref="Alpha"/> selects between the two sets.
 /// </summary>
 public sealed class PanelBgItem
 {
@@ -17,6 +19,9 @@ public sealed class PanelBgItem
     public int Height { get; set; }
     public long ImportedAtUnixMs { get; set; }
     public double DurationSec { get; set; }
+
+    /// <summary>Media is png (static) or gif (animated) and the thumbnail png. False for assets imported before transparency support.</summary>
+    public bool Alpha { get; set; }
 }
 
 public sealed class PanelBgListResponse
@@ -42,6 +47,10 @@ public sealed class PanelBgResponse
 public sealed class PanelBgStageResponse
 {
     public string? StageId { get; set; }
+
+    /// <summary>The staged source carries real transparency, so the cropper has a "keep transparency" choice to offer.</summary>
+    public bool Alpha { get; set; }
+
     public bool Error { get; set; }
     public string Msg { get; set; } = "Ok";
 }
