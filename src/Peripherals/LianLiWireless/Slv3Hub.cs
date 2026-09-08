@@ -57,6 +57,11 @@ public sealed class Slv3Hub : IDisposable
     // of holding _lock for ~19 s of read timeouts in one call.
     private int _channelScanCursor;
 
+    // Channel probes since the last answered GetMac. A silent dongle is only
+    // reported as unresponsive once this has covered the whole scan order:
+    // before that it may simply be parked on a channel no attempt reached yet.
+    private int _probesSinceLastMac;
+
     // A chain unseen this long is treated as gone (powered off / out of range)
     // and dropped; until then it stays listed so downstream devices are stable.
     private const long ChainExpiryMs = 30_000;
@@ -157,6 +162,12 @@ public sealed class Slv3Hub : IDisposable
             }
             if (txPort is null || rxPort is null)
             {
+                // The module presents TX and RX as two WinUSB devices behind its
+                // own hub, so one half missing is a real state (a failed
+                // enumeration on that port), not "nothing plugged in".
+                State.LinkStatus = txPort is null && rxPort is null ? Slv3LinkStatus.None
+                    : txPort is null ? Slv3LinkStatus.TxMissing
+                    : Slv3LinkStatus.RxMissing;
                 return false;
             }
 
@@ -167,6 +178,9 @@ public sealed class Slv3Hub : IDisposable
             }
             catch (Exception ex)
             {
+                State.LinkStatus = ex is Slv3OpenException { IsInUseByAnotherApp: true }
+                    ? Slv3LinkStatus.Busy
+                    : Slv3LinkStatus.OpenFailed;
                 ServiceLog.Error($"[lianli-wireless] open failed: {ex.GetType().Name}: {ex.Message}");
                 DisconnectLocked();
                 return false;
@@ -174,11 +188,15 @@ public sealed class Slv3Hub : IDisposable
 
             if (!MasterInitLocked())
             {
+                State.LinkStatus = _probesSinceLastMac >= Slv3Protocol.ChannelScanOrder().Length
+                    ? Slv3LinkStatus.NoResponse
+                    : Slv3LinkStatus.Unknown;
                 ServiceLog.Warn("[lianli-wireless] GetMac failed on connect");
                 DisconnectLocked();
                 return false;
             }
 
+            State.LinkStatus = Slv3LinkStatus.Ok;
             State.IsConnected = true;
             ServiceLog.Info($"[lianli-wireless] connected (tx={txPort.PortName}, rx={rxPort.PortName}, master={State.MasterMac})");
             return true;
@@ -200,6 +218,12 @@ public sealed class Slv3Hub : IDisposable
         _tx = null;
         _rx = null;
         State.IsConnected = false;
+        // A failure path sets its own reason just before tearing down; only an
+        // 'ok' from a link that was live outlives its meaning here.
+        if (State.LinkStatus == Slv3LinkStatus.Ok)
+        {
+            State.LinkStatus = Slv3LinkStatus.Unknown;
+        }
         State.Fans = Array.Empty<Slv3FanInfo>();
         State.MotherboardPwmPercent = null;
         _lastFanRecords = new List<Slv3DeviceRecord>();
@@ -229,8 +253,10 @@ public sealed class Slv3Hub : IDisposable
         // channels; the cursor resumes there on the worker's next 5 s retry,
         // covering all 39 channels across a few attempts without starving the
         // routes and writer that share the lock.
+        _probesSinceLastMac++;
         if (TryGetMacOnChannelLocked(_channel))
         {
+            _probesSinceLastMac = 0;
             return true;
         }
         const int ScanProbesPerAttempt = 8;
@@ -243,11 +269,13 @@ public sealed class Slv3Hub : IDisposable
                 continue;
             }
             probes++;
+            _probesSinceLastMac++;
             if (TryGetMacOnChannelLocked(channel))
             {
                 ServiceLog.Info($"[lianli-wireless] master found on channel {channel} (scanned from {_channel})");
                 _channel = channel;
                 State.Channel = channel;
+                _probesSinceLastMac = 0;
                 return true;
             }
         }

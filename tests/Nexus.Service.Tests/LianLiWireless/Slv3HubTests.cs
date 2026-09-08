@@ -26,6 +26,108 @@ public class Slv3HubTests
         var (hub, net, _, _) = CreateConnectedHub();
         Assert.True(hub.State.IsConnected);
         Assert.Equal(Convert.ToHexString(net.MasterMac), hub.State.MasterMac);
+        Assert.Equal(Slv3LinkStatus.Ok, hub.State.LinkStatus);
+    }
+
+    // The device page renders the disconnected reason from LinkStatus, so each
+    // way a connect attempt can fail has to leave its own value behind.
+    [Fact]
+    public void EnsureConnected_reports_none_when_neither_dongle_enumerates()
+    {
+        var hub = new Slv3Hub(new RoleDiscovery(), _ => new SilentTransport(Slv3DongleRole.Tx));
+
+        Assert.False(hub.EnsureConnected());
+        Assert.Equal(Slv3LinkStatus.None, hub.State.LinkStatus);
+    }
+
+    [Fact]
+    public void EnsureConnected_reports_txMissing_when_only_the_receiver_enumerates()
+    {
+        var hub = new Slv3Hub(new RoleDiscovery(Slv3DongleRole.Rx), port => new SilentTransport(port.Role));
+
+        Assert.False(hub.EnsureConnected());
+        Assert.Equal(Slv3LinkStatus.TxMissing, hub.State.LinkStatus);
+    }
+
+    [Fact]
+    public void EnsureConnected_reports_rxMissing_when_only_the_transmitter_enumerates()
+    {
+        var hub = new Slv3Hub(new RoleDiscovery(Slv3DongleRole.Tx), port => new SilentTransport(port.Role));
+
+        Assert.False(hub.EnsureConnected());
+        Assert.Equal(Slv3LinkStatus.RxMissing, hub.State.LinkStatus);
+    }
+
+    [Fact]
+    public void EnsureConnected_reports_busy_when_another_app_holds_the_dongle()
+    {
+        var hub = new Slv3Hub(
+            new RoleDiscovery(Slv3DongleRole.Tx, Slv3DongleRole.Rx),
+            _ => throw new Slv3OpenException("CreateFileW failed for fake-tx: 5", 5));
+
+        Assert.False(hub.EnsureConnected());
+        Assert.Equal(Slv3LinkStatus.Busy, hub.State.LinkStatus);
+    }
+
+    [Fact]
+    public void EnsureConnected_reports_openFailed_on_any_other_open_error()
+    {
+        var hub = new Slv3Hub(
+            new RoleDiscovery(Slv3DongleRole.Tx, Slv3DongleRole.Rx),
+            _ => throw new Slv3OpenException("WinUsb_Initialize failed for fake-tx: 31", 31));
+
+        Assert.False(hub.EnsureConnected());
+        Assert.Equal(Slv3LinkStatus.OpenFailed, hub.State.LinkStatus);
+    }
+
+    [Fact]
+    public void EnsureConnected_withholds_noResponse_until_the_channel_scan_is_exhausted()
+    {
+        var hub = new Slv3Hub(
+            new RoleDiscovery(Slv3DongleRole.Tx, Slv3DongleRole.Rx),
+            port => new SilentTransport(port.Role));
+
+        // One attempt probes a slice of the ~39-channel order. A dongle parked
+        // on a channel this attempt never reached is not an unresponsive one, so
+        // the hardware-blaming reason waits for a full pass.
+        Assert.False(hub.EnsureConnected());
+        Assert.Equal(Slv3LinkStatus.Unknown, hub.State.LinkStatus);
+
+        for (var attempt = 0; attempt < Slv3Protocol.ChannelScanOrder().Length; attempt++)
+        {
+            if (hub.State.LinkStatus == Slv3LinkStatus.NoResponse)
+            {
+                break;
+            }
+            Assert.False(hub.EnsureConnected());
+        }
+
+        Assert.Equal(Slv3LinkStatus.NoResponse, hub.State.LinkStatus);
+    }
+
+    [Fact]
+    public void Disconnect_drops_the_ok_status_so_it_never_outlives_the_link()
+    {
+        var (hub, _, _, _) = CreateConnectedHub();
+        Assert.Equal(Slv3LinkStatus.Ok, hub.State.LinkStatus);
+
+        // The worker tears the link down without a connect attempt (control gate
+        // turned off), so nothing would recompute a stale 'ok'.
+        hub.Disconnect();
+
+        Assert.False(hub.State.IsConnected);
+        Assert.Equal(Slv3LinkStatus.Unknown, hub.State.LinkStatus);
+    }
+
+    [Fact]
+    public void A_failed_connect_keeps_its_own_reason_through_teardown()
+    {
+        var hub = new Slv3Hub(
+            new RoleDiscovery(Slv3DongleRole.Tx, Slv3DongleRole.Rx),
+            _ => throw new Slv3OpenException("CreateFileW failed for fake-tx: 5", 5));
+
+        Assert.False(hub.EnsureConnected());
+        Assert.Equal(Slv3LinkStatus.Busy, hub.State.LinkStatus);
     }
 
     [Fact]
@@ -852,6 +954,31 @@ public class Slv3HubTests
             new Slv3PortInfo { PortName = "fake-tx", Role = Slv3DongleRole.Tx },
             new Slv3PortInfo { PortName = "fake-rx", Role = Slv3DongleRole.Rx },
         };
+    }
+
+    // Discovery of an arbitrary subset of the module's two WinUSB devices.
+    private sealed class RoleDiscovery : ISlv3Discovery
+    {
+        private readonly Slv3DongleRole[] _roles;
+
+        public RoleDiscovery(params Slv3DongleRole[] roles) => _roles = roles;
+
+        public IReadOnlyList<Slv3PortInfo> Discover() =>
+            Array.ConvertAll(_roles, role => new Slv3PortInfo { PortName = $"fake-{role}", Role = role });
+    }
+
+    // Opens, then answers nothing: the GetMac probe runs its channel slice dry.
+    private sealed class SilentTransport : ISlv3Transport
+    {
+        public SilentTransport(Slv3DongleRole role) => Role = role;
+
+        public bool IsOpen => true;
+        public Slv3DongleRole Role { get; }
+        public string PortName => "fake-silent";
+
+        public bool RfSend(ReadOnlySpan<byte> frame) => true;
+        public byte[] RfRead(int expectedLen) => Array.Empty<byte>();
+        public void Dispose() { }
     }
 
     private sealed class SimulatedFan

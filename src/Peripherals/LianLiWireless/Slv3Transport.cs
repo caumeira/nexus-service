@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-#if WINDOWS
 using System.IO;
+#if WINDOWS
 using System.Runtime.InteropServices;
 #endif
 
@@ -12,6 +12,30 @@ public enum Slv3DongleRole
 {
     Tx,
     Rx,
+}
+
+/// <summary>
+/// A dongle open that failed at the OS layer. Carries the Win32 error so the hub
+/// can tell "another app holds the WinUSB interface" from any other failure.
+/// </summary>
+public sealed class Slv3OpenException : IOException
+{
+    // What CreateFileW returns when the device will not open for us. Measured
+    // against L-Connect holding the dongles on the Y70: ERROR_ACCESS_DENIED.
+    // Neither code proves a competing app (permissions and a wedged device raise
+    // them too), so 'busy' is the likeliest cause, not a proven one.
+    private const int ErrorAccessDenied = 5;
+    private const int ErrorSharingViolation = 32;
+
+    public Slv3OpenException(string message, int errorCode)
+        : base(message)
+    {
+        ErrorCode = errorCode;
+    }
+
+    public int ErrorCode { get; }
+
+    public bool IsInUseByAnotherApp => ErrorCode is ErrorAccessDenied or ErrorSharingViolation;
 }
 
 public interface ISlv3Discovery
@@ -86,14 +110,14 @@ public sealed class Slv3Transport : ISlv3Transport
         {
             var err = Marshal.GetLastWin32Error();
             _fileHandle.Dispose();
-            throw new IOException($"CreateFileW failed for {devicePath}: {err}");
+            throw new Slv3OpenException($"CreateFileW failed for {devicePath}: {err}", err);
         }
 
         if (!Slv3WinUsbInterop.WinUsb_Initialize(_fileHandle, out _winUsbHandle))
         {
             var err = Marshal.GetLastWin32Error();
             _fileHandle.Dispose();
-            throw new IOException($"WinUsb_Initialize failed for {devicePath}: {err}");
+            throw new Slv3OpenException($"WinUsb_Initialize failed for {devicePath}: {err}", err);
         }
 
         var writeTimeout = TxPipeTimeoutMs;
