@@ -768,6 +768,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             or "spectrumramp" or "spectrumbands" or "huewheel"
             => new(0.00f, 0.00f, 0f, 1.00f, 1.00f, 1f),
         "rainbow" => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        "sharplines" => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "fire" => new(0.03f, 0.80f, 70f, 1.10f, 1.05f, 1f),
         "plasma" => new(0.85f, 0.30f, 60f, 1.00f, 1.00f, 1f),
         "spiral" => new(0.00f, 0.00f, 55f, 1.00f, 1.00f, 1f),
@@ -890,6 +891,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "spectrumbands" => new() { ["u_count"] = 5f, ["u_angle"] = 0f, ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f },
         "huewheel" => new() { ["u_aHue"] = 0f, ["u_aSat"] = 1f, ["u_aVal"] = 1f },
         "rainbow" => new() { ["u_density"] = 1f, ["u_rotation"] = 0f },
+        "sharplines" => new() { ["u_density"] = 5f, ["u_rotation"] = 0f, ["u_position"] = 0.5f },
         "fire" => new() { ["u_turbulence"] = 1.6f },
         "plasma" => new() { ["u_warp"] = 1f, ["u_zoom"] = 1f },
         "spiral" => new() { ["u_arms"] = 5f, ["u_tightness"] = 8f },
@@ -1081,6 +1083,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             "terrace" => ShaderLibrary.Get("terrace"),
             "harlequin" => ShaderLibrary.Get("harlequin"),
             "mosaic" => ShaderLibrary.Get("mosaic"),
+            "sharplines" => ShaderLibrary.Get("sharplines"),
             _ => ShaderLibrary.Rainbow,
         };
         return MakeShader(name, src, effectSpeed, intensity, hue, colorize, saturation, contrast, extras);

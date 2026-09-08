@@ -42,6 +42,7 @@ public class ShaderLibraryTests
     [InlineData("terrace")]
     [InlineData("harlequin")]
     [InlineData("mosaic")]
+    [InlineData("sharplines")]
     [InlineData("spectrumaurora")]
     [InlineData("neonwaveform")]
     [InlineData("liquidbeat")]

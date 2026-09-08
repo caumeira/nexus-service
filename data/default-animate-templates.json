@@ -3382,6 +3382,63 @@
    }
   ]
  },
+ "sharplines": {
+  "selected": 0,
+  "slots": [
+   {
+    "speed": 50,
+    "intensity": 1,
+    "hue": 0,
+    "colorize": 0,
+    "saturation": 1,
+    "contrast": 1,
+    "params": {
+     "u_density": 1,
+     "u_rotation": 0,
+     "u_position": 0.5
+    }
+   },
+   {
+    "speed": 65,
+    "intensity": 1,
+    "hue": 0,
+    "colorize": 0,
+    "saturation": 1,
+    "contrast": 1,
+    "params": {
+     "u_density": 7,
+     "u_rotation": 0,
+     "u_position": 0.85
+    }
+   },
+   {
+    "speed": 30,
+    "intensity": 1,
+    "hue": 0.62,
+    "colorize": 0.75,
+    "saturation": 1,
+    "contrast": 1,
+    "params": {
+     "u_density": 3,
+     "u_rotation": 90,
+     "u_position": 0.7
+    }
+   },
+   {
+    "speed": 65,
+    "intensity": 1,
+    "hue": 0.35,
+    "colorize": 0.75,
+    "saturation": 1.1,
+    "contrast": 1.05,
+    "params": {
+     "u_density": 8,
+     "u_rotation": 45,
+     "u_position": 0.5
+    }
+   }
+  ]
+ },
  "silkwave": {
   "selected": 0,
   "slots": [
