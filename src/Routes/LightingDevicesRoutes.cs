@@ -270,8 +270,39 @@ public static partial class DevicesRoutes
 
     private static void MapLightingDevicesEndpoints(WebApplication app)
     {
-        app.MapGet("/devices/lighting-devices/all", (ILightingDeviceProvider ld) =>
-            ld.GetAll()).AllowPanel();
+        // Renames are layered on here, not inside the provider, so only what the
+        // SPA renders picks them up - mapping publishes and telemetry keep the
+        // hardware name. Same split the cooling page's fan renames use.
+        app.MapGet("/devices/lighting-devices/all", (ILightingDeviceProvider ld, Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            var all = ld.GetAll();
+            Nexus.Service.Lighting.LightingDeviceNames.Apply(all.Devices, store.Load().Lighting.DeviceNames);
+            return all;
+        }).AllowPanel();
+
+        // No existence check: the id is whatever card the list handed the UI, and
+        // GetAll() walks every provider, so re-enumerating the hardware to
+        // validate a string write would be the expensive half of the request.
+        // Matches the sibling layout route.
+        app.MapPost("/devices/lighting-devices/name", (
+            SetLightingDeviceNameBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            store.Update(s =>
+            {
+                if (string.IsNullOrWhiteSpace(body.Name))
+                {
+                    s.Lighting.DeviceNames.Remove(body.Id);
+                }
+                else
+                {
+                    s.Lighting.DeviceNames[body.Id] = body.Name.Trim();
+                }
+            });
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return Results.Ok(ApiResponse.Ok());
+        });
 
         app.MapPost("/devices/lighting-devices/layout", (SaveDeviceLayoutBody body, Nexus.Service.Persistence.IConfigStore store, Nexus.Service.Lighting.Engine.LightingEngine engine) =>
         {

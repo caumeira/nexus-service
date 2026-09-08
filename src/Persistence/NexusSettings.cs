@@ -482,6 +482,14 @@ public sealed class LightingSettings
     public double ScaleRatio { get; set; } = InstallDefaults.Lighting.ScaleRatio;
     public Dictionary<string, DeviceLayout> DeviceLayouts { get; set; } = new();
     /// <summary>
+    /// User-renamed lighting cards, keyed by lighting-device id. Applied by the
+    /// /devices/lighting-devices/all route only - every internal consumer
+    /// (mappings, telemetry, diagnostics) keeps reading the hardware name, so a
+    /// rename never leaks into a published community mapping. Mirrors
+    /// <see cref="CoolingSettings.FanNames"/>.
+    /// </summary>
+    public Dictionary<string, string> DeviceNames { get; set; } = new();
+    /// <summary>
     /// Per-device Static assignments, keyed by lighting-device id. A device
     /// listed here wears its own look in Static instead of the shared canvas.
     /// Persisted so the assignment survives a service restart - it is what the

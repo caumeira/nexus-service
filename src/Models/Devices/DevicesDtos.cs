@@ -208,7 +208,10 @@ public class CheckFirmwareFunctionResponse : ApiResponse
 public class LightingDevice
 {
     public string Id { get; set; } = "";
+    /// <summary>What the UI shows: the user's custom name when the card has been renamed, the hardware name otherwise.</summary>
     public string Name { get; set; } = "";
+    /// <summary>The hardware name <see cref="Name"/> replaced, set only on a renamed card. Null means <see cref="Name"/> IS the hardware name.</summary>
+    public string? OriginalName { get; set; }
     public string Type { get; set; } = "";
     public string IconType { get; set; } = "";
     public bool LedsOn { get; set; }
@@ -254,6 +257,8 @@ public class GetLightingDevicesResponse
 public class SetDisabledLedsBody { public List<string> Devices { get; set; } = new(); }
 public class SetLightingDevicePowerBody { public string Id { get; set; } = ""; public bool On { get; set; } }
 public class SetLightingDeviceControlledBody { public string Id { get; set; } = ""; public bool Controlled { get; set; } }
+/// <summary>Rename one lighting card. An empty name clears the rename and the card falls back to its hardware name.</summary>
+public class SetLightingDeviceNameBody { public string Id { get; set; } = ""; public string Name { get; set; } = ""; }
 public class SetLightingDeviceBrightness { public string Id { get; set; } = ""; public int Brightness { get; set; } }
 public class SetLightingDeviceHue { public string Id { get; set; } = ""; public float Hue { get; set; } }
 public class SetLightingDeviceSaturation { public string Id { get; set; } = ""; public float Saturation { get; set; } }

@@ -42,4 +42,38 @@ public sealed class LightingDeviceMutationBroadcastTests : IClassFixture<StubDev
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         Assert.Contains(PanelTopics.Lighting, captured);
     }
+
+    [Fact]
+    public async Task Rename_PersistsAndBroadcastsLightingTopic()
+    {
+        var hub = _factory.Services.GetRequiredService<MultiplexHub>();
+        var captured = new List<string>();
+        hub.OnBroadcastForTest += (topic, _) => captured.Add(topic);
+        using var sub = hub.AddTestSubscription(PanelTopics.Lighting);
+
+        var res = await _client.PostAsync(
+            "/devices/lighting-devices/name",
+            new StringContent("""{"id":"stub-zone","name":"  Top intake  "}""", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Contains(PanelTopics.Lighting, captured);
+        var store = _factory.Services.GetRequiredService<Nexus.Service.Persistence.IConfigStore>();
+        Assert.Equal("Top intake", store.Load().Lighting.DeviceNames["stub-zone"]);
+    }
+
+    [Fact]
+    public async Task Rename_WithAnEmptyNameClearsTheStoredRename()
+    {
+        await _client.PostAsync(
+            "/devices/lighting-devices/name",
+            new StringContent("""{"id":"stub-zone","name":"Top intake"}""", Encoding.UTF8, "application/json"));
+
+        var res = await _client.PostAsync(
+            "/devices/lighting-devices/name",
+            new StringContent("""{"id":"stub-zone","name":""}""", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var store = _factory.Services.GetRequiredService<Nexus.Service.Persistence.IConfigStore>();
+        Assert.False(store.Load().Lighting.DeviceNames.ContainsKey("stub-zone"));
+    }
 }

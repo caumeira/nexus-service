@@ -125,6 +125,7 @@ public class AuthRequestPolicyTests
         AssertPanelAllowedRoute(app, "POST", "/devices/lighting-devices/layout-presets/{id}/activate");
 
         AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/layout");
+        AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/name");
         AssertPanelDeniedRoute(app, "POST", "/devices/lighting-devices/layout-presets");
         AssertPanelDeniedRoute(app, "PUT", "/devices/lighting-devices/layout-presets/{id}");
         AssertPanelDeniedRoute(app, "DELETE", "/devices/lighting-devices/layout-presets/{id}");
