@@ -1278,9 +1278,7 @@ public static class NexusServiceCollectionExtensions
         // where their hardware isn't attached.
         services.AddSingleton<Nexus.Service.Devices.Detection.HardwarePresence>();
         services.AddSingleton<Nexus.Service.Conflicts.IConflictAppInstallProbe, Nexus.Service.Conflicts.ConflictAppInstallProbe>();
-        services.AddSingleton(sp => new Nexus.Service.Devices.DeviceControlGate(
-            sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
-            sp.GetRequiredService<Nexus.Service.Conflicts.IConflictAppInstallProbe>()));
+        services.AddSingleton<Nexus.Service.Devices.DeviceControlGate>();
         services.AddSingleton<DeviceManager>();
         services.AddSingleton<Nexus.Service.Devices.DeviceBroadcaster>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Devices.DeviceBroadcaster>());

@@ -8,21 +8,18 @@ namespace Nexus.Service.Devices;
 /// <summary>
 /// Per-handler Nexus Control on/off gate. Tri-state: a handler id in the disabled
 /// list is off, in the enabled list is on, and in neither uses the brand default
-/// (<see cref="DeviceControlPolicy.DefaultOn"/> - third-party hubs with a competing
-/// app off, everything else on). Connection workers consult this before claiming a
+/// (<see cref="DeviceControlPolicy.DefaultOn"/> - third-party USB hubs with a
+/// competing app off, everything else on). Connection workers consult this before claiming a
 /// port so a toggled-off device stays detectable (USB enumeration still sees it) but
 /// unclaimed.
 /// </summary>
 public sealed class DeviceControlGate
 {
     private readonly IConfigStore _store;
-    private readonly Func<string, bool>? _conflictAppInstalled;
 
-    /// <param name="installProbe">Answers whether a competing app is installed, for the shared-bus default (<see cref="DeviceControlPolicy.DefaultOn"/>). Null reads as nothing installed.</param>
-    public DeviceControlGate(IConfigStore store, Nexus.Service.Conflicts.IConflictAppInstallProbe? installProbe = null)
+    public DeviceControlGate(IConfigStore store)
     {
         _store = store;
-        _conflictAppInstalled = installProbe is null ? null : installProbe.IsInstalled;
     }
 
     /// <summary>
@@ -52,7 +49,7 @@ public sealed class DeviceControlGate
         {
             return true;
         }
-        return DeviceControlPolicy.DefaultOn(handlerId, _conflictAppInstalled);
+        return DeviceControlPolicy.DefaultOn(handlerId);
     }
 
     /// <summary>True when the user has made no explicit on/off choice for this handler (in neither list).</summary>

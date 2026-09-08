@@ -9,8 +9,9 @@ namespace Nexus.Service.Devices;
 /// precisely when a competing vendor app also drives it, so Nexus does not fight
 /// that app until the user opts in after closing it (the device page surfaces
 /// which app to close). Hyte/iBUYPOWER hardware, streamed panels (which have no
-/// on/off row to re-enable), and any handler without a mapped competitor default
-/// on. One source of truth for both facts.
+/// on/off row to re-enable), and shared buses (whose monitoring nothing else
+/// provides) default on, as does any handler with neither a mapped competitor
+/// nor unverified hardware. One source of truth for both facts.
 /// </summary>
 public static class DeviceControlPolicy
 {
@@ -49,13 +50,8 @@ public static class DeviceControlPolicy
         "thermalright-lcd", "asus-ryujin-lcd", "lianli-screen88",
     };
 
-    /// <summary>
-    /// Shared-bus devices default off only where the competing app is installed,
-    /// since that bus also carries monitoring nothing else provides. They never
-    /// auto-adopt: the vendor app is not running at service start (session 0,
-    /// before logon), so adoption would claim the bus on the boxes that yield.
-    /// </summary>
-    private static readonly Dictionary<string, string> YieldsToInstalledApp = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>Feeds <see cref="ConflictAppFor"/> alone: a shared bus names a competing app for the UI hint, but defaults on and never auto-adopts.</summary>
+    private static readonly Dictionary<string, string> BusConflictAppByHandler = new(StringComparer.OrdinalIgnoreCase)
     {
         [SmbusDramHandler.HandlerId] = "icue",
     };
@@ -65,19 +61,12 @@ public static class DeviceControlPolicy
         [SmbusDramHandler.HandlerId] = "smbus",
     };
 
-    /// <param name="conflictAppInstalled">Whether a catalog app id is installed on this box; null means unknown, which reads as not installed.</param>
-    public static bool DefaultOn(string handlerId, Func<string, bool>? conflictAppInstalled = null)
-    {
-        if (YieldsToInstalledApp.TryGetValue(handlerId, out var app))
-        {
-            return conflictAppInstalled is null || !conflictAppInstalled(app);
-        }
-        return !ConflictAppByHandler.ContainsKey(handlerId) && !UnverifiedHandlers.Contains(handlerId);
-    }
+    public static bool DefaultOn(string handlerId) =>
+        !ConflictAppByHandler.ContainsKey(handlerId) && !UnverifiedHandlers.Contains(handlerId);
 
     public static string? ConflictAppFor(string handlerId)
         => ConflictAppByHandler.TryGetValue(handlerId, out var id) ? id
-            : YieldsToInstalledApp.TryGetValue(handlerId, out var yieldsTo) ? yieldsTo
+            : BusConflictAppByHandler.TryGetValue(handlerId, out var busApp) ? busApp
             : null;
 
     /// <summary>The competing app whose absence lets <see cref="DeviceAdoptionService"/> flip the handler on; null for handlers that never auto-adopt.</summary>

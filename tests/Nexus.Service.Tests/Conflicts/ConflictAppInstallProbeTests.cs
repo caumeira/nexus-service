@@ -54,6 +54,29 @@ public class ConflictAppInstallProbeTests
     }
 
     [Fact]
+    public void IsInstalledAnswersPerAppAndNeverThrows()
+    {
+        var probe = new ConflictAppInstallProbe();
+        Assert.False(probe.IsInstalled("no-such-app"));
+        // Repeat reads come from the per-app cache.
+        Assert.Equal(probe.IsInstalled("icue"), probe.IsInstalled("icue"));
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.False(probe.IsInstalled("icue"));
+        }
+    }
+
+    [Fact]
+    public void MatchesIgnoresPunctuationAndRejectsEmptyNames()
+    {
+        var wanted = new[] { "CorsairDeviceControlService" };
+        Assert.True(ConflictAppInstallProbe.Matches(wanted, "Corsair Device Control Service"));
+        Assert.False(ConflictAppInstallProbe.Matches(wanted, "CorsairDeviceControl"));
+        Assert.False(ConflictAppInstallProbe.Matches(wanted, "   "));
+        Assert.False(ConflictAppInstallProbe.Matches(wanted, ""));
+    }
+
+    [Fact]
     public void InstalledAppIdsOnlyEverReportsCatalogIds()
     {
         // The list is built by iterating the catalog, so the subset assertion is a

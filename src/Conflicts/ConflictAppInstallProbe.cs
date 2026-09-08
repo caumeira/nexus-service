@@ -6,10 +6,9 @@ using Nexus.Service.Platform.Windows;
 namespace Nexus.Service.Conflicts;
 
 /// <summary>
-/// Whether a catalog app is installed, as opposed to running. The Nexus
-/// Control default for a shared-bus device keys off this: the service starts
-/// in session 0 before the vendor app launches at logon, so a running-process
-/// check at boot would say "absent" on exactly the boxes that need the yield.
+/// Whether a catalog app is installed, as opposed to running. The service
+/// starts in session 0 before a vendor app launches at logon, so a
+/// running-process check at boot reports absent on boxes that do have it.
 /// </summary>
 public interface IConflictAppInstallProbe
 {
@@ -23,8 +22,7 @@ public interface IConflictAppInstallProbe
 /// Installed = the Service Control Manager lists a service the app owns.
 /// Answered once per app per process: install state does not change under a
 /// running service, and a restart re-evaluates. False on any failure and
-/// everywhere but Windows, so a probe that cannot answer leaves Nexus Control
-/// at its normal default rather than silently disabling a device.
+/// everywhere but Windows, so a probe that cannot answer never reports an app.
 /// </summary>
 public sealed class ConflictAppInstallProbe : IConflictAppInstallProbe
 {

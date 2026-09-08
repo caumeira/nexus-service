@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Nexus.Service.Conflicts;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Handlers;
 using Nexus.Service.Plugins;
@@ -9,20 +8,9 @@ using Xunit;
 
 namespace Nexus.Service.Tests.Devices;
 
-/// <summary>
-/// The chipset SMBus as a device: one row, bus "smbus", whose Nexus Control
-/// default yields to an installed vendor app and which never auto-adopts.
-/// </summary>
+/// <summary>The chipset SMBus as a device: one row, bus "smbus", on by default and never auto-adopted.</summary>
 public class SmbusDramDeviceTests
 {
-    private sealed class FixedInstallProbe : IConflictAppInstallProbe
-    {
-        private readonly HashSet<string> _installed;
-        public FixedInstallProbe(params string[] installed) => _installed = new HashSet<string>(installed, StringComparer.OrdinalIgnoreCase);
-        public bool IsInstalled(string appId) => _installed.Contains(appId);
-        public IReadOnlyList<string> InstalledAppIds() => _installed.ToList();
-    }
-
     [Fact]
     public void Handler_HasNoUsbIdentity_AndNoPage()
     {
@@ -65,14 +53,11 @@ public class SmbusDramDeviceTests
     }
 
     [Fact]
-    public void Policy_DefaultOn_YieldsOnlyWhereTheAppIsInstalled()
+    public void Policy_SharedBusDefaultsOn_EvenThoughItNamesACompetingApp()
     {
         Assert.True(DeviceControlPolicy.DefaultOn(SmbusDramHandler.HandlerId));
-        Assert.True(DeviceControlPolicy.DefaultOn(SmbusDramHandler.HandlerId, _ => false));
-        Assert.False(DeviceControlPolicy.DefaultOn(SmbusDramHandler.HandlerId, app => app == "icue"));
-        // A USB hub mapped to a competing app keeps its unconditional default.
-        Assert.False(DeviceControlPolicy.DefaultOn("corsair", _ => false));
-        Assert.True(DeviceControlPolicy.DefaultOn("cnvs", _ => true));
+        Assert.False(DeviceControlPolicy.DefaultOn("corsair"));
+        Assert.True(DeviceControlPolicy.DefaultOn("cnvs"));
     }
 
     [Fact]
@@ -85,23 +70,19 @@ public class SmbusDramDeviceTests
     }
 
     [Fact]
-    public void Gate_DefaultsOff_WhenTheProbeSaysICueIsInstalled()
+    public void Gate_StartsEnabled_AndTurningItOffSticks()
     {
-        var installed = new DeviceControlGate(new InMemoryConfigStore(), new FixedInstallProbe("icue"));
-        var clean = new DeviceControlGate(new InMemoryConfigStore(), new FixedInstallProbe());
-        var unprobed = new DeviceControlGate(new InMemoryConfigStore());
+        var gate = new DeviceControlGate(new InMemoryConfigStore());
 
-        Assert.False(installed.IsEnabled(SmbusDramHandler.HandlerId));
-        Assert.True(clean.IsEnabled(SmbusDramHandler.HandlerId));
-        Assert.True(unprobed.IsEnabled(SmbusDramHandler.HandlerId));
-        // The probe never touches a USB handler's default.
-        Assert.True(installed.IsEnabled("cnvs"));
+        Assert.True(gate.IsEnabled(SmbusDramHandler.HandlerId));
+        gate.SetEnabled(SmbusDramHandler.HandlerId, false);
+        Assert.False(gate.IsEnabled(SmbusDramHandler.HandlerId));
     }
 
     [Fact]
-    public void Gate_ExplicitChoice_BeatsTheInstalledDefault_AndRaisesChanged()
+    public void Gate_ExplicitChoice_RaisesChangedInOrder()
     {
-        var gate = new DeviceControlGate(new InMemoryConfigStore(), new FixedInstallProbe("icue"));
+        var gate = new DeviceControlGate(new InMemoryConfigStore());
         var raised = new List<(string Id, bool Enabled)>();
         gate.Changed += (id, enabled) => raised.Add((id, enabled));
 
@@ -112,34 +93,5 @@ public class SmbusDramDeviceTests
         Assert.False(gate.IsEnabled(SmbusDramHandler.HandlerId));
 
         Assert.Equal(new[] { (SmbusDramHandler.HandlerId, true), (SmbusDramHandler.HandlerId, false) }, raised);
-    }
-
-    [Fact]
-    public void InstallProbe_UnknownApp_IsNotInstalled()
-    {
-        var probe = new ConflictAppInstallProbe();
-        Assert.False(probe.IsInstalled("no-such-app"));
-        if (!OperatingSystem.IsWindows())
-        {
-            Assert.False(probe.IsInstalled("icue"));
-        }
-    }
-
-    [Fact]
-    public void InstallProbe_MatchesAServiceByKeyOrDisplayName()
-    {
-        // The catalog names iCUE's control service the way the executable is
-        // named; Windows registers it under that key and displays it spaced.
-        var wanted = new[] { "CorsairDeviceListerService", "CorsairDeviceControlService", "iCUE" };
-
-        Assert.True(ConflictAppInstallProbe.Matches(wanted, "CorsairDeviceControlService"));
-        Assert.True(ConflictAppInstallProbe.Matches(wanted, "Corsair Device Control Service"));
-        Assert.True(ConflictAppInstallProbe.Matches(wanted, "corsair-device_control.service"));
-        Assert.True(ConflictAppInstallProbe.Matches(wanted, "iCue"));
-
-        Assert.False(ConflictAppInstallProbe.Matches(wanted, "CorsairDeviceControl"));
-        Assert.False(ConflictAppInstallProbe.Matches(wanted, "NvContainerLocalSystem"));
-        Assert.False(ConflictAppInstallProbe.Matches(wanted, ""));
-        Assert.False(ConflictAppInstallProbe.Matches(wanted, "   "));
     }
 }
