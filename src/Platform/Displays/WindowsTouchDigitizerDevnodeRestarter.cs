@@ -10,9 +10,8 @@ namespace Nexus.Service.Platform.Displays;
 /// <summary>
 /// Forces a digitizer's HID devnode to re-enumerate via SetupAPI
 /// DIF_PROPERTYCHANGE/DICS_PROPCHANGE - the only mechanism that applies a
-/// Digimon registry write live; WM_SETTINGCHANGE does not (bench-proven,
-/// plans/touch-mapping-auto-repair.md section 4a). Same SetupDi family as
-/// PawnIoInstaller's device creation.
+/// Digimon registry write live; WM_SETTINGCHANGE does not (bench-proven).
+/// Same SetupDi family as PawnIoInstaller's device creation.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsTouchDigitizerDevnodeRestarter : ITouchDigitizerDevnodeRestarter

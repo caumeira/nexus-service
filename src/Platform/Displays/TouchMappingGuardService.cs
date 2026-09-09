@@ -13,8 +13,8 @@ namespace Nexus.Service.Platform.Displays;
 /// Triggers a TouchMappingGuard pass on helper connect and on the same
 /// displays-changed push DisplayTopologyWatcher consumes (WM_DISPLAYCHANGE,
 /// USB re-enumeration, sleep/wake) - the events that can silently revert
-/// Windows' digitizer-to-monitor association (plans/touch-mapping-auto-repair.md
-/// section 3). POST /displays/touch-mapping/repair calls the same
+/// Windows' digitizer-to-monitor association.
+/// POST /displays/touch-mapping/repair calls the same
 /// TouchMappingGuard singleton directly for a manual, synchronous pass.
 /// </summary>
 [SupportedOSPlatform("windows")]

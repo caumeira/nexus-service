@@ -26,14 +26,14 @@ public readonly record struct Slv3LcdCropRect(double X, double Y, double W, doub
 /// <summary>
 /// Encodes an arbitrary source image to a 400x400 baseline JPEG for the
 /// SL-LCD Wireless screen, via the bundled ffmpeg subprocess (no image
-/// library dependency; see plans/lianli-wireless-support.md section 4).
+/// library dependency).
 /// </summary>
 public static class Slv3LcdImage
 {
     public const int PanelWidth = Slv3LcdProtocol.PanelWidth;
     public const int PanelHeight = Slv3LcdProtocol.PanelHeight;
 
-    /// <summary>Firmware JPEG size cap per the plan (GetJpgBytes, roughly 100 KB).</summary>
+    /// <summary>Firmware JPEG size cap (GetJpgBytes, roughly 100 KB).</summary>
     public const int MaxJpegBytes = 100000;
 
     // mjpeg -q:v: 2=best..31=worst. Starts near "90/100" quality and backs off

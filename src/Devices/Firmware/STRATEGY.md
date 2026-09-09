@@ -72,7 +72,7 @@ Task<bool> FlashFirmwareAsync(string firmwarePath, IProgress<int> progress);
 ## TODO
 
 - [x] Implement FirmwareStore (local cache manager) - `FirmwareStore.cs`
-- [ ] Define remote manifest URL per device type (NP50 pending: see `plans/np50-support.md`)
+- [ ] Define remote manifest URL per device type (NP50 pending)
 - [ ] Implement STM32 DFU flash protocol for CNVS
 - [ ] Add progress reporting via WebSocket
 - [ ] Add firmware rollback support

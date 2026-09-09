@@ -77,8 +77,7 @@ public class Slv3LcdProtocolTests
         Assert.Equal(0, header[11]);
     }
 
-    // ── DES-CBC/PKCS7 vector, independently derived and cross-checked (see
-    //    plans/lianli-wireless-support.md section 4.1 for the algorithm facts) ──
+    // ── DES-CBC/PKCS7 vector, independently derived and cross-checked ──
 
     private const string ExpectedCipherHex =
         "03CF7A6ABF5E82E9D87A0CF2DBE981B276605D24DDB16EA13E0E9F69CA3A81BD9EDC55C50EC85C6344EAFBBC8B5F7BF" +

@@ -9,8 +9,7 @@ namespace Nexus.Service.Peripherals.LianLiWireless;
 /// <summary>
 /// SetupAPI discovery for the SL-LCD Wireless screens. Enumerates
 /// <see cref="Slv3LcdProtocol.LcdInterfaceGuid"/> device interfaces and
-/// filters by VID 0x1CBE (PID 0x0005 SL-LCD or 0x0006 TL-LCD); see
-/// plans/lianli-wireless-support.md section 4.4.
+/// filters by VID 0x1CBE (PID 0x0005 SL-LCD or 0x0006 TL-LCD).
 /// </summary>
 public sealed class WindowsSlv3LcdDiscovery : ISlv3LcdDiscovery
 {

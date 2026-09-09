@@ -725,7 +725,7 @@ public static class NexusServiceCollectionExtensions
 
         // Stream Deck: gen1-protocol button decks (Mini bench-verified
         // 2026-07-10). Peripheral, not lighting - no frame contributor, no
-        // 30 Hz tick; see plans/streamdeck-support.md Phase 0/1. The
+        // 30 Hz tick. The
         // connection worker always starts with no simulated deck; the
         // localhost-only /streamdeck/dev/simulate route picks a model at
         // runtime via StreamDeckConnectionWorker.SetSimulatedModel, so a
@@ -801,8 +801,8 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService<Nexus.Service.Peripherals.LianLi.LianLiConnectionWorker>();
 
         // Lian Li L-Wireless (SLV3) dongles: WinUSB TX/RX transport + discovery +
-        // bind/unbind/identify connection worker. Windows-only for v1 (see
-        // plans/lianli-wireless-support.md); other platforms get a stub discovery
+        // bind/unbind/identify connection worker. Windows-only for v1;
+        // other platforms get a stub discovery
         // that finds nothing, so the hub stays disconnected.
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.ISlv3Discovery,
@@ -839,8 +839,7 @@ public static class NexusServiceCollectionExtensions
 
         // SLV3 wireless RGB: one lighting device per bound fan chain (inner/outer
         // ring zones), streamed to the engine as a live single-frame RF_RgbSync
-        // animation. No firmware ROM-effect catalog for v1 (see
-        // plans/lianli-wireless-support.md section 2 phase note).
+        // animation. No firmware ROM-effect catalog for v1.
         services.AddSingleton<Nexus.Service.Lighting.Slv3LightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.Slv3LightingDeviceProvider>());
@@ -982,8 +981,7 @@ public static class NexusServiceCollectionExtensions
         // Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral provider
         // + frame writer + send throttle; per-brand behavior is an
         // ILightDriver. Joins the composite by id prefix ("hue:", …).
-        // Cross-platform (pure sockets), so it runs on macOS/Linux too. See
-        // plans/smart-lights-integration.md.
+        // Cross-platform (pure sockets), so it runs on macOS/Linux too.
         services.AddSingleton<Nexus.Service.Lighting.Smart.Discovery.MdnsQuery>();
         services.AddSingleton<Nexus.Service.Lighting.Smart.Discovery.LanDiscovery>();
         services.AddSingleton<Nexus.Service.Lighting.Smart.NetworkSendThrottle>();

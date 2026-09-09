@@ -5,8 +5,7 @@ namespace Nexus.Service.Models.Cloud;
 
 // Wire shapes for api.hellonexus.com (CloudApiClient) and the local /cloud/...
 // routes (CloudRoutes). Field names are camelCase on the wire via
-// AppJsonContext's naming policy, matching the nexus-api contract in
-// plans/account-system.md.
+// AppJsonContext's naming policy, matching the nexus-api contract.
 
 public sealed class CloudAvatarDto
 {

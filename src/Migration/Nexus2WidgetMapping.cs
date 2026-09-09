@@ -5,8 +5,7 @@ namespace Nexus.Service.Migration;
 
 /// <summary>Value-mapping tables shared by the Y70 and Q60 translators: colour,
 /// gauge design, semantic sensor id, clock/weather/gallery enums, and the
-/// background shader table. See plans/nexus2-migration.md for the source
-/// tables these mirror.</summary>
+/// background shader table.</summary>
 internal static class Nexus2WidgetMapping
 {
     /// <summary>Nexus 2 theme colours are "r, g, b" decimal triplets (no '#',
@@ -129,7 +128,7 @@ internal static class Nexus2WidgetMapping
     }
 
     /// <summary>N2 named Y70 backgrounds -> the closest Nexus 3 shader effect key.
-    /// Unmapped names fall to "aurora", matching the plan's documented default.</summary>
+    /// Unmapped names fall to "aurora", the documented default.</summary>
     public static string MapBackgroundEffect(string? bgName) => bgName switch
     {
         "hue" => "huewheel",

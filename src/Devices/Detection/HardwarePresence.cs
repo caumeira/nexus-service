@@ -12,8 +12,8 @@ namespace Nexus.Service.Devices.Detection;
 /// optional product-id set, matched against the live enumeration. A third-party
 /// app's worker gates through the same call with its cert-granted VID/PIDs - the
 /// enumeration "expands" for free because presence is a filter over whatever is on
-/// the bus, not a hard-coded table. See plans/third-party-app-sdk.md
-/// (PluginProcessSupervisor) for the intended plugin hook.
+/// the bus, not a hard-coded table. PluginProcessSupervisor is the intended
+/// plugin hook.
 ///
 /// Backed by the shared single-flight <see cref="CachingUsbEnumerator"/>
 /// (event-invalidated on Windows), so a per-tick presence check adds no

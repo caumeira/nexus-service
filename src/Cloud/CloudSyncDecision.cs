@@ -28,7 +28,7 @@ public enum CloudSyncAction
 /// side-effect free so the whole decision matrix is unit-testable without an
 /// HTTP layer.
 ///
-/// Matrix (mirrors plans/account-system.md "Sync model"). hasSyncRecord is
+/// Matrix. hasSyncRecord is
 /// the tombstone signal that distinguishes "never synced" from "synced, then
 /// one side deleted it":
 ///   local missing, cloud missing              -> None (nothing to sync)

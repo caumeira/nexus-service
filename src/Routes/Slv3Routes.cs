@@ -12,7 +12,7 @@ public sealed class Slv3MacRequest
 
 /// <summary>
 /// First-party Lian Li L-Wireless (SLV3) dongle routes: discovery,
-/// bind/unbind/identify, chain reset. See plans/lianli-wireless-support.md.
+/// bind/unbind/identify, chain reset.
 /// </summary>
 public static class Slv3Routes
 {

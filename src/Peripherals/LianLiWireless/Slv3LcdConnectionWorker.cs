@@ -11,8 +11,8 @@ namespace Nexus.Service.Peripherals.LianLiWireless;
 /// <summary>
 /// Discovers the SL-LCD Wireless fan screens and maps each to its fan
 /// position (GetPosIndex, CmdType 201). Independent of <see cref="Slv3Hub"/>:
-/// the screens are wired USB devices, not part of the RF link
-/// (plans/lianli-wireless-support.md section 4). Position is queried once per
+/// the screens are wired USB devices, not part of the RF link. Position is
+/// queried once per
 /// serial and cached, since GetPosIndex is a wired hardware fact that does not
 /// change while the same physical screen stays plugged into the same fan.
 /// </summary>

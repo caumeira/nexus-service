@@ -10,7 +10,7 @@ namespace Nexus.Service.Peripherals.LianLiWireless;
 /// SetupAPI discovery for the SLV3 TX/RX dongles. Enumerates
 /// <see cref="Slv3Protocol.DongleInterfaceGuid"/> device interfaces and resolves
 /// each path's role from its VID/PID (the Nuvoton pair or the WCH alias for the
-/// same physical controller; see plans/lianli-wireless-support.md section 0).
+/// same physical controller).
 /// </summary>
 public sealed class WindowsSlv3Discovery : ISlv3Discovery
 {

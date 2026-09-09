@@ -45,7 +45,7 @@ public sealed record TouchMappingRepairPlan(
 /// pairing without needing the digitizer's VID/PID in the catalog at all. A
 /// digitizer already in the catalog is excluded from this tier even when its
 /// own panel is absent, so it never gets inferred onto a different
-/// touch-expected display (see plans/touch-mapping-auto-repair.md).
+/// touch-expected display.
 ///
 /// The "exactly one" counts include catalog digitizers and catalog displays,
 /// not just generic ones: a box with two catalog panels attached at once has

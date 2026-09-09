@@ -23,9 +23,8 @@ public sealed record DfuUtilResult(int ExitCode, string Output)
 /// separated from process execution so they can be unit-tested without the
 /// binary or a device present.
 ///
-/// Per the flasher plan: dfu-util has no built-in verify, so the caller does
-/// upload-then-compare; "erase sector 63" becomes a 16-byte 0xFF write at the
-/// boot-flag address. See <c>plans/firmware-flasher-tooling.md</c>.
+/// dfu-util has no built-in verify, so the caller does upload-then-compare;
+/// "erase sector 63" becomes a 16-byte 0xFF write at the boot-flag address.
 /// </summary>
 public sealed class DfuUtil
 {

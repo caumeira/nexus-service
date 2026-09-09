@@ -8,7 +8,7 @@ namespace Nexus.Service.Tests.LianLiWireless;
 
 /// <summary>
 /// Pins the wire shape of the LCD route DTOs. nexus-web builds against these
-/// exact field names (see plans/lianli-wireless-support.md section 5); a
+/// exact field names; a
 /// rename here is a breaking change for the panel.
 /// </summary>
 public class Slv3LcdRoutesDtoTests

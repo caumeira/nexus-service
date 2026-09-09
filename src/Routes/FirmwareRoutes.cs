@@ -14,8 +14,7 @@ namespace Nexus.Service.Routes;
 /// Firmware Updates endpoints. v1 is read-only: it reports, per connected
 /// supported device, the version the device is running vs the newest version
 /// bundled in this build (<see cref="BundledFirmwareCatalog"/>). The flash
-/// action lands with the dfu-util flasher (see
-/// <c>plans/firmware-flasher-tooling.md</c>).
+/// action lands with the dfu-util flasher.
 /// </summary>
 public static partial class DevicesRoutes
 {

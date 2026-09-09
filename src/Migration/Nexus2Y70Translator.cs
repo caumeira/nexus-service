@@ -7,8 +7,7 @@ namespace Nexus.Service.Migration;
 
 /// <summary>Translates the active profile's widgets.faces.y70 node: layout
 /// (widget mapping + placement), appearance (theme -> accent/background), and
-/// the gallery-widget file references. See plans/nexus2-migration.md "What
-/// ports" for the mapping tables this mirrors.</summary>
+/// the gallery-widget file references.</summary>
 internal static class Nexus2Y70Translator
 {
     private static readonly Dictionary<string, string> TypeMap = new()

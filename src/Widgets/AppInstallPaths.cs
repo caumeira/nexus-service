@@ -9,7 +9,7 @@ namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Per-OS install roots scanned by <see cref="AppRegistry"/>. Precedence
-/// matches <c>plans/third-party-app-sdk.md</c>: user installs shadow bundled.
+/// order: user installs shadow bundled.
 /// </summary>
 /// <remarks>
 /// Discovery + serving live here; install / uninstall writes are handled by
