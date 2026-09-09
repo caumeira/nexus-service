@@ -14,19 +14,38 @@ public sealed class DisplayBrightnessController
 {
     private readonly IDisplayBrightnessProvider _provider;
     private readonly PanelDeviceRegistry? _panelDevices;
+    private readonly Nexus.Service.Persistence.IConfigStore? _store;
     private readonly ConcurrentDictionary<string, DisplayWriteState> _states = new();
 
-    public DisplayBrightnessController(IDisplayBrightnessProvider provider, PanelDeviceRegistry? panelDevices = null)
+    public DisplayBrightnessController(
+        IDisplayBrightnessProvider provider,
+        PanelDeviceRegistry? panelDevices = null,
+        Nexus.Service.Persistence.IConfigStore? store = null)
     {
         _provider = provider;
         _panelDevices = panelDevices;
+        _store = store;
     }
+
+    /// <summary>Displays the user turned brightness control off for. Passed
+    /// down to the provider so an excluded display is never probed, and
+    /// re-checked here so a provider that ignores the argument still cannot
+    /// surface a control for one.</summary>
+    private HashSet<string> DdcDisabled()
+        => new(_store?.Load().Devices.DdcDisabledDisplays ?? new List<string>(), StringComparer.Ordinal);
 
     public DisplayListResponse ListDisplays()
     {
-        var displays = new List<DisplayDto>(_provider.Enumerate());
+        var disabled = DdcDisabled();
+        var displays = new List<DisplayDto>(_provider.Enumerate(disabled));
         foreach (var display in displays)
         {
+            if (disabled.Contains(display.Id))
+            {
+                display.DdcEnabled = false;
+                SuppressBrightnessControl(display, "Brightness control is turned off for this display.");
+                continue;
+            }
             if (IsXeneonEdge(display.Id)) SuppressBrightnessControl(display);
         }
         return new DisplayListResponse
@@ -36,7 +55,26 @@ public sealed class DisplayBrightnessController
         };
     }
 
-    public int? GetBrightness(string id) => IsXeneonEdge(id) ? null : _provider.GetBrightness(id);
+    public int? GetBrightness(string id)
+        => IsXeneonEdge(id) || DdcDisabled().Contains(id) ? null : _provider.GetBrightness(id);
+
+    /// <summary>
+    /// Turn DDC/CI on or off for one display and persist it. Off means Nexus
+    /// sends that monitor nothing at all, capability probe included - the
+    /// escape hatch for a panel whose firmware hangs on DDC.
+    /// </summary>
+    public bool SetDdcEnabled(string id, bool enabled)
+    {
+        if (_store is null || string.IsNullOrEmpty(id)) return false;
+        _store.Update(s =>
+        {
+            var list = s.Devices.DdcDisabledDisplays;
+            if (enabled) list.RemoveAll(x => string.Equals(x, id, StringComparison.Ordinal));
+            else if (!list.Contains(id)) list.Add(id);
+        });
+        ServiceLog.Info($"[ddc] brightness control {(enabled ? "enabled" : "disabled")} for display {id}");
+        return true;
+    }
 
     public async Task<DisplayBrightnessDto> SetBrightnessAsync(
         string id,
@@ -53,6 +91,19 @@ public sealed class DisplayBrightnessController
                 Brightness = 0,
                 Status = DisplayBrightnessWriteStatuses.Unsupported,
                 Error = "This panel's brightness is controlled through its native settings, not DDC.",
+            };
+        }
+
+        if (DdcDisabled().Contains(id))
+        {
+            return new DisplayBrightnessDto
+            {
+                Id = id,
+                RequestedBrightness = ClampPercent(percent),
+                AppliedBrightness = 0,
+                Brightness = 0,
+                Status = DisplayBrightnessWriteStatuses.Unsupported,
+                Error = "Brightness control is turned off for this display.",
             };
         }
 
@@ -164,7 +215,9 @@ public sealed class DisplayBrightnessController
             && string.Equals(record.Capabilities?.Family, KnownPanelDisplays.XeneonEdgeFamily, StringComparison.Ordinal);
     }
 
-    private static void SuppressBrightnessControl(DisplayDto display)
+    private static void SuppressBrightnessControl(
+        DisplayDto display,
+        string reason = "Use this panel's native brightness/backlight controls instead.")
     {
         display.Capabilities.Brightness = false;
         display.BrightnessControl = new DisplayBrightnessControlDto
@@ -172,7 +225,7 @@ public sealed class DisplayBrightnessController
             Supported = false,
             ControlPath = DisplayBrightnessControlPaths.Unsupported,
             WriteMode = DisplayBrightnessWriteModes.Unsupported,
-            UnsupportedReason = "Use this panel's native brightness/backlight controls instead.",
+            UnsupportedReason = reason,
         };
     }
 

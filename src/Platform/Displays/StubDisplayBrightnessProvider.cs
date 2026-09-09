@@ -7,7 +7,7 @@ namespace Nexus.Service.Platform.Displays;
 public sealed class StubDisplayBrightnessProvider : IDisplayBrightnessProvider
 {
     public string Hint => "";
-    public IReadOnlyList<DisplayDto> Enumerate() => System.Array.Empty<DisplayDto>();
+    public IReadOnlyList<DisplayDto> Enumerate(IReadOnlyCollection<string>? excludedIds = null) => System.Array.Empty<DisplayDto>();
     public int? GetBrightness(string id) => null;
     public DisplayBrightnessDto SetBrightness(string id, int percent) => new()
     {

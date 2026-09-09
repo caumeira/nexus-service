@@ -10,6 +10,11 @@ public sealed class DisplayDto
     public string Model { get; set; } = "";
     public bool IsInternal { get; set; }
     public bool IsDdcCapable { get; set; }
+    /// <summary>False when the user turned brightness control off for this
+    /// display. Nexus then issues no DDC/CI transaction to it at all - not even
+    /// the capability probe - which is the escape hatch for a monitor whose
+    /// firmware hangs on DDC (see <c>DdcGate</c>).</summary>
+    public bool DdcEnabled { get; set; } = true;
     public DisplayCapabilitiesDto Capabilities { get; set; } = new();
     public DisplayBrightnessControlDto BrightnessControl { get; set; } = new();
 }
@@ -36,6 +41,12 @@ public sealed class DisplayBrightnessDto
 public sealed class DisplayBrightnessParams
 {
     public int Brightness { get; set; }
+}
+
+/// <summary>Body for POST /displays/{id}/ddc.</summary>
+public sealed class DisplayDdcParams
+{
+    public bool Enabled { get; set; }
 }
 
 public sealed class DisplayVcpDto

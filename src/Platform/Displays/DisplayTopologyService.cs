@@ -39,6 +39,7 @@ public sealed class DisplayTopologyService
 
     private readonly IDisplayTopologyProvider _provider;
     private readonly PanelDeviceRegistry _panelRegistry;
+    private readonly Nexus.Service.Persistence.IConfigStore? _store;
     private readonly object _cacheLock = new();
     private HashSet<string>? _attachedIds;
     private bool _hasY70Display;
@@ -46,11 +47,18 @@ public sealed class DisplayTopologyService
     private long _attachedIdsAtMs;
     private bool _attachedIdsValid;
 
-    public DisplayTopologyService(IDisplayTopologyProvider provider, PanelDeviceRegistry panelRegistry)
+    public DisplayTopologyService(IDisplayTopologyProvider provider, PanelDeviceRegistry panelRegistry, Nexus.Service.Persistence.IConfigStore? store = null)
     {
         _provider = provider;
         _panelRegistry = panelRegistry;
+        _store = store;
     }
+
+    /// <summary>Display ids with brightness control turned off. Read per
+    /// topology build rather than cached: the list changes from a toggle, not
+    /// on a hot path.</summary>
+    private HashSet<string> DdcDisabled()
+        => new(_store?.Load().Devices.DdcDisabledDisplays ?? new List<string>(), StringComparer.Ordinal);
 
     public DisplayTopologyResponse GetTopology()
     {
@@ -67,6 +75,7 @@ public sealed class DisplayTopologyService
         };
         if (raw is null) return response;
 
+        var ddcDisabled = DdcDisabled();
         foreach (var info in raw)
         {
             var isY70 = IsY70Display(info.RawHardwareId);
@@ -93,6 +102,7 @@ public sealed class DisplayTopologyService
                 IsTouch = info.IsTouch,
                 Orientation = info.Orientation,
                 IsY70 = isY70,
+                DdcEnabled = !ddcDisabled.Contains(info.Id),
                 HostingSupported = HostingSupportedOnHost && !isY70,
                 AssignedPanelDeviceId = assigned?.Id,
                 AssignedPanelName = assigned?.DisplayName,

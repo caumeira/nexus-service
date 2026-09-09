@@ -15,6 +15,60 @@ public class DisplayBrightnessControllerTests
     // and by manual exercise via the dashboard brightness slider.
 
     [Fact]
+    public void ListDisplays_PassesTheOptOutDownAndReportsControlOff()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s => s.Devices.DdcDisabledDisplays.Add("display1"));
+        var provider = new FakeDisplayBrightnessProvider();
+        var controller = new DisplayBrightnessController(provider, null, store);
+
+        var list = controller.ListDisplays();
+
+        Assert.Contains("display1", provider.LastExcluded!);
+        var dto = Assert.Single(list.Displays);
+        Assert.False(dto.DdcEnabled);
+        Assert.False(dto.Capabilities.Brightness);
+        Assert.False(dto.BrightnessControl.Supported);
+    }
+
+    [Fact]
+    public async Task SetBrightnessAsync_OnAnOptedOutDisplay_IsUnsupportedAndNeverWrites()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s => s.Devices.DdcDisabledDisplays.Add("display1"));
+        var provider = new FakeDisplayBrightnessProvider();
+        var controller = new DisplayBrightnessController(provider, null, store);
+
+        var result = await controller.SetBrightnessAsync("display1", 50);
+
+        Assert.Equal(DisplayBrightnessWriteStatuses.Unsupported, result.Status);
+        Assert.Empty(provider.Writes);
+    }
+
+    [Fact]
+    public void SetDdcEnabled_RoundTripsBothWays()
+    {
+        var store = new InMemoryConfigStore();
+        var controller = new DisplayBrightnessController(new FakeDisplayBrightnessProvider(), null, store);
+
+        Assert.True(controller.SetDdcEnabled("display1", false));
+        Assert.Contains("display1", store.Load().Devices.DdcDisabledDisplays);
+
+        Assert.True(controller.SetDdcEnabled("display1", true));
+        Assert.DoesNotContain("display1", store.Load().Devices.DdcDisabledDisplays);
+    }
+
+    [Fact]
+    public void GetBrightness_OnAnOptedOutDisplay_IsNull()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s => s.Devices.DdcDisabledDisplays.Add("display1"));
+        var controller = new DisplayBrightnessController(new FakeDisplayBrightnessProvider(), null, store);
+
+        Assert.Null(controller.GetBrightness("display1"));
+    }
+
+    [Fact]
     public async Task SetBrightnessAsync_ClampsBeforeProviderWrite()
     {
         var provider = new FakeDisplayBrightnessProvider();
@@ -114,7 +168,15 @@ public class DisplayBrightnessControllerTests
 
         public string Hint => "";
 
-        public IReadOnlyList<DisplayDto> Enumerate() => new[]
+        /// <summary>What the controller handed down on the last Enumerate. The
+        /// opt-out has to reach the provider, not just be filtered afterwards:
+        /// the probe is the transaction it exists to prevent.</summary>
+        public IReadOnlyCollection<string>? LastExcluded { get; private set; }
+
+        public IReadOnlyList<DisplayDto> Enumerate(IReadOnlyCollection<string>? excludedIds = null)
+        {
+            LastExcluded = excludedIds;
+            return new[]
         {
             new DisplayDto
             {
@@ -130,6 +192,8 @@ public class DisplayBrightnessControllerTests
                 },
             },
         };
+
+        }
 
         public int? GetBrightness(string id) => null;
 

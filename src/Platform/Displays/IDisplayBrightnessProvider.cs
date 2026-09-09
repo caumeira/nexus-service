@@ -13,8 +13,14 @@ public interface IDisplayBrightnessProvider
     /// <summary>One-line hint shown in the widget when no displays are returned (e.g. "ddcutil missing").</summary>
     string Hint { get; }
 
-    /// <summary>Enumerate all attached displays with their capability flags.</summary>
-    IReadOnlyList<DisplayDto> Enumerate();
+    /// <summary>
+    /// Enumerate all attached displays with their capability flags.
+    /// <paramref name="excludedIds"/> are displays the user turned brightness
+    /// control off for; an implementation must not issue any transaction to
+    /// those, not even a capability probe - that opt-out exists because
+    /// probing is what hangs a fragile monitor.
+    /// </summary>
+    IReadOnlyList<DisplayDto> Enumerate(IReadOnlyCollection<string>? excludedIds = null);
 
     /// <summary>Read the current brightness as 0..100; returns null if the display is unknown or unsupported.</summary>
     int? GetBrightness(string id);

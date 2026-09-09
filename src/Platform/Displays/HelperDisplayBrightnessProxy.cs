@@ -31,8 +31,8 @@ public sealed class HelperDisplayBrightnessProxy : IDisplayBrightnessProvider
 
     public string Hint => BrightnessCommands.HintAsync(_registry).GetAwaiter().GetResult();
 
-    public IReadOnlyList<DisplayDto> Enumerate()
-        => BrightnessCommands.EnumerateAsync(_registry).GetAwaiter().GetResult();
+    public IReadOnlyList<DisplayDto> Enumerate(IReadOnlyCollection<string>? excludedIds = null)
+        => BrightnessCommands.EnumerateAsync(_registry, excludedIds).GetAwaiter().GetResult();
 
     public int? GetBrightness(string id)
         => BrightnessCommands.GetAsync(_registry, id).GetAwaiter().GetResult();
