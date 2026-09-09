@@ -37,10 +37,22 @@ public static class FanProfiles
     /// <summary>
     /// True when a channel is exempt from Silent/Balanced/Turbo/Max/Off/Custom
     /// preset applies. An explicit entry in <paramref name="overrides"/> wins;
-    /// absent from the dict defaults to locked for pumps, unlocked otherwise.
+    /// absent from the dict falls back to <see cref="IsLockedByDefault"/>.
     /// </summary>
     public static bool IsLocked(FanChannel ch, IReadOnlyDictionary<string, bool> overrides) =>
-        overrides.TryGetValue(ch.Id, out var v) ? v : ch.Kind == FanKinds.Pump;
+        overrides.TryGetValue(ch.Id, out var v) ? v : IsLockedByDefault(ch);
+
+    /// <summary>
+    /// Channels a preset must not retarget unless the user says otherwise.
+    /// Pump heads, because their duty is not a cooling preference. And GPU
+    /// fans, because a preset curve reads a CPU temperature sensor
+    /// (<see cref="PreferredInput"/>) - pointing that at the graphics card's
+    /// fans makes them track the wrong die, and the card's own firmware curve
+    /// already handles them. The user can still lock or unlock either from
+    /// the fan card.
+    /// </summary>
+    public static bool IsLockedByDefault(FanChannel ch) =>
+        ch.Kind == FanKinds.Pump || ch.IsGpu;
 
     /// <summary>
     /// Write ch's lock override, collapsing to "no entry" when the requested
@@ -49,7 +61,7 @@ public static class FanProfiles
     /// </summary>
     public static void SetLockOverride(FanChannel ch, bool locked, IConfigStore store)
     {
-        var def = ch.Kind == FanKinds.Pump;
+        var def = IsLockedByDefault(ch);
         store.Update(s =>
         {
             if (locked == def)
@@ -92,7 +104,7 @@ public static class FanProfiles
 
     public static List<FanProfile> GetBuiltInProfiles() => new()
     {
-        new FanProfile { Name = "off", Description = "All fans released to BIOS Control" },
+        new FanProfile { Name = "off", Description = "All fans released to hardware control" },
         new FanProfile { Name = "silent", Description = "Quiet operation - fans stay low until temperatures demand it" },
         new FanProfile { Name = "balanced", Description = "Moderate cooling - responsive but not aggressive" },
         new FanProfile { Name = "turbo", Description = "Maximum cooling - fans run fast to keep temperatures low" },

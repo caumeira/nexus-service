@@ -37,7 +37,7 @@ public sealed class ApplyCoolingPresetTool : IMcpTool
 
     public string Description =>
         "Applies a built-in cooling preset (off, silent, balanced, turbo, max) to every unlocked fan " +
-        "channel. Use when the user asks to make the PC quiet, cool it down, release fans to BIOS " +
+        "channel. Use when the user asks to make the PC quiet, cool it down, release fans to hardware " +
         "control, or switch to a named cooling mode. Locked fans and fans on their own custom curve " +
         "are left alone.";
 

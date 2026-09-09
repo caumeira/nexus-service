@@ -83,7 +83,12 @@ public static class CoolingRoutes
                 ch.Locked = FanProfiles.IsLocked(ch, cooling.FanLockOverrides);
                 ch.Controlled = cooling.UncontrolledFanChannels.Count == 0
                     || !cooling.UncontrolledFanChannels.Contains(ch.Id);
-                ch.Role = cooling.FanRoles.TryGetValue(ch.Id, out var role) ? role : FanRoleKind.None;
+                // An explicit user assignment wins; otherwise a GPU fan reports its
+                // role from the hardware. Derived per read, never persisted, so
+                // re-detection on new hardware just re-derives it.
+                ch.Role = cooling.FanRoles.TryGetValue(ch.Id, out var role) ? role
+                    : ch.IsGpu ? FanRoleKind.Gpu
+                    : FanRoleKind.None;
                 ch.Offset = cooling.FanOffsets.TryGetValue(ch.Id, out var offset) ? offset : 0;
                 ch.SeriesId = Nexus.Service.Monitoring.History.MetricsHistory.SanitizeId(ch.Id);
             }

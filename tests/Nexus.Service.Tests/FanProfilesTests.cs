@@ -832,6 +832,44 @@ public class FanProfilesTests : IDisposable
     }
 
     [Fact]
+    public void IsLockedByDefault_CoversPumpsAndGpuFans()
+    {
+        Assert.False(FanProfiles.IsLockedByDefault(new FanChannel { Id = "case" }));
+        Assert.True(FanProfiles.IsLockedByDefault(new FanChannel { Id = "pump", Kind = FanKinds.Pump }));
+        Assert.True(FanProfiles.IsLockedByDefault(new FanChannel { Id = "gpu", IsGpu = true }));
+    }
+
+    [Fact]
+    public void Apply_LeavesGpuFansAlone_UnlessTheUserUnlocksThem()
+    {
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "case1", Name = "Case Fan 1" },
+                new() { Id = "pump1", Name = "Pump", Kind = FanKinds.Pump },
+                // The provider decides this from the hardware it enumerated the
+                // channel from, not from the name.
+                new() { Id = "gpu1", Name = "GPU Fan 1", IsGpu = true },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu-package", Name = "CPU Package", Category = "CPU" } });
+
+        FanProfiles.Apply("turbo", fans, _store);
+
+        var turbo = _store.Load().Cooling.Curves.First(c => c.Preset == "turbo");
+        // A preset curve reads a CPU sensor, so it must not claim the card's fans.
+        Assert.Equal(new[] { "case1" }, turbo.Outputs.Select(o => o.Id).ToArray());
+
+        // An explicit unlock is the user overriding that default, and it sticks.
+        var gpu = fans.GetFanChannels().First(c => c.Id == "gpu1");
+        FanProfiles.SetLockOverride(gpu, false, _store);
+        FanProfiles.Apply("turbo", fans, _store);
+
+        turbo = _store.Load().Cooling.Curves.First(c => c.Preset == "turbo");
+        Assert.Contains(turbo.Outputs, o => o.Id == "gpu1");
+        Assert.DoesNotContain(turbo.Outputs, o => o.Id == "pump1");
+    }
+
+    [Fact]
     public void SeedDefaultPresetCurves_NoOpWhenCurvesExist()
     {
         _store.Update(s => s.Cooling.Curves.Add(new CurveDocument { Id = "user-a", Type = "Linear" }));
