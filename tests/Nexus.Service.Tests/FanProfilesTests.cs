@@ -832,11 +832,39 @@ public class FanProfilesTests : IDisposable
     }
 
     [Fact]
-    public void IsLockedByDefault_CoversPumpsAndGpuFans()
+    public void IsLockedByDefault_CoversPumpsGpuFansAndAioChannels()
     {
         Assert.False(FanProfiles.IsLockedByDefault(new FanChannel { Id = "case" }));
         Assert.True(FanProfiles.IsLockedByDefault(new FanChannel { Id = "pump", Kind = FanKinds.Pump }));
         Assert.True(FanProfiles.IsLockedByDefault(new FanChannel { Id = "gpu", IsGpu = true }));
+        // A radiator fan is an ordinary Fan; it is the AIO membership that locks it.
+        Assert.True(FanProfiles.IsLockedByDefault(new FanChannel { Id = "rad", IsAio = true }));
+    }
+
+    [Fact]
+    public void MarkAioDevices_MarksEveryChannelOnADeviceThatHasAPump()
+    {
+        var channels = new List<FanChannel>
+        {
+            // Motherboard headers: no DeviceId at all.
+            new() { Id = "case1", Name = "Case Fan 1" },
+            // A header the user's board reports as "pump" - InferPumpKind flips
+            // its Kind, but with no DeviceId it must not drag case1 in with it.
+            new() { Id = "mobo-pump", Name = "Pump Fan", Kind = FanKinds.Pump },
+            // A real AIO: pump head plus its radiator fan, same device.
+            new() { Id = "aio-pump", Name = "Pump", Kind = FanKinds.Pump, DeviceId = "kraken:1" },
+            new() { Id = "aio-fan", Name = "Kraken Fans", DeviceId = "kraken:1" },
+            // A plain hub with no pump: its fans stay ordinary.
+            new() { Id = "hub-fan", Name = "Hub Fan 1", DeviceId = "np50:AB12" },
+        };
+
+        CompositeFanControlProvider.MarkAioDevices(channels);
+
+        Assert.False(channels.Single(c => c.Id == "case1").IsAio);
+        Assert.False(channels.Single(c => c.Id == "mobo-pump").IsAio);
+        Assert.True(channels.Single(c => c.Id == "aio-pump").IsAio);
+        Assert.True(channels.Single(c => c.Id == "aio-fan").IsAio);
+        Assert.False(channels.Single(c => c.Id == "hub-fan").IsAio);
     }
 
     [Fact]
@@ -847,6 +875,9 @@ public class FanProfilesTests : IDisposable
             {
                 new() { Id = "case1", Name = "Case Fan 1" },
                 new() { Id = "pump1", Name = "Pump", Kind = FanKinds.Pump },
+                // Radiator fan on the same cooler: an ordinary Fan, locked by
+                // its AIO membership rather than by its kind.
+                new() { Id = "rad1", Name = "AIO Fan", IsAio = true },
                 // The provider decides this from the hardware it enumerated the
                 // channel from, not from the name.
                 new() { Id = "gpu1", Name = "GPU Fan 1", IsGpu = true },
@@ -867,6 +898,7 @@ public class FanProfilesTests : IDisposable
         turbo = _store.Load().Cooling.Curves.First(c => c.Preset == "turbo");
         Assert.Contains(turbo.Outputs, o => o.Id == "gpu1");
         Assert.DoesNotContain(turbo.Outputs, o => o.Id == "pump1");
+        Assert.DoesNotContain(turbo.Outputs, o => o.Id == "rad1");
     }
 
     [Fact]

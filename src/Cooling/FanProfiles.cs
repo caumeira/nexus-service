@@ -43,16 +43,21 @@ public static class FanProfiles
         overrides.TryGetValue(ch.Id, out var v) ? v : IsLockedByDefault(ch);
 
     /// <summary>
-    /// Channels a preset must not retarget unless the user says otherwise.
-    /// Pump heads, because their duty is not a cooling preference. And GPU
-    /// fans, because a preset curve reads a CPU temperature sensor
-    /// (<see cref="PreferredInput"/>) - pointing that at the graphics card's
-    /// fans makes them track the wrong die, and the card's own firmware curve
-    /// already handles them. The user can still lock or unlock either from
-    /// the fan card.
+    /// Channels a preset must not retarget unless the user says otherwise,
+    /// all of them decided by the hardware rather than by a name:
+    /// <list type="bullet">
+    /// <item>Pump heads, whose duty is not a cooling preference.</item>
+    /// <item>GPU fans, because a preset curve reads a CPU temperature sensor
+    /// (<see cref="PreferredInput"/>), so pointing it at the graphics card's
+    /// fans tracks the wrong die.</item>
+    /// <item>Every channel on an AIO, radiator fans included - the cooler ships
+    /// its own curve and owns the loop.</item>
+    /// </list>
+    /// Each of these keeps whatever already drives it; the user can still lock
+    /// or unlock any of them from the fan card.
     /// </summary>
     public static bool IsLockedByDefault(FanChannel ch) =>
-        ch.Kind == FanKinds.Pump || ch.IsGpu;
+        ch.Kind == FanKinds.Pump || ch.IsGpu || ch.IsAio;
 
     /// <summary>
     /// Write ch's lock override, collapsing to "no entry" when the requested
