@@ -242,7 +242,7 @@ public static class DisplayRoutes
                 return Results.UnprocessableEntity(ApiResponse.Fail("could not update the display"));
             }
             PanelTopics.BroadcastDisplays(hub);
-            return Results.Json(new DisplayDdcParams { Enabled = body.Enabled }, AppJsonContext.Default.DisplayDdcParams);
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         });
 
         app.MapGet("/displays/{id}/brightness", (string id, DisplayBrightnessController d) =>

@@ -36,9 +36,23 @@ internal static class DdcGate
     /// </summary>
     private static readonly TimeSpan UnlockSettle = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// How long a gap between calls makes the previous observation worthless.
+    /// Nothing polls the gate while the session is locked with no dashboard
+    /// and no Displays widget up, and a helper restart during a lock starts
+    /// with no history at all - in both cases the first call after the unlock
+    /// would otherwise probe with no settle, which is exactly the hazard.
+    /// A stale observation is therefore treated as "just unlocked".
+    /// </summary>
+    private static readonly TimeSpan ObservationStale = TimeSpan.FromSeconds(30);
+
     private static readonly object Gate = new();
+    private static bool _observed;
     private static bool _lastLocked;
-    private static DateTime _unlockedAtUtc = DateTime.MinValue;
+    // Monotonic (Environment.TickCount64), not wall clock: a backward clock
+    // correction must not extend the closed window arbitrarily.
+    private static long _unlockedAtMs = -1;
+    private static long _lastSeenMs = -1;
 
     /// <summary>
     /// True when no DDC transaction should be issued right now.
@@ -48,15 +62,19 @@ internal static class DdcGate
     public static bool ShouldSkip(out string reason)
     {
         var locked = QuerySessionLocked();
-        DateTime unlockedAt;
+        var nowMs = Environment.TickCount64;
+        long unlockedAtMs;
         lock (Gate)
         {
-            // Only a transition we actually observed opens the settle window. A
-            // first call that finds the session already unlocked has no
-            // transition to be near, so it is not held back.
-            if (_lastLocked && !locked) _unlockedAtUtc = DateTime.UtcNow;
+            // A lock->unlock transition opens the settle window, and so does a
+            // gap long enough that we cannot know whether one happened while
+            // nobody was asking.
+            var stale = !_observed || nowMs - _lastSeenMs > (long)ObservationStale.TotalMilliseconds;
+            if (!locked && (stale || _lastLocked)) _unlockedAtMs = nowMs;
+            _observed = true;
             _lastLocked = locked;
-            unlockedAt = _unlockedAtUtc;
+            _lastSeenMs = nowMs;
+            unlockedAtMs = _unlockedAtMs;
         }
 
         if (locked)
@@ -65,7 +83,7 @@ internal static class DdcGate
             return true;
         }
 
-        if (unlockedAt != DateTime.MinValue && DateTime.UtcNow - unlockedAt < UnlockSettle)
+        if (unlockedAtMs >= 0 && nowMs - unlockedAtMs < (long)UnlockSettle.TotalMilliseconds)
         {
             reason = "unlock settling";
             return true;
@@ -99,7 +117,7 @@ internal static class DdcGate
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[ddc] lock-state query failed: {ex.Message}");
+            Nexus.Service.Platform.HelperLog.Write($"[ddc] lock-state query failed: {ex.Message}");
             return false;
         }
     }

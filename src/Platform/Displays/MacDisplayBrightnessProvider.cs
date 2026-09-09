@@ -30,6 +30,23 @@ public sealed unsafe class MacDisplayBrightnessProvider : IDisplayBrightnessProv
         var results = new List<DisplayDto>();
         foreach (var display in EnumerateDisplayHandles())
         {
+            // Opted-out displays are reported but never touched: this provider
+            // issues real DDC below, and the whole point of the opt-out is that
+            // no transaction reaches the panel.
+            if (excludedIds is not null && excludedIds.Contains(display.Id))
+            {
+                results.Add(new DisplayDto
+                {
+                    Id = display.Id,
+                    Name = display.Name,
+                    Manufacturer = display.Manufacturer,
+                    Model = display.Model,
+                    IsInternal = display.IsInternal,
+                    DdcEnabled = false,
+                    BrightnessControl = { UnsupportedReason = "Brightness control is turned off for this display." },
+                });
+                continue;
+            }
             var dto = new DisplayDto
             {
                 Id = display.Id,

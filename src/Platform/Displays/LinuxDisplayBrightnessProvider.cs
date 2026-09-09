@@ -52,6 +52,19 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
             _targets.Clear();
             foreach (var t in EnumerateBacklights().Concat(EnumerateDdc()))
             {
+                // An opted-out display is listed but not registered as a
+                // target, so no read or write can reach it later.
+                if (excludedIds is not null && excludedIds.Contains(t.Dto.Id))
+                {
+                    t.Dto.DdcEnabled = false;
+                    t.Dto.Capabilities.Brightness = false;
+                    t.Dto.BrightnessControl = new DisplayBrightnessControlDto
+                    {
+                        UnsupportedReason = "Brightness control is turned off for this display.",
+                    };
+                    dtos.Add(t.Dto);
+                    continue;
+                }
                 _targets[t.Dto.Id] = t;
                 dtos.Add(t.Dto);
             }

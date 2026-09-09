@@ -20,7 +20,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
     public string Hint => "";
 
     // Capability-probe cache. Enumerate() runs on every GET /displays, and the
-    // Displays panel widget polls that every 5 s for as long as it is placed -
+    // Displays panel widget polls that on a timer for as long as it is placed -
     // so probing VCP 0x10/0x12 per display per call meant hundreds of DDC
     // transactions an hour to answer a question the hardware answers the same
     // way every time. What a monitor supports is a property of the attached
@@ -32,13 +32,20 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
     private string _capsSignature = "";
     private readonly Dictionary<string, DisplayDto> _capsCache = new(StringComparer.Ordinal);
 
-    /// <summary>Log a skipped transaction once per reason change, so a locked
-    /// hour is one line rather than seven hundred.</summary>
+    /// <summary>
+    /// This provider runs in the user-session helper, whose stdout goes
+    /// nowhere (see <see cref="Nexus.Service.Platform.HelperLog"/>), so every
+    /// line here has to reach nexus-helper.log to exist at all.
+    /// </summary>
+    private static void Log(string message) => Nexus.Service.Platform.HelperLog.Write($"[ddc] {message}");
+
+    /// <summary>Reason of the last skip, so a locked hour is one line rather
+    /// than seven hundred.</summary>
     private string _lastSkipReason = "";
 
     private bool Skip(string op, string id)
     {
-        if (!DdcGate.ShouldSkip(out var reason)) 
+        if (!DdcGate.ShouldSkip(out var reason))
         {
             _lastSkipReason = "";
             return false;
@@ -46,9 +53,8 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
         if (reason != _lastSkipReason)
         {
             _lastSkipReason = reason;
-            Console.Error.WriteLine($"[ddc] skipping transactions: {reason}");
+            Log($"skipping transactions: {reason} (first was {op} id={id})");
         }
-        Console.Error.WriteLine($"[ddc] skip {op} id={id} ({reason})");
         return true;
     }
 
@@ -60,7 +66,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
             var monitors = EnumerateHMonitors();
             InvalidateCapsIfTopologyChanged(monitors);
             var gated = DdcGate.ShouldSkip(out var gateReason);
-            if (gated) Console.Error.WriteLine($"[ddc] enumerate: probing suppressed ({gateReason})");
+            if (gated) Log($"enumerate: probing suppressed ({gateReason})");
             for (int idx = 0; idx < monitors.Count; idx++)
             {
                 var entry = monitors[idx];
@@ -142,8 +148,13 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
                         DestroyPhysicalMonitor(phys);
                     }
                 }
-                Console.Error.WriteLine($"[ddc] probed id={dto.Id} capable={dto.IsDdcCapable} brightness={dto.Capabilities.Brightness} contrast={dto.Capabilities.Contrast}");
-                StoreCaps(dto);
+                Log($"probed id={dto.Id} capable={dto.IsDdcCapable} brightness={dto.Capabilities.Brightness} contrast={dto.Capabilities.Contrast}");
+                // Only a successful probe is cached. A failure is transient far
+                // more often than it is real - a monitor still waking, bus
+                // contention - and caching it would pin the display to "no
+                // brightness control" until the attached set changes, where
+                // before the next poll simply retried.
+                if (dto.IsDdcCapable) StoreCaps(dto);
                 results.Add(dto);
             }
         }
@@ -341,7 +352,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
             if (_capsSignature == signature) return;
             if (_capsSignature.Length > 0)
             {
-                Console.Error.WriteLine("[ddc] attached displays changed; dropping the probe cache");
+                Log("attached displays changed; dropping the probe cache");
             }
             _capsSignature = signature;
             _capsCache.Clear();
