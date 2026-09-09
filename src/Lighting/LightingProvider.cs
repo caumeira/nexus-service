@@ -855,6 +855,15 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "terrace" => new(0.40f, 0.35f, 45f, 1.15f, 1.10f, 1f),
         "harlequin" => new(0.92f, 0.40f, 55f, 1.20f, 1.10f, 1f),
         "mosaic" => new(0.55f, 0.30f, 55f, 1.20f, 1.10f, 1f),
+        // Constellation mesh plus the Nexus 2 theme set.
+        "constellation" => new(0.55f, 0.20f, 45f, 1.10f, 1.05f, 1f),
+        "cybertunnel" => new(0.85f, 0.30f, 60f, 1.20f, 1.10f, 1f),
+        "hyperspace" => new(0.75f, 0.25f, 70f, 1.20f, 1.10f, 1f),
+        "synthwave" => new(0.88f, 0.30f, 50f, 1.25f, 1.10f, 1f),
+        "retropetals" => new(0.08f, 0.35f, 40f, 1.15f, 1.05f, 1f),
+        // contourbands ships desaturated: the theme it comes from is ink on
+        // paper, and the saturation slider is what turns it colour.
+        "contourbands" => new(0.00f, 0.00f, 40f, 0.00f, 1.25f, 1f),
         _ => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
     };
 
@@ -982,6 +991,13 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "terrace" => new() { ["u_levels"] = 8f, ["u_scale"] = 1.4f, ["u_line"] = 0.5f },
         "harlequin" => new() { ["u_cells"] = 8f, ["u_skew"] = 1.0f, ["u_shift"] = 1.0f },
         "mosaic" => new() { ["u_cells"] = 9f, ["u_wave"] = 1.5f, ["u_pop"] = 0.7f },
+        // Constellation mesh plus the Nexus 2 theme set.
+        "constellation" => new() { ["u_points"] = 6f, ["u_reach"] = 1.4f, ["u_dots"] = 1.3f },
+        "cybertunnel" => new() { ["u_rings"] = 6f, ["u_spokes"] = 8f, ["u_glow"] = 1.2f },
+        "hyperspace" => new() { ["u_streaks"] = 40f, ["u_depth"] = 1.0f, ["u_core"] = 1.0f },
+        "synthwave" => new() { ["u_lines"] = 36f, ["u_amplitude"] = 0.18f, ["u_flow"] = 1.0f },
+        "retropetals" => new() { ["u_petals"] = 8f, ["u_wave"] = 0.8f, ["u_spin"] = 1.0f },
+        "contourbands" => new() { ["u_bands"] = 4f, ["u_scale"] = 2.2f, ["u_flow"] = 1.0f },
         _ => null,
     };
 
@@ -1084,6 +1100,12 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             "harlequin" => ShaderLibrary.Get("harlequin"),
             "mosaic" => ShaderLibrary.Get("mosaic"),
             "sharplines" => ShaderLibrary.Get("sharplines"),
+            "constellation" => ShaderLibrary.Get("constellation"),
+            "cybertunnel" => ShaderLibrary.Get("cybertunnel"),
+            "hyperspace" => ShaderLibrary.Get("hyperspace"),
+            "synthwave" => ShaderLibrary.Get("synthwave"),
+            "retropetals" => ShaderLibrary.Get("retropetals"),
+            "contourbands" => ShaderLibrary.Get("contourbands"),
             _ => ShaderLibrary.Rainbow,
         };
         return MakeShader(name, src, effectSpeed, intensity, hue, colorize, saturation, contrast, extras);
