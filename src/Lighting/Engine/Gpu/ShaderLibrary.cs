@@ -117,6 +117,9 @@ internal static class ShaderLibrary
         "meshgradient", "tide", "vapor", "satinflow",
         "ridgeline", "chevron", "terrace", "harlequin", "mosaic",
         "sharplines",
+        // Constellation mesh plus the Nexus 2 theme set.
+        "constellation", "cybertunnel", "hyperspace",
+        "synthwave", "retropetals", "contourbands",
         // Audio-reactive set; mirrors AudioEffectKeys below, keep in sync.
         "spectrumbars", "spectrumradial", "scope", "basspulse",
         "beatstrobe", "harmonicstar", "audiotunnel", "bassbloom",
