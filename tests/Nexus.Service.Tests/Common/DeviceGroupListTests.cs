@@ -94,4 +94,15 @@ public class DeviceGroupListTests
     {
         Assert.Empty(DeviceGroupList.Sanitize(null));
     }
+
+    [Fact]
+    public void Sanitize_KeepsTheRailAnchorThatHoldsAnEmptiedGroupInPlace()
+    {
+        var groups = DeviceGroupList.Sanitize(new[]
+        {
+            new DeviceGroup { Id = "g1", Name = "Desk", Members = new List<string>(), After = "  openrgb-2  " },
+        });
+
+        Assert.Equal("openrgb-2", groups[0].After);
+    }
 }

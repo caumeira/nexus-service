@@ -48,7 +48,7 @@ public static class DeviceGroupList
             var name = (group.Name ?? "").Trim();
             if (name.Length > MaxNameLength) name = name[..MaxNameLength];
 
-            result.Add(new DeviceGroup { Id = id, Name = name, Members = members });
+            result.Add(new DeviceGroup { Id = id, Name = name, Members = members, After = (group.After ?? "").Trim() });
         }
         return result;
     }
