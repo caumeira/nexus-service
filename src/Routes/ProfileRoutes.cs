@@ -520,6 +520,7 @@ public static class ProfileRoutes
                     if (ui.ConflictAutoKillExclusions is not null) s.Ui.ConflictAutoKillExclusions = ui.ConflictAutoKillExclusions;
                     if (ui.OemAppSeeded.HasValue) s.Ui.OemAppSeeded = ui.OemAppSeeded.Value;
                     if (ui.PinnedSidebarApps is not null) s.Ui.PinnedSidebarApps = ui.PinnedSidebarApps;
+                    if (ui.ShowUncontrolledDevices.HasValue) s.Ui.ShowUncontrolledDevices = ui.ShowUncontrolledDevices.Value;
                     if (ui.LightingDashboardMode is "simple" or "advanced")
                     {
                         if (!string.Equals(s.Ui.LightingDashboardMode, ui.LightingDashboardMode, StringComparison.Ordinal))

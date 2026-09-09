@@ -405,6 +405,8 @@ public sealed class UiSettings
     /// <summary>Per-page density of the dashboard lighting/cooling pages, "simple" or "advanced"; migration seeds pre-existing installs to "advanced".</summary>
     public string LightingDashboardMode { get; set; } = "simple";
     public string CoolingDashboardMode { get; set; } = "simple";
+    /// <summary>False hides every device with Nexus Control off from the lighting and cooling device rails. Shared by both pages.</summary>
+    public bool ShowUncontrolledDevices { get; set; } = true;
 }
 
 /// <summary>
@@ -420,6 +422,7 @@ public sealed class UiSettingsPatch
     public List<string>? PinnedSidebarApps { get; set; }
     public string? LightingDashboardMode { get; set; }
     public string? CoolingDashboardMode { get; set; }
+    public bool? ShowUncontrolledDevices { get; set; }
 }
 
 /// <summary>
