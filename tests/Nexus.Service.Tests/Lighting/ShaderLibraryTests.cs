@@ -47,6 +47,12 @@ public class ShaderLibraryTests
     [InlineData("neonwaveform")]
     [InlineData("liquidbeat")]
     [InlineData("beatburst")]
+    [InlineData("constellation")]
+    [InlineData("cybertunnel")]
+    [InlineData("hyperspace")]
+    [InlineData("synthwave")]
+    [InlineData("retropetals")]
+    [InlineData("contourbands")]
     public void NewShaders_Are_Registered(string key)
     {
         Assert.Contains(key, ShaderLibrary.AllEffectKeys);
