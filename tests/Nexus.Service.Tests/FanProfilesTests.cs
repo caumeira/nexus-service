@@ -785,7 +785,8 @@ public class FanProfilesTests : IDisposable
         {
             var c = Assert.Single(s.Cooling.Curves, c => c.Preset == name);
             Assert.Equal($"preset-{name}", c.Id);
-            Assert.Equal("Graph", c.Type);
+            // Max seeds as a fixed duty; the temperature-driven three as Graphs.
+            Assert.Equal(name == "max" ? "Flat" : "Graph", c.Type);
             // Not attached to any fan until the preset is activated.
             Assert.Empty(c.Outputs);
             // Bound to the preferred CPU sensor exposed by the fake provider.
@@ -795,19 +796,38 @@ public class FanProfilesTests : IDisposable
     }
 
     [Fact]
-    public void Max_PresetCurveIsFlatFullSpeed()
+    public void Max_PresetCurveIsAFixedFullSpeedFlat()
     {
         FanProfiles.Apply("max", _fans, _store);
 
         var s = _store.Load();
         Assert.Equal("max", s.Cooling.ActivePreset);
         var max = s.Cooling.Curves.First(c => c.Preset == "max");
-        Assert.All(max.Graph!.Points, pt => Assert.Equal(100d, pt.Speed));
-        // Flat at 100 across the whole editor domain, not just between points.
-        Assert.Equal(100d, CurveEngine.EvaluateGraph(max.Graph, 20f));
-        Assert.Equal(100d, CurveEngine.EvaluateGraph(max.Graph, 55f));
-        Assert.Equal(100d, CurveEngine.EvaluateGraph(max.Graph, 100f));
+        // A fixed duty, not a curve: no temperature drives it at all.
+        Assert.Equal("Flat", max.Type);
+        Assert.Equal(100, max.Flat!.Speed);
+        Assert.Null(max.Graph);
+        Assert.False(CurveEngine.NeedsTemperature(max.Type));
+        Assert.Equal(100d, CurveEngine.EvaluateFlat(max.Flat));
         Assert.True(FanProfiles.IsPresetCurveAtDefaults(max));
+        Assert.Equal(2, max.Outputs.Count);
+    }
+
+    [Fact]
+    public void Max_EditedDutyIsNotAtDefaults_AndResetRestoresTheFlat()
+    {
+        FanProfiles.Apply("max", _fans, _store);
+        _store.Update(s => s.Cooling.Curves.First(c => c.Preset == "max").Flat!.Speed = 70);
+        Assert.False(FanProfiles.IsPresetCurveAtDefaults(
+            _store.Load().Cooling.Curves.First(c => c.Preset == "max")));
+
+        FanProfiles.ResetPresetCurve("max", _fans, _store);
+
+        var max = _store.Load().Cooling.Curves.First(c => c.Preset == "max");
+        Assert.Equal("Flat", max.Type);
+        Assert.Equal(100, max.Flat!.Speed);
+        Assert.Null(max.Graph);
+        // Fan attachments survive the reset, so the active preset stays in effect.
         Assert.Equal(2, max.Outputs.Count);
     }
 

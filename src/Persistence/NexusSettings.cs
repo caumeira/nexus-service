@@ -859,7 +859,7 @@ public sealed class CurveDocument
     public TriggerCurveData? Trigger { get; set; }
     public SyncCurveData? Sync { get; set; }
     public AutoCurveData? Auto { get; set; }
-    /// <summary>One of "silent" | "balanced" | "turbo" | "max" when this curve is the shared preset curve; null for user-authored curves. Independent of Type so a preset curve can be Linear or Graph.</summary>
+    /// <summary>One of "silent" | "balanced" | "turbo" | "max" when this curve is the shared preset curve; null for user-authored curves. Independent of Type: Max defaults to Flat, the rest to Graph, and any of them can be switched.</summary>
     public string? Preset { get; set; }
 }
 

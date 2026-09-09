@@ -10,6 +10,9 @@ namespace Nexus.Service.Cooling;
 /// <summary>
 /// Built-in fan presets: Off, Silent, Balanced, Turbo, Max, Custom.
 ///
+/// Max is a fixed duty (a Flat curve), not a temperature-driven one; the
+/// other three ride a multi-point Graph.
+///
 /// Applying Silent / Balanced / Turbo / Max ensures a single shared "preset
 /// curve" exists with id `preset-{name}`, attaches every non-locked fan to
 /// it, and detaches those fans from any user curve. User curves are NOT
@@ -437,17 +440,23 @@ public static class FanProfiles
     }
 
     /// <summary>
-    /// True when a preset curve's Type + Graph points still match
-    /// <see cref="PresetDefaults"/>. Used by /cooling/curves so the SPA can
-    /// gate the Reset-to-defaults button without having to mirror the default
-    /// values locally. Returns false for non-Graph preset curves or curves
-    /// without a Preset flag.
+    /// True when a preset curve's template still matches
+    /// <see cref="PresetDefaults"/> - a Flat duty for Max, Type + Graph points
+    /// for the rest. Used by /cooling/curves so the SPA can gate the
+    /// Reset-to-defaults button without having to mirror the default values
+    /// locally. Returns false for a curve without a Preset flag, or one whose
+    /// type no longer matches its preset's template.
     /// </summary>
     public static bool IsPresetCurveAtDefaults(CurveDocument c)
     {
         if (c.Preset is null) return false;
-        if (c.Type != "Graph" || c.Graph is null) return false;
         var d = PresetDefaults.For(c.Preset);
+        if (IsFlatPreset(c.Preset))
+        {
+            // A different duty, or a switch to a temperature-driven type, is an edit.
+            return c.Type == "Flat" && c.Flat is not null && c.Flat.Speed == FlatPresetSpeed(d);
+        }
+        if (c.Type != "Graph" || c.Graph is null) return false;
         // Float `==` is sound here: the default points are whole numbers and
         // the drag / JSON round-trip preserves the same canonical values.
         if (c.Graph.ResponseTime != d.ResponseTime) return false;
@@ -485,9 +494,6 @@ public static class FanProfiles
             // write on the just-created path is harmless.
             var curve = EnsurePresetCurve(s.Cooling.Curves, canonical, inputSensor);
             curve.Name = DisplayName(canonical);
-            // Preset defaults are multi-point (Graph) curves; the Linear params
-            // stay populated as a fallback if the user switches the type.
-            curve.Type = "Graph";
             // Only overwrite the input binding when we actually have a sensor
             // to bind to - a transient LHM read during reset shouldn't strip
             // a perfectly valid existing input.
@@ -501,13 +507,26 @@ public static class FanProfiles
                 MinTemp = defaults.MinTemp, MaxTemp = defaults.MaxTemp,
                 MinSpeed = defaults.MinSpeed, MaxSpeed = defaults.MaxSpeed,
             };
-            curve.Graph = new GraphCurveData
+            // Max resets to a fixed duty; the rest to their multi-point Graph. The
+            // Linear params above stay populated either way as a fallback if the
+            // user switches the type.
+            if (IsFlatPreset(canonical))
             {
-                ResponseTime = defaults.ResponseTime,
-                SpeedModifier = 1.0,
-                Points = DefaultPresetPoints(defaults),
-            };
-            curve.Flat = null;
+                curve.Type = "Flat";
+                curve.Flat = new FlatCurveData { Speed = FlatPresetSpeed(defaults) };
+                curve.Graph = null;
+            }
+            else
+            {
+                curve.Type = "Graph";
+                curve.Graph = new GraphCurveData
+                {
+                    ResponseTime = defaults.ResponseTime,
+                    SpeedModifier = 1.0,
+                    Points = DefaultPresetPoints(defaults),
+                };
+                curve.Flat = null;
+            }
             curve.Mixed = null;
         });
     }
@@ -564,11 +583,12 @@ public static class FanProfiles
     private static CurveDocument BuildPresetCurve(string presetName, TemperatureSource? inputSensor)
     {
         var defaults = PresetDefaults.For(presetName);
+        var flat = IsFlatPreset(presetName);
         return new CurveDocument
         {
             Id = $"preset-{presetName}",
             Name = DisplayName(presetName),
-            Type = "Graph",
+            Type = flat ? "Flat" : "Graph",
             Preset = presetName,
             Input = inputSensor is null
                 ? new CurveInputDocument()
@@ -582,7 +602,8 @@ public static class FanProfiles
                 MinSpeed = defaults.MinSpeed,
                 MaxSpeed = defaults.MaxSpeed,
             },
-            Graph = new GraphCurveData
+            Flat = flat ? new FlatCurveData { Speed = FlatPresetSpeed(defaults) } : null,
+            Graph = flat ? null : new GraphCurveData
             {
                 ResponseTime = defaults.ResponseTime,
                 SpeedModifier = 1.0,
@@ -611,6 +632,16 @@ public static class FanProfiles
             _ => "custom",
         };
     }
+
+    /// <summary>
+    /// True for the preset whose default template is a Flat curve rather than a
+    /// temperature-driven Graph. Max holds one duty at every temperature, so a
+    /// curve shape would only invite it to be something other than maximum.
+    /// </summary>
+    private static bool IsFlatPreset(string presetName) => presetName == "max";
+
+    /// <summary>The fixed duty a Flat preset holds: the preset's own MaxSpeed.</summary>
+    private static int FlatPresetSpeed(PresetCurveDefaults d) => (int)d.MaxSpeed;
 
     private static string DisplayName(string presetName) => presetName switch
     {
