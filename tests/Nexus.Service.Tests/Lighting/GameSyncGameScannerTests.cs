@@ -232,7 +232,7 @@ public class GameSyncGameScannerTests
     [Fact]
     public async Task OnScanComplete_FiredAfterScan_WithResults()
     {
-        var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance);
+        var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance, TempCachePath());
         IReadOnlyList<DetectedGame>? received = null;
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -250,10 +250,56 @@ public class GameSyncGameScannerTests
         Assert.Same(scanner.Games, received);
     }
 
+    // A scanner with no override writes to the real machine cache and the next
+    // one reads it back, so every test here gets its own throwaway path.
+    private static string TempCachePath()
+        => Path.Combine(Path.GetTempPath(), $"nexus-gs-scan-{Guid.NewGuid():N}.json");
+
+    [Fact]
+    public async Task ACompletedScan_SurvivesARestart()
+    {
+        var cache = TempCachePath();
+        try
+        {
+            var first = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance, cache);
+            var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            first.OnScanComplete = _ => done.TrySetResult(true);
+            first.RequestScan();
+            await done.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+            // A second instance is the next service start: it must come up with
+            // the last result already in hand, not an empty list.
+            var restarted = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance, cache);
+            Assert.Equal(first.ScannedAt, restarted.ScannedAt);
+            Assert.Equal(first.Games.Count, restarted.Games.Count);
+        }
+        finally
+        {
+            if (File.Exists(cache)) File.Delete(cache);
+        }
+    }
+
+    [Fact]
+    public void AnUnreadableCache_LeavesTheScannerEmptyRatherThanThrowing()
+    {
+        var cache = TempCachePath();
+        File.WriteAllText(cache, "{ not json");
+        try
+        {
+            var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance, cache);
+            Assert.Null(scanner.ScannedAt);
+            Assert.Empty(scanner.Games);
+        }
+        finally
+        {
+            if (File.Exists(cache)) File.Delete(cache);
+        }
+    }
+
     [Fact]
     public async Task RequestScanIfStale_WhenNeverScanned_TriggersScan()
     {
-        var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance);
+        var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance, TempCachePath());
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         scanner.OnScanComplete = _ => tcs.TrySetResult(true);
 
@@ -267,7 +313,7 @@ public class GameSyncGameScannerTests
     [Fact]
     public async Task RequestScanIfStale_WhenFresh_DoesNotRescan()
     {
-        var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance);
+        var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance, TempCachePath());
         var count = 0;
         var firstDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         scanner.OnScanComplete = _ =>

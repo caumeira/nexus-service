@@ -510,6 +510,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<Nexus.Service.Models.Lighting.GameSyncDeviceInfo>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.DetectedGame))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Lighting.DetectedGame>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncScanCache))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncGamesResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiPayload))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiProvider))]

@@ -262,6 +262,13 @@ public sealed class DetectedGame
     public int SkippedFiles { get; set; }
 }
 
+/// <summary>On-disk mirror of the last completed scan. Machine-local cache, not profile state.</summary>
+public sealed class GameSyncScanCache
+{
+    public long ScannedAt { get; set; }
+    public List<DetectedGame> Games { get; set; } = new();
+}
+
 public sealed class GameSyncGamesResponse
 {
     public bool Scanning { get; set; }

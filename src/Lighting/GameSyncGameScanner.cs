@@ -1,7 +1,10 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Nexus.Service.Games;
 using Nexus.Service.Models.Lighting;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Lighting;
 
@@ -24,9 +27,57 @@ public sealed class GameSyncGameScanner
     private IReadOnlyList<DetectedGame> _games = Array.Empty<DetectedGame>();
     private int _scanRunning;
 
-    public GameSyncGameScanner(ILogger<GameSyncGameScanner> logger)
+    private readonly string? _cachePath;
+
+    /// <param name="cachePath">Overrides the machine cache file; tests pass a temp path so a run never touches the real one.</param>
+    public GameSyncGameScanner(ILogger<GameSyncGameScanner> logger, string? cachePath = null)
     {
         _logger = logger;
+        _cachePath = cachePath;
+        LoadCache();
+    }
+
+    // A scan lives only in memory, so every restart used to leave the Game Sync
+    // tab empty for the length of a fresh one. The last result is mirrored here
+    // instead: machine-local under the data root's cache/, never settings.json,
+    // so it is not part of the profile that syncs to the cloud.
+    private string CachePath()
+        => _cachePath ?? Path.Combine(NexusDataPaths.NexusRoot(), "cache", "game-sync-games.json");
+
+    private void LoadCache()
+    {
+        try
+        {
+            var path = CachePath();
+            if (!File.Exists(path)) return;
+            var cached = JsonSerializer.Deserialize(File.ReadAllText(path), AppJsonContext.Default.GameSyncScanCache);
+            if (cached?.Games is null || cached.ScannedAt <= 0) return;
+            lock (_lock)
+            {
+                _games = cached.Games.AsReadOnly();
+                _scannedAtEpoch = cached.ScannedAt;
+            }
+            _logger.LogInformation("[game-sync-scanner] restored {GameCount} game(s) from the last scan", cached.Games.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[game-sync-scanner] cannot read the cached scan");
+        }
+    }
+
+    private void SaveCache(List<DetectedGame> games, long scannedAt)
+    {
+        try
+        {
+            var path = CachePath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var payload = new GameSyncScanCache { ScannedAt = scannedAt, Games = games };
+            File.WriteAllText(path, JsonSerializer.Serialize(payload, AppJsonContext.Default.GameSyncScanCache));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[game-sync-scanner] cannot write the cached scan");
+        }
     }
 
     // Called on the scan thread after results are published. Used to trigger
@@ -91,11 +142,13 @@ public sealed class GameSyncGameScanner
                 });
             }
 
+            var scannedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             lock (_lock)
             {
                 _games = results.AsReadOnly();
-                _scannedAtEpoch = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                _scannedAtEpoch = scannedAt;
             }
+            SaveCache(results, scannedAt);
 
             var emitterCount = results.Count(g => g.EmitsChroma);
             _logger.LogInformation("[game-sync-scanner] scan complete: {GameCount} games, {EmitterCount} emitters",
