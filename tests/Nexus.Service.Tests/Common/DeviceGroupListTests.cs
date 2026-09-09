@@ -105,4 +105,25 @@ public class DeviceGroupListTests
 
         Assert.Equal("openrgb-2", groups[0].After);
     }
+
+    [Fact]
+    public void Sanitize_KeepsAnAbsentAnchorAbsent()
+    {
+        // "" pins a group to the top of the rail, so defaulting a missing anchor
+        // to it sent every newly created group there on its first save.
+        var groups = DeviceGroupList.Sanitize(new[] { Group("g1", "Desk", "a") });
+
+        Assert.Null(groups[0].After);
+    }
+
+    [Fact]
+    public void Sanitize_KeepsAnExplicitTopAnchor()
+    {
+        var groups = DeviceGroupList.Sanitize(new[]
+        {
+            new DeviceGroup { Id = "g1", Name = "Desk", Members = new List<string> { "a" }, After = "" },
+        });
+
+        Assert.Equal("", groups[0].After);
+    }
 }
