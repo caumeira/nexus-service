@@ -17,7 +17,7 @@ namespace Nexus.Service.Peripherals.JpegPanels;
 /// Without this the panel accepts every frame report and keeps showing its local UI, which
 /// is why this family cannot be driven by fixed init reports the way ID-Cooling's is.
 /// </summary>
-public sealed class LianLiAioHandshake : IJpegPanelHandshake
+public sealed class LianLiAioHandshake : IJpegPanelHandshake, IJpegPanelBrightness
 {
     /// <summary>B-command carrying control mode, brightness, rotation and frame rate.</summary>
     private const byte CmdLcdControl = 0x0C;
@@ -37,8 +37,8 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
     private const byte ModeLocalUi = 0x00;
     private const byte ModeApplication = 0x01;
 
-    /// <summary>Panel brightness, 0-100.</summary>
-    private const byte Brightness = 100;
+    /// <summary>Backlight a panel runs at until the user sets one.</summary>
+    public const byte DefaultBrightness = 100;
 
     private const byte Rotate0 = 0x00;
 
@@ -51,6 +51,10 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
     private readonly string _handlerId;
     private readonly byte _fps;
     private byte[]? _report;
+
+    // The panel forgets the backlight across a power cycle; holding it here is what lets
+    // the attach packet carry it back.
+    private byte _brightness = DefaultBrightness;
 
     public LianLiAioHandshake(string handlerId, int fps)
     {
@@ -74,7 +78,7 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
             ServiceLog.Warn($"[{_handlerId}] no firmware response; continuing to application mode");
         }
 
-        if (!SendLcdControl(device, report, ModeApplication))
+        if (!SendLcdControl(device, report, ModeApplication, _brightness))
         {
             ServiceLog.Warn($"[{_handlerId}] application-mode command rejected; dropping the handle");
             return false;
@@ -85,8 +89,9 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
     public void OnDetach(IHidDevice device, int reportLength)
     {
         // Best effort: leaving the panel in application mode would strand it on the last
-        // frame Nexus pushed, with nothing driving it.
-        SendLcdControl(device, Buffer(reportLength), ModeLocalUi);
+        // frame Nexus pushed, with nothing driving it. Full brightness goes with it - a
+        // firmware UI left dimmed cannot be undone once the handle is gone.
+        SendLcdControl(device, Buffer(reportLength), ModeLocalUi, DefaultBrightness);
     }
 
     /// <summary>
@@ -103,17 +108,36 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
         return device.Read(ack, AckTimeoutMs) >= 0;
     }
 
+    public int Brightness => _brightness;
+
+    public void SetBrightness(int percent) => _brightness = (byte)Math.Clamp(percent, 0, 100);
+
+    /// <summary>Application mode, so the write that carries the backlight keeps the glass claimed.</summary>
+    public bool ApplyBrightness(IHidDevice device, int reportLength)
+    {
+        var report = Buffer(reportLength);
+        if (!SendLcdControl(device, report, ModeApplication, _brightness))
+        {
+            return false;
+        }
+        // The frame path drains one ack per frame, so a control write must drain its own or
+        // the IN endpoint backs up until the panel stops taking output reports.
+        Span<byte> ack = stackalloc byte[64];
+        device.Read(ack, AckTimeoutMs);
+        return true;
+    }
+
     /// <summary>
     /// LCD control payload: mode, brightness, rotation, four reserved bytes, frame rate.
     /// It rides the same 11-byte sequenced header as a frame chunk, so the frame builder
     /// composes it rather than a second hand-rolled copy of that layout.
     /// </summary>
-    private bool SendLcdControl(IHidDevice device, byte[] report, byte mode)
+    private bool SendLcdControl(IHidDevice device, byte[] report, byte mode, byte brightness)
     {
         Span<byte> payload = stackalloc byte[8];
         payload.Clear();
         payload[0] = mode;
-        payload[1] = Brightness;
+        payload[1] = brightness;
         payload[2] = Rotate0;
         payload[7] = _fps;
 

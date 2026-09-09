@@ -34,6 +34,9 @@ public sealed record JpegPanelModel(
     /// </summary>
     public IJpegPanelHandshake? Handshake { get; init; }
 
+    /// <summary>The panel's backlight is host-settable, so its record carries a brightness.</summary>
+    public bool SupportsBrightness => Handshake is IJpegPanelBrightness;
+
     /// <summary>Documented frame rate for the model; the profile's ceiling.</summary>
     public int Fps { get; init; } = 30;
 

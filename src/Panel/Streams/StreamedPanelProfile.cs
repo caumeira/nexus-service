@@ -40,6 +40,9 @@ public sealed class StreamedPanelProfile
     /// </summary>
     public string? Family { get; init; }
 
+    /// <summary>The panel takes a backlight command, so its record carries a brightness.</summary>
+    public bool SupportsBrightness { get; init; }
+
     public required int CssWidth { get; init; }
     public required int CssHeight { get; init; }
     public double Dpr { get; init; } = 1.0;
@@ -71,6 +74,7 @@ public sealed class StreamedPanelProfile
     {
         Surface = Surface,
         Family = Family,
+        SupportsBrightness = SupportsBrightness ? true : null,
         Touch = false,
         CssWidth = CssWidth,
         CssHeight = CssHeight,

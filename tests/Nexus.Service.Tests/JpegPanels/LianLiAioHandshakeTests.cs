@@ -54,6 +54,65 @@ public class LianLiAioHandshakeTests
     }
 
     [Fact]
+    public void A_brightness_change_rides_application_mode_so_the_glass_stays_claimed()
+    {
+        var handshake = new LianLiAioHandshake("lianli-hydroshift-lcd", 24);
+        var device = new ScriptedHidDevice();
+        handshake.OnAttach(device, ReportLength);
+        device.Writes.Clear();
+
+        handshake.SetBrightness(35);
+        Assert.True(handshake.ApplyBrightness(device, ReportLength));
+
+        var control = Assert.Single(device.Writes);
+        Assert.Equal(0x0C, control[1]);
+        // Application, not the settings mode: the other documented mode hands the glass back.
+        Assert.Equal(new byte[] { 0x01, 35, 0x00, 0x00, 0x00, 0x00, 0x00, 24 }, control[11..19]);
+    }
+
+    [Fact]
+    public void The_backlight_survives_a_re_attach_because_the_claim_packet_carries_it()
+    {
+        var handshake = new LianLiAioHandshake("lianli-galahad2-lcd", 24);
+        handshake.SetBrightness(12);
+
+        var device = new ScriptedHidDevice();
+        handshake.OnAttach(device, ReportLength);
+
+        Assert.Equal(12, device.Writes[1][12]);
+    }
+
+    [Fact]
+    public void The_hand_back_restores_full_brightness_so_the_firmware_ui_is_not_left_dim()
+    {
+        var handshake = new LianLiAioHandshake("lianli-galahad2-lcd", 24);
+        var device = new ScriptedHidDevice();
+        handshake.OnAttach(device, ReportLength);
+        handshake.SetBrightness(0);
+        device.Writes.Clear();
+
+        handshake.OnDetach(device, ReportLength);
+
+        var control = Assert.Single(device.Writes);
+        Assert.Equal(0x00, control[11]);
+        Assert.Equal(LianLiAioHandshake.DefaultBrightness, control[12]);
+    }
+
+    [Fact]
+    public void A_backlight_change_drains_its_own_ack_so_the_frame_path_keeps_its_budget()
+    {
+        var handshake = new LianLiAioHandshake("lianli-hydroshift-lcd", 24);
+        var device = new ScriptedHidDevice();
+        handshake.OnAttach(device, ReportLength);
+        var readsAfterAttach = device.Reads;
+
+        handshake.SetBrightness(50);
+        Assert.True(handshake.ApplyBrightness(device, ReportLength));
+
+        Assert.Equal(readsAfterAttach + 1, device.Reads);
+    }
+
+    [Fact]
     public void Detach_hands_the_glass_back_to_the_coolers_own_firmware()
     {
         var handshake = new LianLiAioHandshake("lianli-hydroshift-lcd", 24);

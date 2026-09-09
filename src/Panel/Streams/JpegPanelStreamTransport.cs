@@ -13,7 +13,7 @@ namespace Nexus.Service.Panel.Streams;
 /// concatenate writes, so this buffers to exactly one frame before encoding. Frames are
 /// fixed-size, which makes the boundary unambiguous.
 /// </summary>
-public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrientablePanelTransport
+public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrientablePanelTransport, IBrightnessPanelTransport
 {
     private readonly JpegPanelHub _hub;
     private readonly BgraJpegEncoder _encoder;
@@ -25,6 +25,15 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
     // is only worth logging once per run of drops.
     private bool _dropLogged;
     private readonly PanelOrientationFilter _orientation = new();
+
+    /// <summary>How stale the polled backlight may get; reading it clones the panel record.</summary>
+    private const long BrightnessTtlMs = 500;
+
+    private Func<int?>? _brightness;
+    // Seeded from what the panel was last told, so a reconnect re-sends nothing it has.
+    private int _brightnessApplied = -1;
+    private long _brightnessNextReadMs;
+    private bool _brightnessFaultLogged;
 
     private readonly byte[] _turned;
 
@@ -41,6 +50,54 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
     public bool IsOpen => !_disposed && _hub.IsConnected;
 
     public void BindOrientation(Func<(bool Flip180, bool Mirror)> source) => _orientation.Bind(source);
+
+    /// <summary>Ignored for a panel with no backlight command, so those never pay the poll.</summary>
+    public void BindBrightness(Func<int?> source)
+    {
+        if (!_hub.Model.SupportsBrightness)
+        {
+            return;
+        }
+        _brightness = source;
+        _brightnessApplied = _hub.Brightness;
+        _brightnessNextReadMs = 0;
+    }
+
+    /// <summary>Runs on the frame path, the only thread that owns this transport.</summary>
+    private void ApplyBrightness()
+    {
+        if (_brightness is null)
+        {
+            return;
+        }
+        long nowMs = Environment.TickCount64;
+        if (nowMs < _brightnessNextReadMs)
+        {
+            return;
+        }
+        _brightnessNextReadMs = nowMs + BrightnessTtlMs;
+        int? wanted;
+        try { wanted = _brightness(); }
+        catch (Exception ex)
+        {
+            if (!_brightnessFaultLogged)
+            {
+                _brightnessFaultLogged = true;
+                ServiceLog.Warn($"[{_hub.Model.HandlerId}] backlight source threw: {ex.GetType().Name}: {ex.Message}");
+            }
+            return;
+        }
+        // No record value means the panel keeps what it powered up with.
+        if (wanted is not int percent || percent == _brightnessApplied)
+        {
+            return;
+        }
+        if (_hub.SetBrightness(percent))
+        {
+            _brightnessApplied = percent;
+            ServiceLog.Info($"[{_hub.Model.HandlerId}] backlight {percent}%");
+        }
+    }
 
     public string Serial { get; }
 
@@ -79,6 +136,7 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
 
     private void PushFrame()
     {
+        ApplyBrightness();
         ReadOnlySpan<byte> jpeg;
         try
         {

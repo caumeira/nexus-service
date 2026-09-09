@@ -19122,6 +19122,12 @@
               "null",
               "string"
             ]
+          },
+          "supportsBrightness": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -19319,6 +19325,15 @@
               "null",
               "boolean"
             ]
+          },
+          "lcdBrightness": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           },
           "capabilities": {
             "oneOf": [

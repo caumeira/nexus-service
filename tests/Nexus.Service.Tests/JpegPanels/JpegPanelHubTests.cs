@@ -126,6 +126,76 @@ public class JpegPanelHubTests
         Assert.False(hub.SendFrame(ReadOnlySpan<byte>.Empty));
     }
 
+    [Fact]
+    public void Both_lian_li_aio_panels_report_a_settable_backlight()
+    {
+        Assert.True(JpegPanelModel.GalahadIiLcd.SupportsBrightness);
+        Assert.True(JpegPanelModel.HydroShiftLcd.SupportsBrightness);
+        Assert.False(JpegPanelModel.CorsairXc7.SupportsBrightness);
+    }
+
+    // The model table's handshakes are process-wide singletons, so a test that sets a
+    // backlight takes its own instance rather than leaving one dimmed for the whole suite.
+    private static JpegPanelModel Dimmable() =>
+        JpegPanelModel.GalahadIiLcd with { Handshake = new LianLiAioHandshake("test-lcd", 24) };
+
+    [Fact]
+    public void SetBrightness_reaches_an_attached_panel_in_application_mode()
+    {
+        using var hub = new JpegPanelHub(Dimmable());
+        var device = new RecordingHidDevice();
+        hub.Attach(device);
+        device.Writes.Clear();
+
+        Assert.True(hub.SetBrightness(35));
+
+        var control = Assert.Single(device.Writes);
+        Assert.Equal(0x0C, control[1]);
+        Assert.Equal(0x01, control[11]);
+        Assert.Equal(35, control[12]);
+    }
+
+    [Fact]
+    public void An_out_of_range_backlight_clamps_to_the_ends_of_the_scale()
+    {
+        using var hub = new JpegPanelHub(Dimmable());
+        var device = new RecordingHidDevice();
+        hub.Attach(device);
+        device.Writes.Clear();
+
+        hub.SetBrightness(-5);
+        Assert.Equal(0, device.Writes[^1][12]);
+
+        hub.SetBrightness(140);
+        Assert.Equal(100, device.Writes[^1][12]);
+    }
+
+    [Fact]
+    public void A_brightness_set_while_detached_is_recorded_and_re_asserted_on_attach()
+    {
+        using var hub = new JpegPanelHub(Dimmable());
+
+        Assert.False(hub.SetBrightness(20));
+
+        var device = new RecordingHidDevice();
+        Assert.True(hub.Attach(device));
+        // Writes are the firmware read then the application-mode claim carrying the value.
+        Assert.Equal(20, device.Writes[1][12]);
+        Assert.Equal(20, hub.Brightness);
+    }
+
+    [Fact]
+    public void A_panel_with_no_backlight_command_refuses_the_setting()
+    {
+        using var hub = new JpegPanelHub(JpegPanelModel.CorsairXc7);
+        var device = new RecordingHidDevice();
+        hub.Attach(device);
+
+        Assert.False(hub.SetBrightness(40));
+
+        Assert.Empty(device.Writes);
+    }
+
     // ── model table + control policy ──
 
     [Fact]

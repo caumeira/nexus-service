@@ -103,6 +103,31 @@ public sealed class JpegPanelHub : IDisposable
     }
 
     /// <summary>
+    /// Backlight the panel was last told, or -1 when the model has no backlight command.
+    /// </summary>
+    public int Brightness
+    {
+        get { lock (_lock) { return _model.Handshake is IJpegPanelBrightness d ? d.Brightness : -1; } }
+    }
+
+    /// <summary>
+    /// Sets the backlight, in percent. Recorded whether or not a panel is attached, so the
+    /// next attach re-asserts it; the return says only whether it reached hardware now.
+    /// </summary>
+    public bool SetBrightness(int percent)
+    {
+        lock (_lock)
+        {
+            if (_model.Handshake is not IJpegPanelBrightness dimmable)
+            {
+                return false;
+            }
+            dimmable.SetBrightness(percent);
+            return _device != null && _attached && dimmable.ApplyBrightness(_device, _model.ReportLength);
+        }
+    }
+
+    /// <summary>
     /// Pushes one encoded JPEG frame. Returns false on the first rejected report, leaving
     /// the frame half-written - the next frame starts from chunk 0, so a partial upload
     /// costs one dropped frame rather than a desynchronised stream.

@@ -88,6 +88,9 @@ public sealed class PanelDeviceRecord
     /// <summary>Mirror the pushed frame horizontally; with <see cref="Flip180"/> that is a
     /// vertical flip. Null = off.</summary>
     public bool? Mirror { get; set; }
+    /// <summary>Backlight percent 0-100 for a cooler LCD whose panel takes a brightness
+    /// command. Null = the panel's default. Ignored by surfaces that cannot dim.</summary>
+    public int? LcdBrightness { get; set; }
     /// <summary>
     /// Last known Corsair Xeneon Edge native display settings (vendor HID),
     /// applied/read through /displays/{id}/xeneon-settings. Display-bound
@@ -146,6 +149,9 @@ public sealed class PanelDeviceCapabilities
     /// <summary>Curated display family id (e.g. "xeneon-edge") driving
     /// web-side branding (sidebar name + icon).</summary>
     public string? Family { get; set; }
+    /// <summary>The panel's backlight is host-settable, so the dashboard offers the
+    /// brightness control. Null/false on every surface that cannot dim.</summary>
+    public bool? SupportsBrightness { get; set; }
 }
 
 /// <summary>
@@ -205,6 +211,9 @@ public sealed class PanelDevicePatch
     /// <summary>Mirror the pushed frame horizontally; with <see cref="Flip180"/> that is a
     /// vertical flip. Null = off.</summary>
     public bool? Mirror { get; set; }
+    /// <summary>Backlight percent 0-100 for a cooler LCD whose panel takes a brightness
+    /// command. Null = the panel's default. Ignored by surfaces that cannot dim.</summary>
+    public int? LcdBrightness { get; set; }
     public PanelDeviceCapabilities? Capabilities { get; set; }
 }
 
