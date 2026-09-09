@@ -78,8 +78,21 @@ public static class CoolingRoutes
                 ch.Offset = cooling.FanOffsets.TryGetValue(ch.Id, out var offset) ? offset : 0;
                 ch.SeriesId = Nexus.Service.Monitoring.History.MetricsHistory.SanitizeId(ch.Id);
             }
-            return new GetFanChannelsResponse { Channels = channels };
+            return new GetFanChannelsResponse { Channels = channels, Groups = cooling.FanGroups };
         }).AllowPanel();
+
+        // Whole-list replace, mirroring /devices/lighting-devices/groups: the
+        // page owns group order and membership.
+        app.MapPut("/cooling/fan-groups", (
+            Nexus.Service.Models.Devices.SetDeviceGroupsBody body,
+            IConfigStore store,
+            MultiplexHub hub) =>
+        {
+            var groups = Nexus.Service.Common.DeviceGroupList.Sanitize(body.Groups);
+            store.Update(s => s.Cooling.FanGroups = groups);
+            PanelTopics.BroadcastCooling(hub);
+            return Results.Ok(new Nexus.Service.Models.Devices.SetDeviceGroupsBody { Groups = groups });
+        });
 
         app.MapGet("/cooling/sources", (IFanControlProvider f) =>
             new GetTemperatureSourcesResponse { Sources = new(f.GetTemperatureSources()) }).AllowPanel();

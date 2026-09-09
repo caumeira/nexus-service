@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
@@ -75,5 +76,39 @@ public sealed class LightingDeviceMutationBroadcastTests : IClassFixture<StubDev
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var store = _factory.Services.GetRequiredService<Nexus.Service.Persistence.IConfigStore>();
         Assert.False(store.Load().Lighting.DeviceNames.ContainsKey("stub-zone"));
+    }
+
+    [Fact]
+    public async Task PutGroups_PersistsCapsAndBroadcastsLightingTopic()
+    {
+        var hub = _factory.Services.GetRequiredService<MultiplexHub>();
+        var captured = new List<string>();
+        hub.OnBroadcastForTest += (topic, _) => captured.Add(topic);
+        using var sub = hub.AddTestSubscription(PanelTopics.Lighting);
+
+        var groups = string.Join(",", Enumerable.Range(0, 14)
+            .Select(i => $$"""{"id":"g{{i}}","name":"G{{i}}","members":["card-{{i}}"]}"""));
+        var res = await _client.PutAsync(
+            "/devices/lighting-devices/groups",
+            new StringContent($$"""{"groups":[{{groups}}]}""", Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Contains(PanelTopics.Lighting, captured);
+        var stored = _factory.Services.GetRequiredService<Nexus.Service.Persistence.IConfigStore>()
+            .Load().Lighting.DeviceGroups;
+        Assert.Equal(Nexus.Service.Common.DeviceGroupList.MaxGroups, stored.Count);
+        Assert.Equal("g0", stored[0].Id);
+    }
+
+    [Fact]
+    public async Task GetAll_CarriesTheStoredGroups()
+    {
+        await _client.PutAsync(
+            "/devices/lighting-devices/groups",
+            new StringContent("""{"groups":[{"id":"g1","name":"Desk","members":["stub-zone"]}]}""", Encoding.UTF8, "application/json"));
+
+        var res = await _client.GetAsync("/devices/lighting-devices/all");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Contains("\"id\":\"g1\"", await res.Content.ReadAsStringAsync());
     }
 }

@@ -276,9 +276,24 @@ public static partial class DevicesRoutes
         app.MapGet("/devices/lighting-devices/all", (ILightingDeviceProvider ld, Nexus.Service.Persistence.IConfigStore store) =>
         {
             var all = ld.GetAll();
-            Nexus.Service.Lighting.LightingDeviceNames.Apply(all.Devices, store.Load().Lighting.DeviceNames);
+            var lighting = store.Load().Lighting;
+            Nexus.Service.Lighting.LightingDeviceNames.Apply(all.Devices, lighting.DeviceNames);
+            all.Groups = lighting.DeviceGroups;
             return all;
         }).AllowPanel();
+
+        // Whole-list replace: the page owns group order and membership, so a
+        // create, rename, delete or drag all arrive as one PUT.
+        app.MapPut("/devices/lighting-devices/groups", (
+            SetDeviceGroupsBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            var groups = Nexus.Service.Common.DeviceGroupList.Sanitize(body.Groups);
+            store.Update(s => s.Lighting.DeviceGroups = groups);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return Results.Ok(new SetDeviceGroupsBody { Groups = groups });
+        });
 
         // No existence check: the id is whatever card the list handed the UI, and
         // GetAll() walks every provider, so re-enumerating the hardware to

@@ -186,4 +186,46 @@ public sealed class CoolingRoutesIntegrationTests
             Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
         }
     }
+
+    [Fact]
+    public async Task PutFanGroups_PersistsAndRidesTheNextFansGet()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var put = await client.PutAsJsonAsync("/cooling/fan-groups", new
+            {
+                groups = new[]
+                {
+                    new { id = "g1", name = "  Radiator  ", members = new[] { "fan1", "fan2" } },
+                },
+            });
+            Assert.True(put.IsSuccessStatusCode);
+
+            using var doc = JsonDocument.Parse(await (await client.GetAsync("/cooling/fans")).Content.ReadAsStringAsync());
+            var groups = doc.RootElement.GetProperty("groups").EnumerateArray().ToList();
+            Assert.Single(groups);
+            Assert.Equal("Radiator", groups[0].GetProperty("name").GetString());
+            Assert.Equal(new[] { "fan1", "fan2" },
+                groups[0].GetProperty("members").EnumerateArray().Select(m => m.GetString()).ToArray());
+        }
+    }
+
+    [Fact]
+    public async Task PutFanGroups_WithAnEmptyListClearsThem()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PutAsJsonAsync("/cooling/fan-groups", new
+            {
+                groups = new[] { new { id = "g1", name = "Radiator", members = new[] { "fan1" } } },
+            });
+            var clear = await client.PutAsJsonAsync("/cooling/fan-groups", new { groups = Array.Empty<object>() });
+            Assert.True(clear.IsSuccessStatusCode);
+
+            using var doc = JsonDocument.Parse(await (await client.GetAsync("/cooling/fans")).Content.ReadAsStringAsync());
+            Assert.Empty(doc.RootElement.GetProperty("groups").EnumerateArray());
+        }
+    }
 }

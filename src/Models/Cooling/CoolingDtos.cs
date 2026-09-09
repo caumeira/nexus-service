@@ -259,6 +259,8 @@ public sealed class GetCurvesResponse : ApiResponse
 public sealed class GetFanChannelsResponse : ApiResponse
 {
     public List<FanChannel> Channels { get; set; } = new();
+    /// <summary>User-made fan groups, in display order. Rides the channel list so the page needs no second fetch and the cooling topic already refreshes it.</summary>
+    public List<Nexus.Service.Persistence.DeviceGroup> Groups { get; set; } = new();
 }
 
 public sealed class GetTemperatureSourcesResponse : ApiResponse

@@ -465,6 +465,19 @@ public sealed class StaticDeviceLook
     public int Slot { get; set; }
 }
 
+/// <summary>
+/// A user-made grouping of lighting cards or fan channels. <see cref="Members"/>
+/// holds whatever id the page groups by: a card / channel id, or the device id of
+/// a hardware group (a motherboard's headers, a hub's ports), which moves as one
+/// unit and is never split across groups.
+/// </summary>
+public sealed class DeviceGroup
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public List<string> Members { get; set; } = new();
+}
+
 public sealed class LightingSettings
 {
     public string Sync { get; set; } = InstallDefaults.Lighting.Sync;
@@ -489,6 +502,8 @@ public sealed class LightingSettings
     /// <see cref="CoolingSettings.FanNames"/>.
     /// </summary>
     public Dictionary<string, string> DeviceNames { get; set; } = new();
+    /// <summary>User-made card groups, in display order. Capped by the route layer; hardware groups are not listed here and cannot be dissolved.</summary>
+    public List<DeviceGroup> DeviceGroups { get; set; } = new();
     /// <summary>
     /// Per-device Static assignments, keyed by lighting-device id. A device
     /// listed here wears its own look in Static instead of the shared canvas.
@@ -780,6 +795,8 @@ public sealed class CoolingSettings
     public bool CurvesSeeded { get; set; }
     /// <summary>User-defined fan names keyed by channel ID. Only valid while the hardware mapping is unchanged.</summary>
     public Dictionary<string, string> FanNames { get; set; } = new();
+    /// <summary>User-made fan groups, in display order. Capped by the route layer; the per-device hub groups are not listed here and cannot be dissolved.</summary>
+    public List<DeviceGroup> FanGroups { get; set; } = new();
     public Dictionary<string, Nexus.Service.Models.Cooling.FanCalibration> FanCalibrations { get; set; } = new();
     /// <summary>Manually-set fan duty percentages keyed by channel ID. Persisted so they survive restarts and profile switches.</summary>
     public Dictionary<string, int> ManualSpeeds { get; set; } = new();

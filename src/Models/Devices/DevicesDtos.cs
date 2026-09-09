@@ -254,6 +254,14 @@ public class GetLightingDevicesResponse
 {
     public bool IsInit { get; set; }
     public List<LightingDevice> Devices { get; set; } = new();
+    /// <summary>User-made card groups, in display order. Rides the device list so the page needs no second fetch and the lighting topic already refreshes it.</summary>
+    public List<Nexus.Service.Persistence.DeviceGroup> Groups { get; set; } = new();
+}
+
+/// <summary>Whole-list replace for the user-made groups; the client owns order and membership.</summary>
+public class SetDeviceGroupsBody
+{
+    public List<Nexus.Service.Persistence.DeviceGroup> Groups { get; set; } = new();
 }
 
 public class SetDisabledLedsBody { public List<string> Devices { get; set; } = new(); }
