@@ -228,4 +228,20 @@ public sealed class CoolingRoutesIntegrationTests
             Assert.Empty(doc.RootElement.GetProperty("groups").EnumerateArray());
         }
     }
+
+    [Fact]
+    public async Task GetFans_KeepsTheHardwareNameARenameReplaced()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsJsonAsync("/cooling/fan/fan1/name", new { name = "Top intake" });
+
+            using var doc = JsonDocument.Parse(await (await client.GetAsync("/cooling/fans")).Content.ReadAsStringAsync());
+            var fan1 = doc.RootElement.GetProperty("channels").EnumerateArray()
+                .First(c => c.GetProperty("id").GetString() == "fan1");
+            Assert.Equal("Top intake", fan1.GetProperty("name").GetString());
+            Assert.Equal("Fan 1", fan1.GetProperty("originalName").GetString());
+        }
+    }
 }

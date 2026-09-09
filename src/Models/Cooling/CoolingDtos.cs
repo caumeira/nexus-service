@@ -164,6 +164,10 @@ public sealed class FanChannel
     public int Offset { get; set; }
     /// <summary>Display/monitoring-grouping role: one of <see cref="FanRoleKind.None"/> / <see cref="FanRoleKind.Cpu"/> / <see cref="FanRoleKind.Gpu"/>. Computed from settings; not read from hardware. Never affects fan control, locking, or preset logic.</summary>
     public string Role { get; set; } = FanRoleKind.None;
+    /// <summary>The hardware name <see cref="Name"/> replaced, set only on a renamed channel. Null means <see cref="Name"/> IS the hardware name.</summary>
+    public string? OriginalName { get; set; }
+    /// <summary>The hardware name <see cref="DeviceName"/> replaced, set only when the owning group header was renamed.</summary>
+    public string? OriginalDeviceName { get; set; }
     /// <summary>Sanitized id matching the monitoring history series key ("fan:" + SeriesId), per <see cref="Nexus.Service.Monitoring.History.MetricsHistory.SanitizeId"/>. Computed from <see cref="Id"/>; the sanitize rule is lossy and one-way, so this is never reverse-mapped back to Id.</summary>
     public string SeriesId { get; set; } = "";
 

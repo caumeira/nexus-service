@@ -476,6 +476,8 @@ public sealed class DeviceGroup
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public List<string> Members { get; set; } = new();
+    /// <summary>Id of the rail row this group sits after; the empty string pins it to the top and null means never placed. Holds an emptied group in place, where anchoring to its first member could not.</summary>
+    public string? After { get; set; }
 }
 
 public sealed class LightingSettings

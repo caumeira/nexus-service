@@ -48,7 +48,10 @@ public static class DeviceGroupList
             var name = (group.Name ?? "").Trim();
             if (name.Length > MaxNameLength) name = name[..MaxNameLength];
 
-            result.Add(new DeviceGroup { Id = id, Name = name, Members = members });
+            // null and "" mean different things: never placed vs pinned to the
+            // top of the rail. Defaulting a missing anchor to "" sent every new
+            // group to the top on its first round-trip.
+            result.Add(new DeviceGroup { Id = id, Name = name, Members = members, After = group.After?.Trim() });
         }
         return result;
     }
