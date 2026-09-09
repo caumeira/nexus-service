@@ -304,7 +304,7 @@ public static class CoolingRoutes
             return Results.Ok(new ApplyProfileResponse { Applied = applied });
         }).AllowPanel();
 
-        // Reset a Silent / Balanced / Performance preset curve to its default
+        // Reset a Silent / Balanced / Turbo / Max preset curve to its default
         // type + Linear parameters. Fan attachments stay intact so the active
         // preset doesn't flip to "custom" as a side effect of the reset.
         app.MapPost("/cooling/profile/{name}/reset", (string name, IFanControlProvider f, IConfigStore store, MultiplexHub hub, FeatureGates gates) =>
@@ -314,7 +314,7 @@ public static class CoolingRoutes
                 return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Cooling });
             }
             var canonical = (name ?? "").ToLowerInvariant();
-            if (canonical != "silent" && canonical != "balanced" && canonical != "turbo")
+            if (canonical is not ("silent" or "balanced" or "turbo" or "max"))
             {
                 return Results.BadRequest(new ApiResponse { Error = true, Msg = $"Cannot reset preset: {name}" });
             }

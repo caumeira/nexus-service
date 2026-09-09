@@ -792,7 +792,7 @@ public sealed class CoolingSettings
     public double GlobalSpeedModifier { get; set; } = InstallDefaults.Cooling.GlobalSpeedModifier;
     public List<CurveDocument> Curves { get; set; } = new();
     /// <summary>True once first-run preset seeding has run. Distinguishes a
-    /// fresh install (seed Silent/Balanced/Turbo) from a profile the user has
+    /// fresh install (seed Silent/Balanced/Turbo/Max) from a profile the user has
     /// since emptied (leave it empty - do not resurrect the presets).</summary>
     public bool CurvesSeeded { get; set; }
     /// <summary>User-defined fan names keyed by channel ID. Only valid while the hardware mapping is unchanged.</summary>
@@ -804,19 +804,19 @@ public sealed class CoolingSettings
     public Dictionary<string, int> ManualSpeeds { get; set; } = new();
     /// <summary>Per-channel duty offset in points, added to whatever a curve computes for that channel and clamped at the write. Absent entry means 0.</summary>
     public Dictionary<string, int> FanOffsets { get; set; } = new();
-    /// <summary>Per-channel lock override keyed by channel ID. A locked channel is exempt from Silent/Balanced/Turbo/Off/Custom preset applies. An absent entry defaults to locked for pumps, unlocked otherwise; see <see cref="Nexus.Service.Cooling.FanProfiles.IsLocked"/>.</summary>
+    /// <summary>Per-channel lock override keyed by channel ID. A locked channel is exempt from Silent/Balanced/Turbo/Max/Off/Custom preset applies. An absent entry defaults to locked for pumps, unlocked otherwise; see <see cref="Nexus.Service.Cooling.FanProfiles.IsLocked"/>.</summary>
     public Dictionary<string, bool> FanLockOverrides { get; set; } = new();
     /// <summary>Channel ids Nexus stops driving entirely, so the motherboard or a vendor app owns them. Distinct from an unassigned channel, which is merely idle: this survives preset applies. Mirrors <see cref="DevicesSettings.UncontrolledLightingDevices"/>; see <see cref="Nexus.Service.Cooling.FanControlledState"/>.</summary>
     public List<string> UncontrolledFanChannels { get; set; } = new();
     /// <summary>User-assigned display/monitoring-grouping role keyed by raw channel ID: one of <see cref="Nexus.Service.Models.Cooling.FanRoleKind.Cpu"/> / <see cref="Nexus.Service.Models.Cooling.FanRoleKind.Gpu"/>. An absent entry means <see cref="Nexus.Service.Models.Cooling.FanRoleKind.None"/>. Metadata only - does not affect fan control, locking, or preset logic.</summary>
     public Dictionary<string, string> FanRoles { get; set; } = new();
-    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "turbo" | "custom".</summary>
+    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "turbo" | "max" | "custom".</summary>
     public string ActivePreset { get; set; } = InstallDefaults.Cooling.ActivePreset;
     /// <summary>Last-known custom mapping of fan channel id -> curve id. Empty entries mean the fan was on BIOS Control. Used to restore custom assignments when leaving Silent/Balanced/Performance/Off.</summary>
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();
     /// <summary>Snapshot of <see cref="ManualSpeeds"/> taken when leaving the Custom preset, keyed by channel id. Restored (and re-driven) when Custom is re-applied - the manual-fan counterpart of <see cref="CustomFanCurveAssignments"/>, and the only copy that survives the Off preset, which clears the live entries.</summary>
     public Dictionary<string, int> CustomManualSpeeds { get; set; } = new();
-    /// <summary>User-saved cooling configurations, selectable from the Cooling page's preset dropdown. Distinct from <see cref="ActivePreset"/>, which is the built-in mode (off/silent/balanced/turbo/custom) the UI calls a mode.</summary>
+    /// <summary>User-saved cooling configurations, selectable from the Cooling page's preset dropdown. Distinct from <see cref="ActivePreset"/>, which is the built-in mode (off/silent/balanced/turbo/max/custom) the UI calls a mode.</summary>
     public List<CoolingPreset> Presets { get; set; } = new();
     /// <summary>Id of the <see cref="Presets"/> entry currently loaded, or null when none is.</summary>
     public string? ActivePresetId { get; set; }
@@ -859,7 +859,7 @@ public sealed class CurveDocument
     public TriggerCurveData? Trigger { get; set; }
     public SyncCurveData? Sync { get; set; }
     public AutoCurveData? Auto { get; set; }
-    /// <summary>One of "silent" | "balanced" | "turbo" when this curve is the shared preset curve; null for user-authored curves. Independent of Type so a preset curve can be Linear or Graph.</summary>
+    /// <summary>One of "silent" | "balanced" | "turbo" | "max" when this curve is the shared preset curve; null for user-authored curves. Independent of Type so a preset curve can be Linear or Graph.</summary>
     public string? Preset { get; set; }
 }
 

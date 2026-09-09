@@ -134,7 +134,7 @@ public sealed class DeckNexusAction
     public string? Effect { get; set; }
     /// <summary>lightingPreset (layout preset id), coolingPreset (saved preset id).</summary>
     public string? PresetId { get; set; }
-    /// <summary>fanProfile: off | silent | balanced | turbo | custom.</summary>
+    /// <summary>fanProfile: off | silent | balanced | turbo | max | custom.</summary>
     public string? Profile { get; set; }
     /// <summary>lightingBrightness (0..1), y70Brightness (0..100).</summary>
     public double? Value { get; set; }

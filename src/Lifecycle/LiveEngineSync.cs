@@ -43,7 +43,7 @@ public static class LiveEngineSync
         try
         {
             var preset = (store.Load().Cooling.ActivePreset ?? "").ToLowerInvariant();
-            if (preset is "silent" or "balanced" or "turbo")
+            if (preset is "silent" or "balanced" or "turbo" or "max")
             {
                 FanProfiles.Apply(preset, fans, store);
             }

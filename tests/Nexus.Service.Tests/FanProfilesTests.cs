@@ -774,14 +774,14 @@ public class FanProfilesTests : IDisposable
     }
 
     [Fact]
-    public void SeedDefaultPresetCurves_OnEmptyProfile_CreatesAllThreeAtDefaults()
+    public void SeedDefaultPresetCurves_OnEmptyProfile_CreatesAllFourAtDefaults()
     {
         var seeded = FanProfiles.SeedDefaultPresetCurves(_fans, _store);
 
         Assert.True(seeded);
         var s = _store.Load();
-        Assert.Equal(3, s.Cooling.Curves.Count);
-        foreach (var name in new[] { "silent", "balanced", "turbo" })
+        Assert.Equal(4, s.Cooling.Curves.Count);
+        foreach (var name in new[] { "silent", "balanced", "turbo", "max" })
         {
             var c = Assert.Single(s.Cooling.Curves, c => c.Preset == name);
             Assert.Equal($"preset-{name}", c.Id);
@@ -792,6 +792,23 @@ public class FanProfilesTests : IDisposable
             Assert.Equal("cpu-package", c.Input.Id);
             Assert.True(FanProfiles.IsPresetCurveAtDefaults(c));
         }
+    }
+
+    [Fact]
+    public void Max_PresetCurveIsFlatFullSpeed()
+    {
+        FanProfiles.Apply("max", _fans, _store);
+
+        var s = _store.Load();
+        Assert.Equal("max", s.Cooling.ActivePreset);
+        var max = s.Cooling.Curves.First(c => c.Preset == "max");
+        Assert.All(max.Graph!.Points, pt => Assert.Equal(100d, pt.Speed));
+        // Flat at 100 across the whole editor domain, not just between points.
+        Assert.Equal(100d, CurveEngine.EvaluateGraph(max.Graph, 20f));
+        Assert.Equal(100d, CurveEngine.EvaluateGraph(max.Graph, 55f));
+        Assert.Equal(100d, CurveEngine.EvaluateGraph(max.Graph, 100f));
+        Assert.True(FanProfiles.IsPresetCurveAtDefaults(max));
+        Assert.Equal(2, max.Outputs.Count);
     }
 
     [Fact]

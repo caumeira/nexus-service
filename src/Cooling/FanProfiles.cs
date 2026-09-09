@@ -8,9 +8,9 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Cooling;
 
 /// <summary>
-/// Built-in fan presets: Off, Silent, Balanced, Turbo, Custom.
+/// Built-in fan presets: Off, Silent, Balanced, Turbo, Max, Custom.
 ///
-/// Applying Silent / Balanced / Turbo ensures a single shared "preset
+/// Applying Silent / Balanced / Turbo / Max ensures a single shared "preset
 /// curve" exists with id `preset-{name}`, attaches every non-locked fan to
 /// it, and detaches those fans from any user curve. User curves are NOT
 /// deleted. Locked channels (pumps by default, or any channel the user
@@ -32,7 +32,7 @@ namespace Nexus.Service.Cooling;
 public static class FanProfiles
 {
     /// <summary>
-    /// True when a channel is exempt from Silent/Balanced/Turbo/Off/Custom
+    /// True when a channel is exempt from Silent/Balanced/Turbo/Max/Off/Custom
     /// preset applies. An explicit entry in <paramref name="overrides"/> wins;
     /// absent from the dict defaults to locked for pumps, unlocked otherwise.
     /// </summary>
@@ -93,6 +93,7 @@ public static class FanProfiles
         new FanProfile { Name = "silent", Description = "Quiet operation - fans stay low until temperatures demand it" },
         new FanProfile { Name = "balanced", Description = "Moderate cooling - responsive but not aggressive" },
         new FanProfile { Name = "turbo", Description = "Maximum cooling - fans run fast to keep temperatures low" },
+        new FanProfile { Name = "max", Description = "Every fan pinned at 100% regardless of temperature" },
         new FanProfile { Name = "custom", Description = "User-defined per-fan curve assignments" },
     };
 
@@ -116,7 +117,7 @@ public static class FanProfiles
         var inputSensor = PreferredInput(temps);
         var fanIds = channels.Select(c => c.Id).ToHashSet();
         // Locked channels (pumps by default, or any channel the user locked) are
-        // excluded from the Silent/Balanced/Turbo and Custom presets, which must
+        // excluded from the Silent/Balanced/Turbo/Max and Custom presets, which must
         // not retarget what drives them. Off still releases every channel to
         // BIOS, locked or not.
         var lockOverrides = store.Load().Cooling.FanLockOverrides;
@@ -140,6 +141,7 @@ public static class FanProfiles
                 case "silent":
                 case "balanced":
                 case "turbo":
+                case "max":
                     {
                         var presetCurve = EnsurePresetCurve(s.Cooling.Curves, canonical, inputSensor);
                         // Detach fans (not locked channels) from non-preset curves so the
@@ -371,7 +373,7 @@ public static class FanProfiles
         // All fans on the same preset curve, with no manual overrides.
         if (manualUnattached.Count == 0)
         {
-            foreach (var presetName in new[] { "silent", "balanced", "turbo" })
+            foreach (var presetName in new[] { "silent", "balanced", "turbo", "max" })
             {
                 var presetId = $"preset-{presetName}";
                 if (fanIds.All(id => attachment.TryGetValue(id, out var cid) && cid == presetId))
@@ -404,8 +406,8 @@ public static class FanProfiles
     }
 
     /// <summary>
-    /// Seed the Silent / Balanced / Turbo preset curves on first run so all
-    /// three exist the first time the cooling page is opened on a fresh install.
+    /// Seed the Silent / Balanced / Turbo / Max preset curves on first run so all
+    /// four exist the first time the cooling page is opened on a fresh install.
     /// Runs at most once per profile (tracked by
     /// <see cref="CoolingSettings.CurvesSeeded"/>) and only adds curves when the
     /// profile is empty, so neither an existing install nor a user who later
@@ -425,7 +427,7 @@ public static class FanProfiles
             // that already has curves must not be re-checked on later boots.
             s.Cooling.CurvesSeeded = true;
             if (s.Cooling.Curves.Count > 0) return;
-            foreach (var name in new[] { "silent", "balanced", "turbo" })
+            foreach (var name in new[] { "silent", "balanced", "turbo", "max" })
             {
                 s.Cooling.Curves.Add(BuildPresetCurve(name, inputSensor));
             }
@@ -463,7 +465,7 @@ public static class FanProfiles
     }
 
     /// <summary>
-    /// Restore a Silent / Balanced / Turbo preset curve to its default
+    /// Restore a Silent / Balanced / Turbo / Max preset curve to its default
     /// Linear template. Fan attachments + list position are preserved so the
     /// active preset stays in effect; only the template resets. If the curve
     /// was previously deleted, recreate it at defaults via EnsurePresetCurve.
@@ -471,7 +473,7 @@ public static class FanProfiles
     public static void ResetPresetCurve(string presetName, IFanControlProvider fans, IConfigStore store)
     {
         var canonical = (presetName ?? "").ToLowerInvariant();
-        if (canonical != "silent" && canonical != "balanced" && canonical != "turbo") return;
+        if (canonical is not ("silent" or "balanced" or "turbo" or "max")) return;
         var inputSensor = PreferredInput(fans.GetTemperatureSources());
         var defaults = PresetDefaults.For(canonical);
 
@@ -532,7 +534,7 @@ public static class FanProfiles
         return map;
     }
 
-    /// <summary>Live fan-to-curve mapping, in <see cref="CoolingSettings.CustomFanCurveAssignments"/> format. Preset curves are excluded, so a machine sitting on Silent/Balanced/Turbo captures an empty map.</summary>
+    /// <summary>Live fan-to-curve mapping, in <see cref="CoolingSettings.CustomFanCurveAssignments"/> format. Preset curves are excluded, so a machine sitting on Silent/Balanced/Turbo/Max captures an empty map.</summary>
     public static Dictionary<string, string> CaptureFanCurveMapping(IConfigStore store, IFanControlProvider fans)
     {
         var fanIds = fans.GetFanChannels().Select(c => c.Id).ToHashSet();
@@ -557,7 +559,7 @@ public static class FanProfiles
     /// <summary>
     /// A fresh preset curve at its <see cref="PresetDefaults"/> template, with
     /// no fan outputs attached. Used both to create a preset lazily on first
-    /// activation and to seed all three on a blank install.
+    /// activation and to seed all four on a blank install.
     /// </summary>
     private static CurveDocument BuildPresetCurve(string presetName, TemperatureSource? inputSensor)
     {
@@ -604,6 +606,7 @@ public static class FanProfiles
             "silent" => "silent",
             "balanced" => "balanced",
             "turbo" => "turbo",
+            "max" => "max",
             "custom" => "custom",
             _ => "custom",
         };
@@ -614,6 +617,7 @@ public static class FanProfiles
         "silent" => "Silent",
         "balanced" => "Balanced",
         "turbo" => "Turbo",
+        "max" => "Max",
         _ => presetName,
     };
 

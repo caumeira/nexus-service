@@ -55,7 +55,7 @@ public class Curve
     public TriggerCurve? Trigger { get; set; }
     public SyncCurve? Sync { get; set; }
     public AutoCurve? Auto { get; set; }
-    /// <summary>"silent" | "balanced" | "turbo" for the shared preset curves; null for user curves. Independent of Type.</summary>
+    /// <summary>"silent" | "balanced" | "turbo" | "max" for the shared preset curves; null for user curves. Independent of Type.</summary>
     public string? Preset { get; set; }
     /// <summary>For preset curves only: true when the curve's Type + Linear params match <see cref="Nexus.Service.Cooling.FanProfiles.PresetDefaults"/>. Null for user curves. Drives the Reset-to-defaults button's enabled state in the SPA, so the FE doesn't have to mirror PresetDefaults locally.</summary>
     public bool? IsDefault { get; set; }
@@ -156,7 +156,7 @@ public sealed class FanChannel
     public int? MinDuty { get; set; }
     public string? Classification { get; set; }
     public bool Calibrated => MinRpm is not null;
-    /// <summary>True when the channel is exempt from Silent/Balanced/Turbo/Off/Custom preset applies. Computed from settings; not read from hardware.</summary>
+    /// <summary>True when the channel is exempt from Silent/Balanced/Turbo/Max/Off/Custom preset applies. Computed from settings; not read from hardware.</summary>
     public bool Locked { get; set; }
     /// <summary>False when the user marked this channel not controlled: Nexus drives no duty onto it and no preset reclaims it, so the motherboard or a vendor app owns it. Computed from settings; not read from hardware.</summary>
     public bool Controlled { get; set; } = true;
@@ -360,7 +360,7 @@ public sealed class CoolingPresetDto
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
-    /// <summary>Built-in mode the preset restores: off | silent | balanced | turbo | custom.</summary>
+    /// <summary>Built-in mode the preset restores: off | silent | balanced | turbo | max | custom.</summary>
     public string Mode { get; set; } = "custom";
 }
 
