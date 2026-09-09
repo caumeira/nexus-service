@@ -12,8 +12,11 @@ namespace Nexus.Service.Lifecycle;
 /// as a throwaway subprocess: if the GL driver hangs, the parent kills this
 /// process on timeout instead of wedging the service.
 ///
-/// Output (stdout, one per line): optional SET_PREF=N, then RENDERER=&lt;name&gt;
-/// on success (exit 0) or PROBE_FAILED / PROBE_EXCEPTION on failure (nonzero).
+/// Output (stdout, one per line): optional SET_PREF=N, then GLINIT_ENTER
+/// immediately before any GPU is touched, then RENDERER=&lt;name&gt; on success
+/// (exit 0) or PROBE_FAILED / PROBE_EXCEPTION on failure (nonzero). The parent
+/// reads GLINIT_ENTER to tell a child the card killed from one that died on its
+/// way there.
 /// </summary>
 internal static class GpuProbe
 {
@@ -52,6 +55,21 @@ internal static class GpuProbe
             }
             catch (Exception ex) { Console.WriteLine($"SET_PREF_FAILED={ex.Message}"); }
         }
+
+#if DEV_TOOLS
+        if (Nexus.Service.Lighting.Engine.Gpu.GpuTestSeam.Mode
+            == Nexus.Service.Lighting.Engine.Gpu.GpuForceMode.CrashEarly)
+        {
+            Environment.FailFast("forced pre-GL probe crash (NEXUS_GPU_FORCE_FAIL=crash-early)");
+        }
+#endif
+
+        Nexus.Service.Lighting.Engine.Gpu.GpuTestSeam.IgnoreIntermittentFailures();
+
+        // The parent's verdict is a function of (exit code, this marker, timeout),
+        // so it must be flushed before anything can kill the process.
+        Console.WriteLine(Nexus.Service.Lighting.Engine.Gpu.GpuProbeExit.EnterMarker);
+        Console.Out.Flush();
 
         try
         {

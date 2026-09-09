@@ -3,9 +3,8 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Nexus.Service.Platform;
-using Silk.NET.Maths;
+using Silk.NET.GLFW;
 using Silk.NET.OpenGL;
-using Silk.NET.Windowing;
 
 namespace Nexus.Service.Lighting.Engine.Gpu;
 
@@ -31,8 +30,9 @@ public sealed class GpuContext : IDisposable
     // Linux path: headless EGL device context, no window (works under the root daemon).
     private bool _eglUsed;
 #else
-    // Windows path: GLFW hidden window owns the context.
-    private IWindow? _window;
+    // Windows path: a hidden GLFW window owns the WGL context. Held as IntPtr so
+    // the field needs no unsafe context; cast back at the call sites.
+    private IntPtr _glfwWindow;
 #endif
     private GL? _gl;
     private uint _fbo;
@@ -42,7 +42,9 @@ public sealed class GpuContext : IDisposable
     private volatile bool _initStarted;
     private volatile bool _ready;
     private volatile bool _failed;
-    private bool _retryUsed;
+    private volatile bool _abandoned;
+    private volatile bool _initSuppressed;
+    private int _retries;
     private volatile bool _disposed;
 
     // Dedicated GL thread. The engine loop is a Task that hops thread-pool
@@ -52,6 +54,10 @@ public sealed class GpuContext : IDisposable
     private Thread? _glThread;
     private readonly BlockingCollection<Action> _workQueue = new(new ConcurrentQueue<Action>());
     private readonly ManualResetEventSlim _initDone = new(false);
+    // Set only when an attempt actually produced a context. _initDone is also
+    // set by a failure or an abandon, so a late-landing watcher needs its own
+    // handle or it returns the moment the attempt is written off.
+    private readonly ManualResetEventSlim _landed = new(false);
     private Exception? _initError;
 
     // How long a caller BLOCKS waiting for the context. Not a verdict on the
@@ -105,6 +111,76 @@ public sealed class GpuContext : IDisposable
     /// <summary>An attempt is running and has neither succeeded nor thrown.</summary>
     public bool Initializing => _initStarted && !_ready && !_failed && !_disposed;
 
+    /// <summary>The failed attempt never returned, so its thread is still parked
+    /// in native GLFW. No second init may run beside it.</summary>
+    public bool InitAbandoned => _abandoned;
+
+    /// <summary>Auto-init is off until a re-probe rearms it.</summary>
+    public bool InitSuppressed => _initSuppressed;
+
+    public bool IsDisposed => _disposed;
+
+    /// <summary>Lift a decline so a scheduled re-probe can attempt the card
+    /// again, with a fresh retry budget. Refused after an abandon: that thread is
+    /// still parked in native GLFW.</summary>
+    public bool RearmAfterLatch()
+    {
+        lock (_lock)
+        {
+            if (_disposed || _abandoned || _ready)
+            {
+                return false;
+            }
+            _initSuppressed = false;
+            _initError = null;
+            _failed = false;
+            _ready = false;
+            _retries = 0;
+            _initDone.Reset();
+            _landed.Reset();
+            _initStarted = false;
+            _gl = null;
+            Renderer = null;
+            _fbo = 0;
+            _fboTex = 0;
+            _quadVao = 0;
+            _quadVbo = 0;
+#if MACOS
+            _cglCtx = IntPtr.Zero;
+#elif LINUX
+            _eglUsed = false;
+#else
+            _glfwWindow = IntPtr.Zero;
+#endif
+            return true;
+        }
+    }
+
+    /// <summary>Decline the card for the rest of the process: no attempt starts,
+    /// and the context reports Failed rather than Initializing. Both halves are
+    /// load-bearing. Without the suppression the render path re-arms the init the
+    /// selection just declined; without the Failed flag /lighting/status reports
+    /// "initializing" forever, which also withholds the render-GPU shortcut the
+    /// UI gates on a failed card.</summary>
+    public void DeclineInit(string reason)
+    {
+        lock (_lock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            _initSuppressed = true;
+            if (_ready)
+            {
+                return;
+            }
+            _initError ??= new InvalidOperationException(reason);
+            _failed = true;
+            _initDone.Set();
+        }
+    }
+
     // Co-located with nexus-service.log; ServiceLog.LogsDirectory resolves the
     // writable per-OS logs dir (HOME-based on Linux, so the old /usr/share
     // read-only concern doesn't apply).
@@ -130,7 +206,7 @@ public sealed class GpuContext : IDisposable
     /// </summary>
     public void EnsureInitializedLocked()
     {
-        if (_initStarted || _disposed)
+        if (_initStarted || _disposed || _initSuppressed)
         {
             return;
         }
@@ -162,23 +238,32 @@ public sealed class GpuContext : IDisposable
         return Available;
     }
 
-    /// <summary>Abandon a FAILED attempt so one more can run, once per process.
-    /// Only a terminated attempt qualifies: glfwInit/glfwCreateWindow share
-    /// process-global state, so a second init beside a still-running one is
+    /// <summary>Block until an attempt produces a context, or
+    /// <paramref name="timeout"/> elapses. Unlike <see cref="WaitForInit"/> this
+    /// keeps waiting after the attempt has been written off, which is the only
+    /// way an abandoned-but-still-running init can be recovered.</summary>
+    public bool WaitForLateLanding(TimeSpan timeout) => _landed.Wait(timeout) && Available;
+
+    /// <summary>Abandon a FAILED attempt so another can run, up to
+    /// <see cref="GpuInitRetry.MaxAttempts"/> per process. Only a TERMINATED
+    /// attempt qualifies: glfwInit/glfwCreateWindow share process-global state,
+    /// so a second init beside a still-running or abandoned one is
     /// undefined.</summary>
     public bool ResetForRetry()
     {
         lock (_lock)
         {
-            if (_disposed || _retryUsed || !_failed)
+            if (_disposed || _initSuppressed || _abandoned || !_failed
+                || _retries >= GpuInitRetry.MaxAttempts)
             {
                 return false;
             }
-            _retryUsed = true;
+            _retries++;
             _initError = null;
             _failed = false;
             _ready = false;
             _initDone.Reset();
+            _landed.Reset();
             _initStarted = false;
             _gl = null;
             Renderer = null;
@@ -191,11 +276,11 @@ public sealed class GpuContext : IDisposable
 #elif LINUX
             _eglUsed = false;
 #else
-            // Deliberately not disposed: GLFW window destruction belongs to the
+            // Deliberately not destroyed: GLFW window destruction belongs to the
             // thread that created it, and that thread has exited. One leaked
             // hidden window per process is harmless; reaching across threads to
             // free it is not.
-            _window = null;
+            _glfwWindow = IntPtr.Zero;
 #endif
             // Deliberately does NOT start the next attempt: the caller sets the
             // OS GPU preference (read at context-creation time) first.
@@ -214,6 +299,7 @@ public sealed class GpuContext : IDisposable
                 return;
             }
             _initError = new TimeoutException("GL context init never returned");
+            _abandoned = true;
             _failed = true;
             _initDone.Set();
         }
@@ -237,7 +323,14 @@ public sealed class GpuContext : IDisposable
         }
         lock (_lock)
         {
+            // An abandoned attempt that lands anyway is a working context: the
+            // abandon only stopped callers waiting on it. ResetForRetry refuses
+            // while _abandoned, so no second attempt can be racing this one.
+            _abandoned = false;
+            _failed = false;
+            _initError = null;
             _ready = true;
+            _landed.Set();
             _initDone.Set();
         }
 
@@ -287,6 +380,7 @@ public sealed class GpuContext : IDisposable
 
     private void InitInternal()
     {
+        ApplyForcedFailure();
 #if MACOS
         // macOS: skip GLFW / NSWindow entirely and create a headless GL 4.1
         // core context via CGL. Works from any thread, no AppKit needed.
@@ -303,42 +397,48 @@ public sealed class GpuContext : IDisposable
         _eglUsed = true;
         _gl = GL.GetApi(new EglNativeContext());
 #else
-        // Windows: a hidden GLFW window owns the WGL context. With no usable GPU
-        // (no dGPU + an "F"-SKU CPU with no iGPU, or only a virtual/indirect
-        // display), GLFW context creation fail-fasts inside native code
-        // (0xc0000409) - which a managed catch can't intercept, so it kills the
-        // whole process. A removed card's driver stays registered, so DXGI still
-        // enumerates it as a ghost adapter; probe D3D11CreateDevice (the ghost
-        // fails it) and throw before touching GLFW so init fails cleanly. There
-        // is no CPU shader fallback - shader effects just don't render.
+        // Windows: a hidden GLFW window owns the WGL context. D3D11CreateDevice
+        // screens out a ghost adapter but does not prove WGL works; the GL
+        // verdict is glfwCreateWindow returning null. Silk's IWindow path does
+        // not null-check that and dereferences the handle, so the window is
+        // created here instead.
         if (!Nexus.Service.Sensors.GpuAdapterLuids.HasUsableHardwareGpu())
         {
             throw new InvalidOperationException("no usable GPU adapter present");
         }
-        Log("[gpu] Register GLFW platform");
-        // Silk.NET normally registers the GLFW backend via module initializer,
-        // but AOT strips that path - we have to register it explicitly or
-        // Window.Create fails with "no suitable window platform".
-        Silk.NET.Windowing.Glfw.GlfwWindowing.Use();
-        var opts = WindowOptions.Default with
+        var guard = GlfwErrorGuard.Install();
+        Log($"[gpu] GLFW error guard: installed={guard.Installed} "
+            + $"preempted-silk-default={guard.PreEmptedSilkDefault} "
+            + $"self-test={guard.SelfTestPassed} ({guard.Detail})");
+        if (!guard.SelfTestPassed)
         {
-            IsVisible = false,
-            ShouldSwapAutomatically = false,
-            VSync = false,
-            Size = new Vector2D<int>(_width, _height),
-            Title = "nexus-gpu",
-            API = new GraphicsAPI(
-                ContextAPI.OpenGL,
-                ContextProfile.Core,
-                ContextFlags.Default,
-                new APIVersion(3, 3)),
-        };
-        Log("[gpu] Window.Create");
-        _window = Window.Create(opts);
-        Log("[gpu] window.Initialize");
-        _window.Initialize();
-        Log("[gpu] CreateOpenGL");
-        _gl = _window.CreateOpenGL();
+            // Not fatal on its own: the crash guard plus the off latch bound a
+            // still-throwing callback to one crash per boot rather than a loop.
+            ServiceLog.Warn("[gpu] GLFW errors may still be fatal: the error guard did not verify");
+        }
+        var glfw = Silk.NET.GLFW.GlfwProvider.GLFW.Value;
+        var (major, minor) = GpuTestSeam.Mode == GpuForceMode.GlfwError ? (9, 9) : (3, 3);
+        glfw.DefaultWindowHints();
+        glfw.WindowHint(WindowHintBool.Visible, false);
+        glfw.WindowHint(WindowHintClientApi.ClientApi, ClientApi.OpenGL);
+        glfw.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Core);
+        glfw.WindowHint(WindowHintInt.ContextVersionMajor, major);
+        glfw.WindowHint(WindowHintInt.ContextVersionMinor, minor);
+        Log($"[gpu] glfwCreateWindow ({major}.{minor} core, hidden)");
+        unsafe
+        {
+            var mark = GlfwErrorGuard.SwallowedCount;
+            var handle = glfw.CreateWindow(_width, _height, "nexus-gpu", null, null);
+            if (handle == null)
+            {
+                throw new InvalidOperationException(
+                    $"GLFW could not create an OpenGL {major}.{minor} core context "
+                    + $"({GlfwErrorGuard.ErrorSince(mark)})");
+            }
+            _glfwWindow = (IntPtr)handle;
+            glfw.MakeContextCurrent(handle);
+            _gl = GL.GetApi(new Silk.NET.GLFW.GlfwContext(glfw, handle));
+        }
 #endif
         Log("[gpu] GL ready");
         try
@@ -401,6 +501,34 @@ public sealed class GpuContext : IDisposable
         Log($"[gpu] OpenGL context ready ({_width}x{_height})");
     }
 
+    // Compiled out entirely unless this is a DEV_TOOLS build, so a release binary
+    // carries neither the behaviour nor the variable names.
+    private static void ApplyForcedFailure()
+    {
+#if DEV_TOOLS
+        if (GpuTestSeam.ConsumeIntermittentFailure())
+        {
+            throw new InvalidOperationException("forced intermittent GL init failure (NEXUS_GPU_FAIL_FIRST_N)");
+        }
+        switch (GpuTestSeam.Mode)
+        {
+            case GpuForceMode.Fail:
+                throw new InvalidOperationException("forced GL init failure (NEXUS_GPU_FORCE_FAIL=fail)");
+            case GpuForceMode.Hang:
+                Log("[gpu] forced hang: the GL thread parks here for the process lifetime");
+                using (var never = new ManualResetEventSlim(false))
+                {
+                    never.Wait();
+                }
+                break;
+            case GpuForceMode.Crash:
+                Log("[gpu] forced crash: killing the process the way a native fast-fail does");
+                Environment.FailFast("forced GL init crash (NEXUS_GPU_FORCE_FAIL=crash)");
+                break;
+        }
+#endif
+    }
+
     public void Dispose()
     {
         lock (_lock)
@@ -433,9 +561,20 @@ public sealed class GpuContext : IDisposable
             _eglUsed = false;
         }
 #else
-        try
-        { _window?.Dispose(); }
-        catch { }
+        // Win32 DestroyWindow fails from any thread but the one that created the
+        // window, which is the GL thread.
+        if (joined && _glfwWindow != IntPtr.Zero)
+        {
+            try
+            {
+                unsafe
+                {
+                    Silk.NET.GLFW.GlfwProvider.GLFW.Value.DestroyWindow((WindowHandle*)_glfwWindow);
+                }
+            }
+            catch { }
+            _glfwWindow = IntPtr.Zero;
+        }
 #endif
         // Dispose the per-thread MREs we created along the way.
         if (_invokeDone.Values is { } values)

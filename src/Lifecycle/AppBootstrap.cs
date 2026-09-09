@@ -44,6 +44,8 @@ internal static class AppBootstrap
                         ?.Load().Lighting.RenderGpu ?? "auto";
                     if (string.Equals(choice, "auto", StringComparison.OrdinalIgnoreCase))
                     {
+                        app.Lifetime.ApplicationStopping.Register(
+                            Nexus.Service.Lighting.Engine.Gpu.GpuRenderSelect.ClearCrashGuardOnStop);
                         Nexus.Service.Lighting.Engine.Gpu.GpuRenderSelect.SelectAndWarm(gpu, sw);
                         WatchForLateContext(app, gpu, sw);
                         return;
@@ -58,7 +60,9 @@ internal static class AppBootstrap
                     GpuContext.Log(gpu.Available
                         ? $"[gpu] warmup: GPU shader engine ready in {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'"
                         : $"[gpu] warmup: no GPU context after {sw.ElapsedMilliseconds}ms "
-                          + $"({(gpu.Failed ? "init failed" : "still initializing")}; every lighting mode is shader-rendered, so devices stay dark until it lands)");
+                          + $"({(gpu.Failed ? "init failed" : "still initializing")}; shader effects stay dark "
+                          + "until it lands, static colours, LED highlight, game sync and firmware-owned "
+                          + "lighting are unaffected)");
                     WatchForLateContext(app, gpu, sw);
                 }
                 catch (Exception ex)
@@ -71,6 +75,16 @@ internal static class AppBootstrap
         });
     }
 
+    // Ceiling on one init attempt. Past it the attempt is written off so
+    // /lighting/status stops reporting "initializing" and the render-GPU
+    // shortcut, gated on a failed card, is offered. Well past the 28.4s
+    // cold-boot AMD iGPU that set InitTimeout.
+    private static readonly TimeSpan InitHardBudget = TimeSpan.FromSeconds(90);
+
+    // A wedged driver can still return minutes later; the attempt un-abandons
+    // itself if it does.
+    private static readonly TimeSpan LateLandingBudget = TimeSpan.FromMinutes(10);
+
     // ShaderEffect re-checks availability and compiles lazily, so a late context
     // needs no re-apply; the broadcast is what clears the Lighting canvas notice,
     // which reads /lighting/status.
@@ -82,16 +96,19 @@ internal static class AppBootstrap
         }
         var thread = new Thread(() =>
         {
-            if (!gpu.WaitForInit(TimeSpan.FromMinutes(10)))
+            if (gpu.WaitForInit(InitHardBudget))
             {
-                // Otherwise the UI shows "still setting up" forever and withholds
-                // the render-GPU shortcut, which is gated on a failed card.
-                gpu.AbandonInit();
+                GpuContext.Log($"[gpu] context landed late, after {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'; shader effects resume");
                 Broadcast(app);
                 return;
             }
-            GpuContext.Log($"[gpu] context landed late, after {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'; shader effects resume");
+            gpu.AbandonInit();
             Broadcast(app);
+            if (gpu.WaitForLateLanding(LateLandingBudget))
+            {
+                GpuContext.Log($"[gpu] context landed after being written off, at {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'; shader effects resume");
+                Broadcast(app);
+            }
         })
         { IsBackground = true, Name = "nexus-gpu-late" };
         thread.Start();

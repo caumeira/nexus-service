@@ -104,14 +104,18 @@ public sealed class ShaderEffect : IEffect
 
     private void RenderFrameInternal(CanvasBuffer canvas, double tickMs)
     {
-        lock (_ctx.Lock)
-        {
-            _ctx.EnsureInitializedLocked();
-        }
-        // Skip the frame rather than latch: the context can still land, and
-        // _failed here would keep the device dark for the process lifetime.
         if (!_ctx.Available)
         {
+            // Backstop for a context the warmup never started, gated so an init
+            // the selection logic declined is not re-armed from the render path.
+            // Skip the frame rather than latch: the context can still land.
+            if (!_ctx.InitSuppressed)
+            {
+                lock (_ctx.Lock)
+                {
+                    _ctx.EnsureInitializedLocked();
+                }
+            }
             return;
         }
 
