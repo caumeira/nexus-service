@@ -123,6 +123,8 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
                 }
             }
         }
-        return best == null ? null : _hid.Open(best.Path);
+        // forInput: a model with a control channel reads the panel's replies, and a
+        // non-overlapped handle would block that read with no timeout to bound it.
+        return best == null ? null : _hid.Open(best.Path, forInput: true);
     }
 }

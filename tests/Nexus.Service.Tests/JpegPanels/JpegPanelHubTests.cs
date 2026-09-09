@@ -30,7 +30,7 @@ public class JpegPanelHubTests
     [Fact]
     public void A_model_with_no_init_sequence_attaches_without_writing()
     {
-        using var hub = new JpegPanelHub(JpegPanelModel.GalahadIiLcd);
+        using var hub = new JpegPanelHub(JpegPanelModel.CorsairXc7);
         var device = new RecordingHidDevice();
 
         Assert.True(hub.Attach(device));
@@ -76,6 +76,7 @@ public class JpegPanelHubTests
         using var hub = new JpegPanelHub(model);
         var device = new RecordingHidDevice();
         hub.Attach(device);
+        device.Writes.Clear();
         var jpeg = Enumerable.Range(0, 2500).Select(i => (byte)(i % 251)).ToArray();
 
         Assert.True(hub.SendFrame(jpeg));
@@ -99,6 +100,7 @@ public class JpegPanelHubTests
         using var hub = new JpegPanelHub(JpegPanelModel.GalahadIiLcd);
         var device = new RecordingHidDevice();
         hub.Attach(device);
+        device.Writes.Clear();
         device.FailWritesFrom = 1;
 
         Assert.False(hub.SendFrame(Enumerable.Repeat((byte)0xAB, 4000).ToArray()));
@@ -142,6 +144,9 @@ public class JpegPanelHubTests
 
     [Theory]
     [InlineData(0x0416, 0x7395, "lianli-galahad2-lcd")]
+    [InlineData(0x0416, 0x7398, "lianli-hydroshift-lcd")]
+    [InlineData(0x0416, 0x7399, "lianli-hydroshift-lcd")]
+    [InlineData(0x0416, 0x739A, "lianli-hydroshift-lcd")]
     [InlineData(0x1B1C, 0x0C42, "corsair-xc7-lcd")]
     [InlineData(0x1B1C, 0x0C39, "corsair-capellix-lcd")]
     [InlineData(0x1B1C, 0x0C33, "corsair-capellix-lcd")]
