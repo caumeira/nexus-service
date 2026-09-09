@@ -896,7 +896,9 @@ public static class NexusServiceCollectionExtensions
         {
             var jpegPanelHub = new Nexus.Service.Peripherals.JpegPanels.JpegPanelHub(jpegPanelModel);
             services.AddSingleton(jpegPanelHub);
-            services.AddHostedService(sp =>
+            // AddHostedService de-duplicates by implementation type, so one registration per
+            // model would collapse to the first model's worker alone.
+            services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(sp =>
                 new Nexus.Service.Peripherals.JpegPanels.JpegPanelConnectionWorker(
                     sp.GetRequiredService<Nexus.Service.Peripherals.Hid.IHidEnumerator>(),
                     jpegPanelHub,
@@ -927,7 +929,8 @@ public static class NexusServiceCollectionExtensions
         {
             var bulkPanelHub = new Nexus.Service.Peripherals.BulkPanels.BulkPanelHub(bulkPanelDriver);
             services.AddSingleton(bulkPanelHub);
-            services.AddHostedService(sp =>
+            // Same de-duplication as the JPEG panel loop above.
+            services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(sp =>
                 new Nexus.Service.Peripherals.BulkPanels.BulkPanelConnectionWorker(
                     sp.GetRequiredService<Nexus.Service.Peripherals.Hid.IHidEnumerator>(),
                     sp.GetRequiredService<Nexus.Service.Peripherals.BulkPanels.IBulkUsbPipeFactory>(),

@@ -51,6 +51,9 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
     /// </summary>
     private const int FirmwareTimeoutMs = 1000;
 
+    /// <summary>Matches the reference driver's per-frame ack read; the ack is normally already queued.</summary>
+    private const int AckTimeoutMs = 20;
+
     private readonly string _handlerId;
     private readonly byte _fps;
     private byte[]? _report;
@@ -93,8 +96,18 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
         SendLcdControl(device, Buffer(reportLength), ModeLocalUi);
     }
 
-    /// <summary>Nothing to re-assert: this family holds application mode until told otherwise.</summary>
-    public bool BeforeFrame(IHidDevice device, int reportLength, long nowMs) => true;
+    /// <summary>
+    /// Drains the ack the panel posts for the previous frame. Application mode holds without
+    /// re-asserting, but the IN endpoint must be emptied: left unread it backs up and the
+    /// panel stops accepting output reports, so one chunk per frame blocks for the write
+    /// timeout and the frame is dropped. The reference driver reads the same ack per frame.
+    /// </summary>
+    public bool BeforeFrame(IHidDevice device, int reportLength, long nowMs)
+    {
+        Span<byte> ack = stackalloc byte[64];
+        device.Read(ack, AckTimeoutMs);
+        return true;
+    }
 
     /// <summary>
     /// LCD control payload: mode, brightness, rotation, four reserved bytes, frame rate.

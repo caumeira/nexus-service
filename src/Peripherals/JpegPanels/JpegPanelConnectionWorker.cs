@@ -25,6 +25,11 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
     private readonly JpegPanelHub _hub;
     private readonly DeviceControlGate _gate;
 
+    // A panel that enumerates but exposes no report long enough to carry a frame chunk is
+    // indistinguishable from an absent one in the loop below, so say which it was - once
+    // per run of misses, since the loop retries every few seconds.
+    private bool _missLogged;
+
     public JpegPanelConnectionWorker(IHidEnumerator hid, JpegPanelHub hub, DeviceControlGate gate)
     {
         _hid = hid;
@@ -48,9 +53,11 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
                 var device = FindAndOpen();
                 if (device == null)
                 {
+                    LogMissOnce();
                     await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
                     continue;
                 }
+                _missLogged = false;
 
                 if (!_hub.Attach(device))
                 {
@@ -86,6 +93,28 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
             }
         }
         _hub.Detach();
+    }
+
+    private void LogMissOnce()
+    {
+        if (_missLogged)
+        {
+            return;
+        }
+        _missLogged = true;
+        var model = _hub.Model;
+        var seen = new System.Text.StringBuilder();
+        for (int i = 0; i < model.ProductIds.Count; i++)
+        {
+            foreach (var info in _hid.Find(model.VendorId, model.ProductIds[i]))
+            {
+                seen.Append(seen.Length == 0 ? "" : "; ")
+                    .Append($"pid=0x{info.ProductId:X4} usage={info.UsagePage:X4}/{info.Usage:X2} out={info.OutputReportByteLength} in={info.InputReportByteLength}");
+            }
+        }
+        ServiceLog.Info(seen.Length == 0
+            ? $"[{model.HandlerId}] no HID interface enumerated for this panel"
+            : $"[{model.HandlerId}] no interface carries a {model.ReportLength}-byte report; saw {seen}");
     }
 
     private bool StillPresent()
