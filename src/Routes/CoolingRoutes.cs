@@ -69,6 +69,7 @@ public static class CoolingRoutes
             {
                 if (names.TryGetValue(ch.Id, out var custom))
                 {
+                    ch.OriginalName = ch.Name;
                     ch.Name = custom;
                 }
                 // A hub group header has no channel of its own, so its rename is
@@ -76,6 +77,7 @@ public static class CoolingRoutes
                 // channel on that device carries.
                 if (ch.DeviceId is { } devId && names.TryGetValue(devId, out var deviceCustom))
                 {
+                    ch.OriginalDeviceName = ch.DeviceName;
                     ch.DeviceName = deviceCustom;
                 }
                 ch.Locked = FanProfiles.IsLocked(ch, cooling.FanLockOverrides);
