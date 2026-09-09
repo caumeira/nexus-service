@@ -17,7 +17,6 @@ namespace Nexus.Service.Routes;
 /// Floating desktop widget endpoints. State is profile-scoped under
 /// <c>OverlaySettings.Layout</c>; mutations broadcast the existing
 /// <c>prefs</c> topic so the desktop host (and any open SPA tab) refetches.
-/// See plans/desktop-widgets-v1.md.
 /// </summary>
 public static class OverlayRoutes
 {

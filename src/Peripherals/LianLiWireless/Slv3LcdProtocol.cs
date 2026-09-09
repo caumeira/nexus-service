@@ -6,7 +6,7 @@ namespace Nexus.Service.Peripherals.LianLiWireless;
 /// <summary>
 /// Pure byte-level builders for the SL-LCD Wireless fan screen protocol
 /// (VID 0x1CBE, PID 0x0005 SL-LCD / 0x0006 TL-LCD). No IO; the transport owns
-/// the WinUSB endpoints. See plans/lianli-wireless-support.md section 4.
+/// the WinUSB endpoints.
 ///
 /// Every push is a fixed <see cref="TransferBufferSize"/>-byte bulk write to
 /// EP 0x01:

@@ -24,8 +24,8 @@ public sealed record TouchMappingPassOutcome(TouchMappingPassResult Result, stri
 /// <summary>
 /// Detects and repairs a mis-mapped touch digitizer: Windows can associate a
 /// touch panel's digitizer with the wrong monitor (documented fallback when
-/// container-id matching fails - see plans/touch-mapping-auto-repair.md
-/// section 1), which sends touch input to the wrong screen. Registry write
+/// container-id matching fails), which sends touch input to the wrong
+/// screen. Registry write
 /// and devnode restart both run session-independent, so this class needs no
 /// user-session access itself; ITouchMapSnapshotSource is the only dependency
 /// that does (implemented via the helper on Windows).
@@ -114,8 +114,7 @@ public sealed class TouchMappingGuard
                 return new TouchMappingPassOutcome(TouchMappingPassResult.Failed, "devnode-restart-failed");
 
             // The registry write alone is inert; Windows only re-reads the
-            // mapping at digitizer arrival (bench-proven, see
-            // plans/touch-mapping-auto-repair.md section 4a). The restart is
+            // mapping at digitizer arrival (bench-proven). The restart is
             // sub-second on the bench but carries no completion signal this
             // process can await, so poll the bounded window instead.
             var pending = new HashSet<string>(StringComparer.Ordinal);

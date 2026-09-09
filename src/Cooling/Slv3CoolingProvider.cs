@@ -16,7 +16,7 @@ namespace Nexus.Service.Cooling;
 ///
 /// Duty and mode read straight off the RX device-list telemetry
 /// (<see cref="Slv3Hub.State"/>): the firmware itself echoes back the
-/// motherboard-sync sentinel (plans/lianli-wireless-support.md section 3),
+/// motherboard-sync sentinel,
 /// so unlike the wired hub - which has no PWM readback - no separate
 /// software-controlled bookkeeping is needed to know Auto vs Manual.
 /// </summary>

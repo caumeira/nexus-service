@@ -1070,8 +1070,8 @@ public sealed class Slv3Hub : IDisposable
     }
 
     /// <summary>
-    /// Sets a fan chain's port duty target for the next PWM sync
-    /// (plans/lianli-wireless-support.md section 3): null follows the
+    /// Sets a fan chain's port duty target for the next PWM sync: null
+    /// follows the
     /// motherboard PWM header, otherwise a manual percent (0..100). Takes
     /// effect on the connection worker's next DriveTick, where the reported
     /// duty's drift from the new target sends the bind/PWM frame. Returns

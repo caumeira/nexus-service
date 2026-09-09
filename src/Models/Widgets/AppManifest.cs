@@ -8,7 +8,7 @@ namespace Nexus.Service.Models.Widgets;
 /// Parsed <c>manifest.json</c> for an installed app under the <c>nexus.app/1</c>
 /// schema. Field names match the on-disk JSON. An app's widget facet is a
 /// sandboxed remote-component bundle (<c>widget.mjs</c>); there is no declarative
-/// view tree. See <c>plans/third-party-app-sdk.md</c> for the contract.
+/// view tree.
 /// </summary>
 public sealed class AppManifest
 {
@@ -114,7 +114,7 @@ public sealed class AppManifest
     /// Optional device-driver block: declares a native sidecar executable the host
     /// fetches from the app store and runs. Honored only for a <b>bundled</b> app
     /// (the registry drops it from user installs); the widget facet always
-    /// loads regardless. See <c>plans/third-party-app-sdk.md</c> §"Raw .exe".
+    /// loads regardless.
     /// </summary>
     [JsonPropertyName("driver")]
     public AppManifestDriver? Driver { get; set; }

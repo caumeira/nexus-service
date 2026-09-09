@@ -105,7 +105,7 @@ public sealed class Slv3LcdImportResponse
 /// <summary>
 /// First-party Lian Li SL-LCD Wireless fan-screen routes: discovery/settings
 /// list, per-screen brightness/rotation/content, and the media library
-/// (import/list/delete). See plans/lianli-wireless-support.md section 4-5.
+/// (import/list/delete).
 /// </summary>
 public static class Slv3LcdRoutes
 {

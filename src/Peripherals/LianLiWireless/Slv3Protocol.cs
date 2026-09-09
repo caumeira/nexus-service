@@ -7,7 +7,7 @@ namespace Nexus.Service.Peripherals.LianLiWireless;
 /// Pure byte-level builders/parsers for the Lian Li L-Wireless (SLV3) 2.4 GHz
 /// dongle protocol. No IO; the transport owns the WinUSB endpoints. Facts are
 /// from L-Connect 3 (lianli.slv3) and the public RE (sgtaziz/lian-li-linux,
-/// phstudy/uni-wireless-sync). See plans/lianli-wireless-support.md.
+/// phstudy/uni-wireless-sync).
 ///
 /// Two framing layers:
 ///  - USB frame (64 B, to the TX/RX dongle over WinUSB EP 0x01, no report id):

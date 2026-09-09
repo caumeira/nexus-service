@@ -12,7 +12,7 @@ namespace Nexus.Service.Tests.LianLiWireless;
 /// state machine converges (or fails to) exactly as it would against real
 /// firmware: a bind/unbind frame takes effect on the fake network, and the
 /// hub only sees it on its NEXT device-list refresh, matching the two-tick
-/// convergence plans/lianli-wireless-support.md section 1.7 describes.
+/// convergence the fake network models.
 /// </summary>
 public class Slv3HubTests
 {

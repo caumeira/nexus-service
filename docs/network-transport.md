@@ -112,8 +112,7 @@ is called out here:
   and receive the same 30-day idle session cookie; only the transport
   differs. Hardening (bind session to claim-time IP/UA, `Sec-Fetch-Site`/
   `Origin` pin on state-changing HTTP requests, shorter idle TTL when
-  claimed over HTTP) is a planned follow-up - see
-  `plans/local-http-pairing-fallback.md` for the threat model.
+  claimed over HTTP) is a planned follow-up.
 
 ## Always-on Desktop Traffic
 

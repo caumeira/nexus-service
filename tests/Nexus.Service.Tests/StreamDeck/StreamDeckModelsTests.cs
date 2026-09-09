@@ -4,7 +4,7 @@ using Nexus.Service.Peripherals.StreamDeck;
 namespace Nexus.Service.Tests.StreamDeck;
 
 /// <summary>
-/// Sanity checks over the plan streamdeck-support.md §1 capability table
+/// Sanity checks over the button-only capability table
 /// (14 button-only models), cross-verified against the MIT elgato-streamdeck
 /// crate's src/info.rs (fetched 2026-07-10).
 /// </summary>

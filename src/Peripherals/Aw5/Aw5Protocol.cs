@@ -15,7 +15,7 @@ public enum Aw5Variant
 
 /// <summary>
 /// Wire format for the AW5 pump display. Decoded on the bench 2026-07-15 by driving
-/// each field and reading the glass; see plans/ibuypower-aw5-re.md.
+/// each field and reading the glass.
 /// </summary>
 public static class Aw5Protocol
 {

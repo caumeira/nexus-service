@@ -154,11 +154,11 @@ public sealed class StreamDeckModel
 }
 
 /// <summary>
-/// The button-only Stream Deck capability table (plan streamdeck-support.md
-/// §1), cross-verified against the MIT elgato-streamdeck crate
+/// The button-only Stream Deck capability table, cross-verified against the
+/// MIT elgato-streamdeck crate
 /// (src/info.rs, fetched 2026-07-10) and python-elgato-streamdeck
 /// (StreamDeckMini.py / StreamDeckOriginal.py). Dials/touchscreen models
-/// (Plus, Plus XL) are out of scope per the plan.
+/// (Plus, Plus XL) are out of scope.
 /// </summary>
 public static class StreamDeckModels
 {

@@ -290,7 +290,7 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
     }
 }
 #else
-/// <summary>Inert: the LCD screens are Windows-only for v1 (see plans/lianli-wireless-support.md).</summary>
+/// <summary>Inert: the LCD screens are Windows-only for v1.</summary>
 public sealed class Slv3LcdTransport : ISlv3LcdTransport
 {
     public Slv3LcdTransport(string devicePath)

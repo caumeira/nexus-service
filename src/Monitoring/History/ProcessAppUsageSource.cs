@@ -33,8 +33,8 @@ internal readonly record struct AppNetSplitPoint(string Name, double DownBytesPe
 ///
 /// "net" is different from every other metric here: INetworkProvider is
 /// deliberately NOT put on always-on demand the way ProcessMonitor/
-/// GpuProcessMonitor are (see the metrics-history plan's warning against
-/// churning process handles for network) - its own sampling loop stays
+/// GpuProcessMonitor are - churning process handles for network is what
+/// that would cost - so its own sampling loop stays
 /// gated on real WebSocket subscribers to "network"/"monitoring", so
 /// GetSnapshot() can legitimately be empty or stale for long stretches.
 /// "net" history only accumulates while that provider happens to already

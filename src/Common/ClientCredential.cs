@@ -2,7 +2,7 @@ using System.Net.Http;
 
 namespace Nexus.Service.Common;
 
-/// <summary>Ed25519-signed build credential every call to our backend carries; empty in a build we did not publish, which is what makes that build offline. Extractable from any shipped binary, so it gates rather than authorizes - see plans/open-source-cloud-boundary.md.</summary>
+/// <summary>Ed25519-signed build credential every call to our backend carries; empty in a build we did not publish, which is what makes that build offline. Extractable from any shipped binary, so it gates rather than authorizes.</summary>
 internal static class ClientCredential
 {
     public const string HeaderName = "X-Nexus-Client";

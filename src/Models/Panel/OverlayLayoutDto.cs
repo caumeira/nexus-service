@@ -5,7 +5,7 @@ namespace Nexus.Service.Models.Panel;
 /// <summary>
 /// Floating desktop widget. Positioned by cell coordinates on a sparse grid;
 /// each monitor has its own (col, row) space sized from monitor workArea
-/// divided by the panel cell size. See plans/desktop-widgets-v1.md.
+/// divided by the panel cell size.
 /// </summary>
 public sealed class OverlayWidgetDto
 {

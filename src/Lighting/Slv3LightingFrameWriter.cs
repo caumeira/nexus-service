@@ -14,8 +14,8 @@ namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Streams engine frames to every bound SLV3 wireless fan chain as a
-/// single-frame RF_RgbSync animation - the plan's "OpenRGB-style / live
-/// direct mode" (plans/lianli-wireless-support.md section 2). There is no
+/// single-frame RF_RgbSync animation - an "OpenRGB-style / live direct
+/// mode". There is no
 /// firmware ROM-effect catalog exposed for wireless fans: every tick composes
 /// each chain's resolved zone frames into a fan-major buffer (the family's
 /// wire LED count per fan) and pushes it through

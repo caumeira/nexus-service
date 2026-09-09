@@ -216,7 +216,7 @@ public sealed class Slv3Transport : ISlv3Transport
 }
 #else
 /// <summary>
-/// Inert: SLV3 is Windows-only for v1 (see plans/lianli-wireless-support.md).
+/// Inert: SLV3 is Windows-only for v1.
 /// Discovery never returns a port on other platforms, so this is never opened.
 /// </summary>
 public sealed class Slv3Transport : ISlv3Transport

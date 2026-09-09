@@ -8,8 +8,7 @@ namespace Nexus.Service.Tests;
 /// <summary>
 /// Pure logic for the touch-mapping guard: the Digimon registry value
 /// format, the panel/digitizer catalog match, and the decision matrix.
-/// Golden values are the exact strings captured on the Y70 bench,
-/// plans/touch-mapping-auto-repair.md section 4a.
+/// Golden values are the exact strings captured on the Y70 bench.
 /// </summary>
 public sealed class TouchMappingCatalogTests
 {

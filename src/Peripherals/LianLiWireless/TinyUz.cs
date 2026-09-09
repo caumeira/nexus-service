@@ -5,8 +5,8 @@ namespace Nexus.Service.Peripherals.LianLiWireless;
 
 /// <summary>
 /// Pure C# port of the TinyUZ wire format (github.com/sisong/tinyuz, MIT) as
-/// used by the SLV3 firmware's RF_RgbSync decoder (plans/lianli-wireless-support.md
-/// section 2): a 4-byte little-endian dictionary-size header followed by a
+/// used by the SLV3 firmware's RF_RgbSync decoder: a 4-byte little-endian
+/// dictionary-size header followed by a
 /// type-bit stream where each bit selects a literal data byte or a control
 /// code. Control codes (codeType 0) carry an Elias-gamma-like length, an
 /// optional "reuse last dict position" flag, and a dict_pos byte (0 marks a

@@ -691,8 +691,8 @@ public sealed class CloudAccountService
     /// Telemetry.InstallId field <see cref="InstallIdentity.Resolve"/> uses,
     /// but without the anonymous-data opt-out gate: an authenticated cloud
     /// account attaches a device via an explicit opt-in (login), a separate
-    /// consent from the anonymous fleet heartbeat. See
-    /// plans/account-system.md "installId privacy invariant". Shared by
+    /// consent from the anonymous fleet heartbeat: the installId privacy
+    /// invariant. Shared by
     /// CloudDeviceReporter and CloudProfileSyncService.
     /// </summary>
     internal string ResolveStableInstallId()
