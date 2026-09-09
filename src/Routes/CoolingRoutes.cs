@@ -71,6 +71,13 @@ public static class CoolingRoutes
                 {
                     ch.Name = custom;
                 }
+                // A hub group header has no channel of its own, so its rename is
+                // stored under the device id and surfaces as the group name every
+                // channel on that device carries.
+                if (ch.DeviceId is { } devId && names.TryGetValue(devId, out var deviceCustom))
+                {
+                    ch.DeviceName = deviceCustom;
+                }
                 ch.Locked = FanProfiles.IsLocked(ch, cooling.FanLockOverrides);
                 ch.Controlled = cooling.UncontrolledFanChannels.Count == 0
                     || !cooling.UncontrolledFanChannels.Contains(ch.Id);
@@ -176,15 +183,12 @@ public static class CoolingRoutes
             return Results.Ok(ApiResponse.Ok());
         });
 
-        app.MapPost("/cooling/fan/{id}/name", (string id, SetFanNameBody body, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/fan/{id}/name", (string id, SetFanNameBody body, IConfigStore store, MultiplexHub hub) =>
         {
+            // No existence check: the id is either a channel the list handed the
+            // UI or the device id of one of its group headers, and re-enumerating
+            // the hardware to validate a string write buys nothing.
             id = Uri.UnescapeDataString(id);
-            var channels = f.GetFanChannels();
-            if (!channels.Any(c => c.Id == id))
-            {
-                return Results.BadRequest(new ApiResponse { Error = true, Msg = "Unknown fan channel" });
-            }
-
             store.Update(s =>
             {
                 if (string.IsNullOrWhiteSpace(body.Name))

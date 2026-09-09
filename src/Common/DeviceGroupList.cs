@@ -18,9 +18,10 @@ public static class DeviceGroupList
     public const int MaxNameLength = 20;
 
     /// <summary>
-    /// The list as it will be stored. Groups past the cap are dropped, as are
-    /// groups left with no members; a member id repeated across groups stays in
-    /// the first group that claims it, so a card can never render twice.
+    /// The list as it will be stored. Groups past the cap are dropped and a
+    /// member id repeated across groups stays in the first group that claims it,
+    /// so a card can never render twice. An empty group is kept: one is created
+    /// empty and stays that way until the user drags a card into it.
     /// </summary>
     public static List<DeviceGroup> Sanitize(IReadOnlyList<DeviceGroup>? incoming)
     {
@@ -44,8 +45,6 @@ public static class DeviceGroupList
                 if (!claimed.Add(trimmed)) continue;
                 members.Add(trimmed);
             }
-            if (members.Count == 0) continue;
-
             var name = (group.Name ?? "").Trim();
             if (name.Length > MaxNameLength) name = name[..MaxNameLength];
 

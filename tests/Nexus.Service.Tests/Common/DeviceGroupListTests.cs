@@ -52,17 +52,18 @@ public class DeviceGroupListTests
     }
 
     [Fact]
-    public void Sanitize_DropsAGroupLeftWithNoMembers()
+    public void Sanitize_KeepsAnEmptyGroup()
     {
+        // A group is created empty and stays that way until a card is dragged
+        // in, so dropping empty ones would delete every new group on save.
         var groups = DeviceGroupList.Sanitize(new[]
         {
             Group("g1", "Desk", "openrgb-2"),
             Group("g2", "Empty"),
-            Group("g3", "Dupes", "openrgb-2"),
         });
 
-        Assert.Single(groups);
-        Assert.Equal("g1", groups[0].Id);
+        Assert.Equal(new[] { "g1", "g2" }, groups.Select(g => g.Id));
+        Assert.Empty(groups[1].Members);
     }
 
     [Fact]
