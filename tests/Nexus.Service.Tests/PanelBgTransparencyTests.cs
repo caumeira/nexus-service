@@ -3,7 +3,6 @@ using System.IO;
 using System.Threading.Tasks;
 using Nexus.Service.Media;
 using Nexus.Service.Panel;
-using Nexus.Service.Platform;
 using Xunit;
 
 namespace Nexus.Service.Tests;
@@ -18,6 +17,10 @@ namespace Nexus.Service.Tests;
 ///
 /// Fixtures are literal base64 (authored with PIL, decoded here): the bundled
 /// build has no lavfi, so it cannot generate its own test media.
+///
+/// The baking tests carry <see cref="FfmpegFactAttribute"/> so a host with no
+/// ffmpeg reports them skipped instead of failing the class. A publish without
+/// the bundled binary is already a hard MSBuild error, so nothing is lost.
 /// </summary>
 public sealed class PanelBgTransparencyTests : IDisposable
 {
@@ -40,9 +43,6 @@ public sealed class PanelBgTransparencyTests : IDisposable
 
     public PanelBgTransparencyTests()
     {
-        // A publish without the bundled binary is already a hard MSBuild error;
-        // failing here rather than skipping keeps that true for the tests too.
-        Assert.NotNull(FfmpegResolver.Path);
         _root = Path.Combine(Path.GetTempPath(), "nexus-bg-alpha-" + Guid.NewGuid().ToString("N"));
         _library = new PanelBgLibrary(_root);
     }
@@ -88,7 +88,7 @@ public sealed class PanelBgTransparencyTests : IDisposable
         }
     }
 
-    [Fact]
+    [FfmpegFact]
     public async Task TransparentPngKeepsItsAlpha()
     {
         var stageId = await StageAsync(TransparentPngBase64, "circle.png");
@@ -103,7 +103,7 @@ public sealed class PanelBgTransparencyTests : IDisposable
         Assert.Equal(0, corner.A);
     }
 
-    [Fact]
+    [FfmpegFact]
     public async Task TransparentPngMattesToBlackWhenTransparencyIsOff()
     {
         var stageId = await StageAsync(TransparentPngBase64, "circle.png");
@@ -122,7 +122,7 @@ public sealed class PanelBgTransparencyTests : IDisposable
             $"expected a black matte, got ({corner.R},{corner.G},{corner.B})");
     }
 
-    [Fact]
+    [FfmpegFact]
     public async Task TransparentGifStaysAnimatedAndTransparent()
     {
         var stageId = await StageAsync(TransparentGifBase64, "moving.gif");
@@ -137,7 +137,7 @@ public sealed class PanelBgTransparencyTests : IDisposable
         Assert.Equal(0, corner.A);
     }
 
-    [Fact]
+    [FfmpegFact]
     public async Task TransparentGifBecomesAnOpaqueVideoWhenTransparencyIsOff()
     {
         var stageId = await StageAsync(TransparentGifBase64, "moving.gif");
@@ -153,7 +153,7 @@ public sealed class PanelBgTransparencyTests : IDisposable
             $"expected a black matte, got ({corner.R},{corner.G},{corner.B})");
     }
 
-    [Fact]
+    [FfmpegFact]
     public async Task OpaqueSourceKeepsTheJpegPipeline()
     {
         // The same png with its alpha filled in: nothing to keep, so a ticked
@@ -173,7 +173,7 @@ public sealed class PanelBgTransparencyTests : IDisposable
         Assert.True(File.Exists(_library.GetMediaPath(DeviceId, result.Item.Id, ".jpg")));
     }
 
-    [Fact]
+    [FfmpegFact]
     public async Task StagePreviewIsPngOnlyForATransparentSource()
     {
         var alphaStage = await StageAsync(TransparentPngBase64, "circle.png");
