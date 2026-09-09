@@ -386,6 +386,7 @@ public sealed class Nexus2MigrationService
                 BackgroundMode = "media",
                 BackgroundMediaId = commit.Item.Id,
                 BackgroundMediaType = commit.Item.Type,
+                BackgroundMediaAlpha = commit.Item.Alpha,
             });
             return Applied(id);
         }

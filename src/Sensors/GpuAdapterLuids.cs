@@ -197,10 +197,13 @@ internal static class GpuAdapterLuids
     /// device. A removed GPU leaves its driver registered, so DXGI keeps
     /// enumerating it as a ghost adapter (no Software flag, real vendor id) -
     /// counting adapters can't tell a ghost from a present card. D3D11CreateDevice
-    /// fails on the ghost (hardware absent) and succeeds on a real GPU, the same
-    /// usability GLFW's WGL OpenGL context needs; without a real adapter, GLFW
-    /// context creation fail-fasts inside the orphaned ICD (0xc0000409), which a
-    /// managed catch can't intercept. Windows-only; false elsewhere.
+    /// fails on the ghost (hardware absent) and succeeds on a real GPU; without a
+    /// real adapter, GLFW context creation fail-fasts inside the orphaned ICD
+    /// (0xc0000409), which a managed catch can't intercept.
+    ///
+    /// Necessary for the GL path, NOT sufficient: a single-GPU box has been seen
+    /// passing this and still getting ApiUnavailable from WGL. The GL verdict is
+    /// glfwCreateWindow returning null under GlfwErrorGuard. Windows-only.
     /// </summary>
     public static bool HasUsableHardwareGpu()
     {
