@@ -26,8 +26,6 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
     private bool _dropLogged;
     private readonly PanelOrientationFilter _orientation = new();
 
-    // Only allocated for a model whose glass is turned; the rest encode straight from the
-    // oriented frame.
     private readonly byte[] _turned;
 
     public JpegPanelStreamTransport(JpegPanelHub hub, string serial)
@@ -37,7 +35,7 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
         var model = hub.Model;
         _encoder = new BgraJpegEncoder(model.Width, model.Height);
         _frame = new byte[_encoder.FrameBytes];
-        _turned = model.QuarterTurnsCcw == 0 ? Array.Empty<byte>() : new byte[_frame.Length];
+        _turned = model.QuarterTurnCcw ? new byte[_frame.Length] : Array.Empty<byte>();
     }
 
     public bool IsOpen => !_disposed && _hub.IsConnected;
@@ -88,7 +86,7 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
             // The record's flip/mirror acts on canonical upright content; the model's own
             // quarter turn is the panel's quirk and so goes last, closest to the glass.
             var oriented = _orientation.Apply(_frame, model.Width, model.Height);
-            if (model.QuarterTurnsCcw != 0)
+            if (model.QuarterTurnCcw)
             {
                 BgraQuarterTurn.RotateCcw(oriented, model.Width, model.Height, _turned);
                 oriented = _turned;

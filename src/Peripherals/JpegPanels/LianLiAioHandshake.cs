@@ -37,18 +37,12 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
     private const byte ModeLocalUi = 0x00;
     private const byte ModeApplication = 0x01;
 
-    /// <summary>
-    /// Panel brightness, 0-100. Full: the glass sits behind a tinted pump cover and widget
-    /// text is small. There is no per-device brightness control on this path yet.
-    /// </summary>
+    /// <summary>Panel brightness, 0-100.</summary>
     private const byte Brightness = 100;
 
     private const byte Rotate0 = 0x00;
 
-    /// <summary>
-    /// The panel answers the firmware read on its own interrupt-IN pipe. Short, because a
-    /// silent panel is not a reason to refuse the handle - the frame path does not need it.
-    /// </summary>
+    /// <summary>A silent panel does not fail the attach; the frame path does not need the firmware.</summary>
     private const int FirmwareTimeoutMs = 1000;
 
     /// <summary>Matches the reference driver's per-frame ack read; the ack is normally already queued.</summary>
@@ -68,9 +62,8 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
     {
         var report = Buffer(reportLength);
 
-        // Logged, never gated on: it is the one two-way exchange this panel offers, so it
-        // is the only evidence that the handle talks to the panel rather than just to the
-        // HID stack. A frame write returning true proves neither.
+        // The one two-way exchange this panel offers, so the only evidence the handle reaches
+        // the panel rather than just the HID stack.
         var firmware = ReadFirmware(device, report);
         if (firmware != null)
         {
@@ -105,8 +98,9 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
     public bool BeforeFrame(IHidDevice device, int reportLength, long nowMs)
     {
         Span<byte> ack = stackalloc byte[64];
-        device.Read(ack, AckTimeoutMs);
-        return true;
+        // Negative is a dead handle, distinct from 0 for "no ack queued"; writing a frame
+        // into it would burn the write timeout per chunk.
+        return device.Read(ack, AckTimeoutMs) >= 0;
     }
 
     /// <summary>
@@ -139,7 +133,6 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake
         report.AsSpan().Clear();
         report[0] = ReportIdA;
         report[1] = CmdGetFirmware;
-        report[5] = 0x00;
         if (!device.Write(report))
         {
             return null;

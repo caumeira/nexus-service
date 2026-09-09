@@ -166,8 +166,8 @@ public class JpegPanelHubTests
     }
 
     /// <summary>
-    /// None of these has been run against hardware, so a build must never claim one on its
-    /// own. This is the guard on that promise.
+    /// A build must never claim one of these coolers on its own, hardware-verified or not.
+    /// This is the guard on that promise.
     /// </summary>
     [Fact]
     public void Every_model_defaults_to_nexus_control_off_and_reads_as_experimental()

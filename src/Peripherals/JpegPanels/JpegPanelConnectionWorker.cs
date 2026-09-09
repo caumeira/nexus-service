@@ -25,9 +25,7 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
     private readonly JpegPanelHub _hub;
     private readonly DeviceControlGate _gate;
 
-    // A panel that enumerates but exposes no report long enough to carry a frame chunk is
-    // indistinguishable from an absent one in the loop below, so say which it was - once
-    // per run of misses, since the loop retries every few seconds.
+    /// <summary>Latched so a retry every few seconds does not repeat the miss.</summary>
     private bool _missLogged;
 
     public JpegPanelConnectionWorker(IHidEnumerator hid, JpegPanelHub hub, DeviceControlGate gate)
@@ -104,17 +102,21 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
         _missLogged = true;
         var model = _hub.Model;
         var seen = new System.Text.StringBuilder();
+        bool usable = false;
         for (int i = 0; i < model.ProductIds.Count; i++)
         {
             foreach (var info in _hid.Find(model.VendorId, model.ProductIds[i]))
             {
+                usable |= info.OutputReportByteLength >= model.ReportLength;
                 seen.Append(seen.Length == 0 ? "" : "; ")
                     .Append($"pid=0x{info.ProductId:X4} usage={info.UsagePage:X4}/{info.Usage:X2} out={info.OutputReportByteLength} in={info.InputReportByteLength}");
             }
         }
         ServiceLog.Info(seen.Length == 0
             ? $"[{model.HandlerId}] no HID interface enumerated for this panel"
-            : $"[{model.HandlerId}] no interface carries a {model.ReportLength}-byte report; saw {seen}");
+            : usable
+                ? $"[{model.HandlerId}] could not open the panel's HID interface; saw {seen}"
+                : $"[{model.HandlerId}] no interface carries a {model.ReportLength}-byte report; saw {seen}");
     }
 
     private bool StillPresent()

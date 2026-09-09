@@ -7,14 +7,15 @@ namespace Nexus.Service.Peripherals.JpegPanels;
 /// style here chunks the same way - a whole JPEG split over consecutive reports - and
 /// differs only in what precedes the bytes.
 ///
-/// Reconstructed from third-party protocol documentation for each device. None of it has
-/// been run against hardware.
+/// Reconstructed from third-party protocol documentation for each device. Only
+/// <see cref="LianLiSequenced"/> has been run against hardware.
 /// </summary>
 public enum JpegPanelHeaderStyle
 {
     /// <summary>
-    /// Lian Li Galahad II LCD. 11 bytes: report id 0x02, command, big-endian 32-bit total
-    /// length, 24-bit sequence, 16-bit chunk length. 1013 payload bytes in a 1024-byte report.
+    /// Lian Li HydroShift LCD and Galahad II LCD. 11 bytes: report id 0x02, command,
+    /// big-endian 32-bit total length, 24-bit sequence, 16-bit chunk length. 1013 payload
+    /// bytes in a 1024-byte report.
     /// </summary>
     LianLiSequenced,
 

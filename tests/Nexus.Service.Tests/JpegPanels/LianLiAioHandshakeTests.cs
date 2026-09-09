@@ -100,6 +100,24 @@ public class LianLiAioHandshakeTests
         Assert.Equal(2, device.Reads);
     }
 
+    [Fact]
+    public void A_dead_handle_skips_the_frame_rather_than_writing_into_it()
+    {
+        var handshake = new LianLiAioHandshake("lianli-hydroshift-lcd", 24);
+        var device = new ScriptedHidDevice { ReadResult = -1 };
+
+        Assert.False(handshake.BeforeFrame(device, ReportLength, 0));
+    }
+
+    [Fact]
+    public void A_queued_ack_lets_the_frame_through()
+    {
+        var handshake = new LianLiAioHandshake("lianli-hydroshift-lcd", 24);
+        var device = new ScriptedHidDevice();
+
+        Assert.True(handshake.BeforeFrame(device, ReportLength, 0));
+    }
+
     /// <summary>A 64-byte A-frame: report id, command, three pad bytes, length, payload.</summary>
     private static byte[] AResponse(byte cmd, string text)
     {
@@ -195,9 +213,21 @@ public class BgraQuarterTurnTests
     [Fact]
     public void Only_the_hydroshift_declares_a_turn()
     {
-        Assert.Equal(1, JpegPanelModel.HydroShiftLcd.QuarterTurnsCcw);
+        Assert.True(JpegPanelModel.HydroShiftLcd.QuarterTurnCcw);
         Assert.All(
             System.Linq.Enumerable.Where(JpegPanelModel.All, m => m.HandlerId != "lianli-hydroshift-lcd"),
-            m => Assert.Equal(0, m.QuarterTurnsCcw));
+            m => Assert.False(m.QuarterTurnCcw));
+    }
+
+    /// <summary>
+    /// A turn swaps the frame's sides, but the encoder reads it back at the row's declared
+    /// size, so a turned rectangular panel would render garbled with nothing to catch it.
+    /// </summary>
+    [Fact]
+    public void A_turned_panel_must_be_square()
+    {
+        Assert.All(
+            System.Linq.Enumerable.Where(JpegPanelModel.All, m => m.QuarterTurnCcw),
+            m => Assert.Equal(m.Width, m.Height));
     }
 }

@@ -38,12 +38,11 @@ public sealed record JpegPanelModel(
     public int Fps { get; init; } = 30;
 
     /// <summary>
-    /// Quarter turns counter-clockwise to apply to a frame on its way to the glass, for a
-    /// panel whose scanout is turned relative to the frames it accepts. Only 0 and 1 are
-    /// used today, and only a square panel may be turned - a rectangular one would need the
-    /// profile's CSS size swapped to match.
+    /// Turns the frame a quarter turn counter-clockwise on its way to the glass, for a panel
+    /// whose scanout is turned relative to the frames it accepts. Square panels only: turning
+    /// a rectangular one would swap the dimensions the encoder reads back.
     /// </summary>
-    public int QuarterTurnsCcw { get; init; }
+    public bool QuarterTurnCcw { get; init; }
 
     /// <summary>
     /// The Galahad II's round glass. Shares its protocol - and so its handshake - with the
@@ -61,7 +60,10 @@ public sealed record JpegPanelModel(
         HeaderStyle: JpegPanelHeaderStyle.LianLiSequenced,
         Selector: 0x0E,
         Surface: Models.Panel.PanelSurfaces.LcdRound)
-    { Fps = 24, Handshake = new LianLiAioHandshake("lianli-galahad2-lcd", 24) };
+    { Fps = GalahadFps, Handshake = new LianLiAioHandshake("lianli-galahad2-lcd", GalahadFps) };
+
+    /// <summary>Documented rate for the Galahad II glass.</summary>
+    private const int GalahadFps = 24;
 
     /// <summary>
     /// Lian Li HydroShift LCD, the one model in this table verified against hardware. Its
@@ -69,6 +71,9 @@ public sealed record JpegPanelModel(
     /// envelope but present one 480x480 square panel on one HID interface (usage page
     /// 0xFF1A, 1024-byte output reports).
     /// </summary>
+    /// <summary>Documented rate for the HydroShift glass; the panel is told it and paced to it.</summary>
+    private const int HydroShiftFps = 24;
+
     public static readonly JpegPanelModel HydroShiftLcd = new(
         HandlerId: "lianli-hydroshift-lcd",
         Name: "Lian Li HydroShift LCD",
@@ -82,13 +87,13 @@ public sealed record JpegPanelModel(
         Selector: 0x0E,
         Surface: Models.Panel.PanelSurfaces.LcdSquare)
     {
-        Fps = 24,
-        Handshake = new LianLiAioHandshake("lianli-hydroshift-lcd", 24),
+        Fps = HydroShiftFps,
+        Handshake = new LianLiAioHandshake("lianli-hydroshift-lcd", HydroShiftFps),
         // Measured on a 360S (firmware N9,01,HS,SQ,HydroShift,V3.A.008,0.3): a pushed frame
         // lands a quarter turn clockwise, while the panel draws its own boot logo upright.
         // The LCD-control rotation byte is ignored by this firmware - 0, 1, 2 and 3 all
         // render identically - so the turn has to happen here.
-        QuarterTurnsCcw = 1,
+        QuarterTurnCcw = true,
     };
 
     public static readonly JpegPanelModel CorsairXc7 = new(

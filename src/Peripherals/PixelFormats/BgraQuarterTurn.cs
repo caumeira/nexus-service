@@ -5,10 +5,6 @@ namespace Nexus.Service.Peripherals.PixelFormats;
 /// <summary>
 /// Quarter-turns a 4-byte-per-pixel frame. Unlike <see cref="BgraOrientation"/>'s flips this
 /// swaps the frame's dimensions, so the destination is height x width.
-///
-/// This exists for glass whose scanout is turned relative to the frames it accepts - a fixed
-/// property of a panel's firmware, not of how the user mounted it, which is why it is a model
-/// constant rather than a setting.
 /// </summary>
 public static class BgraQuarterTurn
 {

@@ -21,7 +21,6 @@ public static class DeviceControlPolicy
         ["lianli-tl"] = "lian-li-l-connect",
         ["lianli-wireless"] = "lian-li-l-connect",
         ["lianli-aio"] = "lian-li-l-connect",
-        ["lianli-galahad2-lcd"] = "lian-li-l-connect",
         ["lianli-hydroshift-lcd"] = "lian-li-l-connect",
         ["strimer"] = "lian-li-l-connect",
         ["corsair"] = "icue",
