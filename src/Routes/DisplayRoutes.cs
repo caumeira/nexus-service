@@ -228,6 +228,23 @@ public static class DisplayRoutes
             return Results.Ok(ApiResponse.Ok("rotated"));
         });
 
+        // Per-display DDC/CI opt-out. Off means Nexus sends this monitor no
+        // DDC at all - the capability probe included - which is the escape
+        // hatch for a panel whose firmware hangs on a transaction (see DdcGate).
+        app.MapPost("/displays/{id}/ddc", (
+            string id,
+            DisplayDdcParams body,
+            DisplayBrightnessController d,
+            MultiplexHub hub) =>
+        {
+            if (!d.SetDdcEnabled(id, body.Enabled))
+            {
+                return Results.UnprocessableEntity(ApiResponse.Fail("could not update the display"));
+            }
+            PanelTopics.BroadcastDisplays(hub);
+            return Results.Json(new DisplayDdcParams { Enabled = body.Enabled }, AppJsonContext.Default.DisplayDdcParams);
+        });
+
         app.MapGet("/displays/{id}/brightness", (string id, DisplayBrightnessController d) =>
         {
             var v = d.GetBrightness(id);

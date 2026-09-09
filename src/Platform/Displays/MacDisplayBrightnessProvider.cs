@@ -22,7 +22,7 @@ public sealed unsafe class MacDisplayBrightnessProvider : IDisplayBrightnessProv
 
     public string Hint => "macOS did not report any online displays.";
 
-    public IReadOnlyList<DisplayDto> Enumerate()
+    public IReadOnlyList<DisplayDto> Enumerate(IReadOnlyCollection<string>? excludedIds = null)
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             return Array.Empty<DisplayDto>();

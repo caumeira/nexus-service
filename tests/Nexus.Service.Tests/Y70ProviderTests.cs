@@ -464,7 +464,7 @@ public class Y70ProviderTests
         }
 
         public string Hint => "";
-        public IReadOnlyList<DisplayDto> Enumerate() => Array.Empty<DisplayDto>();
+        public IReadOnlyList<DisplayDto> Enumerate(IReadOnlyCollection<string>? excludedIds = null) => Array.Empty<DisplayDto>();
         public int? GetBrightness(string id) => null;
         public DisplayBrightnessDto SetBrightness(string id, int percent) => new() { Id = id };
         public DisplayBrightnessWritePolicy GetBrightnessWritePolicy(string id) => new();

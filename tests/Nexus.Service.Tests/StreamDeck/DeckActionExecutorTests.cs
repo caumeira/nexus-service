@@ -184,7 +184,7 @@ internal sealed class FakeDisplayBrightnessProvider : IDisplayBrightnessProvider
     public Dictionary<string, int> Current = new();
     public (string Id, int Percent)? LastWrite;
     public string Hint => "";
-    public IReadOnlyList<DisplayDto> Enumerate() => Array.Empty<DisplayDto>();
+    public IReadOnlyList<DisplayDto> Enumerate(IReadOnlyCollection<string>? excludedIds = null) => Array.Empty<DisplayDto>();
     public int? GetBrightness(string id) => Current.TryGetValue(id, out var v) ? v : null;
     public DisplayBrightnessDto SetBrightness(string id, int percent)
     {

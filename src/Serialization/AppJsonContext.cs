@@ -311,6 +311,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayBrightnessWritePolicy))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayBrightnessDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayBrightnessParams))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayDdcParams))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayVcpDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayVcpParams))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayListResponse))]

@@ -22,6 +22,11 @@ public sealed class DisplayBrightnessRequest
     public int Percent { get; set; }
     public byte Code { get; set; }
     public int Value { get; set; }
+    /// <summary>Displays the user turned brightness control off for. Sent on
+    /// <c>displayBrightness.enumerate</c> so the helper skips them before the
+    /// capability probe, which is the transaction the opt-out exists to
+    /// prevent.</summary>
+    public List<string> ExcludedIds { get; set; } = new();
 }
 
 /// <summary>Response wrapper for a single string (<c>displayBrightness.hint</c>).</summary>
@@ -75,9 +80,11 @@ public static class BrightnessCommands
         return Read(res, AppJsonContext.Default.StringResult)?.Value ?? "";
     }
 
-    public static async Task<IReadOnlyList<DisplayDto>> EnumerateAsync(HelperRegistry r, CancellationToken ct = default)
+    public static async Task<IReadOnlyList<DisplayDto>> EnumerateAsync(HelperRegistry r, IReadOnlyCollection<string>? excludedIds = null, CancellationToken ct = default)
     {
-        var res = await InvokeAsync(r, "displayBrightness.enumerate", new DisplayBrightnessRequest(), ct).ConfigureAwait(false);
+        var req = new DisplayBrightnessRequest();
+        if (excludedIds is not null && excludedIds.Count > 0) req.ExcludedIds = new List<string>(excludedIds);
+        var res = await InvokeAsync(r, "displayBrightness.enumerate", req, ct).ConfigureAwait(false);
         return Read(res, AppJsonContext.Default.DisplayListResult)?.Displays ?? new List<DisplayDto>();
     }
 
@@ -141,9 +148,13 @@ public sealed class BrightnessHandler
             new StringResult { Value = _provider.Hint },
             AppJsonContext.Default.StringResult));
 
-        registry.Register("displayBrightness.enumerate", (env, _) => Reply(env,
-            new DisplayListResult { Displays = new(_provider.Enumerate()) },
-            AppJsonContext.Default.DisplayListResult));
+        registry.Register("displayBrightness.enumerate", (env, _) =>
+        {
+            var p = ReadReq(env);
+            return Reply(env,
+                new DisplayListResult { Displays = new(_provider.Enumerate(p.ExcludedIds)) },
+                AppJsonContext.Default.DisplayListResult);
+        });
 
         registry.Register("displayBrightness.get", (env, _) =>
         {

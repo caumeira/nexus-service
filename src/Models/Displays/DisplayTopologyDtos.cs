@@ -87,6 +87,8 @@ public sealed class DisplayTopologyEntryDto
     public bool IsY70 { get; set; }
     /// <summary>Whether this display can host a Nexus panel kiosk.</summary>
     public bool HostingSupported { get; set; }
+    /// <summary>False when the user turned brightness control off for this display; Nexus then sends it no DDC/CI at all.</summary>
+    public bool DdcEnabled { get; set; } = true;
     public string? AssignedPanelDeviceId { get; set; }
     public string? AssignedPanelName { get; set; }
 }

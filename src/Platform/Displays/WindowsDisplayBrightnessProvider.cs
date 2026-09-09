@@ -19,12 +19,48 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
 
     public string Hint => "";
 
-    public IReadOnlyList<DisplayDto> Enumerate()
+    // Capability-probe cache. Enumerate() runs on every GET /displays, and the
+    // Displays panel widget polls that every 5 s for as long as it is placed -
+    // so probing VCP 0x10/0x12 per display per call meant hundreds of DDC
+    // transactions an hour to answer a question the hardware answers the same
+    // way every time. What a monitor supports is a property of the attached
+    // set, so the probe is cached until that set changes. The trade-off is the
+    // cached Current: a brightness change made on the monitor's own OSD is not
+    // noticed until the next topology change, while every change made through
+    // Nexus updates the cache on the way past.
+    private readonly object _capsGate = new();
+    private string _capsSignature = "";
+    private readonly Dictionary<string, DisplayDto> _capsCache = new(StringComparer.Ordinal);
+
+    /// <summary>Log a skipped transaction once per reason change, so a locked
+    /// hour is one line rather than seven hundred.</summary>
+    private string _lastSkipReason = "";
+
+    private bool Skip(string op, string id)
+    {
+        if (!DdcGate.ShouldSkip(out var reason)) 
+        {
+            _lastSkipReason = "";
+            return false;
+        }
+        if (reason != _lastSkipReason)
+        {
+            _lastSkipReason = reason;
+            Console.Error.WriteLine($"[ddc] skipping transactions: {reason}");
+        }
+        Console.Error.WriteLine($"[ddc] skip {op} id={id} ({reason})");
+        return true;
+    }
+
+    public IReadOnlyList<DisplayDto> Enumerate(IReadOnlyCollection<string>? excludedIds = null)
     {
         var results = new List<DisplayDto>();
         try
         {
             var monitors = EnumerateHMonitors();
+            InvalidateCapsIfTopologyChanged(monitors);
+            var gated = DdcGate.ShouldSkip(out var gateReason);
+            if (gated) Console.Error.WriteLine($"[ddc] enumerate: probing suppressed ({gateReason})");
             for (int idx = 0; idx < monitors.Count; idx++)
             {
                 var entry = monitors[idx];
@@ -46,6 +82,33 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
                 };
 
                 dto.BrightnessControl.UnsupportedReason = "Brightness control is not available for this display.";
+
+                // The user's own opt-out. Enforced here rather than at the
+                // route because this is where the transaction would happen:
+                // a display switched off must not even be probed.
+                if (excludedIds is not null && excludedIds.Contains(dto.Id))
+                {
+                    dto.DdcEnabled = false;
+                    dto.BrightnessControl.UnsupportedReason = "Brightness control is turned off for this display.";
+                    results.Add(dto);
+                    continue;
+                }
+
+                if (TryServeFromCache(dto))
+                {
+                    results.Add(dto);
+                    continue;
+                }
+
+                // No cached answer yet, and the gate says the panels are not in
+                // a state worth talking to. Report unsupported for now; the
+                // next poll after the session settles fills the cache in.
+                if (gated)
+                {
+                    dto.BrightnessControl.UnsupportedReason = "Brightness control is paused while the session is locked.";
+                    results.Add(dto);
+                    continue;
+                }
 
                 // Try to open physical monitors and check brightness support via
                 // the same control path used for writes. DDC/CI VCP 0x10 is the
@@ -79,6 +142,8 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
                         DestroyPhysicalMonitor(phys);
                     }
                 }
+                Console.Error.WriteLine($"[ddc] probed id={dto.Id} capable={dto.IsDdcCapable} brightness={dto.Capabilities.Brightness} contrast={dto.Capabilities.Contrast}");
+                StoreCaps(dto);
                 results.Add(dto);
             }
         }
@@ -91,6 +156,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
 
     public int? GetBrightness(string id)
     {
+        if (Skip("get", id)) return null;
         if (!TryOpenById(id, out var phys)) return null;
         try
         {
@@ -109,6 +175,10 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
     public DisplayBrightnessDto SetBrightness(string id, int percent)
     {
         var requested = ClampPercent(percent);
+        if (Skip("set", id))
+        {
+            return FailedBrightness(id, requested, "Brightness control is paused while the session is locked.");
+        }
         if (!TryOpenById(id, out var phys))
         {
             return FailedBrightness(id, requested, "Display not found or brightness control unavailable.");
@@ -127,6 +197,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
                     var applied = TryGetVcp(phys, 0x10, out var curAfter, out var maxAfter)
                         ? RawToPercent(curAfter, maxAfter)
                         : requested;
+                    UpdateCachedBrightness(id, applied);
                     return AppliedBrightness(id, requested, applied);
                 }
             }
@@ -139,6 +210,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
                     var applied = TryGetMonitorBrightness(phys, out var minAfter, out var curAfter, out var maxAfter)
                         ? RangeToPercent(curAfter, minAfter, maxAfter)
                         : requested;
+                    UpdateCachedBrightness(id, applied);
                     return AppliedBrightness(id, requested, applied);
                 }
             }
@@ -150,6 +222,24 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
 
     public DisplayBrightnessWritePolicy GetBrightnessWritePolicy(string id)
     {
+        // Served from the probe cache when we have one: the policy is derived
+        // from the same 0x10 capability Enumerate already established, and this
+        // is called on the write path where an extra round-trip is pure cost.
+        lock (_capsGate)
+        {
+            if (_capsCache.TryGetValue(id, out var cached) && cached.Capabilities.Brightness)
+            {
+                return new DisplayBrightnessWritePolicy
+                {
+                    ControlPath = DisplayBrightnessControlPaths.DdcCi,
+                    WriteMode = DisplayBrightnessWriteModes.Coalesced,
+                    MinWriteIntervalMs = DefaultDdcWriteCooldownMs,
+                    ReadAfterWriteDelayMs = 0,
+                    VerifyAfterWrite = false,
+                };
+            }
+        }
+        if (Skip("policy", id)) return new DisplayBrightnessWritePolicy();
         if (!TryOpenById(id, out var phys)) return new DisplayBrightnessWritePolicy();
         try
         {
@@ -173,6 +263,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
 
     public DisplayVcpDto? GetVcp(string id, byte code)
     {
+        if (Skip($"getVcp 0x{code:X2}", id)) return null;
         if (!TryOpenById(id, out var phys)) return null;
         try
         {
@@ -188,6 +279,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
     public bool SetVcp(string id, byte code, int value)
     {
         if (value < 0) return false;
+        if (Skip($"setVcp 0x{code:X2}", id)) return false;
         if (!TryOpenById(id, out var phys)) return false;
         try
         {
@@ -230,6 +322,87 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
         }
         return null;
     }
+
+    /// <summary>Drop every cached probe when the attached set changes - a
+    /// replug, a mode change, a monitor arriving. The signature is built from
+    /// registry-backed identities, so computing it costs no DDC.</summary>
+    private void InvalidateCapsIfTopologyChanged(List<MonitorEntry> monitors)
+    {
+        var ids = new List<string>(monitors.Count);
+        foreach (var entry in monitors)
+        {
+            var (id, _, _, _, _) = WindowsDisplayIdentity.ResolveIdentity(entry.AdapterDevice);
+            ids.Add(id);
+        }
+        ids.Sort(StringComparer.Ordinal);
+        var signature = string.Join("|", ids);
+        lock (_capsGate)
+        {
+            if (_capsSignature == signature) return;
+            if (_capsSignature.Length > 0)
+            {
+                Console.Error.WriteLine("[ddc] attached displays changed; dropping the probe cache");
+            }
+            _capsSignature = signature;
+            _capsCache.Clear();
+        }
+    }
+
+    /// <summary>Copy a cached probe onto a freshly built DTO. Returns false on
+    /// a miss, which is the only path that issues a transaction.</summary>
+    private bool TryServeFromCache(DisplayDto dto)
+    {
+        lock (_capsGate)
+        {
+            if (!_capsCache.TryGetValue(dto.Id, out var cached)) return false;
+            dto.IsDdcCapable = cached.IsDdcCapable;
+            dto.Capabilities.Brightness = cached.Capabilities.Brightness;
+            dto.Capabilities.Contrast = cached.Capabilities.Contrast;
+            dto.BrightnessControl = CloneControl(cached.BrightnessControl);
+            return true;
+        }
+    }
+
+    private void StoreCaps(DisplayDto dto)
+    {
+        lock (_capsGate)
+        {
+            _capsCache[dto.Id] = new DisplayDto
+            {
+                Id = dto.Id,
+                IsDdcCapable = dto.IsDdcCapable,
+                Capabilities = new DisplayCapabilitiesDto
+                {
+                    Brightness = dto.Capabilities.Brightness,
+                    Contrast = dto.Capabilities.Contrast,
+                },
+                BrightnessControl = CloneControl(dto.BrightnessControl),
+            };
+        }
+    }
+
+    /// <summary>Keep the cached Current honest for changes made through Nexus,
+    /// so a poll can be served without a read-back.</summary>
+    private void UpdateCachedBrightness(string id, int percent)
+    {
+        lock (_capsGate)
+        {
+            if (_capsCache.TryGetValue(id, out var cached)) cached.BrightnessControl.Current = percent;
+        }
+    }
+
+    private static DisplayBrightnessControlDto CloneControl(DisplayBrightnessControlDto src) => new()
+    {
+        Supported = src.Supported,
+        Min = src.Min,
+        Max = src.Max,
+        Current = src.Current,
+        ControlPath = src.ControlPath,
+        WriteMode = src.WriteMode,
+        WriteCooldownMs = src.WriteCooldownMs,
+        VerifyAfterWrite = src.VerifyAfterWrite,
+        UnsupportedReason = src.UnsupportedReason,
+    };
 
     // Resolve an id back to a freshly-opened physical monitor handle. Caller
     // owns the handle via DestroyPhysicalMonitor. Lazy approach: re-enumerate

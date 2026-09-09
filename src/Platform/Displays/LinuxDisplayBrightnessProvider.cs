@@ -41,7 +41,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
 
     public string Hint { get; private set; } = "";
 
-    public IReadOnlyList<DisplayDto> Enumerate()
+    public IReadOnlyList<DisplayDto> Enumerate(IReadOnlyCollection<string>? excludedIds = null)
     {
         if (!OperatingSystem.IsLinux())
             return Array.Empty<DisplayDto>();
