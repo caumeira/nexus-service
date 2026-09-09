@@ -769,11 +769,12 @@ return 0;
 // ── Local functions ─────────────────────────────────────────────────────────
 
 #if WINDOWS
-// Do only what the OS won't do on process exit, concurrently under one hard
-// cap: persist debounced settings + dirty profile, release fans (the hubs hold
-// the last commanded PWM with no failsafe), fade lighting out when the machine
-// itself is going down (RGB RAM keeps its bus in S5 on a board without ErP, so
-// it holds its last frame), reset any connected Stream Deck
+// Do only what the OS won't do on process exit, concurrently under one hard cap
+// (higher when the OS itself is going down - see HostShutdown): persist
+// debounced settings + dirty profile, release fans (the hubs hold the last
+// commanded PWM with no failsafe), blank the Q-series panel and fade lighting
+// out when the machine itself is going down (RGB RAM keeps its bus in S5 on a
+// board without ErP, so it holds its last frame), reset any connected Stream Deck
 // (it holds its last-pushed frame with no failsafe either), kill the external
 // driver tools (plain Process.Start children, so no kill-job holds them), and
 // reap the cross-session UI the kill-job can't hold (overlay host + tray
@@ -784,8 +785,24 @@ static void FastServiceShutdown(WebApplication app)
 {
     var sp = app.Services;
     var sw = System.Diagnostics.Stopwatch.StartNew();
+    var osShutdown = Nexus.Service.Lifecycle.HostShutdown.IsOsShutdown;
     var done = Task.WaitAll(new[]
     {
+        // The longest single item in the set: the panel-side `input keyevent`
+        // execs a JVM (measured 1674 ms on a Q60), so it is queued ahead of the
+        // rest to keep it off the far side of thread-pool injection on a
+        // low-core host. Only at OS shutdown, as with the LED blackout below.
+        Task.Run(() =>
+        {
+            try
+            {
+                if (osShutdown)
+                {
+                    sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.SleepPanelsForOsShutdown();
+                }
+            }
+            catch { }
+        }),
         Task.Run(() =>
         {
             try { sp.GetService<IConfigStore>()?.FlushNow(); } catch { }
@@ -801,7 +818,7 @@ static void FastServiceShutdown(WebApplication app)
         {
             try
             {
-                if (Nexus.Service.Lifecycle.HostShutdown.IsOsShutdown)
+                if (osShutdown)
                 {
                     sp.GetService<Nexus.Service.Lighting.SleepBlackoutCoordinator>()?.OnHostShutdown();
                 }
@@ -814,7 +831,9 @@ static void FastServiceShutdown(WebApplication app)
         Task.Run(() => { try { sp.GetService<Nexus.Service.Mcp.Assistant.OllamaRuntimeManager>()?.StopChildForShutdown(); } catch { } }),
 #endif
         Task.Run(() => FastWindowsUiTeardown(sp)),
-    }, millisecondsTimeout: 1500);
+    }, millisecondsTimeout: (int)(osShutdown
+        ? Nexus.Service.Lifecycle.HostShutdown.OsShutdownTeardownBudget
+        : Nexus.Service.Lifecycle.HostShutdown.FastTeardownBudget).TotalMilliseconds);
     Console.Error.WriteLine($"[shutdown] fast teardown {(done ? "complete" : "TIMED OUT")} in {sw.ElapsedMilliseconds}ms");
 }
 
