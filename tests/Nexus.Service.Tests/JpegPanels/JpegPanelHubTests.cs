@@ -30,7 +30,7 @@ public class JpegPanelHubTests
     [Fact]
     public void A_model_with_no_init_sequence_attaches_without_writing()
     {
-        using var hub = new JpegPanelHub(JpegPanelModel.GalahadIiLcd);
+        using var hub = new JpegPanelHub(JpegPanelModel.CorsairXc7);
         var device = new RecordingHidDevice();
 
         Assert.True(hub.Attach(device));
@@ -76,6 +76,7 @@ public class JpegPanelHubTests
         using var hub = new JpegPanelHub(model);
         var device = new RecordingHidDevice();
         hub.Attach(device);
+        device.Writes.Clear();
         var jpeg = Enumerable.Range(0, 2500).Select(i => (byte)(i % 251)).ToArray();
 
         Assert.True(hub.SendFrame(jpeg));
@@ -99,6 +100,7 @@ public class JpegPanelHubTests
         using var hub = new JpegPanelHub(JpegPanelModel.GalahadIiLcd);
         var device = new RecordingHidDevice();
         hub.Attach(device);
+        device.Writes.Clear();
         device.FailWritesFrom = 1;
 
         Assert.False(hub.SendFrame(Enumerable.Repeat((byte)0xAB, 4000).ToArray()));
@@ -124,6 +126,76 @@ public class JpegPanelHubTests
         Assert.False(hub.SendFrame(ReadOnlySpan<byte>.Empty));
     }
 
+    [Fact]
+    public void Both_lian_li_aio_panels_report_a_settable_backlight()
+    {
+        Assert.True(JpegPanelModel.GalahadIiLcd.SupportsBrightness);
+        Assert.True(JpegPanelModel.HydroShiftLcd.SupportsBrightness);
+        Assert.False(JpegPanelModel.CorsairXc7.SupportsBrightness);
+    }
+
+    // The model table's handshakes are process-wide singletons, so a test that sets a
+    // backlight takes its own instance rather than leaving one dimmed for the whole suite.
+    private static JpegPanelModel Dimmable() =>
+        JpegPanelModel.GalahadIiLcd with { Handshake = new LianLiAioHandshake("test-lcd", 24) };
+
+    [Fact]
+    public void SetBrightness_reaches_an_attached_panel_in_application_mode()
+    {
+        using var hub = new JpegPanelHub(Dimmable());
+        var device = new RecordingHidDevice();
+        hub.Attach(device);
+        device.Writes.Clear();
+
+        Assert.True(hub.SetBrightness(35));
+
+        var control = Assert.Single(device.Writes);
+        Assert.Equal(0x0C, control[1]);
+        Assert.Equal(0x01, control[11]);
+        Assert.Equal(35, control[12]);
+    }
+
+    [Fact]
+    public void An_out_of_range_backlight_clamps_to_the_ends_of_the_scale()
+    {
+        using var hub = new JpegPanelHub(Dimmable());
+        var device = new RecordingHidDevice();
+        hub.Attach(device);
+        device.Writes.Clear();
+
+        hub.SetBrightness(-5);
+        Assert.Equal(0, device.Writes[^1][12]);
+
+        hub.SetBrightness(140);
+        Assert.Equal(100, device.Writes[^1][12]);
+    }
+
+    [Fact]
+    public void A_brightness_set_while_detached_is_recorded_and_re_asserted_on_attach()
+    {
+        using var hub = new JpegPanelHub(Dimmable());
+
+        Assert.False(hub.SetBrightness(20));
+
+        var device = new RecordingHidDevice();
+        Assert.True(hub.Attach(device));
+        // Writes are the firmware read then the application-mode claim carrying the value.
+        Assert.Equal(20, device.Writes[1][12]);
+        Assert.Equal(20, hub.Brightness);
+    }
+
+    [Fact]
+    public void A_panel_with_no_backlight_command_refuses_the_setting()
+    {
+        using var hub = new JpegPanelHub(JpegPanelModel.CorsairXc7);
+        var device = new RecordingHidDevice();
+        hub.Attach(device);
+
+        Assert.False(hub.SetBrightness(40));
+
+        Assert.Empty(device.Writes);
+    }
+
     // ── model table + control policy ──
 
     [Fact]
@@ -142,6 +214,9 @@ public class JpegPanelHubTests
 
     [Theory]
     [InlineData(0x0416, 0x7395, "lianli-galahad2-lcd")]
+    [InlineData(0x0416, 0x7398, "lianli-hydroshift-lcd")]
+    [InlineData(0x0416, 0x7399, "lianli-hydroshift-lcd")]
+    [InlineData(0x0416, 0x739A, "lianli-hydroshift-lcd")]
     [InlineData(0x1B1C, 0x0C42, "corsair-xc7-lcd")]
     [InlineData(0x1B1C, 0x0C39, "corsair-capellix-lcd")]
     [InlineData(0x1B1C, 0x0C33, "corsair-capellix-lcd")]
@@ -161,8 +236,8 @@ public class JpegPanelHubTests
     }
 
     /// <summary>
-    /// None of these has been run against hardware, so a build must never claim one on its
-    /// own. This is the guard on that promise.
+    /// A build must never claim one of these coolers on its own, hardware-verified or not.
+    /// This is the guard on that promise.
     /// </summary>
     [Fact]
     public void Every_model_defaults_to_nexus_control_off_and_reads_as_experimental()

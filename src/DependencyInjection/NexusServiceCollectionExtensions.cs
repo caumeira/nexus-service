@@ -885,18 +885,19 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.KrakenLightingFrameWriter>());
         services.AddHostedService<Nexus.Service.Peripherals.Nzxt.KrakenConnectionWorker>();
 
-        // JPEG-over-HID cooler LCDs (Lian Li Galahad II LCD, Corsair XC7 / Elite Capellix,
-        // ID-Cooling FX-LCD). One hub, worker, panel discovery and device row per model;
-        // the hub instance is created here and captured so all four share it. Plain HID, so
+        // JPEG-over-HID cooler LCDs. One hub, worker, panel discovery and device row per
+        // model; the hub is created here and captured so all four share it. Plain HID, so
         // unlike the Kraken's WinUSB bulk pipe there is nothing Windows-only about them.
         //
-        // Every one of these is transcribed, not tested - DeviceControlPolicy defaults them
-        // OFF so a build never claims one on its own.
+        // Only the HydroShift LCD has been run against hardware; the rest are transcribed,
+        // and DeviceControlPolicy defaults every row OFF so a build never claims one itself.
         foreach (var jpegPanelModel in Nexus.Service.Peripherals.JpegPanels.JpegPanelModel.All)
         {
             var jpegPanelHub = new Nexus.Service.Peripherals.JpegPanels.JpegPanelHub(jpegPanelModel);
             services.AddSingleton(jpegPanelHub);
-            services.AddHostedService(sp =>
+            // AddHostedService de-duplicates by implementation type, so one registration per
+            // model would collapse to the first model's worker alone.
+            services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(sp =>
                 new Nexus.Service.Peripherals.JpegPanels.JpegPanelConnectionWorker(
                     sp.GetRequiredService<Nexus.Service.Peripherals.Hid.IHidEnumerator>(),
                     jpegPanelHub,
@@ -927,7 +928,8 @@ public static class NexusServiceCollectionExtensions
         {
             var bulkPanelHub = new Nexus.Service.Peripherals.BulkPanels.BulkPanelHub(bulkPanelDriver);
             services.AddSingleton(bulkPanelHub);
-            services.AddHostedService(sp =>
+            // Same de-duplication as the JPEG panel loop above.
+            services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(sp =>
                 new Nexus.Service.Peripherals.BulkPanels.BulkPanelConnectionWorker(
                     sp.GetRequiredService<Nexus.Service.Peripherals.Hid.IHidEnumerator>(),
                     sp.GetRequiredService<Nexus.Service.Peripherals.BulkPanels.IBulkUsbPipeFactory>(),

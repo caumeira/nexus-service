@@ -25,6 +25,9 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
     private readonly JpegPanelHub _hub;
     private readonly DeviceControlGate _gate;
 
+    /// <summary>Latched so a retry every few seconds does not repeat the miss.</summary>
+    private bool _missLogged;
+
     public JpegPanelConnectionWorker(IHidEnumerator hid, JpegPanelHub hub, DeviceControlGate gate)
     {
         _hid = hid;
@@ -48,9 +51,11 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
                 var device = FindAndOpen();
                 if (device == null)
                 {
+                    LogMissOnce();
                     await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
                     continue;
                 }
+                _missLogged = false;
 
                 if (!_hub.Attach(device))
                 {
@@ -88,6 +93,32 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
         _hub.Detach();
     }
 
+    private void LogMissOnce()
+    {
+        if (_missLogged)
+        {
+            return;
+        }
+        _missLogged = true;
+        var model = _hub.Model;
+        var seen = new System.Text.StringBuilder();
+        bool usable = false;
+        for (int i = 0; i < model.ProductIds.Count; i++)
+        {
+            foreach (var info in _hid.Find(model.VendorId, model.ProductIds[i]))
+            {
+                usable |= info.OutputReportByteLength >= model.ReportLength;
+                seen.Append(seen.Length == 0 ? "" : "; ")
+                    .Append($"pid=0x{info.ProductId:X4} usage={info.UsagePage:X4}/{info.Usage:X2} out={info.OutputReportByteLength} in={info.InputReportByteLength}");
+            }
+        }
+        ServiceLog.Info(seen.Length == 0
+            ? $"[{model.HandlerId}] no HID interface enumerated for this panel"
+            : usable
+                ? $"[{model.HandlerId}] could not open the panel's HID interface; saw {seen}"
+                : $"[{model.HandlerId}] no interface carries a {model.ReportLength}-byte report; saw {seen}");
+    }
+
     private bool StillPresent()
     {
         var model = _hub.Model;
@@ -123,6 +154,8 @@ public sealed class JpegPanelConnectionWorker : BackgroundService
                 }
             }
         }
-        return best == null ? null : _hid.Open(best.Path);
+        // forInput: a model with a control channel reads the panel's replies, and a
+        // non-overlapped handle would block that read with no timeout to bound it.
+        return best == null ? null : _hid.Open(best.Path, forInput: true);
     }
 }

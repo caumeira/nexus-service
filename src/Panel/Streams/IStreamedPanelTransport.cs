@@ -30,6 +30,22 @@ public interface IStreamedPanelDiscovery
 }
 
 /// <summary>
+/// Transport that may be able to dim its panel. Implementing it is not the capability test -
+/// whether the attached model has a backlight command is, and an implementation that finds
+/// it does not ignores the binding.
+/// </summary>
+public interface IBrightnessPanelTransport
+{
+    /// <summary>
+    /// Supplies the panel record's backlight percent, or null when the record has none and
+    /// the panel keeps whatever it powered up with. Polled while frames flow: unlike
+    /// orientation this is a device command rather than a frame filter, so the transport
+    /// writes only when the polled value changes.
+    /// </summary>
+    void BindBrightness(Func<int?> source);
+}
+
+/// <summary>
 /// Byte sink for one streamed panel device: encoded H.264 Annex-B access
 /// units in, glass on the other end. Implementations own device prep and
 /// playback start so the coordinator stays device-agnostic.

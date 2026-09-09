@@ -27,3 +27,22 @@ public interface IJpegPanelHandshake
     /// </summary>
     bool BeforeFrame(IHidDevice device, int reportLength, long nowMs);
 }
+
+/// <summary>
+/// A control channel whose panel takes a host-settable backlight. The setting is held here
+/// rather than in the hub because it rides the same control packet the handshake already
+/// builds, so a re-attach re-asserts it without the hub knowing the layout.
+///
+/// Called under the hub's lock, like the rest of <see cref="IJpegPanelHandshake"/>.
+/// </summary>
+public interface IJpegPanelBrightness
+{
+    /// <summary>Backlight the panel was last told, so a caller can skip a no-op write.</summary>
+    int Brightness { get; }
+
+    /// <summary>Records the backlight to send from now on. Does not touch hardware.</summary>
+    void SetBrightness(int percent);
+
+    /// <summary>Pushes the recorded backlight to an attached panel.</summary>
+    bool ApplyBrightness(IHidDevice device, int reportLength);
+}

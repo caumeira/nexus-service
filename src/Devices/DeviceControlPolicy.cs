@@ -21,6 +21,7 @@ public static class DeviceControlPolicy
         ["lianli-tl"] = "lian-li-l-connect",
         ["lianli-wireless"] = "lian-li-l-connect",
         ["lianli-aio"] = "lian-li-l-connect",
+        ["lianli-hydroshift-lcd"] = "lian-li-l-connect",
         ["strimer"] = "lian-li-l-connect",
         ["corsair"] = "icue",
         ["tryx"] = "tryx-kanali",
@@ -45,7 +46,8 @@ public static class DeviceControlPolicy
     /// </summary>
     private static readonly HashSet<string> UnverifiedHandlers = new(StringComparer.OrdinalIgnoreCase)
     {
-        "lianli-galahad2-lcd", "corsair-xc7-lcd", "corsair-capellix-lcd", "idcooling-fx-lcd",
+        "lianli-galahad2-lcd",
+        "corsair-xc7-lcd", "corsair-capellix-lcd", "idcooling-fx-lcd",
         "asrock-lcd", "corsair-link-lcd",
         "thermalright-lcd", "asus-ryujin-lcd", "lianli-screen88",
     };

@@ -46,6 +46,7 @@ public sealed class JpegPanelDiscovery : IStreamedPanelDiscovery
                     // Two models share each cooler-LCD surface, so the sidebar brands from
                     // this rather than the surface name.
                     Family = model.HandlerId,
+                    SupportsBrightness = model.SupportsBrightness,
                     CssWidth = model.Width,
                     CssHeight = model.Height,
                     Dpr = 1.0,

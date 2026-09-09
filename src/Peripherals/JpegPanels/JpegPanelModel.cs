@@ -8,9 +8,10 @@ namespace Nexus.Service.Peripherals.JpegPanels;
 /// same shape - open a vendor HID interface, chunk a JPEG across output reports - so one
 /// hub drives the family and a model is just a row here.
 ///
-/// Every row was reconstructed from third-party protocol documentation. NONE of it has
-/// been run against hardware: we own no unit of any of them. They ship experimental with
-/// Nexus Control off by default so a build never grabs an untested cooler on its own.
+/// Every row but <see cref="HydroShiftLcd"/> was reconstructed from third-party protocol
+/// documentation and has never been run against hardware: we own no unit of any of them.
+/// They ship experimental with Nexus Control off by default so a build never grabs an
+/// untested cooler on its own.
 /// </summary>
 public sealed record JpegPanelModel(
     string HandlerId,
@@ -33,9 +34,23 @@ public sealed record JpegPanelModel(
     /// </summary>
     public IJpegPanelHandshake? Handshake { get; init; }
 
+    /// <summary>The panel's backlight is host-settable, so its record carries a brightness.</summary>
+    public bool SupportsBrightness => Handshake is IJpegPanelBrightness;
+
     /// <summary>Documented frame rate for the model; the profile's ceiling.</summary>
     public int Fps { get; init; } = 30;
 
+    /// <summary>
+    /// Turns the frame a quarter turn counter-clockwise on its way to the glass, for a panel
+    /// whose scanout is turned relative to the frames it accepts. Square panels only: turning
+    /// a rectangular one would swap the dimensions the encoder reads back.
+    /// </summary>
+    public bool QuarterTurnCcw { get; init; }
+
+    /// <summary>
+    /// The Galahad II's round glass. Shares its protocol - and so its handshake - with the
+    /// HydroShift LCD; the pump head is the only thing that differs between them.
+    /// </summary>
     public static readonly JpegPanelModel GalahadIiLcd = new(
         HandlerId: "lianli-galahad2-lcd",
         Name: "Lian Li Galahad II LCD",
@@ -47,7 +62,42 @@ public sealed record JpegPanelModel(
         ReportLength: 1024,
         HeaderStyle: JpegPanelHeaderStyle.LianLiSequenced,
         Selector: 0x0E,
-        Surface: Models.Panel.PanelSurfaces.LcdRound);
+        Surface: Models.Panel.PanelSurfaces.LcdRound)
+    { Fps = GalahadFps, Handshake = new LianLiAioHandshake("lianli-galahad2-lcd", GalahadFps) };
+
+    /// <summary>Documented rate for the Galahad II glass.</summary>
+    private const int GalahadFps = 24;
+
+    /// <summary>
+    /// Lian Li HydroShift LCD, the one model in this table verified against hardware. Its
+    /// three product ids are the 360S, 360R and 360TL, which differ in fans and pump
+    /// envelope but present one 480x480 square panel on one HID interface (usage page
+    /// 0xFF1A, 1024-byte output reports).
+    /// </summary>
+    /// <summary>Documented rate for the HydroShift glass; the panel is told it and paced to it.</summary>
+    private const int HydroShiftFps = 24;
+
+    public static readonly JpegPanelModel HydroShiftLcd = new(
+        HandlerId: "lianli-hydroshift-lcd",
+        Name: "Lian Li HydroShift LCD",
+        VendorId: 0x0416,
+        ProductIds: new[] { 0x7398, 0x7399, 0x739A },
+        Width: 480,
+        Height: 480,
+        Circular: false,
+        ReportLength: 1024,
+        HeaderStyle: JpegPanelHeaderStyle.LianLiSequenced,
+        Selector: 0x0E,
+        Surface: Models.Panel.PanelSurfaces.LcdSquare)
+    {
+        Fps = HydroShiftFps,
+        Handshake = new LianLiAioHandshake("lianli-hydroshift-lcd", HydroShiftFps),
+        // Measured on a 360S (firmware N9,01,HS,SQ,HydroShift,V3.A.008,0.3): a pushed frame
+        // lands a quarter turn clockwise, while the panel draws its own boot logo upright.
+        // The LCD-control rotation byte is ignored by this firmware - 0, 1, 2 and 3 all
+        // render identically - so the turn has to happen here.
+        QuarterTurnCcw = true,
+    };
 
     public static readonly JpegPanelModel CorsairXc7 = new(
         HandlerId: "corsair-xc7-lcd",
@@ -127,6 +177,7 @@ public sealed record JpegPanelModel(
     public static readonly JpegPanelModel[] All =
     {
         GalahadIiLcd,
+        HydroShiftLcd,
         CorsairXc7,
         CorsairCapellix,
         IdCoolingFx,

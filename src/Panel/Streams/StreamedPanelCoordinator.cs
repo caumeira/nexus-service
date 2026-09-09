@@ -363,14 +363,21 @@ public sealed class StreamedPanelCoordinator : BackgroundService
             var transport = ds.Discovery.CreateTransport(ds.Info);
             // Mount orientation is applied to the bytes, not the render, so the editor and
             // the preview stay upright. Pushed-frame cooler LCDs only.
+            var panelId = ds.Session.PanelDeviceId;
             if (transport is IOrientablePanelTransport orientable)
             {
-                var panelId = ds.Session.PanelDeviceId;
                 orientable.BindOrientation(() =>
                 {
                     var rec = _registry.Get(panelId);
                     return (rec?.Flip180 ?? false, rec?.Mirror ?? false);
                 });
+            }
+            // The backlight is a device command, so the transport writes it rather than
+            // filtering frames with it. Null is passed through: a record that carries no
+            // setting leaves the panel on whatever it powered up with.
+            if (transport is IBrightnessPanelTransport dimmable)
+            {
+                dimmable.BindBrightness(() => _registry.Get(panelId)?.LcdBrightness);
             }
             transport.Open();
             transport.StartPlayer();
