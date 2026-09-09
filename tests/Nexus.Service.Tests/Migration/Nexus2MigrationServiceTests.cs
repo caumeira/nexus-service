@@ -246,4 +246,41 @@ public sealed class Nexus2MigrationServiceTests : IDisposable
         Assert.Equal("media", updated.BackgroundMode);
         Assert.False(string.IsNullOrEmpty(updated.BackgroundMediaId));
     }
+
+    // 2-frame 8x8 gif with a transparent background, copied from
+    // PanelBgTransparencyTests: the bundled ffmpeg has no lavfi, so test media is
+    // authored as literal base64 rather than generated. The two copies only need
+    // to stay transparent, not identical.
+    private const string TransparentGifBase64 =
+        "R0lGODlhCAAIAIEAAP8A/yjIUAAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQJCgAAACwAAAAACAAIAAAIGwADCAwAoCCAgQQNIjR4cCDDhQodRhT4UGLBgAAh+QQJCgAAACwEAAAABAAIAIH/AP8oyFAAAAAAAAAIDAADCBxIsKDBgwQDAgA7";
+
+    /// <summary>
+    /// A transparent source bakes to media.gif, and the record has to say so:
+    /// without the alpha flag the panel picks &lt;video&gt; for a gif and renders
+    /// nothing.
+    /// </summary>
+    [Nexus.Service.Tests.FfmpegFact]
+    public async Task Apply_Wallpaper_CarriesTheBakedAlphaFlagOntoTheRecord()
+    {
+        // The checked-in fixture's wallpaper is opaque and is pinned byte-for-byte
+        // against SimulatedNexus2.ConfigJson, so point the reader at a copy.
+        var configDir = Path.Combine(_tempDir, "nexus2-alpha");
+        var userMedia = Path.Combine(configDir, "q60", "web", "user-media");
+        Directory.CreateDirectory(userMedia);
+        File.WriteAllBytes(Path.Combine(userMedia, "alpha.gif"), Convert.FromBase64String(TransparentGifBase64));
+
+        var reader = (Nexus.Service.Tests.Migration.FakeNexus2ConfigReader)
+            _factory.Services.GetRequiredService<INexus2ConfigReader>();
+        reader.ConfigText = reader.ConfigText!.Replace("sunset.jpg", "alpha.gif");
+        reader.ConfigDir = configDir;
+
+        var q60 = Panels.Allocate(null, new PanelDeviceCapabilities { Surface = PanelSurfaces.Q60 });
+        var res = await PostApply(new[] { "wallpapers" }, false);
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        Assert.Equal("applied", doc.RootElement.GetProperty("results")[0].GetProperty("status").GetString());
+
+        var updated = Panels.Get(q60.Id)!;
+        Assert.Equal("animated", updated.BackgroundMediaType);
+        Assert.True(updated.BackgroundMediaAlpha);
+    }
 }

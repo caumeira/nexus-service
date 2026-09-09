@@ -173,6 +173,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly HashSet<string> _knownQSeriesSerials = new(StringComparer.Ordinal);
 
+    /// <summary>Guards <see cref="_knownQSeriesSerials"/> across threads. The tick
+    /// loop adds to it while the power hooks and Program.FastServiceShutdown read
+    /// it, and nothing stops the tick loop first: the SCM path exits the process
+    /// without app.StopAsync. Every other read runs on the tick thread itself.</summary>
+    private readonly object _knownQSeriesSerialsLock = new();
+
     /// <summary>
     /// First time a serial was seen <c>offline</c> this run. Cleared when it returns
     /// online or leaves the adb list.
@@ -328,7 +334,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             // any failure is swallowed rather than aborting shutdown handling.
             // SystemEvents has no shutdown-specific mode (Suspend/Resume only),
             // so the sleep-with-host coupling needs this separate hook here.
-            try { TrySleepPanelsForHostPowerDown(); }
+            try { _ = TrySleepPanelsForHostPowerDown(ShutdownKeyeventTimeout); }
             catch { }
             try { TryRebootStrandedPanelsForShutdown(); }
             catch { }
@@ -366,7 +372,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
         var adbPath = AdbLocator.ResolveAdbPath();
         if (adbPath is null) return;
-        foreach (var serial in _knownQSeriesSerials.ToArray())
+        foreach (var serial in SnapshotKnownSerials())
         {
             if (QSeriesTransport.IsTcpSerial(serial)) continue;
             var ok = RunAdb(adbPath, $"-s {serial} reboot", out var err, timeoutMs: 1_500);
@@ -384,10 +390,40 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// <summary>KEYCODE_WAKEUP: forces the display awake.</summary>
     private const int KeyeventWakeup = 224;
 
+    /// <summary>Per-serial cap on a keyevent from a power hook. Bounds what the
+    /// inline suspend handler holds the shared SystemEvents pump thread for.</summary>
+    private static readonly TimeSpan KeyeventTimeout = TimeSpan.FromMilliseconds(1_500);
+
+    /// <summary>Per-serial cap on the OS-shutdown keyevent. Above
+    /// <see cref="KeyeventTimeout"/> because `input keyevent` execs a JVM and was
+    /// measured on a Q60 at 1674 ms, so the shorter cap cancels the read before
+    /// the panel has answered. Must stay under
+    /// <see cref="Lifecycle.HostShutdown.OsShutdownTeardownBudget"/>.</summary>
+    internal static readonly TimeSpan ShutdownKeyeventTimeout = TimeSpan.FromMilliseconds(2_500);
+
+    /// <summary>Total the OS-shutdown sleep may spend across every serial. The
+    /// loop is sequential, so without this a second panel would still be mid
+    /// keyevent when Program.FastServiceShutdown's cap expires and the process
+    /// exits. Stays under <see cref="Lifecycle.HostShutdown.OsShutdownTeardownBudget"/>.</summary>
+    internal static readonly TimeSpan ShutdownSleepBudget = TimeSpan.FromMilliseconds(2_800);
+
     /// <summary>Host is about to suspend. Linux calls this from the logind
     /// PrepareForSleep(true) signal; Windows from SystemEvents. Runs inline,
     /// bounded by SendKeyeventBestEffort's per-serial cap.</summary>
-    public void OnHostSuspending() => TrySleepPanelsForHostPowerDown();
+    public void OnHostSuspending() => _ = TrySleepPanelsForHostPowerDown(KeyeventTimeout);
+
+    /// <summary>OS shutdown. Called from Program.FastServiceShutdown, which is the
+    /// only path that runs under the SCM: WindowsServiceHost exits the process
+    /// without app.StopAsync, so no hosted service's StopAsync fires there.</summary>
+    public void SleepPanelsForOsShutdown()
+    {
+        // The keyevent itself logs only on failure, so without this line a
+        // shutdown that never reached the panel reads exactly like one that did.
+        var sw = Stopwatch.StartNew();
+        var sent = TrySleepPanelsForHostPowerDown(ShutdownKeyeventTimeout, ShutdownSleepBudget);
+        ServiceLog.Info(
+            $"[qseries-port-watcher] os shutdown: sleep keyevent sent to {sent} panel(s) in {sw.ElapsedMilliseconds}ms");
+    }
 
     /// <summary>Host resumed. Stamps the resume before handing off so the tick
     /// loop's reseat check reads a resume, not a reseat, whichever runs first.</summary>
@@ -403,13 +439,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
     {
         // Suspend runs inline: the machine stops once every subscriber returns,
         // so handing off to the thread pool races the suspend and usually loses
-        // the keyevent. SendKeyeventBestEffort is capped at 1.5 s per serial and
-        // swallows its own failures, which bounds what this holds the shared
-        // SystemEvents pump thread for. Resume has no such deadline, so it hands
-        // off (the shape PowerEventListener uses for its resume-only handler).
+        // the keyevent. SendKeyeventBestEffort caps each serial at
+        // KeyeventTimeout and swallows its own failures, which bounds what this
+        // holds the shared SystemEvents pump thread for. Resume has no such
+        // deadline, so it hands off (the shape PowerEventListener uses for its
+        // resume-only handler).
         if (e.Mode == PowerModes.Suspend)
         {
-            TrySleepPanelsForHostPowerDown();
+            _ = TrySleepPanelsForHostPowerDown(KeyeventTimeout);
         }
         else if (e.Mode == PowerModes.Resume)
         {
@@ -488,10 +525,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
             // screen, so the tick loop's diff would skip the command that undoes
             // it; same reason the suspend/resume hooks mark it.
             Interlocked.Exchange(ref _displayRecordStale, 1);
-            foreach (var serial in _knownQSeriesSerials.ToArray())
+            foreach (var serial in SnapshotKnownSerials())
             {
                 if (QSeriesTransport.IsTcpSerial(serial)) continue;
-                SendKeyeventBestEffort(serial, keycode);
+                _ = SendKeyeventBestEffort(serial, keycode);
             }
         }
         catch (Exception ex)
@@ -524,26 +561,54 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// and a reseat is instead picked up by the per-attach reassert once the
     /// device re-enumerates.
     /// </summary>
-    private void TrySleepPanelsForHostPowerDown()
+    private int TrySleepPanelsForHostPowerDown(TimeSpan keyeventTimeout, TimeSpan? totalBudget = null)
     {
+        var sent = 0;
+        var sw = Stopwatch.StartNew();
         try
         {
-            if (_knownQSeriesSerials.Count == 0) return;
-            if (!_configStore.Load().QSeries.SleepWithHost) return;
+            if (_knownQSeriesSerials.Count == 0) return sent;
+            if (!_configStore.Load().QSeries.SleepWithHost) return sent;
             Interlocked.Exchange(ref _displayRecordStale, 1);
-            foreach (var serial in _knownQSeriesSerials.ToArray())
+            foreach (var serial in SnapshotKnownSerials())
             {
                 // One panel is known by both its USB serial and, once promoted,
                 // <ip>:5555. The TCP leg dials the LAN while the host's network
                 // stack is going down, so it burns the full timeout for a
                 // duplicate of what the USB leg already sent.
                 if (QSeriesTransport.IsTcpSerial(serial)) continue;
-                SendKeyeventBestEffort(serial, KeyeventSleep);
+
+                // Nothing removes from _knownQSeriesSerials, so a serial whose
+                // panel detached earlier this run still reaches here and burns
+                // the full per-serial cap when its adbd is wedged.
+                var perSerial = keyeventTimeout;
+                if (totalBudget is { } budget)
+                {
+                    var remaining = budget - sw.Elapsed;
+                    if (remaining <= TimeSpan.Zero) break;
+                    if (remaining < perSerial) perSerial = remaining;
+                }
+
+                if (SendKeyeventBestEffort(serial, KeyeventSleep, perSerial)) sent++;
             }
         }
         catch (Exception ex)
         {
             ServiceLog.Info($"[qseries-port-watcher] sleep-on-suspend failed: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        return sent;
+    }
+
+    /// <summary>Snapshot for a caller off the tick thread. Copying without the
+    /// lock races the tick loop's Add: HashSet.CopyTo captures the entries array
+    /// once but re-reads the count per iteration, so a resize mid-copy throws or
+    /// yields a null element, and the power hooks swallow that and sleep nothing.</summary>
+    private string[] SnapshotKnownSerials()
+    {
+        lock (_knownQSeriesSerialsLock)
+        {
+            return _knownQSeriesSerials.ToArray();
         }
     }
 
@@ -565,10 +630,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
             var qseries = _configStore.Load().QSeries;
             if (!qseries.SleepWithHost) return;
             var keycode = qseries.ScreenOff ? KeyeventSleep : KeyeventWakeup;
-            foreach (var serial in _knownQSeriesSerials.ToArray())
+            foreach (var serial in SnapshotKnownSerials())
             {
                 if (QSeriesTransport.IsTcpSerial(serial)) continue;
-                SendKeyeventBestEffort(serial, keycode);
+                _ = SendKeyeventBestEffort(serial, keycode);
             }
         }
         catch (Exception ex)
@@ -582,23 +647,26 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// or shutting down, so waiting for the next tick misses the window. The
     /// resulting interleave with an in-flight tick is tolerable for one small
     /// shell command; the USB-FFS wedges on record come from bulk transfers
-    /// (screencap, APK installs). The timeout shares the OS shutdown allowance
-    /// (WaitToKillServiceTimeout) with TryRebootStrandedPanelsForShutdown, so
-    /// both must fit. A bare serial routes by serial through the adb-server
-    /// rather than a transport id captured on an earlier tick.
+    /// (screencap, APK installs). At OS shutdown the caller caps each serial at
+    /// <see cref="ShutdownKeyeventTimeout"/> and the loop shares
+    /// <see cref="ShutdownSleepBudget"/> across all of them. A bare serial routes
+    /// by serial through the adb-server rather than a transport id captured on an
+    /// earlier tick.
     /// </summary>
-    private void SendKeyeventBestEffort(string serial, int keycode)
+    private bool SendKeyeventBestEffort(string serial, int keycode, TimeSpan? timeout = null)
     {
         try
         {
-            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(1_500));
+            using var cts = new CancellationTokenSource(timeout ?? KeyeventTimeout);
             var device = new DeviceData { Serial = serial };
             _client.ExecuteShellCommandAsync(device, $"input keyevent {keycode}", cts.Token)
                 .GetAwaiter().GetResult();
+            return true;
         }
         catch (Exception ex)
         {
             ServiceLog.Info($"[qseries-port-watcher] {serial}: keyevent {keycode} failed: {ex.GetType().Name}: {ex.Message}");
+            return false;
         }
     }
 
@@ -710,7 +778,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
             if (!IsQSeries(device)) continue;
             // Remember the serial so a later offline pass can identify it without the
             // (then-unreliable) model field.
-            _knownQSeriesSerials.Add(device.Serial);
+            lock (_knownQSeriesSerialsLock)
+            {
+                _knownQSeriesSerials.Add(device.Serial);
+            }
             if (QSeriesTransport.IsTcpSerial(device.Serial)) continue;
             if (_promoted.ContainsKey(device.Serial)) continue;
             await TryPromoteToTcpAsync(device, ct);
@@ -2525,13 +2596,43 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 var tzOut = tzReceiver.ToString().Trim();
                 tzDetail = tzOut.Length == 0 ? iana : $"{iana} -> {tzOut}";
             }
+            // Captured here, not at method entry: the timezone round trip above
+            // would otherwise be pushed onto the panel as a stale clock and read
+            // back as drift.
+            var setAt = DateTimeOffset.UtcNow;
             var timeReceiver = new ConsoleOutputReceiver();
             await _client.ExecuteShellCommandAsync(
-                device, $"cmd alarm set-time {now.ToUnixTimeMilliseconds()}", timeReceiver, ct);
+                device, $"cmd alarm set-time {setAt.ToUnixTimeMilliseconds()}", timeReceiver, ct);
             var timeOut = timeReceiver.ToString().Trim();
-            ServiceLog.Info(
-                $"[qseries-port-watcher] {device.Serial}: clock sync tz={tzDetail}"
-                + $" time={(timeOut.Length == 0 ? "ok" : timeOut)}");
+
+            // A refused `cmd alarm set-time` can report only to logcat, so an
+            // empty stdout does not mean the clock moved. Read it back.
+            var readbackReceiver = new ConsoleOutputReceiver();
+            await _client.ExecuteShellCommandAsync(device, ClockReadbackCommand, readbackReceiver, ct);
+            var readback = readbackReceiver.ToString().Trim();
+            var check = EvaluateClockReadback(
+                readback, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), ClockSyncToleranceSeconds, out var driftSeconds);
+
+            var timeDetail = check switch
+            {
+                ClockSyncCheck.Ok => $"ok (drift {driftSeconds}s)",
+                ClockSyncCheck.Drifted => $"NOT APPLIED (drift {driftSeconds}s)",
+                _ => $"unverified (readback \"{readback}\")",
+            };
+            if (timeOut.Length != 0)
+            {
+                timeDetail += $" set-time said \"{timeOut}\"";
+            }
+
+            var line = $"[qseries-port-watcher] {device.Serial}: clock sync tz={tzDetail} time={timeDetail}";
+            if (check == ClockSyncCheck.Ok)
+            {
+                ServiceLog.Info(line);
+            }
+            else
+            {
+                ServiceLog.Warn(line);
+            }
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
@@ -2540,6 +2641,48 @@ public sealed class QSeriesPortWatcher : BackgroundService
             ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: clock sync failed: {ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    /// <summary>Native toybox readback of the panel's wall clock; `input`-style
+    /// commands that exec a JVM cost an order of magnitude more.</summary>
+    private const string ClockReadbackCommand = "date +%s";
+
+    /// <summary>Readback tolerance in seconds. Absorbs the set-time and readback
+    /// round trips plus the panel's one-second clock granularity; the failures
+    /// this catches are minutes to years off.</summary>
+    private const long ClockSyncToleranceSeconds = 10;
+
+    /// <summary>Result of comparing the panel's clock readback against the host.
+    /// Unverified means the panel answered something that is not an epoch, which
+    /// is never reported as success.</summary>
+    internal enum ClockSyncCheck { Ok, Drifted, Unverified }
+
+    /// <summary>Compares <see cref="ClockReadbackCommand"/> output against host
+    /// epoch seconds. Any unparseable or non-positive answer is Unverified, and
+    /// <paramref name="driftSeconds"/> is then zero. Both sides being positive is
+    /// what keeps the subtraction from overflowing.</summary>
+    internal static ClockSyncCheck EvaluateClockReadback(
+        string deviceOutput, long hostUnixSeconds, long toleranceSeconds, out long driftSeconds)
+    {
+        driftSeconds = 0;
+        if (hostUnixSeconds <= 0)
+        {
+            return ClockSyncCheck.Unverified;
+        }
+
+        var trimmed = deviceOutput.Trim();
+        if (!long.TryParse(
+                trimmed,
+                System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var deviceSeconds)
+            || deviceSeconds <= 0)
+        {
+            return ClockSyncCheck.Unverified;
+        }
+
+        driftSeconds = deviceSeconds - hostUnixSeconds;
+        return Math.Abs(driftSeconds) <= toleranceSeconds ? ClockSyncCheck.Ok : ClockSyncCheck.Drifted;
     }
 
     /// <summary>

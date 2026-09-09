@@ -242,7 +242,9 @@ public static class PanelBgRoutes
                 }
 
                 ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
-                return Results.File(mediaPath, ContentTypeFor(mediaPath));
+                // Without ranges the Chromium <video> on the panel has to land a
+                // multi-MB body in one uninterrupted response and cannot resume.
+                return Results.File(mediaPath, ContentTypeFor(mediaPath), enableRangeProcessing: true);
             }).AllowPanel();
 
         app.MapPost("/panel/devices/{deviceId}/background-media/library/open",
