@@ -45,7 +45,7 @@ public static partial class DevicesRoutes
             };
             if (response.Chainable)
             {
-                settings.Devices.LedChains.TryGetValue(
+                settings.Devices.PortChains.TryGetValue(
                     Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(structure.DeviceId, 0), out var chain);
                 for (int i = 0; i < zones.Count; i++)
                 {
@@ -53,12 +53,16 @@ public static partial class DevicesRoutes
                     // they line up; a shorter chain means the zones came from
                     // somewhere else and every zone reads as custom.
                     var link = chain is not null && i < chain.Count ? chain[i] : null;
+                    // An unchained port still reports one row, so the editor
+                    // renders the same list whether or not a chain exists; it
+                    // reads as a generic strip the user can resize.
+                    var key = link?.Key ?? Nexus.Service.Lighting.Mappings.GenericChainArtifacts.StripKey;
                     response.Chain.Add(new ChainEntryDto
                     {
-                        Key = link?.Key,
+                        Key = key,
                         Name = zones[i].RawName,
                         LedCount = zones[i].LedCount,
-                        Custom = link?.Key is null,
+                        EditableCount = Nexus.Service.Lighting.Mappings.GenericChainArtifacts.IsGeneric(key),
                     });
                 }
             }

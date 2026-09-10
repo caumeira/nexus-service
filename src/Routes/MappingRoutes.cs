@@ -175,11 +175,18 @@ public static partial class DevicesRoutes
             foreach (var want in requested)
             {
                 if (string.IsNullOrEmpty(want.Key))
+                    return Results.Json(ApiResponse.Fail("chain entry needs a key"), AppJsonContext.Default.ApiResponse);
+
+                if (GenericChainArtifacts.IsGeneric(want.Key))
                 {
-                    // A custom link is nothing but a count the user typed.
+                    // A generic's geometry follows the count, so the count is
+                    // the client's to set here and only here.
                     if (want.LedCount <= 0 || want.LedCount > MaxChainZoneLeds)
-                        return Results.Json(ApiResponse.Fail("custom zone led count out of range"), AppJsonContext.Default.ApiResponse);
-                    links.Add((new Nexus.Service.Persistence.ChainEntry { Key = null, LedCount = want.LedCount }, null));
+                        return Results.Json(ApiResponse.Fail("generic zone led count out of range"), AppJsonContext.Default.ApiResponse);
+                    var generic = GenericChainArtifacts.Build(want.Key, want.LedCount);
+                    if (generic is null)
+                        return Results.Json(ApiResponse.Fail($"could not build {want.Key}"), AppJsonContext.Default.ApiResponse);
+                    links.Add((new Nexus.Service.Persistence.ChainEntry { Key = want.Key, LedCount = want.LedCount }, generic));
                     total += want.LedCount;
                     continue;
                 }
@@ -217,12 +224,12 @@ public static partial class DevicesRoutes
                 {
                     // Clearing: the port goes back to one whole-segment zone
                     // sized by whatever the user last set.
-                    s.Devices.LedChains.Remove(chainKey);
+                    s.Devices.PortChains.Remove(chainKey);
                     s.Devices.ZonePartitions.Remove(deviceId);
                     return;
                 }
 
-                s.Devices.LedChains[chainKey] = links.ConvertAll(l => l.Entry);
+                s.Devices.PortChains[chainKey] = links.ConvertAll(l => l.Entry);
                 s.Devices.ZoneLedCounts[defaultCardId] = total;
 
                 var defs = new List<Nexus.Service.Persistence.ZoneDef>();
@@ -247,9 +254,7 @@ public static partial class DevicesRoutes
                         // Repeats of one product are common (three identical
                         // fans), so the ordinal is part of the name or the
                         // cards are indistinguishable in the device list.
-                        var name = artifact is null
-                            ? $"Zone {i + 1}"
-                            : links.Count > 1 ? $"{artifact.Name} {i + 1}" : artifact.Name;
+                        var name = links.Count > 1 ? $"{artifact!.Name} {i + 1}" : artifact!.Name;
                         defs.Add(new Nexus.Service.Persistence.ZoneDef
                         {
                             Name = name.Length > Nexus.Service.Lighting.Zones.ZonePartitionValidator.MaxZoneNameLength
@@ -258,8 +263,7 @@ public static partial class DevicesRoutes
                             Slices = { new Nexus.Service.Persistence.ZoneSlice
                                 { Segment = seg, Start = start, Count = count } },
                         });
-                        if (artifact is not null)
-                            applied.Add((defs.Count - 1, artifact));
+                        applied.Add((defs.Count - 1, artifact!));
                         start += count;
                     }
                 }

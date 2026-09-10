@@ -47,7 +47,7 @@ public static class ZoneResolution
         var owned = new HashSet<int>();
         for (int i = 0; i < structure.Segments.Count; i++)
         {
-            if (settings.Devices.LedChains.TryGetValue(ChainKey(structure.DeviceId, i), out var chain)
+            if (settings.Devices.PortChains.TryGetValue(ChainKey(structure.DeviceId, i), out var chain)
                 && chain is { Count: > 0 })
             {
                 owned.Add(i);

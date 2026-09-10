@@ -88,7 +88,7 @@ public class ChainPartitionTests
         }
         var settings = new NexusSettings();
         settings.Devices.ZonePartitions["dev"] = ChainPartition();
-        settings.Devices.LedChains[ZoneResolution.ChainKey("dev", 1)] = new()
+        settings.Devices.PortChains[ZoneResolution.ChainKey("dev", 1)] = new()
         {
             new ChainEntry { Key = "product:a", LedCount = 34 },
             new ChainEntry { Key = null, LedCount = 20 },      // a custom run chains like any product
@@ -102,7 +102,7 @@ public class ChainPartitionTests
         Assert.Equal(new[] { 12, 34, 20, 34, 1 }, zones.Select(z => z.LedCount).ToArray());
 
         // Drop the chain record and the partition must self-heal to defaults.
-        settings.Devices.LedChains.Clear();
+        settings.Devices.PortChains.Clear();
         Assert.Equal(3, ZoneResolution.Resolve(structure, settings).Count);
     }
 }

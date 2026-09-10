@@ -94,6 +94,8 @@ public sealed class BuiltInMappingSummary
     public string Brand { get; set; } = "";
     public string Type { get; set; } = "";
     public int LedCount { get; set; }
+    /// <summary>True for the generic fan and strip, whose geometry follows a count the user types; every other row's count is fixed by its artifact.</summary>
+    public bool Parametric { get; set; }
 }
 
 public sealed class BuiltInMappingsResponse : ApiResponse
@@ -135,8 +137,8 @@ public sealed class ChainEntryDto
     /// <summary>Product name, or the zone name for a custom run.</summary>
     public string Name { get; set; } = "";
     public int LedCount { get; set; }
-    /// <summary>True when the count is the user's to edit; a product's count is fixed by its artifact.</summary>
-    public bool Custom { get; set; }
+    /// <summary>True when the count is the user's to edit, i.e. a generic fan or strip.</summary>
+    public bool EditableCount { get; set; }
 }
 
 public sealed class SetChainResponse : ApiResponse

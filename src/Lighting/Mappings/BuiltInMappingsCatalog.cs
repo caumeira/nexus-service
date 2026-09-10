@@ -55,6 +55,22 @@ public static class BuiltInMappingsCatalog
         var hasQuery = !string.IsNullOrEmpty(q);
         var scored = new List<(int Rank, string Name, BuiltInMappingSummary Row)>();
 
+        // The generics are not catalogued rows - their geometry is a function of
+        // a count the user types - but they belong in the same picker, and
+        // ahead of the products: someone whose fan is not listed should reach
+        // "Generic Fan" without scrolling past 140 that are.
+        foreach (var generic in GenericRows())
+        {
+            if (!string.IsNullOrEmpty(type)
+                && !string.Equals(generic.Type, type, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (hasQuery && RankMatch(generic, q!) == int.MaxValue)
+                continue;
+            scored.Add((-1, generic.Name, generic));
+        }
+
         foreach (var entry in _entries!)
         {
             if (!string.IsNullOrEmpty(type)
@@ -85,6 +101,29 @@ public static class BuiltInMappingsCatalog
         for (int i = 0; i < take; i++)
             result.Add(scored[i].Row);
         return result;
+    }
+
+    /// <summary>The two parametric picks, always offered alongside the catalogued products.</summary>
+    private static IEnumerable<BuiltInMappingSummary> GenericRows()
+    {
+        yield return new BuiltInMappingSummary
+        {
+            Key = GenericChainArtifacts.FanKey,
+            Name = GenericChainArtifacts.NameFor(GenericChainArtifacts.FanKey),
+            Brand = "Generic",
+            Type = "Fan",
+            LedCount = 0,
+            Parametric = true,
+        };
+        yield return new BuiltInMappingSummary
+        {
+            Key = GenericChainArtifacts.StripKey,
+            Name = GenericChainArtifacts.NameFor(GenericChainArtifacts.StripKey),
+            Brand = "Generic",
+            Type = "Strip",
+            LedCount = 0,
+            Parametric = true,
+        };
     }
 
     /// <summary>Lower is better; int.MaxValue means "no match".</summary>
