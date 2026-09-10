@@ -76,13 +76,13 @@ public sealed class PanelSettings
     public string BackgroundMode { get; set; } = "solid";
     public string BackgroundEffect { get; set; } = "aurora";
     public int BackgroundTemplate { get; set; }
-    public double BackgroundOpacity { get; set; } = 0.4;
+    public double BackgroundOpacity { get; set; } = 1.0;
     /// <summary>Opacity of the entire panel surface itself (0 = fully transparent,
     /// desktop wallpaper visible through the kiosk; 1 = fully opaque). Distinct
     /// from BackgroundOpacity which is the dim of the background effect over the
     /// panel's widgets. Surfaced as "Panel Opacity" on monitor-style panels only.</summary>
     public double PanelOpacity { get; set; } = 1.0;
-    public double WidgetOpacity { get; set; } = 1.0;
+    public double WidgetOpacity { get; set; } = 0.7;
     public bool WidgetLabels { get; set; } = false;
     /// <summary>Layout seeds for new device records + first-time desktop dashboard. Populated in install-defaults; null in the live profile (the embedded install-defaults table remains the source of truth for seeding new device records).</summary>
     public PanelLayoutsDefaults? Layouts { get; set; }

@@ -20,8 +20,8 @@
     "backgroundMode": "solid",
     "backgroundEffect": "aurora",
     "backgroundTemplate": 0,
-    "backgroundOpacity": 0.4,
-    "widgetOpacity": 0.5,
+    "backgroundOpacity": 1.0,
+    "widgetOpacity": 0.7,
     "widgetLabels": false,
     "layouts": {
       "desktop": {
