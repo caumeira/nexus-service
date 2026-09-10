@@ -249,12 +249,15 @@ public class OpenRgbZoneCardsTests
     }
 
     [Fact]
-    public void Custom_partition_on_motherboard_keeps_resizable_zone_cards()
+    public void A_board_level_partition_no_longer_describes_a_split_motherboard()
     {
         var settings = new NexusSettings();
         settings.Devices.ZoneLedCounts["openrgb-s-MB01-0"] = 60;
-        // Rule 2 only allows whole-header zones on a split motherboard, so a
-        // custom partition there is effectively a rename.
+        // Legacy shape: one partition tiling every header at once, from before
+        // each header became its own device. SplitMotherboardDeviceMigration
+        // drops it, but GetAll can run first, and the engine-frame path
+        // resolves ports regardless - so the cards must agree with the frames
+        // rather than briefly describing a device that no longer exists.
         settings.Devices.ZonePartitions["openrgb-s-MB01"] = new List<ZoneDef>
         {
             new() { Name = "Fans", Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = 60 } } },
@@ -264,11 +267,47 @@ public class OpenRgbZoneCardsTests
 
         var resp = OpenRgbZoneSupport.BuildCards(new[] { Motherboard() }, settings, isInit: true);
         Assert.Equal(3, resp.Devices.Count);
-        Assert.Equal("openrgb-s-MB01:z0", resp.Devices[0].Id);
-        Assert.Equal("B850I AORUS PRO - Fans", resp.Devices[0].Name);
+        Assert.Equal("openrgb-s-MB01-0", resp.Devices[0].Id);
+        Assert.Equal("B850I AORUS PRO - D_LED1", resp.Devices[0].Name);
         Assert.Equal(60, resp.Devices[0].LedCount);
         Assert.True(resp.Devices[0].ZoneResizable);
-        Assert.Equal("", resp.Devices[0].DeviceKey);
+        Assert.Equal("openrgb-s-MB01-0", resp.Devices[0].DeviceId);
+    }
+
+    [Fact]
+    public void A_chain_on_one_header_leaves_the_others_alone()
+    {
+        var settings = new NexusSettings();
+        var portId = "openrgb-s-MB01-0";
+        settings.Devices.ZoneLedCounts[portId] = 60;
+        settings.Devices.ZonePartitions[portId] = new List<ZoneDef>
+        {
+            new() { Name = "QX Fan", Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = 34 } } },
+            new() { Name = "Generic Strip", Slices = { new ZoneSlice { Segment = 0, Start = 34, Count = 26 } } },
+        };
+        settings.Devices.PortChains[ZoneResolution.ChainKey(portId, 0)] = new List<ChainEntry>
+        {
+            new() { Key = "product:qx", LedCount = 34 },
+            new() { Key = "generic:strip", LedCount = 26 },
+        };
+
+        var resp = OpenRgbZoneSupport.BuildCards(new[] { Motherboard() }, settings, isInit: true);
+
+        // Two products on header 1, then the two untouched headers.
+        Assert.Equal(4, resp.Devices.Count);
+        Assert.Equal($"{portId}:z0", resp.Devices[0].Id);
+        Assert.Equal($"{portId}:z1", resp.Devices[1].Id);
+        Assert.Equal("openrgb-s-MB01-1", resp.Devices[2].Id);
+        Assert.Equal("openrgb-s-MB01-2", resp.Devices[3].Id);
+        Assert.Equal(new[] { 34, 26 }, new[] { resp.Devices[0].LedCount, resp.Devices[1].LedCount });
+        // Both chain cards point at the port, which is what the chain and zone
+        // editors address, and neither may resize the header on its own.
+        Assert.Equal(portId, resp.Devices[0].DeviceId);
+        Assert.Equal(portId, resp.Devices[1].DeviceId);
+        Assert.False(resp.Devices[0].ZoneResizable);
+        Assert.False(resp.Devices[1].ZoneResizable);
+        // The untouched header keeps its whole-segment resize.
+        Assert.True(resp.Devices[2].ZoneResizable);
     }
 
     [Fact]

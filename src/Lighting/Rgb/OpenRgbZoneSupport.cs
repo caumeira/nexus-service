@@ -294,10 +294,13 @@ public static class OpenRgbZoneSupport
                 continue;
             }
 
-            if (isDefault)
+            if (isSplitMotherboard)
             {
-                // Split motherboard with the default partition - one card per
-                // header, identical to the legacy emission.
+                // Every header is its own device, so the BOARD's own partition
+                // means nothing here - only each port's does. Keyed on the
+                // split alone rather than on isDefault so this never diverges
+                // from the engine-frame path, which resolves ports the same
+                // way; the two disagreeing lights the wrong LEDs silently.
                 var portStructures = BuildStructures(d, settings);
                 for (int z = 0; z < d.Zones.Count; z++)
                 {
@@ -320,6 +323,9 @@ public static class OpenRgbZoneSupport
                     var effectiveLedCount = portZone.IsDefault
                         ? (zoneLedCounts.TryGetValue(zoneId, out var persistedCount) ? persistedCount : zone.LedCount)
                         : portZone.LedCount;
+                    // Must be the hint the render path resolves this card with,
+                    // or the card's enabled count disagrees with what lights.
+                    var zoneHint = portZone.IsDefault ? portZone.LegacyZoneIndex : portZone.Ordinal;
                     var (sx, sy, sw, sh) = OpenRgbLightingDeviceProvider.DefaultStripLayout(stripSlot);
                     result.Add(new LightingDevice
                     {
@@ -333,7 +339,7 @@ public static class OpenRgbZoneSupport
                         Hue = pref?.Hue ?? 0,
                         Saturation = pref?.Saturation ?? 1.0f,
                         LedCount = effectiveLedCount,
-                        EnabledLedCount = ZoneResolution.CountEnabled(portStructures[z], portZone, zoneId, effectiveLedCount, portZone.LegacyZoneIndex, settings),
+                        EnabledLedCount = ZoneResolution.CountEnabled(portStructures[z], portZone, zoneId, effectiveLedCount, zoneHint, settings),
                         CanvasX = layout?.X ?? sx,
                         CanvasY = layout?.Y ?? sy,
                         CanvasW = layout?.W ?? sw,
@@ -342,7 +348,11 @@ public static class OpenRgbZoneSupport
                         ParentDeviceId = baseId,
                         ZoneIndex = z,
                         ZoneType = ZoneTypeName(zone.ZoneType),
-                        ZoneResizable = IsZoneResizable(zone.ZoneType),
+                        // Only a zone owning the whole header may resize it. A
+                        // chain link starts at 0 like a whole-port zone does,
+                        // so without the count check every link would offer an
+                        // LED-count editor that the resize path then refuses.
+                        ZoneResizable = ZoneResolution.WholeResizableSegment(portStructures[z], portZone) >= 0,
                         // Each header is its own device now, so the card points
                         // at the port structure rather than the controller. The
                         // rail still groups it under the board through
@@ -358,14 +368,12 @@ public static class OpenRgbZoneSupport
                 continue;
             }
 
-            // Custom partition - one card per user zone.
+            // Custom partition on a whole device - one card per user zone.
             foreach (var zone in zones)
             {
                 prefs.TryGetValue(zone.Id, out var pref);
                 layouts.TryGetValue(zone.Id, out var layout);
-                var (zx, zy, zw, zh) = isSplitMotherboard
-                    ? OpenRgbLightingDeviceProvider.DefaultStripLayout(stripSlot)
-                    : OpenRgbLightingDeviceProvider.DefaultCardLayout(cardSlot);
+                var (zx, zy, zw, zh) = OpenRgbLightingDeviceProvider.DefaultCardLayout(cardSlot);
                 var wholeResizable = ZoneResolution.WholeResizableSegment(structure, zone);
                 result.Add(new LightingDevice
                 {
@@ -393,10 +401,7 @@ public static class OpenRgbZoneSupport
                     ZoneCustomizable = true,
                     ConflictAppIds = new List<string>(conflictAppIds),
                 });
-                if (isSplitMotherboard)
-                    stripSlot++;
-                else
-                    cardSlot++;
+                cardSlot++;
             }
         }
 

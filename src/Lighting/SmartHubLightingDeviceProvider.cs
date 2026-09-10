@@ -235,11 +235,13 @@ public sealed class SmartHubLightingDeviceProvider :
             Type = "ledstrip", IconType = "strip",
             LedsOn = isOn, Brightness = brightness, Hue = hue, Saturation = saturation,
             LedCount = zone.LedCount,
-            EnabledLedCount = ZoneResolution.CountEnabled(structure, zone, id, zone.LedCount, zone.Ordinal, settings),
+            // Contributor cards render through ResolveSeeded, whose zone hint
+            // is always 0; the count has to be computed the same way.
+            EnabledLedCount = ZoneResolution.CountEnabled(structure, zone, id, zone.LedCount, 0, settings),
             CanvasX = layout?.X ?? defX, CanvasY = layout?.Y ?? defY,
             CanvasW = layout?.W ?? defW, CanvasH = layout?.H ?? defH,
             CanvasRotation = ((((layout?.Rotation ?? 0) % 360) + 360) % 360),
-            ParentDeviceId = parentDeviceId, ZoneIndex = zone.Ordinal,
+            ParentDeviceId = parentDeviceId, ZoneIndex = slot,
             ZoneType = "linear",
             // Only a zone that owns the whole port may resize it; a chain link
             // is sized by its product, and resizing one would silently restate
