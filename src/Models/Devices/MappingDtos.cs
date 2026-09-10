@@ -50,7 +50,7 @@ public sealed class AppliedMappingSummary
 {
     public string? MappingId { get; set; }
     public string Name { get; set; } = "";
-    /// <summary>"community" | "file"</summary>
+    /// <summary>"community" | "file" | "builtin"</summary>
     public string Source { get; set; } = "";
     public string ContentHash { get; set; } = "";
     public bool AutoApplied { get; set; }
@@ -60,6 +60,53 @@ public sealed class AppliedMappingSummary
 public sealed class ApplyMappingBody
 {
     public string MappingId { get; set; } = "";
+}
+
+// ----- built-in mapping catalog (embedded, offline) -----
+
+/// <summary>The embedded catalog resource: one entry per pre-built product mapping.</summary>
+public sealed class BuiltInMappingsFile
+{
+    public int SchemaVersion { get; set; }
+    public int Count { get; set; }
+    public List<BuiltInMappingEntry> Mappings { get; set; } = new();
+}
+
+/// <summary>
+/// One catalog row. Only <see cref="Type"/> lives outside the artifact; name,
+/// brand and LED count are read back off the artifact so there is one source
+/// of truth for each.
+/// </summary>
+public sealed class BuiltInMappingEntry
+{
+    /// <summary>Virtual product key, e.g. "product:corsair-qx-fan".</summary>
+    public string Key { get; set; } = "";
+    /// <summary>Fan | Strip | AIO | Case | Cable | Water Block | ... - the picker's category filter.</summary>
+    public string Type { get; set; } = "";
+    public MappingArtifact Artifact { get; set; } = new();
+}
+
+/// <summary>Search-result row for the assign picker; the artifact is fetched only on assign.</summary>
+public sealed class BuiltInMappingSummary
+{
+    public string Key { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Brand { get; set; } = "";
+    public string Type { get; set; } = "";
+    public int LedCount { get; set; }
+}
+
+public sealed class BuiltInMappingsResponse : ApiResponse
+{
+    public List<BuiltInMappingSummary> Items { get; set; } = new();
+    /// <summary>Catalog size before the query and limit, so the UI can say "showing N of M".</summary>
+    public int Total { get; set; }
+}
+
+/// <summary>Assign a built-in mapping to a device by product key.</summary>
+public sealed class AssignMappingBody
+{
+    public string Key { get; set; } = "";
 }
 
 /// <summary>Device id -> cached community mapping count (only entries with a nonzero count).</summary>

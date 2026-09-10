@@ -55,6 +55,20 @@ public static partial class DevicesRoutes
             return Results.Json(response, AppJsonContext.Default.DeviceMappingsResponse);
         });
 
+        // The pre-built product catalog: everything a user can hang off an ARGB
+        // header. Served straight from the embedded resource - no registry, no
+        // cache, no network - because a header cannot report what is wired to
+        // it and the picker is the only way for the user to say.
+        app.MapGet("/devices/lighting-devices/mappings/catalog", (string? q, string? type, int? limit) =>
+        {
+            var response = new BuiltInMappingsResponse
+            {
+                Items = BuiltInMappingsCatalog.Search(q, type, limit ?? 50),
+                Total = BuiltInMappingsCatalog.All.Count,
+            };
+            return Results.Json(response, AppJsonContext.Default.BuiltInMappingsResponse);
+        });
+
         // Cache-only availability counts for the device-card badge. Never
         // touches the network: counts come from the disk cache the list
         // proxy and auto-apply worker keep warm.
@@ -96,7 +110,25 @@ public static partial class DevicesRoutes
             }
             if (item?.Payload is null)
                 return ApiResponse.Fail("mapping not found");
-            return mappings.Apply(id, item.Payload, item.Id, "community", auto: false, item.ContentHash) switch
+            return mappings.Apply(id, item.Payload, item.Id, MappingApplyService.SourceCommunity, auto: false, item.ContentHash) switch
+            {
+                MappingApplyService.ApplyOutcome.Applied => ApiResponse.Ok(),
+                MappingApplyService.ApplyOutcome.Invalid => ApiResponse.Fail("mapping failed validation"),
+                _ => ApiResponse.Fail("unknown device"),
+            };
+        });
+
+        // Assign a pre-built mapping by product key. The user's own edits keep
+        // layering on top (DeviceLedOverrides / LedGroups) and are never folded
+        // back into the artifact, so re-assigning always restores the shipped
+        // layout rather than whatever the last edit left behind.
+        app.MapPost("/devices/lighting-devices/{id}/mappings/assign", (string id, AssignMappingBody body,
+            MappingApplyService mappings) =>
+        {
+            var artifact = BuiltInMappingsCatalog.Find(body.Key ?? "");
+            if (artifact is null)
+                return ApiResponse.Fail("unknown mapping");
+            return mappings.Apply(id, artifact, body.Key, MappingApplyService.SourceBuiltIn, auto: false) switch
             {
                 MappingApplyService.ApplyOutcome.Applied => ApiResponse.Ok(),
                 MappingApplyService.ApplyOutcome.Invalid => ApiResponse.Fail("mapping failed validation"),
@@ -117,7 +149,7 @@ public static partial class DevicesRoutes
         // Import a .nexusmap artifact (validated like any other source).
         app.MapPost("/devices/lighting-devices/{id}/mappings/import", (string id, MappingArtifact artifact,
             MappingApplyService mappings) =>
-            mappings.Apply(id, artifact, mappingId: null, source: "file", auto: false) switch
+            mappings.Apply(id, artifact, mappingId: null, source: MappingApplyService.SourceFile, auto: false) switch
             {
                 MappingApplyService.ApplyOutcome.Applied => ApiResponse.Ok(),
                 MappingApplyService.ApplyOutcome.Invalid => ApiResponse.Fail("artifact failed validation"),
