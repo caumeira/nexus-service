@@ -109,13 +109,34 @@ public sealed class AssignMappingBody
     public string Key { get; set; } = "";
 }
 
-/// <summary>Wire an ordered product chain to one ARGB port. An empty Keys list clears it.</summary>
+/// <summary>Wire an ordered chain to one ARGB port. An empty chain clears it.</summary>
 public sealed class SetChainBody
 {
-    /// <summary>Index of the port's hardware segment on the parent device.</summary>
+    /// <summary>Index of the port's hardware segment. A port has one segment, so this is vestigial; kept so an older client's payload still parses.</summary>
     public int Segment { get; set; }
-    /// <summary>Catalog product keys in wire order; mixed types are fine (fan, strip, fan).</summary>
+    /// <summary>Chain in wire order: products, custom LED runs, or a mix.</summary>
+    public List<SetChainEntry> Entries { get; set; } = new();
+    /// <summary>Legacy all-products form. Used only when <see cref="Entries"/> is empty.</summary>
     public List<string> Keys { get; set; } = new();
+}
+
+/// <summary>One requested link: a catalog product by key, or a bare LED count.</summary>
+public sealed class SetChainEntry
+{
+    public string? Key { get; set; }
+    public int LedCount { get; set; }
+}
+
+/// <summary>A port's current chain, one entry per zone in wire order.</summary>
+public sealed class ChainEntryDto
+{
+    /// <summary>Catalog product key, or null when the user just counted LEDs.</summary>
+    public string? Key { get; set; }
+    /// <summary>Product name, or the zone name for a custom run.</summary>
+    public string Name { get; set; } = "";
+    public int LedCount { get; set; }
+    /// <summary>True when the count is the user's to edit; a product's count is fixed by its artifact.</summary>
+    public bool Custom { get; set; }
 }
 
 public sealed class SetChainResponse : ApiResponse

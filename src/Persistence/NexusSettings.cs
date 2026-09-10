@@ -1074,7 +1074,7 @@ public sealed class DevicesSettings
     /// which is what makes a multi-zone partition safe on a resizable segment:
     /// the count can no longer drift out from under the slices.
     /// </summary>
-    public Dictionary<string, List<string>> LedChains { get; set; } = new();
+    public Dictionary<string, List<ChainEntry>> LedChains { get; set; } = new();
 
     /// <summary>
     /// GPU zones on the attached Strimer harness: 6 for the triple 8-pin (the default) or 4
@@ -1199,6 +1199,20 @@ public sealed class ZoneDef
 {
     public string Name { get; set; } = "";
     public List<ZoneSlice> Slices { get; set; } = new();
+}
+
+/// <summary>
+/// One link in a port's chain: either a catalog product, or a bare run of LEDs
+/// the user counted themselves. A product's count comes from its artifact and
+/// is not editable; a custom link is nothing but its count. Both occupy a zone,
+/// so a chain of "fan, 20 LEDs, fan" is three zones like any other.
+/// </summary>
+public sealed class ChainEntry
+{
+    /// <summary>Catalog product key, or null for a custom run.</summary>
+    public string? Key { get; set; }
+    /// <summary>LEDs this link occupies. Authoritative for a custom link; a mirror of the product's count otherwise.</summary>
+    public int LedCount { get; set; }
 }
 
 /// <summary>A run of LEDs local to one hardware segment of a device.</summary>

@@ -37,7 +37,31 @@ public static partial class DevicesRoutes
                 DeviceKey = structure.DeviceKey,
                 IsDefaultPartition = zones.Count == 0 || zones[0].IsDefault,
                 HubComposition = DescribeHubComposition(composables, deviceId),
+                // One resizable segment means an ARGB port: the zones are the
+                // user's chain, not a firmware-fixed layout.
+                Chainable = structure.Partitionable
+                    && structure.Segments.Count == 1
+                    && structure.Segments[0].Resizable,
             };
+            if (response.Chainable)
+            {
+                settings.Devices.LedChains.TryGetValue(
+                    Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(structure.DeviceId, 0), out var chain);
+                for (int i = 0; i < zones.Count; i++)
+                {
+                    // The chain and the resolved zones are written together, so
+                    // they line up; a shorter chain means the zones came from
+                    // somewhere else and every zone reads as custom.
+                    var link = chain is not null && i < chain.Count ? chain[i] : null;
+                    response.Chain.Add(new ChainEntryDto
+                    {
+                        Key = link?.Key,
+                        Name = zones[i].RawName,
+                        LedCount = zones[i].LedCount,
+                        Custom = link?.Key is null,
+                    });
+                }
+            }
             foreach (var seg in structure.Segments)
             {
                 response.Segments.Add(new StructureSegmentDto

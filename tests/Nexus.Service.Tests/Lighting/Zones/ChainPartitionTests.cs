@@ -88,8 +88,12 @@ public class ChainPartitionTests
         }
         var settings = new NexusSettings();
         settings.Devices.ZonePartitions["dev"] = ChainPartition();
-        settings.Devices.LedChains[ZoneResolution.ChainKey("dev", 1)] =
-            new List<string> { "product:a", "product:b", "product:c" };
+        settings.Devices.LedChains[ZoneResolution.ChainKey("dev", 1)] = new()
+        {
+            new ChainEntry { Key = "product:a", LedCount = 34 },
+            new ChainEntry { Key = null, LedCount = 20 },      // a custom run chains like any product
+            new ChainEntry { Key = "product:c", LedCount = 34 },
+        };
 
         var zones = ZoneResolution.Resolve(structure, settings);
         Assert.Equal(5, zones.Count);

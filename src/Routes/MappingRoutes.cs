@@ -7,6 +7,9 @@ namespace Nexus.Service.Routes;
 
 public static partial class DevicesRoutes
 {
+    /// <summary>Ceiling for a hand-typed chain zone count; mirrors the artifact schema's per-zone cap.</summary>
+    private const int MaxChainZoneLeds = 4096;
+
     /// <summary>
     /// Community mapping flow per lighting device: browse the registry
     /// (proxied through the service's disk cache so the SPA never talks to
@@ -153,37 +156,55 @@ public static partial class DevicesRoutes
                 return Results.Json(ApiResponse.Fail("unknown device"), AppJsonContext.Default.ApiResponse);
             if (!structure.Partitionable)
                 return Results.Json(ApiResponse.Fail("device does not support zone partitions"), AppJsonContext.Default.ApiResponse);
-            if (body.Segment < 0 || body.Segment >= structure.Segments.Count)
-                return Results.Json(ApiResponse.Fail("unknown segment"), AppJsonContext.Default.ApiResponse);
-            if (!structure.Segments[body.Segment].Resizable)
+            // A port is one device with one segment, so there is nothing to
+            // address: the chain always tiles segment 0. Segment survives on the
+            // body only so an older client's payload still parses.
+            const int segment = 0;
+            if (structure.Segments.Count != 1)
+                return Results.Json(ApiResponse.Fail("device is not a single addressable port"), AppJsonContext.Default.ApiResponse);
+            if (!structure.Segments[segment].Resizable)
                 return Results.Json(ApiResponse.Fail("segment is not an addressable port"), AppJsonContext.Default.ApiResponse);
 
-            var keys = body.Keys ?? new List<string>();
-            var artifacts = new List<MappingArtifact>(keys.Count);
+            // Entries is the current form; Keys is the older all-products body.
+            var requested = body.Entries is { Count: > 0 }
+                ? body.Entries
+                : (body.Keys ?? new List<string>()).ConvertAll(k => new SetChainEntry { Key = k });
+
+            var links = new List<(Nexus.Service.Persistence.ChainEntry Entry, MappingArtifact? Artifact)>(requested.Count);
             var total = 0;
-            foreach (var key in keys)
+            foreach (var want in requested)
             {
-                var artifact = BuiltInMappingsCatalog.Find(key);
+                if (string.IsNullOrEmpty(want.Key))
+                {
+                    // A custom link is nothing but a count the user typed.
+                    if (want.LedCount <= 0 || want.LedCount > MaxChainZoneLeds)
+                        return Results.Json(ApiResponse.Fail("custom zone led count out of range"), AppJsonContext.Default.ApiResponse);
+                    links.Add((new Nexus.Service.Persistence.ChainEntry { Key = null, LedCount = want.LedCount }, null));
+                    total += want.LedCount;
+                    continue;
+                }
+
+                var artifact = BuiltInMappingsCatalog.Find(want.Key);
                 if (artifact is null)
-                    return Results.Json(ApiResponse.Fail($"unknown mapping {key}"), AppJsonContext.Default.ApiResponse);
+                    return Results.Json(ApiResponse.Fail($"unknown mapping {want.Key}"), AppJsonContext.Default.ApiResponse);
                 var lint = MappingLint.Validate(artifact);
                 if (!lint.Ok)
-                    return Results.Json(ApiResponse.Fail($"{key} failed validation"), AppJsonContext.Default.ApiResponse);
-                var zone = artifact.Zones.Count > 0 ? artifact.Zones[0] : null;
-                var count = zone?.LedCount ?? 0;
+                    return Results.Json(ApiResponse.Fail($"{want.Key} failed validation"), AppJsonContext.Default.ApiResponse);
+                var count = artifact.Zones.Count > 0 ? artifact.Zones[0].LedCount ?? 0 : 0;
                 if (count <= 0)
-                    return Results.Json(ApiResponse.Fail($"{key} has no LEDs to chain"), AppJsonContext.Default.ApiResponse);
-                artifacts.Add(artifact);
+                    return Results.Json(ApiResponse.Fail($"{want.Key} has no LEDs to chain"), AppJsonContext.Default.ApiResponse);
+                // The product's own count wins; a client cannot resize a product.
+                links.Add((new Nexus.Service.Persistence.ChainEntry { Key = want.Key, LedCount = count }, artifact));
                 total += count;
             }
 
-            var chainKey = Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(deviceId, body.Segment);
+            var chainKey = Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(deviceId, segment);
             // Resize is keyed by the card that owns the segment. On a port
             // device that is the device id itself; the fallback covers a
             // structure whose defaults were not authored per segment.
-            var defaultCardId = body.Segment < structure.DefaultZones.Count
-                ? structure.DefaultZones[body.Segment].Id
-                : $"{deviceId}-{body.Segment}";
+            var defaultCardId = structure.DefaultZones.Count > 0
+                ? structure.DefaultZones[0].Id
+                : deviceId;
             var oldZoneIds = new List<string>();
             foreach (var zone in topology.ZonesFor(structure, store.Load()))
                 oldZoneIds.Add(zone.Id);
@@ -192,7 +213,7 @@ public static partial class DevicesRoutes
             store.Update(s =>
             {
                 Nexus.Service.Lighting.Zones.ZoneStateDrop.Drop(s, oldZoneIds);
-                if (artifacts.Count == 0)
+                if (links.Count == 0)
                 {
                     // Clearing: the port goes back to one whole-segment zone
                     // sized by whatever the user last set.
@@ -201,14 +222,14 @@ public static partial class DevicesRoutes
                     return;
                 }
 
-                s.Devices.LedChains[chainKey] = new List<string>(keys);
+                s.Devices.LedChains[chainKey] = links.ConvertAll(l => l.Entry);
                 s.Devices.ZoneLedCounts[defaultCardId] = total;
 
                 var defs = new List<Nexus.Service.Persistence.ZoneDef>();
                 var applied = new List<(int Ordinal, MappingArtifact Artifact)>();
                 for (int seg = 0; seg < structure.Segments.Count; seg++)
                 {
-                    if (seg != body.Segment)
+                    if (seg != segment)
                     {
                         defs.Add(new Nexus.Service.Persistence.ZoneDef
                         {
@@ -219,15 +240,16 @@ public static partial class DevicesRoutes
                         continue;
                     }
                     var start = 0;
-                    for (int i = 0; i < artifacts.Count; i++)
+                    for (int i = 0; i < links.Count; i++)
                     {
-                        var count = artifacts[i].Zones[0].LedCount ?? 0;
+                        var (entry, artifact) = links[i];
+                        var count = entry.LedCount;
                         // Repeats of one product are common (three identical
                         // fans), so the ordinal is part of the name or the
                         // cards are indistinguishable in the device list.
-                        var name = artifacts.Count > 1
-                            ? $"{artifacts[i].Name} {i + 1}"
-                            : artifacts[i].Name;
+                        var name = artifact is null
+                            ? $"Zone {i + 1}"
+                            : links.Count > 1 ? $"{artifact.Name} {i + 1}" : artifact.Name;
                         defs.Add(new Nexus.Service.Persistence.ZoneDef
                         {
                             Name = name.Length > Nexus.Service.Lighting.Zones.ZonePartitionValidator.MaxZoneNameLength
@@ -236,7 +258,8 @@ public static partial class DevicesRoutes
                             Slices = { new Nexus.Service.Persistence.ZoneSlice
                                 { Segment = seg, Start = start, Count = count } },
                         });
-                        applied.Add((defs.Count - 1, artifacts[i]));
+                        if (artifact is not null)
+                            applied.Add((defs.Count - 1, artifact));
                         start += count;
                     }
                 }

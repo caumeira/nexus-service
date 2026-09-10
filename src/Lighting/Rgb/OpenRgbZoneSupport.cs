@@ -289,23 +289,34 @@ public static class OpenRgbZoneSupport
             {
                 // Split motherboard with the default partition - one card per
                 // header, identical to the legacy emission.
+                var portStructures = BuildStructures(d, settings);
                 for (int z = 0; z < d.Zones.Count; z++)
                 {
                     var zone = d.Zones[z];
-                    var zoneId = $"{baseId}-{z}";
+                    var portId = $"{baseId}-{z}";
+                    // A port resolves to one card normally and to one card per
+                    // product once a chain is wired to it. They all report the
+                    // port as their device, which is what makes the chain read
+                    // as a single split card rather than unrelated siblings.
+                    var portZones = z < portStructures.Count
+                        ? ZoneResolution.Resolve(portStructures[z], settings)
+                        : System.Array.Empty<ResolvedZone>();
+                    foreach (var portZone in portZones)
+                    {
+                    var zoneId = portZone.Id;
                     prefs.TryGetValue(zoneId, out var pref);
                     layouts.TryGetValue(zoneId, out var layout);
                     // Trust the user's persisted choice over OpenRGB's
                     // reported count (12V headers ignore ResizeZone).
-                    var effectiveLedCount = zoneLedCounts.TryGetValue(zoneId, out var persistedCount)
-                        ? persistedCount
-                        : zone.LedCount;
+                    var effectiveLedCount = portZone.IsDefault
+                        ? (zoneLedCounts.TryGetValue(zoneId, out var persistedCount) ? persistedCount : zone.LedCount)
+                        : portZone.LedCount;
                     var (sx, sy, sw, sh) = OpenRgbLightingDeviceProvider.DefaultStripLayout(stripSlot);
                     result.Add(new LightingDevice
                     {
                         Id = zoneId,
-                        DeviceKey = DeviceKeyComputer.ForZone(baseKey, z),
-                        Name = BuildZoneName(d.Name, zone.Name, z),
+                        DeviceKey = portZone.IsDefault ? DeviceKeyComputer.ForZone(baseKey, z) : portZone.DeviceKey,
+                        Name = portZone.IsDefault ? BuildZoneName(d.Name, zone.Name, z) : portZone.Name,
                         Type = OpenRgbTypeName(d.Type),
                         IconType = OpenRgbTypeName(d.Type),
                         LedsOn = !disabled.Contains(zoneId),
@@ -313,7 +324,7 @@ public static class OpenRgbZoneSupport
                         Hue = pref?.Hue ?? 0,
                         Saturation = pref?.Saturation ?? 1.0f,
                         LedCount = effectiveLedCount,
-                        EnabledLedCount = ZoneResolution.CountEnabled(structure, zones[z], zoneId, effectiveLedCount, zones[z].LegacyZoneIndex, settings),
+                        EnabledLedCount = ZoneResolution.CountEnabled(portStructures[z], portZone, zoneId, effectiveLedCount, portZone.LegacyZoneIndex, settings),
                         CanvasX = layout?.X ?? sx,
                         CanvasY = layout?.Y ?? sy,
                         CanvasW = layout?.W ?? sw,
@@ -328,11 +339,12 @@ public static class OpenRgbZoneSupport
                         // rail still groups it under the board through
                         // ParentDeviceId, and the LED map editor resolves the
                         // port instead of a device that owns every header.
-                        DeviceId = zoneId,
+                        DeviceId = portId,
                         ZoneCustomizable = true,
                         ConflictAppIds = new List<string>(conflictAppIds),
                     });
                     stripSlot++;
+                    }
                 }
                 continue;
             }
