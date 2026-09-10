@@ -11428,6 +11428,44 @@
         }
       }
     },
+    "/conflicts/dynamic-lighting": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SetWindowsDynamicLightingBody"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/conflicts/kill": {
       "post": {
         "tags": [
@@ -21677,6 +21715,29 @@
           },
           "arguments": {
             "type": "string"
+          }
+        }
+      },
+      "SetWindowsDynamicLightingBody": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "foregroundAppControl": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "deviceLighting": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },

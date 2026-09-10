@@ -1020,6 +1020,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.GetConflictAutostartResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.DisableConflictAutostartBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.DisableConflictAutostartResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.WindowsDynamicLightingState))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.SetWindowsDynamicLightingBody))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LastRouteDto))]
 
 // Install-time defaults table - read once on startup from the embedded

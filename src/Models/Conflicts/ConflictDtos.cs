@@ -56,6 +56,38 @@ public sealed class DisableConflictAutostartResponse
     public int Disabled { get; set; }
 }
 
+/// <summary>
+/// The Windows Dynamic Lighting settings. Available is false when the console
+/// user's Lighting key could not be read, in which case every other field is
+/// meaningless and the SPA hides the section.
+/// </summary>
+public sealed class WindowsDynamicLightingState
+{
+    public bool Available { get; set; }
+
+    /// <summary>Settings > Personalization > Dynamic Lighting, "Use Dynamic Lighting on my devices".</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>"Compatible apps in the foreground always control lighting".</summary>
+    public bool ForegroundAppControl { get; set; }
+
+    /// <summary>LampArray devices Windows has registered, connected or not.</summary>
+    public int DeviceCount { get; set; }
+
+    /// <summary>How many of those still have Dynamic Lighting on.</summary>
+    public int DevicesEnabled { get; set; }
+}
+
+/// <summary>Body for POST /conflicts/dynamic-lighting. A null field leaves that setting untouched.</summary>
+public sealed class SetWindowsDynamicLightingBody
+{
+    public bool? Enabled { get; set; }
+    public bool? ForegroundAppControl { get; set; }
+
+    /// <summary>Applies to every registered device at once; the page offers no per-device row.</summary>
+    public bool? DeviceLighting { get; set; }
+}
+
 public sealed class GetConflictsResponse
 {
     public List<DetectedConflict> Conflicts { get; set; } = new();

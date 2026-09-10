@@ -99,6 +99,25 @@ public static class ConflictRoutes
             });
         }).LocalhostOnly();
 
+        // Windows' own Dynamic Lighting - the conflicting "app" that ships with
+        // the OS, driving the same LampArray devices. An unsupported platform
+        // answers with the default state, whose Available false is what the SPA
+        // reads to hide the section.
+        app.MapGet("/conflicts/dynamic-lighting", () => Results.Ok(
+            WindowsDynamicLighting.IsSupported() ? WindowsDynamicLighting.Read() : new WindowsDynamicLightingState()));
+
+        // Applies only the settings the body names, then answers with the state
+        // re-read from the registry, so the SPA renders what Windows actually
+        // holds rather than what it asked for. Both no-op cases answer 200 with
+        // that same state: the client collapses every non-2xx to null, so an
+        // error status here would reach the user as nothing happening.
+        app.MapPost("/conflicts/dynamic-lighting", (SetWindowsDynamicLightingBody? body) =>
+        {
+            if (!WindowsDynamicLighting.IsSupported()) return Results.Ok(new WindowsDynamicLightingState());
+            if (body is null) return Results.Ok(WindowsDynamicLighting.Read());
+            return Results.Ok(WindowsDynamicLighting.Write(body.Enabled, body.ForegroundAppControl, body.DeviceLighting));
+        }).LocalhostOnly();
+
         // Terminate every running process matching the catalog entry for
         // <c>body.Id</c>, then stop any Windows services it lists (for apps
         // whose background service re-grabs the hardware). We never trust a
