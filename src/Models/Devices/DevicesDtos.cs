@@ -214,6 +214,8 @@ public class LightingDevice
     public string? OriginalName { get; set; }
     /// <summary>Custom name for the group this card sits under, set only when <see cref="ParentDeviceId"/> itself has been renamed. The group header is otherwise derived from the members' hardware names.</summary>
     public string? ParentName { get; set; }
+    /// <summary>Custom name for the DEVICE this card is a zone of, set only when <see cref="DeviceId"/> itself has been renamed. Carries a split card's header name, which belongs to no single card.</summary>
+    public string? DeviceName { get; set; }
     public string Type { get; set; } = "";
     public string IconType { get; set; } = "";
     public bool LedsOn { get; set; }

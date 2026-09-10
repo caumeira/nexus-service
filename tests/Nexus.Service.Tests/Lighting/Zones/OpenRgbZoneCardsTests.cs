@@ -1,5 +1,7 @@
+using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Lighting.Zones;
+using Nexus.Service.Models.Devices;
 using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Tests.Lighting.Zones;
@@ -301,5 +303,45 @@ public class OpenRgbZoneCardsTests
         Assert.Single(structure.Segments);
         Assert.Equal(12, structure.Segments[0].LedCount);
         Assert.False(structure.Segments[0].Resizable);
+    }
+}
+
+/// <summary>
+/// A split card's header names a device that owns no card of its own - an ARGB
+/// port, a keeb - so the rename has to travel on the device id or the header
+/// cannot be renamed at all.
+/// </summary>
+public class DeviceNameEchoTests
+{
+    private static List<LightingDevice> TwoZonesOfOneDevice() => new()
+    {
+        new LightingDevice { Id = "port:z0", DeviceId = "port", ParentDeviceId = "board", Name = "Board - Port - Fan 1" },
+        new LightingDevice { Id = "port:z1", DeviceId = "port", ParentDeviceId = "board", Name = "Board - Port - Fan 2" },
+    };
+
+    [Fact]
+    public void A_name_stored_under_the_device_id_reaches_every_zone()
+    {
+        var devices = TwoZonesOfOneDevice();
+        LightingDeviceNames.Apply(devices, new Dictionary<string, string> { ["port"] = "Front intake" });
+        Assert.All(devices, d => Assert.Equal("Front intake", d.DeviceName));
+        // The zones keep their own names; only the header changes.
+        Assert.Equal("Board - Port - Fan 1", devices[0].Name);
+    }
+
+    [Fact]
+    public void Card_parent_and_device_names_stay_independent()
+    {
+        var devices = TwoZonesOfOneDevice();
+        LightingDeviceNames.Apply(devices, new Dictionary<string, string>
+        {
+            ["port:z0"] = "Top fan",
+            ["port"] = "Front intake",
+            ["board"] = "My board",
+        });
+        Assert.Equal("Top fan", devices[0].Name);
+        Assert.Equal("Board - Port - Fan 1", devices[0].OriginalName);
+        Assert.Equal("Front intake", devices[0].DeviceName);
+        Assert.Equal("My board", devices[0].ParentName);
     }
 }
