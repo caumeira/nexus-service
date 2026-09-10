@@ -106,6 +106,31 @@ public static class DisplayRoutes
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
 
+        // Panel link health: no panel on USB, on USB but its adbd is not
+        // answering, or recovery blocked until the host restarts.
+        app.MapGet("/qseries/link", (IServiceProvider sp) =>
+        {
+            var watcher = sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>();
+            // A host with no watcher registered (macOS) is not the same as a host
+            // with no panel attached, and the UI must not read it as one.
+            return watcher?.GetLinkStatus()
+                ?? new QSeriesLinkStatus { Error = true, Msg = "q-series watcher unavailable" };
+        }).AllowPanel();
+
+        // Runs the USB reset now instead of on the recovery cadence. Fire and
+        // forget: the reset happens on the tick thread that owns the transport,
+        // so the caller polls GET /qseries/link for the outcome. Throttled
+        // because each accepted call is a host-level devnode reset and the route
+        // is reachable from any panel session.
+        app.MapPost("/qseries/link/repair", (IServiceProvider sp) =>
+        {
+            var watcher = sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>();
+            if (watcher is null) return Results.Ok(ApiResponse.Fail("q-series watcher unavailable"));
+            return watcher.RequestLinkRepair()
+                ? Results.Ok(ApiResponse.Ok())
+                : Results.Ok(ApiResponse.Fail("a repair is already in flight"));
+        }).AllowPanel();
+
         // System monitors (external DDC/CI + internal panels)
         app.MapGet("/displays", (DisplayBrightnessController d) => d.ListDisplays()).AllowPanel();
 

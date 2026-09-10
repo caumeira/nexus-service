@@ -124,3 +124,50 @@ public class PanelScreenPowerTookTests
         Assert.False(QSeriesPortWatcher.PanelScreenPowerTook("", false));
     }
 }
+
+public class TickChangeSignalTests
+{
+    [Fact]
+    public void Nothing_to_take_without_an_announcement()
+    {
+        Assert.False(new TickChangeSignal().Take());
+    }
+
+    [Fact]
+    public void An_announcement_is_taken_once()
+    {
+        var signal = new TickChangeSignal();
+        signal.Announce();
+
+        Assert.True(signal.Take());
+        Assert.False(signal.Take());
+    }
+
+    [Fact]
+    public void An_announcement_made_mid_apply_is_taken_by_the_next_tick()
+    {
+        // The reported bug: screen off, then screen on tapped inside the ~1.7s
+        // the first apply spends in `input keyevent`. The tick has already
+        // taken the first signal, so the second must survive to the next one or
+        // the panel stays dark until a re-attach.
+        var signal = new TickChangeSignal();
+        signal.Announce();
+        Assert.True(signal.Take());
+
+        signal.Announce();
+
+        Assert.True(signal.Take());
+    }
+
+    [Fact]
+    public void Repeated_announcements_collapse_into_one_take()
+    {
+        var signal = new TickChangeSignal();
+        signal.Announce();
+        signal.Announce();
+        signal.Announce();
+
+        Assert.True(signal.Take());
+        Assert.False(signal.Take());
+    }
+}
