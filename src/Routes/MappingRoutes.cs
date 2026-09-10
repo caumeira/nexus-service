@@ -251,10 +251,10 @@ public static partial class DevicesRoutes
                     {
                         var (entry, artifact) = links[i];
                         var count = entry.LedCount;
-                        // Repeats of one product are common (three identical
-                        // fans), so the ordinal is part of the name or the
-                        // cards are indistinguishable in the device list.
-                        var name = links.Count > 1 ? $"{artifact!.Name} {i + 1}" : artifact!.Name;
+                        // No ordinal suffix: three identical fans read as
+                        // three "QX Fan" chips, and their position in the chain
+                        // is what tells them apart.
+                        var name = artifact!.Name;
                         defs.Add(new Nexus.Service.Persistence.ZoneDef
                         {
                             Name = name.Length > Nexus.Service.Lighting.Zones.ZonePartitionValidator.MaxZoneNameLength
