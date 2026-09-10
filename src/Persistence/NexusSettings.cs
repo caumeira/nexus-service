@@ -1208,16 +1208,16 @@ public sealed class ZoneDef
 }
 
 /// <summary>
-/// One link in a port's chain: either a catalog product, or a bare run of LEDs
-/// the user counted themselves. A product's count comes from its artifact and
-/// is not editable; a custom link is nothing but its count. Both occupy a zone,
-/// so a chain of "fan, 20 LEDs, fan" is three zones like any other.
+/// One link in a port's chain. Every link names something: a catalog product,
+/// or one of the two generic keys whose geometry follows a count the user types
+/// (a bare run of LEDs is <c>generic:strip</c>). Each occupies a zone, so a
+/// chain of "fan, 20 LEDs, fan" is three zones like any other.
 /// </summary>
 public sealed class ChainEntry
 {
-    /// <summary>Catalog product key, or null for a custom run.</summary>
+    /// <summary>Catalog product key, or a <c>generic:</c> key. Nullable only so a record written by a build that allowed keyless links still loads; it reads as a generic strip.</summary>
     public string? Key { get; set; }
-    /// <summary>LEDs this link occupies. Authoritative for a custom link; a mirror of the product's count otherwise.</summary>
+    /// <summary>LEDs this link occupies. Authoritative for a generic link; a mirror of the product's count otherwise.</summary>
     public int LedCount { get; set; }
 }
 

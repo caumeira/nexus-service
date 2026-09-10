@@ -65,6 +65,22 @@ public sealed class DeviceStructure
     public List<DefaultZoneDef> DefaultZones { get; set; } = new();
     /// <summary>False when the provider builds its cards and frames from a fixed list rather than <see cref="ZoneResolution.Resolve"/>; the zone routes reject partition writes for those, since the saved zones would back no card while <see cref="ZoneStateDrop"/> had already dropped the legacy one's state.</summary>
     public bool Partitionable { get; set; } = true;
+    /// <summary>
+    /// Stable id of the physical controller this structure is carved out of.
+    /// Equals <see cref="DeviceId"/> for a whole device; a split-motherboard
+    /// port sets it to the board, which is the device its frames, LED names,
+    /// and RESIZEZONE calls address. Empty falls back to <see cref="DeviceId"/>.
+    /// </summary>
+    public string PhysicalDeviceId { get; set; } = "";
+    /// <summary>
+    /// Offset of this structure's segment 0 inside the physical controller's
+    /// LED buffer, in hardware-reported counts. Nonzero only for a carved-out
+    /// port, whose slices are otherwise port-local and would address the first
+    /// header's LEDs on every port.
+    /// </summary>
+    public int FrameBaseOffset { get; set; }
+    /// <summary>Physical controller id, falling back to the device id for whole-device structures.</summary>
+    public string OwningDeviceId => string.IsNullOrEmpty(PhysicalDeviceId) ? DeviceId : PhysicalDeviceId;
 }
 
 /// <summary>Providers with partitionable devices expose their structures through this; <see cref="ZoneTopology"/> aggregates all sources.</summary>

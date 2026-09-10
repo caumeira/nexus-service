@@ -983,12 +983,39 @@ public sealed class RgbBridge : IDisposable
                 // dummy) must not occupy an engine frame or a canvas slot.
                 if (settingsSnapshot.Devices.OpenRgbDetectorExclusions.ContainsKey(d.StableId)) continue;
                 var baseId = d.StableId;
-                var isSplitMotherboard = OpenRgbZoneSupport.IsSplitMotherboard(d);
+
+                // A split motherboard is one device per ARGB header, so each
+                // port resolves its OWN partition: a chain wired to one header
+                // emits a frame per product while the others keep their single
+                // frame. Resolving the board instead would find no partition
+                // (chains are stored under the port id) and every chained card
+                // would go frameless - visible as cards that never light.
+                if (OpenRgbZoneSupport.IsSplitMotherboard(d))
+                {
+                    foreach (var port in OpenRgbZoneSupport.BuildStructures(d, settingsSnapshot))
+                    {
+                        foreach (var portZone in Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(port, settingsSnapshot))
+                        {
+                            BuildOrReuseFrame(portZone.Id, d, physicalIndex: d.Index,
+                                zoneIndex: portZone.IsDefault
+                                    ? portZone.LegacyZoneIndex
+                                    : Nexus.Service.Lighting.Zones.ZoneResolution.WholeResizableSegment(port, portZone),
+                                zoneOffset: Nexus.Service.Lighting.Zones.ZoneResolution.FrameOffset(port, portZone),
+                                zoneLedCount: portZone.FrameLedCount,
+                                existingFrames, layouts, stripSlot, logicalOrdinal, framesList,
+                                isStrip: true, settingsSnapshot, port, portZone);
+                            stripSlot++;
+                            logicalOrdinal++;
+                        }
+                    }
+                    continue;
+                }
+
                 var structure = OpenRgbZoneSupport.BuildStructure(d, settingsSnapshot);
                 var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settingsSnapshot);
                 var isDefault = zones.Count > 0 && zones[0].IsDefault;
 
-                if (isDefault && !isSplitMotherboard)
+                if (isDefault)
                 {
                     BuildOrReuseFrame(baseId, d, physicalIndex: d.Index, zoneIndex: -1, zoneOffset: 0, zoneLedCount: d.LedCount,
                         existingFrames, layouts, cardSlot, logicalOrdinal, framesList, isStrip: false, settingsSnapshot,
@@ -998,35 +1025,15 @@ public sealed class RgbBridge : IDisposable
                     continue;
                 }
 
-                if (isDefault)
-                {
-                    int zoneOffset = 0;
-                    for (int z = 0; z < d.Zones.Count; z++)
-                    {
-                        var zone = d.Zones[z];
-                        var zoneId = $"{baseId}-{z}";
-                        BuildOrReuseFrame(zoneId, d, physicalIndex: d.Index, zoneIndex: z, zoneOffset: zoneOffset, zoneLedCount: zone.LedCount,
-                            existingFrames, layouts, stripSlot, logicalOrdinal, framesList, isStrip: true, settingsSnapshot,
-                            structure, z < zones.Count ? zones[z] : null);
-                        zoneOffset += zone.LedCount;
-                        stripSlot++;
-                        logicalOrdinal++;
-                    }
-                    continue;
-                }
-
                 foreach (var zone in zones)
                 {
                     var frameOffset = Nexus.Service.Lighting.Zones.ZoneResolution.FrameOffset(structure, zone);
                     var wholeSegment = Nexus.Service.Lighting.Zones.ZoneResolution.WholeResizableSegment(structure, zone);
                     BuildOrReuseFrame(zone.Id, d, physicalIndex: d.Index, zoneIndex: wholeSegment, zoneOffset: frameOffset,
                         zoneLedCount: zone.FrameLedCount, existingFrames, layouts,
-                        isSplitMotherboard ? stripSlot : cardSlot, logicalOrdinal, framesList,
-                        isStrip: isSplitMotherboard, settingsSnapshot, structure, zone);
-                    if (isSplitMotherboard)
-                        stripSlot++;
-                    else
-                        cardSlot++;
+                        cardSlot, logicalOrdinal, framesList,
+                        isStrip: false, settingsSnapshot, structure, zone);
+                    cardSlot++;
                     logicalOrdinal++;
                 }
             }

@@ -19,6 +19,29 @@ namespace Nexus.Service.Lighting.Rgb;
 /// </summary>
 public static class SplitMotherboardDeviceMigration
 {
+    /// <summary>
+    /// True when any split motherboard still has device-scoped state under the
+    /// parent id. Read-only on purpose: <see cref="IConfigStore.Load"/> hands
+    /// back the SHARED settings instance, so probing by running the move would
+    /// mutate dictionaries the 30 Hz frame loop is reading, outside the store
+    /// lock. Callers gate <see cref="Apply"/> on this and run it inside Update.
+    /// </summary>
+    public static bool NeedsApply(NexusSettings settings, IReadOnlyList<RgbDevice> devices)
+    {
+        foreach (var d in devices)
+        {
+            if (!OpenRgbZoneSupport.IsSplitMotherboard(d))
+                continue;
+            if (settings.Devices.DeviceLedOverrides.ContainsKey(d.StableId)
+                || settings.Devices.DeviceAspectRatios.ContainsKey(d.StableId)
+                || settings.Devices.ZonePartitions.ContainsKey(d.StableId))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>True when anything was moved, so the caller can persist once for the whole sweep.</summary>
     public static bool Apply(NexusSettings settings, IReadOnlyList<RgbDevice> devices)
     {

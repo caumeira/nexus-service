@@ -44,6 +44,7 @@ public static class OpenRgbZoneSupport
         }
 
         var perPort = new List<DeviceStructure>(whole.Segments.Count);
+        var baseOffset = 0;
         for (int z = 0; z < whole.Segments.Count; z++)
         {
             var segment = whole.Segments[z];
@@ -53,12 +54,19 @@ public static class OpenRgbZoneSupport
                 DeviceId = zone.Id,
                 Name = zone.Name,
                 DeviceKey = zone.DeviceKey,
+                // Frames, LED names and RESIZEZONE all address the board, not
+                // the port; without these two the port's slices would resolve
+                // against header 0 for every header.
+                PhysicalDeviceId = whole.DeviceId,
+                FrameBaseOffset = baseOffset,
             };
+            baseOffset += segment.FrameLedCount;
             // The port owns a single segment, so its slices are segment 0 and a
-            // chain partition never reaches past this header.
+            // chain partition never reaches past this header. Index keeps the
+            // board-level zone number, which is what the resize path sends.
             port.Segments.Add(new StructureSegment
             {
-                Index = 0,
+                Index = z,
                 Name = segment.Name,
                 LedCount = segment.LedCount,
                 FrameLedCount = segment.FrameLedCount,
@@ -91,6 +99,7 @@ public static class OpenRgbZoneSupport
             DeviceId = baseId,
             Name = d.Name,
             DeviceKey = baseKey,
+            PhysicalDeviceId = baseId,
         };
 
         if (d.Zones.Count == 0)

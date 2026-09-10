@@ -38,6 +38,10 @@ public static class BuiltInMappingsCatalog
     /// <summary>The artifact for a product key, or null when the key is not in the catalog.</summary>
     public static MappingArtifact? Find(string key)
     {
+        // First-party products are authored in code, not in the generated
+        // file, so they are checked before it.
+        if (HyteChainArtifacts.Build(key) is { } hyte)
+            return hyte;
         EnsureLoaded();
         return _byKey!.TryGetValue(key, out var entry) ? entry.Artifact : null;
     }
@@ -49,11 +53,23 @@ public static class BuiltInMappingsCatalog
     /// whose description happens to contain those letters.
     /// </summary>
     public static List<BuiltInMappingSummary> Search(string? query, string? type, int limit)
+        => Search(query, type, limit, out _);
+
+    /// <summary>
+    /// As <see cref="Search(string?, string?, int)"/>, reporting how many rows
+    /// matched before <paramref name="limit"/> truncated them - the M in
+    /// "showing N of M". The whole catalog is the wrong number there: it counts
+    /// rows the filter excluded and misses the generic and first-party rows,
+    /// which are not in the packed file.
+    /// </summary>
+    public static List<BuiltInMappingSummary> Search(string? query, string? type, int limit, out int matched)
     {
         EnsureLoaded();
         var q = query?.Trim();
         var hasQuery = !string.IsNullOrEmpty(q);
-        var scored = new List<(int Rank, string Name, BuiltInMappingSummary Row)>();
+        // FirstParty breaks rank ties toward our own products, so "fr" reaches
+        // the FR12 before a third-party fan that also matches at that rank.
+        var scored = new List<(int Rank, bool FirstParty, string Name, BuiltInMappingSummary Row)>();
 
         // The generics are not catalogued rows - their geometry is a function of
         // a count the user types - but they belong in the same picker, and
@@ -68,7 +84,24 @@ public static class BuiltInMappingsCatalog
             }
             if (hasQuery && RankMatch(generic, q!) == int.MaxValue)
                 continue;
-            scored.Add((-1, generic.Name, generic));
+            scored.Add((-1, true, generic.Name, generic));
+        }
+
+        foreach (var row in FirstPartyRows())
+        {
+            if (!string.IsNullOrEmpty(type)
+                && !string.Equals(row.Type, type, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            var rank = 0;
+            if (hasQuery)
+            {
+                rank = RankMatch(row, q!);
+                if (rank == int.MaxValue)
+                    continue;
+            }
+            scored.Add((rank, true, row.Name, row));
         }
 
         foreach (var entry in _entries!)
@@ -87,15 +120,18 @@ public static class BuiltInMappingsCatalog
                 if (rank == int.MaxValue)
                     continue;
             }
-            scored.Add((rank, row.Name, row));
+            scored.Add((rank, false, row.Name, row));
         }
 
         scored.Sort((a, b) =>
         {
             var byRank = a.Rank.CompareTo(b.Rank);
-            return byRank != 0 ? byRank : string.CompareOrdinal(a.Name, b.Name);
+            if (byRank != 0) return byRank;
+            if (a.FirstParty != b.FirstParty) return a.FirstParty ? -1 : 1;
+            return string.CompareOrdinal(a.Name, b.Name);
         });
 
+        matched = scored.Count;
         var take = limit > 0 ? Math.Min(limit, scored.Count) : scored.Count;
         var result = new List<BuiltInMappingSummary>(take);
         for (int i = 0; i < take; i++)
@@ -124,6 +160,22 @@ public static class BuiltInMappingsCatalog
             LedCount = 0,
             Parametric = true,
         };
+    }
+
+    /// <summary>Our own accessories, authored in code because nothing in the generated catalog describes them.</summary>
+    private static IEnumerable<BuiltInMappingSummary> FirstPartyRows()
+    {
+        foreach (var product in HyteChainArtifacts.All)
+        {
+            yield return new BuiltInMappingSummary
+            {
+                Key = product.Key,
+                Name = product.Name,
+                Brand = HyteChainArtifacts.Brand,
+                Type = product.Type,
+                LedCount = product.LedCount,
+            };
+        }
     }
 
     /// <summary>Lower is better; int.MaxValue means "no match".</summary>

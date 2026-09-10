@@ -116,6 +116,9 @@ public static partial class DevicesRoutes
             store.Update(s =>
             {
                 s.Devices.ZonePartitions[deviceId] = normalized;
+                // The user is describing the zones by hand now, so whatever
+                // chain wrote the previous ones no longer describes the port.
+                ZoneResolution.DropChains(s, structure);
                 ZoneStateDrop.Drop(s, oldZoneIds);
             });
             bridge?.RequestTopologyRefresh();
@@ -137,7 +140,10 @@ public static partial class DevicesRoutes
                 return ApiResponse.Fail("device does not support zone partitions");
 
             var settings = store.Load();
-            if (!settings.Devices.ZonePartitions.ContainsKey(deviceId))
+            var hasChain = false;
+            for (int i = 0; i < structure.Segments.Count && !hasChain; i++)
+                hasChain = settings.Devices.PortChains.ContainsKey(ZoneResolution.ChainKey(deviceId, i));
+            if (!settings.Devices.ZonePartitions.ContainsKey(deviceId) && !hasChain)
                 return ApiResponse.Ok();
 
             var oldZoneIds = new List<string>();
@@ -147,6 +153,7 @@ public static partial class DevicesRoutes
             store.Update(s =>
             {
                 s.Devices.ZonePartitions.Remove(deviceId);
+                ZoneResolution.DropChains(s, structure);
                 ZoneStateDrop.Drop(s, oldZoneIds);
             });
             bridge?.RequestTopologyRefresh();

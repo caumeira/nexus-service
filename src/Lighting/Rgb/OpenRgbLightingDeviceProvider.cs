@@ -48,7 +48,7 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider, IDe
         if (devices.Count == 0)
             return Array.Empty<DeviceStructure>();
         var settings = _store.Load();
-        if (SplitMotherboardDeviceMigration.Apply(settings, devices))
+        if (SplitMotherboardDeviceMigration.NeedsApply(settings, devices))
         {
             _store.Update(s => SplitMotherboardDeviceMigration.Apply(s, devices));
             settings = _store.Load();

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.Hyte.SmartHub;
 using Nexus.Service.Persistence;
 using SmartHubColor = Nexus.Service.Peripherals.Hyte.SmartHub.RgbColor;
@@ -92,33 +93,52 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         var hubId = _hub.DeviceId;
         var mirror = SmartHubLightingDeviceProvider.ReadMirror(settings, hubId);
 
+        // A port's zones: one when nothing is chained to it, otherwise one per
+        // declared product, in chain order. Mirrored, every physical port
+        // streams the single mirror device's zones instead.
+        var mirrorZones = mirror
+            ? SmartHubLightingDeviceProvider.ResolveMirrorZones(settings, hubId, _hub)
+            : null;
+
         // Every port uncontrolled: leave the hub alone entirely so it drops back
-        // to its firmware animation. When mirrored, the single mirror id
-        // stands in for every physical port.
-        if (uncontrolled.Count > 0)
+        // to its firmware animation. A chained port counts as uncontrolled only
+        // when every one of its products does.
+        if (uncontrolled.Count > 0 && AllPortsUncontrolled(settings, hubId, mirrorZones, uncontrolled))
         {
-            var fullyUncontrolled = mirror
-                ? uncontrolled.Contains(SmartHubLightingDeviceProvider.MirrorId(hubId))
-                : AllPortsUncontrolled(hubId, uncontrolled);
-            if (fullyUncontrolled) return;
+            return;
         }
 
         // Push every port every tick - even ports with zero declared LEDs get
         // a zero-length frame, which the hub honours by keeping the strip dark
-        // and stops it falling back to the firmware animation. When mirrored,
-        // every port streams the one mirror device's frame.
+        // and stops it falling back to the firmware animation.
         for (var channel = 1; channel <= SmartHubProtocol.ArgbPortCount; channel++)
         {
-            var id = mirror ? SmartHubLightingDeviceProvider.MirrorId(hubId) : $"{hubId}:port{channel}";
-            TryPushZone(devices, id, channel, disabled, uncontrolled, prefs, globalBrightness, nowTicks);
+            var zones = mirrorZones ?? ZonesForPort(settings, hubId, channel);
+            PushPort(devices, zones, channel, disabled, uncontrolled, prefs, globalBrightness, nowTicks);
         }
     }
 
-    private static bool AllPortsUncontrolled(string hubId, System.Collections.Generic.IReadOnlyList<string> uncontrolled)
+    private System.Collections.Generic.IReadOnlyList<ResolvedZone> ZonesForPort(NexusSettings settings, string hubId, int channel)
     {
+        var firmwareLedCount = 0;
+        foreach (var port in _hub.State.Ports)
+        {
+            if (port.Channel == channel) { firmwareLedCount = port.LedCount; break; }
+        }
+        return SmartHubLightingDeviceProvider.ResolvePortZones(settings, hubId, channel, firmwareLedCount);
+    }
+
+    private bool AllPortsUncontrolled(NexusSettings settings, string hubId,
+        System.Collections.Generic.IReadOnlyList<ResolvedZone>? mirrorZones,
+        System.Collections.Generic.IReadOnlyList<string> uncontrolled)
+    {
+        if (mirrorZones is not null)
+        {
+            return ZoneResolution.IsFullyUncontrolled(mirrorZones, uncontrolled);
+        }
         for (var channel = 1; channel <= SmartHubProtocol.ArgbPortCount; channel++)
         {
-            if (!uncontrolled.Contains($"{hubId}:port{channel}"))
+            if (!ZoneResolution.IsFullyUncontrolled(ZonesForPort(settings, hubId, channel), uncontrolled))
             {
                 return false;
             }
@@ -126,29 +146,55 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         return true;
     }
 
-    private void TryPushZone(DeviceFrame[] devices, string id, int channel,
+    /// <summary>
+    /// Fill one port's buffer from its zones, laid down back to back in chain
+    /// order, and push it. Power, brightness, colour trim and identify are
+    /// per-zone, so one product in a chain can be flashed or switched off
+    /// without touching the ones beside it on the same wire.
+    /// </summary>
+    private void PushPort(DeviceFrame[] devices,
+        System.Collections.Generic.IReadOnlyList<ResolvedZone> zones, int channel,
         System.Collections.Generic.IReadOnlyList<string> disabled,
         System.Collections.Generic.IReadOnlyList<string> uncontrolled,
         System.Collections.Generic.IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         float globalBrightness, long nowTicks)
     {
-        DeviceFrame? frame = null;
-        for (var i = 0; i < devices.Length; i++)
-        { if (devices[i].Id == id) { frame = devices[i]; break; } }
-        var ledCount = frame is null ? 0 : frame.LedCount;
-        var brightnessMul = ComputeBrightnessMul(id, disabled, uncontrolled, prefs, globalBrightness, out var adjust);
-        var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
+        var total = 0;
+        for (var i = 0; i < zones.Count; i++) total += Math.Max(0, zones[i].LedCount);
 
         var idx = channel - 1;
         var buf = _portBuffers[idx];
-        if (buf is null || buf.Length < Math.Max(ledCount, 1))
-            _portBuffers[idx] = new SmartHubColor[Math.Max(ledCount, 64)];
+        if (buf is null || buf.Length < Math.Max(total, 1))
+            _portBuffers[idx] = new SmartHubColor[Math.Max(total, 64)];
         var dst = _portBuffers[idx]!;
-        if (ledCount > 0 && frame is not null)
+
+        var offset = 0;
+        for (var i = 0; i < zones.Count; i++)
         {
-            FillBufferSlice(dst, 0, frame.LedBytes, ledCount, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
+            var zone = zones[i];
+            var ledCount = Math.Max(0, zone.LedCount);
+            if (ledCount == 0) continue;
+
+            DeviceFrame? frame = null;
+            for (var f = 0; f < devices.Length; f++)
+            { if (devices[f].Id == zone.Id) { frame = devices[f]; break; } }
+
+            var brightnessMul = ComputeBrightnessMul(zone.Id, disabled, uncontrolled, prefs, globalBrightness, out var adjust);
+            var hasIdentify = _identify.TryGetActive(zone.Id, nowTicks, out var startTicks);
+            if (frame is null)
+            {
+                // No frame yet (a refresh in flight): dark, never stale bytes
+                // from whatever occupied this slice last tick.
+                for (var k = 0; k < ledCount && offset + k < dst.Length; k++) dst[offset + k] = default;
+            }
+            else
+            {
+                FillBufferSlice(dst, offset, frame.LedBytes, Math.Min(ledCount, frame.LedCount),
+                    brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
+            }
+            offset += ledCount;
         }
-        _hub.WriteLighting(channel, new ReadOnlySpan<SmartHubColor>(dst, 0, ledCount));
+        _hub.WriteLighting(channel, new ReadOnlySpan<SmartHubColor>(dst, 0, total));
     }
 
     private static double ComputeBrightnessMul(string id,

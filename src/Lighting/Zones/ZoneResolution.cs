@@ -37,6 +37,23 @@ public static class ZoneResolution
     public static string ChainKey(string deviceId, int segment) => $"{deviceId}:seg{segment}";
 
     /// <summary>
+    /// Forget every chain wired to a device. A chain record only means
+    /// something alongside the partition it wrote, so any path that replaces
+    /// or clears that partition must drop it too - otherwise the port keeps
+    /// reporting products the zones no longer match, and rule 2 stays lifted
+    /// for a segment nothing owns. Returns true when anything was removed.
+    /// </summary>
+    public static bool DropChains(NexusSettings settings, DeviceStructure structure)
+    {
+        var dropped = false;
+        for (int i = 0; i < structure.Segments.Count; i++)
+        {
+            dropped |= settings.Devices.PortChains.Remove(ChainKey(structure.DeviceId, i));
+        }
+        return dropped;
+    }
+
+    /// <summary>
     /// Segments whose LED count is owned by a product chain, so a multi-zone
     /// partition over them is legitimate. A chain whose product count no longer
     /// matches the live segment count is ignored, which drops the partition back
@@ -281,10 +298,10 @@ public static class ZoneResolution
     {
         if (zone.Slices.Count == 0)
         {
-            return 0;
+            return structure.FrameBaseOffset;
         }
         var first = zone.Slices[0];
-        var offset = 0;
+        var offset = structure.FrameBaseOffset;
         for (int i = 0; i < first.Segment && i < structure.Segments.Count; i++)
         {
             offset += structure.Segments[i].FrameLedCount;
@@ -341,7 +358,13 @@ public static class ZoneResolution
         return touchesSegment;
     }
 
-    /// <summary>The segment a zone wholly covers when it is a single whole-resizable-segment zone (rule 2 shape); negative otherwise.</summary>
+    /// <summary>
+    /// The segment a zone wholly covers when it is a single whole-resizable-segment
+    /// zone (rule 2 shape); negative otherwise. The count check is what separates
+    /// that shape from a chain's first link, which also starts at 0 but owns only
+    /// part of the port: treating it as whole-segment would resize the entire
+    /// header to the first product's count and destroy the rest of the chain.
+    /// </summary>
     public static int WholeResizableSegment(DeviceStructure structure, ResolvedZone zone)
     {
         if (zone.Slices.Count != 1)
@@ -354,7 +377,7 @@ public static class ZoneResolution
             return -1;
         }
         var seg = structure.Segments[slice.Segment];
-        return seg.Resizable && slice.Start == 0 ? seg.Index : -1;
+        return seg.Resizable && slice.Start == 0 && slice.Count == seg.LedCount ? seg.Index : -1;
     }
 
     private static int SumCounts(IReadOnlyList<ZoneSlice> slices)

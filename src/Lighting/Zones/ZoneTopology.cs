@@ -102,7 +102,7 @@ public sealed class ZoneTopology
         var hit = FindZone(cardId, settings);
         if (hit is { } z)
         {
-            var rgbDevice = FindRgbDevice(z.Structure.DeviceId);
+            var rgbDevice = FindRgbDevice(z.Structure.OwningDeviceId);
             if (rgbDevice is not null)
             {
                 var layout = z.Zone.IsDefault

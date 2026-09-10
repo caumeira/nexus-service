@@ -11,6 +11,13 @@ public static partial class DevicesRoutes
     private const int MaxChainZoneLeds = 4096;
 
     /// <summary>
+    /// Ceiling for a whole chain. Without it six links of the per-link maximum
+    /// would ask a header for 24576 LEDs, which is persisted as the port's
+    /// count and then sent as a RESIZEZONE.
+    /// </summary>
+    private const int MaxChainTotalLeds = 4096;
+
+    /// <summary>
     /// Community mapping flow per lighting device: browse the registry
     /// (proxied through the service's disk cache so the SPA never talks to
     /// the cloud directly), apply/revert, publish, and .nexusmap
@@ -64,10 +71,11 @@ public static partial class DevicesRoutes
         // it and the picker is the only way for the user to say.
         app.MapGet("/devices/lighting-devices/mappings/catalog", (string? q, string? type, int? limit) =>
         {
+            var items = BuiltInMappingsCatalog.Search(q, type, limit ?? 50, out var matched);
             var response = new BuiltInMappingsResponse
             {
-                Items = BuiltInMappingsCatalog.Search(q, type, limit ?? 50),
-                Total = BuiltInMappingsCatalog.All.Count,
+                Items = items,
+                Total = matched,
             };
             return Results.Json(response, AppJsonContext.Default.BuiltInMappingsResponse);
         });
@@ -204,6 +212,9 @@ public static partial class DevicesRoutes
                 links.Add((new Nexus.Service.Persistence.ChainEntry { Key = want.Key, LedCount = count }, artifact));
                 total += count;
             }
+
+            if (total > MaxChainTotalLeds)
+                return Results.Json(ApiResponse.Fail("chain is too long for one port"), AppJsonContext.Default.ApiResponse);
 
             var chainKey = Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(deviceId, segment);
             // Resize is keyed by the card that owns the segment. On a port

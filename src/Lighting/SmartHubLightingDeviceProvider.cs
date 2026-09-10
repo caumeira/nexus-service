@@ -111,25 +111,19 @@ public sealed class SmartHubLightingDeviceProvider :
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var layouts = settings.Lighting.DeviceLayouts;
-        var counts = settings.Devices.ZoneLedCounts;
         var slot = 0;
 
-        if (ReadMirror(settings, hubId))
+        // One card per RESOLVED zone, not per port: the firmware cannot say
+        // what is daisy-chained to a port, so the user declares the chain and
+        // each product becomes its own card, in chain order. An unchained port
+        // resolves to exactly one zone whose id is the port id, which is the
+        // legacy emission unchanged.
+        foreach (var structure in GetStructures())
         {
-            resp.Devices.Add(BuildZone(
-                id: MirrorId(hubId), name: $"{SmartHubHub.ProductName} - All Ports (ARGB)",
-                firmwareLedCount: MirrorLedCount(_hub, counts), zoneIndex: 0, parentDeviceId: hubId,
-                disabled, prefs, layouts, counts));
-            return resp;
-        }
-
-        foreach (var port in _hub.State.Ports)
-        {
-            var id = $"{hubId}:port{port.Channel}";
-            resp.Devices.Add(BuildZone(
-                id: id, name: $"{SmartHubHub.ProductName} - Port {port.Channel} (ARGB)",
-                firmwareLedCount: port.LedCount, zoneIndex: slot++, parentDeviceId: hubId,
-                disabled, prefs, layouts, counts));
+            foreach (var zone in ZoneResolution.Resolve(structure, settings))
+            {
+                resp.Devices.Add(BuildZoneCard(structure, zone, slot++, hubId, disabled, prefs, layouts, settings));
+            }
         }
         return resp;
     }
@@ -148,27 +142,45 @@ public sealed class SmartHubLightingDeviceProvider :
 
         if (ReadMirror(settings, hubId))
         {
-            return new[]
-            {
-                BuildStructure(MirrorId(hubId), $"{SmartHubHub.ProductName} - All Ports (ARGB)",
-                    "All Ports", "mirror", MirrorLedCount(_hub, counts)),
-            };
+            return new[] { BuildMirrorStructure(settings, hubId, _hub) };
         }
 
         var structures = new List<DeviceStructure>(_hub.State.Ports.Length);
         foreach (var port in _hub.State.Ports)
         {
-            var portId = $"{hubId}:port{port.Channel}";
-            var effectiveLedCount = port.LedCount;
-            if (counts.TryGetValue(portId, out var persisted))
-            {
-                effectiveLedCount = Math.Max(0, persisted);
-            }
-            structures.Add(BuildStructure(portId, $"{SmartHubHub.ProductName} - Port {port.Channel} (ARGB)",
-                $"Port {port.Channel}", $"port{port.Channel}", effectiveLedCount));
+            structures.Add(BuildPortStructure(settings, hubId, port.Channel, port.LedCount));
         }
         return structures;
     }
+
+    /// <summary>
+    /// One port's structure. Shared with the frame writer so the card list,
+    /// the engine frames, and the bytes on the wire all resolve the same chain
+    /// - a port split three ways in one of them and not the others would light
+    /// the wrong LEDs rather than fail visibly.
+    /// </summary>
+    internal static DeviceStructure BuildPortStructure(NexusSettings settings, string hubId, int channel, int firmwareLedCount)
+    {
+        var portId = $"{hubId}:port{channel}";
+        var effectiveLedCount = settings.Devices.ZoneLedCounts.TryGetValue(portId, out var persisted)
+            ? Math.Max(0, persisted)
+            : firmwareLedCount;
+        return BuildStructure(portId, $"{SmartHubHub.ProductName} - Port {channel} (ARGB)",
+            $"Port {channel}", $"port{channel}", effectiveLedCount);
+    }
+
+    /// <summary>The zones one port currently resolves to, in chain order.</summary>
+    internal static IReadOnlyList<ResolvedZone> ResolvePortZones(NexusSettings settings, string hubId, int channel, int firmwareLedCount)
+        => ZoneResolution.Resolve(BuildPortStructure(settings, hubId, channel, firmwareLedCount), settings);
+
+    /// <summary>The mirror device's structure: the four ports collapsed into one, sized by the largest.</summary>
+    internal static DeviceStructure BuildMirrorStructure(NexusSettings settings, string hubId, SmartHubHub hub)
+        => BuildStructure(MirrorId(hubId), $"{SmartHubHub.ProductName} - All Ports (ARGB)",
+            "All Ports", "mirror", MirrorLedCount(hub, settings.Devices.ZoneLedCounts));
+
+    /// <summary>The mirror device's zones, which every physical port streams while mirroring is on.</summary>
+    internal static IReadOnlyList<ResolvedZone> ResolveMirrorZones(NexusSettings settings, string hubId, SmartHubHub hub)
+        => ZoneResolution.Resolve(BuildMirrorStructure(settings, hubId, hub), settings);
 
     private static DeviceStructure BuildStructure(string id, string name, string rawName, string keySlug, int ledCount)
     {
@@ -195,13 +207,14 @@ public sealed class SmartHubLightingDeviceProvider :
         return structure;
     }
 
-    private static LightingDevice BuildZone(
-        string id, string name, int firmwareLedCount, int zoneIndex, string parentDeviceId,
+    private static LightingDevice BuildZoneCard(
+        DeviceStructure structure, ResolvedZone zone, int slot, string parentDeviceId,
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         IReadOnlyDictionary<string, DeviceLayout> layouts,
-        IReadOnlyDictionary<string, int> counts)
+        NexusSettings settings)
     {
+        var id = zone.Id;
         var isOn = true;
         for (var i = 0; i < disabled.Count; i++) if (disabled[i] == id) { isOn = false; break; }
         var brightness = 100;
@@ -211,21 +224,31 @@ public sealed class SmartHubLightingDeviceProvider :
         {
             brightness = pref.Brightness; hue = pref.Hue; saturation = pref.Saturation;
         }
-        var effectiveLedCount = firmwareLedCount;
-        if (counts.TryGetValue(id, out var persisted))
-            effectiveLedCount = Math.Max(0, persisted);
-        var (defX, defY, defW, defH) = DefaultSmartHubLayout(zoneIndex);
+        var (defX, defY, defW, defH) = DefaultSmartHubLayout(slot);
         layouts.TryGetValue(id, out var layout);
         return new LightingDevice
         {
-            Id = id, Name = name, Type = "ledstrip", IconType = "strip",
+            Id = id,
+            // The port's own name when it is whole; the product's name once a
+            // chain owns it. Both already read as "Smart Hub - ...".
+            Name = zone.Name,
+            Type = "ledstrip", IconType = "strip",
             LedsOn = isOn, Brightness = brightness, Hue = hue, Saturation = saturation,
-            LedCount = effectiveLedCount,
+            LedCount = zone.LedCount,
+            EnabledLedCount = ZoneResolution.CountEnabled(structure, zone, id, zone.LedCount, zone.Ordinal, settings),
             CanvasX = layout?.X ?? defX, CanvasY = layout?.Y ?? defY,
             CanvasW = layout?.W ?? defW, CanvasH = layout?.H ?? defH,
             CanvasRotation = ((((layout?.Rotation ?? 0) % 360) + 360) % 360),
-            ParentDeviceId = parentDeviceId, ZoneIndex = zoneIndex,
-            ZoneType = "linear", ZoneResizable = true,
+            ParentDeviceId = parentDeviceId, ZoneIndex = zone.Ordinal,
+            ZoneType = "linear",
+            // Only a zone that owns the whole port may resize it; a chain link
+            // is sized by its product, and resizing one would silently restate
+            // the port's total and break the tiling.
+            ZoneResizable = ZoneResolution.WholeResizableSegment(structure, zone) >= 0,
+            // The chain and zone editors address the PORT, which is the device
+            // the user actually wired something to.
+            DeviceId = structure.DeviceId,
+            ZoneCustomizable = true,
         };
     }
 
@@ -289,22 +312,19 @@ public sealed class SmartHubLightingDeviceProvider :
     {
         if (!_hub.IsConnected) return Array.Empty<DeviceFrame>();
         var frames = new List<DeviceFrame>();
-        var hubId = _hub.DeviceId;
         var idx = startingIndex;
         var settings = _store.Load();
         var layouts = settings.Lighting.DeviceLayouts;
-        var counts = settings.Devices.ZoneLedCounts;
         var slot = 0;
 
-        if (ReadMirror(settings, hubId))
+        // One frame per resolved zone, matching GetAll. A chained port has one
+        // per product; without frames of their own those cards would render in
+        // the list and never light.
+        foreach (var structure in GetStructures())
         {
-            frames.Add(BuildOrReuseFrame(MirrorId(hubId), MirrorLedCount(_hub, counts), 0, layouts, counts, ref idx));
-        }
-        else
-        {
-            foreach (var port in _hub.State.Ports)
+            foreach (var zone in ZoneResolution.Resolve(structure, settings))
             {
-                frames.Add(BuildOrReuseFrame($"{hubId}:port{port.Channel}", port.LedCount, slot++, layouts, counts, ref idx));
+                frames.Add(BuildOrReuseFrame(zone.Id, zone.LedCount, slot++, layouts, ref idx));
             }
         }
 
@@ -320,15 +340,11 @@ public sealed class SmartHubLightingDeviceProvider :
     }
 
     private DeviceFrame BuildOrReuseFrame(
-        string id, int firmwareLedCount, int zoneIndex,
+        string id, int effectiveLedCount, int slot,
         IReadOnlyDictionary<string, DeviceLayout> layouts,
-        IReadOnlyDictionary<string, int> counts,
         ref int idx)
     {
-        var effectiveLedCount = firmwareLedCount;
-        if (counts.TryGetValue(id, out var persisted))
-            effectiveLedCount = Math.Max(0, persisted);
-        var (defX, defY, defW, defH) = DefaultSmartHubLayout(zoneIndex);
+        var (defX, defY, defW, defH) = DefaultSmartHubLayout(slot);
         layouts.TryGetValue(id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
         var thisIdx = idx++;
