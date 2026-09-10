@@ -74,7 +74,7 @@ public sealed class PanelSettings
     public string? BackgroundColor { get; set; }
     public string? BackgroundColorLight { get; set; }
     public string BackgroundMode { get; set; } = "solid";
-    public string BackgroundEffect { get; set; } = "aurora";
+    public string BackgroundEffect { get; set; } = "plasma";
     public int BackgroundTemplate { get; set; }
     public double BackgroundOpacity { get; set; } = 1.0;
     /// <summary>Opacity of the entire panel surface itself (0 = fully transparent,
