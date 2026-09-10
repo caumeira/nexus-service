@@ -1240,6 +1240,28 @@
         }
       }
     },
+    "/cooling/fan-groups": {
+      "put": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDeviceGroupsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/cooling/sources": {
       "get": {
         "tags": [
@@ -3504,6 +3526,50 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/devices/lighting-devices/groups": {
+      "put": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDeviceGroupsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/devices/lighting-devices/name": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetLightingDeviceNameBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -7118,6 +7184,38 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/DisplayRotationBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/displays/{id}/ddc": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisplayDdcParams"
               }
             }
           },
@@ -11296,6 +11394,40 @@
         }
       }
     },
+    "/conflicts/autostart": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/conflicts/autostart/disable": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisableConflictAutostartBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/conflicts/kill": {
       "post": {
         "tags": [
@@ -14014,6 +14146,29 @@
           }
         }
       },
+      "DeviceGroup": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "after": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "DeviceLayout": {
         "type": "object",
         "properties": {
@@ -14103,6 +14258,9 @@
           },
           "hasPage": {
             "type": "boolean"
+          },
+          "bus": {
+            "type": "string"
           }
         }
       },
@@ -14500,6 +14658,14 @@
               "string"
             ],
             "format": "double"
+          }
+        }
+      },
+      "DisableConflictAutostartBody": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
           }
         }
       },
@@ -14965,6 +15131,14 @@
           }
         }
       },
+      "DisplayDdcParams": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
       "DisplayDto": {
         "type": "object",
         "properties": {
@@ -14984,6 +15158,9 @@
             "type": "boolean"
           },
           "isDdcCapable": {
+            "type": "boolean"
+          },
+          "ddcEnabled": {
             "type": "boolean"
           },
           "capabilities": {
@@ -15107,6 +15284,9 @@
             "type": "boolean"
           },
           "hostingSupported": {
+            "type": "boolean"
+          },
+          "ddcEnabled": {
             "type": "boolean"
           },
           "assignedPanelDeviceId": {
@@ -15348,8 +15528,26 @@
             ],
             "format": "int32"
           },
+          "isAio": {
+            "type": "boolean"
+          },
+          "isGpu": {
+            "type": "boolean"
+          },
           "role": {
             "type": "string"
+          },
+          "originalName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originalDeviceName": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "seriesId": {
             "type": "string"
@@ -16206,6 +16404,12 @@
               "$ref": "#/components/schemas/FanChannel"
             }
           },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceGroup"
+            }
+          },
           "error": {
             "type": "boolean"
           },
@@ -16282,6 +16486,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/LightingDevice"
+            }
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceGroup"
             }
           }
         }
@@ -17384,6 +17594,18 @@
           },
           "name": {
             "type": "string"
+          },
+          "originalName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "parentName": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "type": {
             "type": "string"
@@ -19257,6 +19479,12 @@
               "string"
             ]
           },
+          "backgroundMediaAlpha": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
           "backgroundFrostLevel": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
             "type": [
@@ -20970,6 +21198,17 @@
           }
         }
       },
+      "SetDeviceGroupsBody": {
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceGroup"
+            }
+          }
+        }
+      },
       "SetFanControlledBody": {
         "type": "object",
         "properties": {
@@ -21279,6 +21518,17 @@
           },
           "controlled": {
             "type": "boolean"
+          }
+        }
+      },
+      "SetLightingDeviceNameBody": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -23369,6 +23619,9 @@
           },
           "coolingDashboardMode": {
             "type": "string"
+          },
+          "showUncontrolledDevices": {
+            "type": "boolean"
           }
         }
       },
@@ -23421,6 +23674,12 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "showUncontrolledDevices": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }

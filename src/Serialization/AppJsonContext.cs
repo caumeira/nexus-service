@@ -1013,6 +1013,13 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.ConflictCatalogApp))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Conflicts.ConflictCatalogApp>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.GetConflictCatalogResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.ConflictAutostartEntry))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Conflicts.ConflictAutostartEntry>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.ConflictAutostartStatus))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Conflicts.ConflictAutostartStatus>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.GetConflictAutostartResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.DisableConflictAutostartBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.DisableConflictAutostartResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LastRouteDto))]
 
 // Install-time defaults table - read once on startup from the embedded

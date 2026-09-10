@@ -1,3 +1,5 @@
+using System;
+using Nexus.Service.Auth;
 using Nexus.Service.Conflicts;
 using Nexus.Service.Models.Conflicts;
 
@@ -42,6 +44,60 @@ public static class ConflictRoutes
             }
             return Results.Ok(response);
         });
+
+        // Read-only: what still launches each detected conflict at boot.
+        // Separate from GET /conflicts so the watcher's poll stays cheap, and
+        // so nothing is inspected until a user opens a surface that offers the
+        // action. Apps with no verified recipe are absent from the response
+        // entirely, which is how the SPA knows not to offer the button.
+        app.MapGet("/conflicts/autostart", (ConflictWatcher watcher) =>
+        {
+            var response = new GetConflictAutostartResponse();
+            foreach (var c in watcher.GetConflicts())
+            {
+                var def = ConflictWatcher.FindById(c.Id);
+                if (def is null || !ConflictAutostart.IsSupported(def)) continue;
+                response.Apps.Add(new ConflictAutostartStatus
+                {
+                    Id = c.Id,
+                    Entries = ConflictAutostart.Find(def),
+                });
+            }
+            return Results.Ok(response);
+        });
+
+        // Disables everything the app's own recipe finds enabled. Only ever
+        // reached from an explicit per-app user action; nothing here runs on
+        // detection or on render. As with the kill route, the caller sends a
+        // catalog id and never a registry path or service name.
+        app.MapPost("/conflicts/autostart/disable", (DisableConflictAutostartBody body) =>
+        {
+            var def = ConflictWatcher.FindById(body?.Id ?? "");
+            if (def is null)
+            {
+                return Results.BadRequest(new DisableConflictAutostartResponse { Error = true, Msg = "unknown conflict id" });
+            }
+            if (!ConflictAutostart.IsSupported(def))
+            {
+                return Results.BadRequest(new DisableConflictAutostartResponse { Error = true, Msg = "no verified autostart recipe" });
+            }
+
+            var entries = ConflictAutostart.Find(def);
+            if (entries.Count == 0)
+            {
+                return Results.Ok(new DisableConflictAutostartResponse { Error = false, Msg = "already disabled" });
+            }
+
+            // Anything short of every entry leaves the app still starting with
+            // Windows, so a partial result is reported as a failure.
+            var disabled = ConflictAutostart.Disable(def, entries);
+            return Results.Ok(new DisableConflictAutostartResponse
+            {
+                Error = disabled < entries.Count,
+                Msg = disabled == entries.Count ? "Ok" : $"disabled {disabled} of {entries.Count}",
+                Disabled = disabled,
+            });
+        }).LocalhostOnly();
 
         // Terminate every running process matching the catalog entry for
         // <c>body.Id</c>, then stop any Windows services it lists (for apps
