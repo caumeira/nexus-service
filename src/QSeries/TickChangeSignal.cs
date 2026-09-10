@@ -3,15 +3,10 @@ using System.Threading;
 namespace Nexus.Service.QSeries;
 
 /// <summary>
-/// Cross-thread "act on this next tick" signal from a request thread to the
-/// tick loop; one instance per kind of request (display settings, link repair).
-///
-/// A counter rather than a 0/1 flag because the tick takes the signal before
-/// its device loop but reads state inside it, and the work in between spends
-/// ~1.7s in one `input keyevent`. An exchange-to-zero flag was swallowed by
-/// anything landing in that window - tapping the screen switch off then
-/// straight back on left the panel dark until a re-attach, since the tick had
-/// already cleared the flag and re-latched the serial.
+/// Cross-thread "act on this next tick" signal from a request thread to the tick
+/// loop; one instance per kind of request. A counter, not a flag: the tick takes
+/// the signal before its device loop but reads state inside it, so an
+/// exchange-to-zero flag loses anything announced during the apply.
 /// </summary>
 internal sealed class TickChangeSignal
 {

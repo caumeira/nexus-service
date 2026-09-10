@@ -46,6 +46,10 @@ public class QSeriesLinkStatus : ApiResponse
     /// service can do clears this.</summary>
     public bool HostRebootPending { get; set; }
 
+    /// <summary>The panel is being held asleep because the desktop session is
+    /// locked, so a screen-on request will not light it until the unlock.</summary>
+    public bool SleepingForSessionLock { get; set; }
+
     /// <summary>The panel's adb serial when one is known, else null.</summary>
     public string? Serial { get; set; }
 }

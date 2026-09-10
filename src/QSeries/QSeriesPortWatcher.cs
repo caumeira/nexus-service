@@ -520,6 +520,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             // with a bulk transfer, which is what wedges USB-FFS.
             if (FlashActive || _deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) return;
             _sleptForSessionLock = locked;
+            ServiceLog.Info($"[qseries-port-watcher] session {(locked ? "locked" : "unlocked")}; panels sleep-for-lock={locked}");
             if (_knownQSeriesSerials.Count == 0) return;
             var keycode = SessionLockKeycode(locked, qseries.ScreenOff);
             // The record no longer matches the panel once this drives the
@@ -546,6 +547,30 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// display POST from the phone.
     /// </summary>
     private volatile bool _sleptForSessionLock;
+
+    /// <summary>The flag rides WTS notifications, so an unlock delivered before
+    /// this handler was registered would hold the panel dark for the rest of the
+    /// run; the console session's real state clears it. Unreadable leaves it
+    /// alone.</summary>
+    private bool SleepingForSessionLock()
+    {
+        if (!_sleptForSessionLock) return false;
+#if WINDOWS
+        if (Platform.ConsoleSessionLock.IsLocked() == false)
+        {
+            _sleptForSessionLock = false;
+            ServiceLog.Info(
+                "[qseries-port-watcher] session is unlocked but the panel was still held asleep for a lock; clearing");
+            return false;
+        }
+#endif
+        return true;
+    }
+
+    /// <summary>The screen state actually driven: the setting, or asleep
+    /// regardless while a session lock holds it there.</summary>
+    internal static bool EffectiveScreenOff(bool settingScreenOff, bool sleepingForSessionLock) =>
+        settingScreenOff || sleepingForSessionLock;
 
     /// Which keyevent a lock transition calls for. Unlock does NOT unconditionally
     /// wake: a user who turned the screen off by hand still wants it off when
@@ -1842,6 +1867,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             AdbOnline = online,
             OfflineSeconds = _linkDownSince is { } since ? (int)(now - since).TotalSeconds : 0,
             HostRebootPending = _hostRebootPending,
+            SleepingForSessionLock = _sleptForSessionLock,
             Serial = serial,
         };
     }
@@ -2571,7 +2597,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
         // A panel slept for the session lock stays asleep through a re-attach
         // or a reassert; without this the panel wakes mid-lock and nothing
         // turns it back off until the unlock.
-        var wantAwake = !qseries.ScreenOff && !_sleptForSessionLock;
+        // The keyevent drives this, so the record and the diff below must speak it
+        // too: expressed in the raw setting they disagree under a lock-forced
+        // sleep, and every later toggle then diffs equal and sends nothing.
+        var wantScreenOff = EffectiveScreenOff(qseries.ScreenOff, SleepingForSessionLock());
+        var wantAwake = !wantScreenOff;
 
         // Without a record of what this panel already has, its state is unknown
         // (a reboot resets user_rotation) so everything is pushed. Afterwards
@@ -2581,7 +2611,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         var known = _lastAppliedBySerial.TryGetValue(device.Serial, out var last);
         var doOrientation = !known || last.Orientation != qseries.Orientation;
         var doBrightness = !known || last.Brightness != qseries.Brightness;
-        var doScreen = !known || last.ScreenOff != qseries.ScreenOff;
+        var doScreen = !known || last.ScreenOff != wantScreenOff;
         if (!doOrientation && !doBrightness && !doScreen) return;
 
         try
@@ -2648,7 +2678,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             {
                 _displayFirstFailureBySerial.Remove(device.Serial);
                 _lastAppliedBySerial[device.Serial] =
-                    new AppliedDisplayState(qseries.Orientation, qseries.Brightness, qseries.ScreenOff);
+                    new AppliedDisplayState(qseries.Orientation, qseries.Brightness, wantScreenOff);
                 var applied = string.Join(" ", new[]
                 {
                     doOrientation ? $"orientation={qseries.Orientation} (userRotation={userRotation}, {rotationOutput})" : null,
