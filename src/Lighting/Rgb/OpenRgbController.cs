@@ -36,6 +36,9 @@ public sealed class OpenRgbController : IRgbController
     private NetworkStream? _stream;
     private uint _protocolVersion;
     private bool _disposed;
+    // Pushes already queued on _writeLock when the socket drops all reach the
+    // catch below; only the first is logged and the rest counted.
+    private int _pushFailureBurst;
 
     public OpenRgbController(string host = "127.0.0.1", int port = 6742)
     {
@@ -119,6 +122,13 @@ public sealed class OpenRgbController : IRgbController
             {
                 CleanupSocketLocked();
                 return false;
+            }
+
+            var suppressed = _pushFailureBurst;
+            _pushFailureBurst = 0;
+            if (suppressed > 1)
+            {
+                ServiceLog.Warn($"[openrgb] reconnected; {suppressed - 1} further push-frame failure(s) were not logged");
             }
 
             // Surface a "list refreshed" tick to subscribers.
@@ -250,7 +260,10 @@ public sealed class OpenRgbController : IRgbController
             }
             catch (Exception ex)
             {
-                ServiceLog.Warn($"[openrgb] push frame to device {deviceIndex} failed: {ex.Message}");
+                if (++_pushFailureBurst == 1)
+                {
+                    ServiceLog.Warn($"[openrgb] push frame to device {deviceIndex} failed: {ex.Message}");
+                }
                 CleanupSocketLocked();
             }
         }
