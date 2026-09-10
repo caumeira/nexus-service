@@ -520,6 +520,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             // with a bulk transfer, which is what wedges USB-FFS.
             if (FlashActive || _deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) return;
             _sleptForSessionLock = locked;
+            Interlocked.Increment(ref _sessionLockEpoch);
             ServiceLog.Info($"[qseries-port-watcher] session {(locked ? "locked" : "unlocked")}; panels sleep-for-lock={locked}");
             if (_knownQSeriesSerials.Count == 0) return;
             var keycode = SessionLockKeycode(locked, qseries.ScreenOff);
@@ -548,15 +549,19 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private volatile bool _sleptForSessionLock;
 
-    /// <summary>The flag rides WTS notifications, so an unlock delivered before
-    /// this handler was registered would hold the panel dark for the rest of the
-    /// run; the console session's real state clears it. Unreadable leaves it
-    /// alone.</summary>
+    /// <summary>The flag survives a lock whose transition was skipped (a flash or
+    /// a qshell install returns before the write below), which would hold the
+    /// panel dark for the rest of the run; the console session's real state
+    /// clears it. Unreadable leaves it alone, and a transition during the probe
+    /// wins over the probe's stale answer.</summary>
     private bool SleepingForSessionLock()
     {
         if (!_sleptForSessionLock) return false;
 #if WINDOWS
-        if (Platform.ConsoleSessionLock.IsLocked() == false)
+        var epoch = Interlocked.Read(ref _sessionLockEpoch);
+        if (Platform.ConsoleSessionLock.IsLocked() == false
+            && Interlocked.Read(ref _sessionLockEpoch) == epoch
+            && _sleptForSessionLock)
         {
             _sleptForSessionLock = false;
             ServiceLog.Info(
@@ -566,6 +571,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
 #endif
         return true;
     }
+
+    /// <summary>Bumped on every lock transition; a self-heal that spans one must
+    /// not act on what it read before it.</summary>
+    private long _sessionLockEpoch;
 
     /// <summary>The screen state actually driven: the setting, or asleep
     /// regardless while a session lock holds it there.</summary>
@@ -655,7 +664,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
             if (_knownQSeriesSerials.Count == 0) return;
             var qseries = _configStore.Load().QSeries;
             if (!qseries.SleepWithHost) return;
-            var keycode = qseries.ScreenOff ? KeyeventSleep : KeyeventWakeup;
+            // Resume normally lands on a locked session, so the raw setting alone
+            // would wake the panel behind the lock screen.
+            var keycode = SessionLockKeycode(SleepingForSessionLock(), qseries.ScreenOff);
             foreach (var serial in SnapshotKnownSerials())
             {
                 if (QSeriesTransport.IsTcpSerial(serial)) continue;
@@ -1867,7 +1878,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             AdbOnline = online,
             OfflineSeconds = _linkDownSince is { } since ? (int)(now - since).TotalSeconds : 0,
             HostRebootPending = _hostRebootPending,
-            SleepingForSessionLock = _sleptForSessionLock,
+            SleepingForSessionLock = SleepingForSessionLock(),
             Serial = serial,
         };
     }
@@ -2597,9 +2608,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
         // A panel slept for the session lock stays asleep through a re-attach
         // or a reassert; without this the panel wakes mid-lock and nothing
         // turns it back off until the unlock.
-        // The keyevent drives this, so the record and the diff below must speak it
-        // too: expressed in the raw setting they disagree under a lock-forced
-        // sleep, and every later toggle then diffs equal and sends nothing.
+        // The keyevent drives this, so the record and the diff below speak it too;
+        // in the raw setting they disagree under a lock-forced sleep.
         var wantScreenOff = EffectiveScreenOff(qseries.ScreenOff, SleepingForSessionLock());
         var wantAwake = !wantScreenOff;
 

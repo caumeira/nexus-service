@@ -187,16 +187,4 @@ public class EffectiveScreenOffTests
         Assert.True(QSeriesPortWatcher.EffectiveScreenOff(settingScreenOff: false, sleepingForSessionLock: true));
         Assert.True(QSeriesPortWatcher.EffectiveScreenOff(settingScreenOff: true, sleepingForSessionLock: true));
     }
-
-    [Fact]
-    public void Screen_on_during_a_lock_differs_from_the_state_it_is_recorded_against()
-    {
-        // The regression: the apply drove this value while the record stored the
-        // raw setting, so after a lock-forced sleep every later toggle diffed
-        // equal, sent nothing, and left the panel dark for the rest of the run.
-        const bool settingScreenOff = false;
-        var driven = QSeriesPortWatcher.EffectiveScreenOff(settingScreenOff, sleepingForSessionLock: true);
-
-        Assert.NotEqual(settingScreenOff, driven);
-    }
 }
