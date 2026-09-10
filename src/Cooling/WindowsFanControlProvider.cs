@@ -109,6 +109,8 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
                 Mode = mode,
                 RpmSensorId = m.FanSensorId,
                 IsGpu = m.IsGpu,
+                DeviceId = m.DeviceId,
+                DeviceName = m.DeviceName,
             };
             if (calibrations.TryGetValue(m.Id, out var cal))
             {
@@ -478,6 +480,10 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
                 FanSensor = fan,
                 ControlSensor = control,
                 IsGpu = isGpu,
+                // A card's fans group under the card, the way the Linux NVML
+                // provider reports them; board headers carry no device.
+                DeviceId = isGpu ? hw.Identifier.ToString() : null,
+                DeviceName = isGpu ? hw.Name : null,
             });
         }
     }
@@ -537,6 +543,12 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
         /// <summary>Enumerated from a GPU hardware node, not matched on the name.</summary>
         public required bool IsGpu { get; init; }
+
+        /// <summary>The GPU this channel sits on; null for a motherboard header.</summary>
+        public string? DeviceId { get; init; }
+
+        /// <summary>Product name of <see cref="DeviceId"/>; null for a motherboard header.</summary>
+        public string? DeviceName { get; init; }
 
         /// <summary>The join key monitoring sensors carry; <see cref="Id"/> is the control sensor.</summary>
         public string FanSensorId => FanSensor.Identifier.ToString();

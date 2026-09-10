@@ -187,23 +187,26 @@ public sealed class FanChannel
     /// </summary>
     public string? RpmSensorId { get; set; }
 
-    // External-device metadata. All null for motherboard/GPU fans; populated
-    // only when the channel belongs to a USB hub like NP50. Drives
-    // device-grouped rendering on the cooling page.
+    // Owning-device metadata. Set for a channel on a USB hub like NP50 and for a
+    // GPU fan; null for a motherboard header, except the DeviceName a rail-block
+    // rename puts there. Drives device-grouped rendering.
 
-    /// <summary>Stable per-device id, e.g. "np50:1A2B3C". Null for motherboard.</summary>
+    /// <summary>Stable per-device id, e.g. "np50:1A2B3C" or a GPU's "/gpu-nvidia/0". Null for motherboard.</summary>
     public string? DeviceId { get; set; }
 
     /// <summary>
     /// User-facing product name of the owning device, e.g. "HYTE NP50" or
-    /// "HYTE MiniHub". Identical for every channel on the same device - the
+    /// "NVIDIA GeForce RTX 3070". Identical for every channel on the same device - the
     /// cooling page groups by <see cref="DeviceId"/> and labels the group
     /// from any group member's <see cref="DeviceName"/>, so the lighting and
     /// cooling pages always show the same name for the same physical device.
+    /// On a motherboard header this is null until the board's rail block is
+    /// renamed; that block falls back to system specs, never to
+    /// <see cref="OriginalDeviceName"/>.
     /// </summary>
     public string? DeviceName { get; set; }
 
-    /// <summary>Human-readable port label, e.g. "Port 1" or "Legacy 4-pin". Null for motherboard.</summary>
+    /// <summary>Human-readable port label, e.g. "Port 1" or "Legacy 4-pin". Null for motherboard and GPU fans.</summary>
     public string? PortLabel { get; set; }
 
     /// <summary>Connected fan model, e.g. "LS30" | "LS10" | "FP12". Null when unknown or motherboard.</summary>
