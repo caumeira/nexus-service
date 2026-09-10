@@ -1281,7 +1281,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
                 ServiceLog.Warn("[chroma-shim] not elevated; shim install skipped");
                 break;
             case ChromaShimInstallResult.BundleMissing:
-                ServiceLog.Error("[chroma-shim] bundled shim DLLs not found");
+                ServiceLog.Info("[chroma-shim] bundled shim DLLs not found; Game Sync stays inactive");
                 break;
             case ChromaShimInstallResult.Failed:
                 ServiceLog.Error("[chroma-shim] shim install failed");

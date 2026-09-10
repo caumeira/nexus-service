@@ -136,7 +136,6 @@ public sealed class ShaderEffect : IEffect
             {
                 try
                 {
-                    GpuContext.Log($"[gpu/{Name}] compiling shader");
                     CompileProgram(gl);
                     _compiled = true;
                     GpuContext.Log($"[gpu/{Name}] shader compiled, prog={_program}");
@@ -373,7 +372,6 @@ public sealed class ShaderEffect : IEffect
 
     private static uint CompileShader(GL gl, ShaderType type, string src)
     {
-        GpuContext.Log($"[gpu] CompileShader {type}, source length={src.Length}, last chars=<{(src.Length > 60 ? src.Substring(src.Length - 60) : src)}>");
         uint s = gl.CreateShader(type);
         gl.ShaderSource(s, src);
         gl.CompileShader(s);
