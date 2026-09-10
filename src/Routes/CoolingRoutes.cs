@@ -13,6 +13,10 @@ namespace Nexus.Service.Routes;
 
 public static class CoolingRoutes
 {
+    // Rail block id the cooling page renames the board's own fan headers under;
+    // kept in step with nexus-web's page/deviceGroupName.ts.
+    private const string MotherboardBlockId = "motherboard";
+
     public static void MapCoolingEndpoints(this WebApplication app)
     {
         // Curves
@@ -79,6 +83,13 @@ public static class CoolingRoutes
                 {
                     ch.OriginalDeviceName = ch.DeviceName;
                     ch.DeviceName = deviceCustom;
+                }
+                // The board's headers carry no device, so the page groups them under
+                // a synthetic block it names from system specs; a rename of that
+                // block is stored under the block id and has nothing to fall back to.
+                else if (ch.DeviceId is null && names.TryGetValue(MotherboardBlockId, out var blockCustom))
+                {
+                    ch.DeviceName = blockCustom;
                 }
                 ch.Locked = FanProfiles.IsLocked(ch, cooling.FanLockOverrides);
                 ch.Controlled = cooling.UncontrolledFanChannels.Count == 0
