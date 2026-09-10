@@ -40,8 +40,27 @@ void main() {
         vec3 tint = tintedPalette(fi * 0.14 + 0.25);
         col += tint * band * flicker * 0.55;
     }
-    // Subtle star field in the background.
-    float star = pow(hash21(floor(uv * vec2(160.0, 90.0))), 18.0) * 0.6;
-    col += vec3(star);
+    // Background star field: one star per grid cell, placed at a hashed point
+    // inside it and drawn as a round core whose radius is set in pixels, so a
+    // star stays a pinpoint on a panel and still covers a whole pixel on the
+    // small canvas the LED path renders into, where a cell is about one pixel.
+    // Jitter keeps stars off the cell edges, which is what lets the falloff be
+    // read from its own cell alone instead of sampling the neighbours.
+    float cellRows = 90.0;
+    vec2 cells = vec2(cellRows * (u_resolution.x / max(u_resolution.y, 1.0)), cellRows);
+    vec2 sp = uv * cells;
+    vec2 cellId = floor(sp);
+    float sh = hash21(cellId);
+    // Rarity curve: a handful of cells hold a bright star, most hold a faint
+    // one or nothing worth drawing.
+    float bright = pow(sh, 18.0);
+    if (bright > 0.002) {
+        vec2 jitter = vec2(hash21(cellId + 7.3), hash21(cellId + 19.1)) * 0.6 + 0.2;
+        float cellPx = max(u_resolution.y / cellRows, 1.0);
+        float d = length(fract(sp) - jitter) * cellPx;
+        float core = max(cellPx * 0.16, 0.7);
+        float twinkle = 0.75 + 0.25 * sin(t * 6.0 + sh * 90.0);
+        col += vec3(bright * exp(-(d * d) / (core * core)) * twinkle * 1.3);
+    }
     fragColor = vec4(finalize(col), 1.0);
 }
