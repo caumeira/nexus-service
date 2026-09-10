@@ -21,6 +21,64 @@ public static class OpenRgbZoneSupport
 {
     public static bool IsSplitMotherboard(RgbDevice d) => d.Type == 0 && d.Zones.Count > 1;
 
+    /// <summary>
+    /// Structures this physical controller contributes. A split motherboard is
+    /// several DEVICES, one per ARGB header, not one device with several zones:
+    /// a header is what a user wires a fan chain to, and a chain re-partitions
+    /// only its own port. While all three headers shared a structure, any
+    /// partition had to tile every header at once (the full-cover rule), so a
+    /// chain on one silently constrained the others.
+    ///
+    /// The per-port device id is the id its card already had ("{stableId}-{z}"),
+    /// so every per-card setting - counts, applied mappings, prefs, uncontrolled
+    /// and disabled lists, canvas layout - keeps working untouched. Only the
+    /// device-scoped dictionaries that used to hang off the parent need moving,
+    /// which SettingsMigrations does once.
+    /// </summary>
+    public static List<DeviceStructure> BuildStructures(RgbDevice d, NexusSettings settings)
+    {
+        var whole = BuildStructure(d, settings);
+        if (!IsSplitMotherboard(d))
+        {
+            return new List<DeviceStructure> { whole };
+        }
+
+        var perPort = new List<DeviceStructure>(whole.Segments.Count);
+        for (int z = 0; z < whole.Segments.Count; z++)
+        {
+            var segment = whole.Segments[z];
+            var zone = whole.DefaultZones[z];
+            var port = new DeviceStructure
+            {
+                DeviceId = zone.Id,
+                Name = zone.Name,
+                DeviceKey = zone.DeviceKey,
+            };
+            // The port owns a single segment, so its slices are segment 0 and a
+            // chain partition never reaches past this header.
+            port.Segments.Add(new StructureSegment
+            {
+                Index = 0,
+                Name = segment.Name,
+                LedCount = segment.LedCount,
+                FrameLedCount = segment.FrameLedCount,
+                Resizable = segment.Resizable,
+                ZoneType = segment.ZoneType,
+            });
+            port.DefaultZones.Add(new DefaultZoneDef
+            {
+                Id = zone.Id,
+                Name = zone.Name,
+                RawName = zone.RawName,
+                DeviceKey = zone.DeviceKey,
+                LegacyZoneIndex = zone.LegacyZoneIndex,
+                Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = segment.LedCount } },
+            });
+            perPort.Add(port);
+        }
+        return perPort;
+    }
+
     public static DeviceStructure BuildStructure(RgbDevice d, NexusSettings settings)
     {
         var baseId = d.StableId;
@@ -265,7 +323,12 @@ public static class OpenRgbZoneSupport
                         ZoneIndex = z,
                         ZoneType = ZoneTypeName(zone.ZoneType),
                         ZoneResizable = IsZoneResizable(zone.ZoneType),
-                        DeviceId = baseId,
+                        // Each header is its own device now, so the card points
+                        // at the port structure rather than the controller. The
+                        // rail still groups it under the board through
+                        // ParentDeviceId, and the LED map editor resolves the
+                        // port instead of a device that owns every header.
+                        DeviceId = zoneId,
                         ZoneCustomizable = true,
                         ConflictAppIds = new List<string>(conflictAppIds),
                     });

@@ -178,7 +178,12 @@ public static partial class DevicesRoutes
             }
 
             var chainKey = Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(deviceId, body.Segment);
-            var defaultCardId = $"{deviceId}-{body.Segment}";
+            // Resize is keyed by the card that owns the segment. On a port
+            // device that is the device id itself; the fallback covers a
+            // structure whose defaults were not authored per segment.
+            var defaultCardId = body.Segment < structure.DefaultZones.Count
+                ? structure.DefaultZones[body.Segment].Id
+                : $"{deviceId}-{body.Segment}";
             var oldZoneIds = new List<string>();
             foreach (var zone in topology.ZonesFor(structure, store.Load()))
                 oldZoneIds.Add(zone.Id);

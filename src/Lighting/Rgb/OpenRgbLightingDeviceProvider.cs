@@ -48,10 +48,15 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider, IDe
         if (devices.Count == 0)
             return Array.Empty<DeviceStructure>();
         var settings = _store.Load();
+        if (SplitMotherboardDeviceMigration.Apply(settings, devices))
+        {
+            _store.Update(s => SplitMotherboardDeviceMigration.Apply(s, devices));
+            settings = _store.Load();
+        }
         var structures = new List<DeviceStructure>(devices.Count);
         foreach (var d in devices)
         {
-            structures.Add(OpenRgbZoneSupport.BuildStructure(d, settings));
+            structures.AddRange(OpenRgbZoneSupport.BuildStructures(d, settings));
         }
         return structures;
     }
@@ -235,18 +240,27 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider, IDe
         {
             if (!id.StartsWith(d.StableId, StringComparison.Ordinal))
                 continue;
-            var structure = OpenRgbZoneSupport.BuildStructure(d, settings);
-            foreach (var zone in ZoneResolution.Resolve(structure, settings))
+            foreach (var structure in OpenRgbZoneSupport.BuildStructures(d, settings))
             {
-                if (zone.Id != id)
-                    continue;
-                var segment = ZoneResolution.WholeResizableSegment(structure, zone);
-                if (segment < 0)
-                    return false;
-                physicalIndex = d.Index;
-                zoneIndex = segment;
-                deviceId = d.StableId;
-                return true;
+                foreach (var zone in ZoneResolution.Resolve(structure, settings))
+                {
+                    if (zone.Id != id)
+                        continue;
+                    if (ZoneResolution.WholeResizableSegment(structure, zone) < 0)
+                        return false;
+                    // A port structure holds one segment, so its own index is
+                    // always 0; the OpenRGB zone to resize is the one the port
+                    // was split from, which its default zone still records.
+                    var physicalZone = structure.DefaultZones.Count > 0
+                        ? structure.DefaultZones[0].LegacyZoneIndex
+                        : -1;
+                    if (physicalZone < 0)
+                        return false;
+                    physicalIndex = d.Index;
+                    zoneIndex = physicalZone;
+                    deviceId = d.StableId;
+                    return true;
+                }
             }
         }
         return false;

@@ -81,7 +81,8 @@ public class OpenRgbZoneCardsTests
         Assert.Equal(0, first.ZoneIndex);
         Assert.Equal("linear", first.ZoneType);
         Assert.True(first.ZoneResizable);
-        Assert.Equal("openrgb-s-MB01", first.DeviceId);
+        // Each header is its own device; the board is the group above it.
+        Assert.Equal("openrgb-s-MB01-0", first.DeviceId);
         Assert.True(first.ZoneCustomizable);
 
         var second = resp.Devices[1];
