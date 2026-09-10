@@ -244,7 +244,7 @@ public class LightingDevice
     public string DeviceKey { get; set; } = "";
     /// <summary>Owning device for the device-level settings modal (zone editor routing target). Equals <see cref="Id"/> for single-zone standalone devices and non-partitionable cards.</summary>
     public string DeviceId { get; set; } = "";
-    /// <summary>True when the owning device supports user zone partitions. False for hub ports, smart lights, and 1-LED devices so the UI hides zone management.</summary>
+    /// <summary>True when the owning device supports user zone partitions, including an ARGB port whose zones are the chain the user declared. False for smart lights, 1-LED devices, and any card whose provider builds a fixed list rather than resolving zones, so the UI hides zone management there.</summary>
     public bool ZoneCustomizable { get; set; }
     /// <summary>ConflictAppCatalog ids of the third-party apps that compete with Nexus for this card's hardware (see <see cref="Nexus.Service.Conflicts.ConflictDeviceOwnership"/>). Empty when none maps, and always empty on a card that carries <see cref="ControlHandlerId"/>.</summary>
     public List<string> ConflictAppIds { get; set; } = new();
