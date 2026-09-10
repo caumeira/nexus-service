@@ -113,7 +113,8 @@ docs/
   network-transport.md # WebSocket topics, polling cadence, reconnect semantics
   ws-topic-rbac.md     # design note on per-topic WebSocket authorization
   shader-benchmark.md  # Q-series shader performance baseline
-data/                  # shipped defaults: install defaults, animate templates, OpenRGB device catalog
+data/                  # shipped defaults: install defaults, animate templates, OpenRGB device catalog,
+                       # built-in ARGB product LED mappings (embedded; the picker works offline)
 Bundled/               # per-RID third-party binaries (adb, dfu-util, pawnio, gamesync, bench CLIs), openrgb + ffmpeg added at publish; macos/ linux/ windows/ = first-party helpers, icons, macOS build scripts
 installer/             # Windows Inno Setup + web installer, MSIX, Linux tarball packager
 tests/
