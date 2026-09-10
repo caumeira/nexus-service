@@ -23,9 +23,9 @@ public static class ZoneResolution
         if (settings.Devices.ZonePartitions.TryGetValue(structure.DeviceId, out var defs)
             && defs is { Count: > 0 })
         {
-            var normalized = NormalizeDefs(structure, defs);
-            if (ZonePartitionValidator.Validate(structure.Segments, normalized,
-                    ChainOwnedSegments(structure, settings)).Ok)
+            var chained = ChainOwnedSegments(structure, settings);
+            var normalized = NormalizeDefs(structure, defs, chained);
+            if (ZonePartitionValidator.Validate(structure.Segments, normalized, chained).Ok)
             {
                 return BuildCustom(structure, normalized);
             }
@@ -60,10 +60,20 @@ public static class ZoneResolution
     /// Normalization applied before validation and persistence: names are
     /// trimmed, and a whole-segment slice over a resizable segment tracks the
     /// segment's LIVE count (the stored count goes stale whenever the user
-    /// resizes the header afterward; rule 2 already pins such slices to the
-    /// whole segment, so substituting the live count is always sound).
+    /// resizes the header afterward; rule 2 pins such slices to the whole
+    /// segment, so substituting the live count is sound).
+    ///
+    /// A segment a chain owns is the exception: its slices are deliberately
+    /// partial, and the first one starts at 0 like any other. Substituting the
+    /// whole count there would stretch the first product over the entire port
+    /// and overlap the rest, so the partition would fail validation and the
+    /// port would silently fall back to one zone.
     /// </summary>
     public static List<ZoneDef> NormalizeDefs(DeviceStructure structure, IReadOnlyList<ZoneDef> defs)
+        => NormalizeDefs(structure, defs, chainOwnedSegments: null);
+
+    public static List<ZoneDef> NormalizeDefs(DeviceStructure structure, IReadOnlyList<ZoneDef> defs,
+        IReadOnlySet<int>? chainOwnedSegments)
     {
         var result = new List<ZoneDef>(defs.Count);
         foreach (var def in defs)
@@ -77,7 +87,8 @@ public static class ZoneResolution
                     if (slice.Segment >= 0 && slice.Segment < structure.Segments.Count)
                     {
                         var seg = structure.Segments[slice.Segment];
-                        if (seg.Resizable && slice.Start == 0)
+                        var chained = chainOwnedSegments?.Contains(slice.Segment) == true;
+                        if (seg.Resizable && !chained && slice.Start == 0)
                         {
                             count = seg.LedCount;
                         }
