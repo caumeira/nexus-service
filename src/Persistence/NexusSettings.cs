@@ -1067,6 +1067,16 @@ public sealed class DevicesSettings
     public Dictionary<string, List<ZoneDef>> ZonePartitions { get; set; } = new();
 
     /// <summary>
+    /// Ordered product chain wired to one ARGB port, keyed "{deviceId}:seg{index}".
+    /// Values are built-in catalog keys in wire order, so a chain of three QX
+    /// fans is three entries. The chain OWNS the port's LED count (it is the sum
+    /// of the products' counts) and the port's partition (one zone per entry),
+    /// which is what makes a multi-zone partition safe on a resizable segment:
+    /// the count can no longer drift out from under the slices.
+    /// </summary>
+    public Dictionary<string, List<string>> LedChains { get; set; } = new();
+
+    /// <summary>
     /// GPU zones on the attached Strimer harness: 6 for the triple 8-pin (the default) or 4
     /// for the dual. The controller reports nothing that distinguishes them, so this is the
     /// user's choice; a wrong value stretches the LED map over a strip that is not there.

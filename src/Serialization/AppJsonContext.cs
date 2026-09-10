@@ -697,6 +697,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(BuiltInMappingSummary))]
 [JsonSerializable(typeof(BuiltInMappingsResponse))]
 [JsonSerializable(typeof(AssignMappingBody))]
+[JsonSerializable(typeof(SetChainBody))]
+[JsonSerializable(typeof(SetChainResponse))]
 [JsonSerializable(typeof(PublishMappingResponse))]
 [JsonSerializable(typeof(ExportMappingResponse))]
 [JsonSerializable(typeof(PublishCloudBody))]

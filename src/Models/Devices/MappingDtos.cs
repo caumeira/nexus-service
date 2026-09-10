@@ -109,6 +109,23 @@ public sealed class AssignMappingBody
     public string Key { get; set; } = "";
 }
 
+/// <summary>Wire an ordered product chain to one ARGB port. An empty Keys list clears it.</summary>
+public sealed class SetChainBody
+{
+    /// <summary>Index of the port's hardware segment on the parent device.</summary>
+    public int Segment { get; set; }
+    /// <summary>Catalog product keys in wire order; mixed types are fine (fan, strip, fan).</summary>
+    public List<string> Keys { get; set; } = new();
+}
+
+public sealed class SetChainResponse : ApiResponse
+{
+    /// <summary>LED count the chain resolves to - the sum of its products.</summary>
+    public int LedCount { get; set; }
+    /// <summary>Card ids the chain produced, one per product, in wire order.</summary>
+    public List<string> ZoneIds { get; set; } = new();
+}
+
 /// <summary>Device id -> cached community mapping count (only entries with a nonzero count).</summary>
 public sealed class MappingsAvailableResponse : ApiResponse
 {

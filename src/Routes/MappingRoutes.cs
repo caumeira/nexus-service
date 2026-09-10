@@ -136,6 +136,133 @@ public static partial class DevicesRoutes
             };
         });
 
+        // Wire an ordered product chain to one ARGB port: three fans in series
+        // become three cards, mixed types allowed. The chain owns both the
+        // port's LED count (the sum of its products) and its partition (one
+        // zone per product), written together so the count can never drift out
+        // from under the slices - which is the drift ZonePartitionValidator's
+        // rule 2 exists to prevent, and why that rule lifts for a chained port.
+        app.MapPost("/devices/lighting-devices/{deviceId}/mappings/chain", (string deviceId, SetChainBody body,
+            Nexus.Service.Lighting.Zones.ZoneTopology topology,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+            Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            var structure = topology.FindStructure(deviceId);
+            if (structure is null)
+                return Results.Json(ApiResponse.Fail("unknown device"), AppJsonContext.Default.ApiResponse);
+            if (!structure.Partitionable)
+                return Results.Json(ApiResponse.Fail("device does not support zone partitions"), AppJsonContext.Default.ApiResponse);
+            if (body.Segment < 0 || body.Segment >= structure.Segments.Count)
+                return Results.Json(ApiResponse.Fail("unknown segment"), AppJsonContext.Default.ApiResponse);
+            if (!structure.Segments[body.Segment].Resizable)
+                return Results.Json(ApiResponse.Fail("segment is not an addressable port"), AppJsonContext.Default.ApiResponse);
+
+            var keys = body.Keys ?? new List<string>();
+            var artifacts = new List<MappingArtifact>(keys.Count);
+            var total = 0;
+            foreach (var key in keys)
+            {
+                var artifact = BuiltInMappingsCatalog.Find(key);
+                if (artifact is null)
+                    return Results.Json(ApiResponse.Fail($"unknown mapping {key}"), AppJsonContext.Default.ApiResponse);
+                var lint = MappingLint.Validate(artifact);
+                if (!lint.Ok)
+                    return Results.Json(ApiResponse.Fail($"{key} failed validation"), AppJsonContext.Default.ApiResponse);
+                var zone = artifact.Zones.Count > 0 ? artifact.Zones[0] : null;
+                var count = zone?.LedCount ?? 0;
+                if (count <= 0)
+                    return Results.Json(ApiResponse.Fail($"{key} has no LEDs to chain"), AppJsonContext.Default.ApiResponse);
+                artifacts.Add(artifact);
+                total += count;
+            }
+
+            var chainKey = Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(deviceId, body.Segment);
+            var defaultCardId = $"{deviceId}-{body.Segment}";
+            var oldZoneIds = new List<string>();
+            foreach (var zone in topology.ZonesFor(structure, store.Load()))
+                oldZoneIds.Add(zone.Id);
+
+            var response = new SetChainResponse();
+            store.Update(s =>
+            {
+                Nexus.Service.Lighting.Zones.ZoneStateDrop.Drop(s, oldZoneIds);
+                if (artifacts.Count == 0)
+                {
+                    // Clearing: the port goes back to one whole-segment zone
+                    // sized by whatever the user last set.
+                    s.Devices.LedChains.Remove(chainKey);
+                    s.Devices.ZonePartitions.Remove(deviceId);
+                    return;
+                }
+
+                s.Devices.LedChains[chainKey] = new List<string>(keys);
+                s.Devices.ZoneLedCounts[defaultCardId] = total;
+
+                var defs = new List<Nexus.Service.Persistence.ZoneDef>();
+                var applied = new List<(int Ordinal, MappingArtifact Artifact)>();
+                for (int seg = 0; seg < structure.Segments.Count; seg++)
+                {
+                    if (seg != body.Segment)
+                    {
+                        defs.Add(new Nexus.Service.Persistence.ZoneDef
+                        {
+                            Name = structure.Segments[seg].Name,
+                            Slices = { new Nexus.Service.Persistence.ZoneSlice
+                                { Segment = seg, Start = 0, Count = structure.Segments[seg].LedCount } },
+                        });
+                        continue;
+                    }
+                    var start = 0;
+                    for (int i = 0; i < artifacts.Count; i++)
+                    {
+                        var count = artifacts[i].Zones[0].LedCount ?? 0;
+                        // Repeats of one product are common (three identical
+                        // fans), so the ordinal is part of the name or the
+                        // cards are indistinguishable in the device list.
+                        var name = artifacts.Count > 1
+                            ? $"{artifacts[i].Name} {i + 1}"
+                            : artifacts[i].Name;
+                        defs.Add(new Nexus.Service.Persistence.ZoneDef
+                        {
+                            Name = name.Length > Nexus.Service.Lighting.Zones.ZonePartitionValidator.MaxZoneNameLength
+                                ? name[..Nexus.Service.Lighting.Zones.ZonePartitionValidator.MaxZoneNameLength]
+                                : name,
+                            Slices = { new Nexus.Service.Persistence.ZoneSlice
+                                { Segment = seg, Start = start, Count = count } },
+                        });
+                        applied.Add((defs.Count - 1, artifacts[i]));
+                        start += count;
+                    }
+                }
+                s.Devices.ZonePartitions[deviceId] = defs;
+
+                // Assign each product to the zone it just created. Written here
+                // rather than through MappingApplyService because those cards do
+                // not exist until this partition lands.
+                foreach (var (ordinal, artifact) in applied)
+                {
+                    var zoneId = Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(deviceId, ordinal);
+                    response.ZoneIds.Add(zoneId);
+                    s.Devices.AppliedMappings[zoneId] = new AppliedMappingRef
+                    {
+                        MappingId = artifact.Device.Key,
+                        Source = MappingApplyService.SourceBuiltIn,
+                        ContentHash = MappingHash.ContentHash(artifact),
+                        Name = artifact.Name,
+                        Artifact = artifact,
+                        AppliedAt = System.DateTimeOffset.UtcNow,
+                        AutoApplied = false,
+                    };
+                }
+            });
+
+            bridge?.RequestTopologyRefresh();
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            response.LedCount = total;
+            return Results.Json(response, AppJsonContext.Default.SetChainResponse);
+        });
+
         // Revert the applied mapping. reason: undo (auto-apply veto) | switched | reset.
         app.MapDelete("/devices/lighting-devices/{id}/mapping", (string id, string? reason,
             MappingApplyService mappings) =>

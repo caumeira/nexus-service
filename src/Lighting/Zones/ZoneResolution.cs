@@ -24,12 +24,36 @@ public static class ZoneResolution
             && defs is { Count: > 0 })
         {
             var normalized = NormalizeDefs(structure, defs);
-            if (ZonePartitionValidator.Validate(structure.Segments, normalized).Ok)
+            if (ZonePartitionValidator.Validate(structure.Segments, normalized,
+                    ChainOwnedSegments(structure, settings)).Ok)
             {
                 return BuildCustom(structure, normalized);
             }
         }
         return BuildDefaults(structure);
+    }
+
+    /// <summary>Key for a port's chain record: the device plus the segment it is wired to.</summary>
+    public static string ChainKey(string deviceId, int segment) => $"{deviceId}:seg{segment}";
+
+    /// <summary>
+    /// Segments whose LED count is owned by a product chain, so a multi-zone
+    /// partition over them is legitimate. A chain whose product count no longer
+    /// matches the live segment count is ignored, which drops the partition back
+    /// to the default rather than tiling a segment that moved underneath it.
+    /// </summary>
+    public static IReadOnlySet<int> ChainOwnedSegments(DeviceStructure structure, NexusSettings settings)
+    {
+        var owned = new HashSet<int>();
+        for (int i = 0; i < structure.Segments.Count; i++)
+        {
+            if (settings.Devices.LedChains.TryGetValue(ChainKey(structure.DeviceId, i), out var chain)
+                && chain is { Count: > 0 })
+            {
+                owned.Add(i);
+            }
+        }
+        return owned;
     }
 
     /// <summary>
