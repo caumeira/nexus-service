@@ -149,6 +149,18 @@ public sealed class SetChainResponse : ApiResponse
     public List<string> ZoneIds { get; set; } = new();
 }
 
+/// <summary>
+/// Preview of what the chain POST would produce, writing nothing: the same
+/// structure and device-map payloads the two GET routes would answer once
+/// the chain was saved, so the editor can stage a chain edit and feed it
+/// into the code path it already uses after a normal load.
+/// </summary>
+public sealed class ChainPreviewResponse : ApiResponse
+{
+    public DeviceStructureResponse? Structure { get; set; }
+    public DeviceMapResponse? Map { get; set; }
+}
+
 /// <summary>Device id -> cached community mapping count (only entries with a nonzero count).</summary>
 public sealed class MappingsAvailableResponse : ApiResponse
 {

@@ -121,6 +121,10 @@ public sealed class ChainRouteTests : IDisposable
         => _client.PostAsJsonAsync($"/devices/lighting-devices/{PortId}/mappings/chain",
             new SetChainBody { Entries = entries.ToList() });
 
+    private Task<HttpResponseMessage> PostChainPreview(params SetChainEntry[] entries)
+        => _client.PostAsJsonAsync($"/devices/lighting-devices/{PortId}/mappings/chain/preview",
+            new SetChainBody { Entries = entries.ToList() });
+
     [Fact]
     public async Task An_override_on_a_later_segment_survives_a_save()
     {
@@ -328,5 +332,109 @@ public sealed class ChainRouteTests : IDisposable
         post.EnsureSuccessStatusCode();
         var result = await post.Content.ReadFromJsonAsync<SetChainResponse>();
         Assert.Equal(33, result!.LedCount);
+    }
+
+    [Fact]
+    public async Task Preview_matches_what_a_real_chain_POST_then_produces()
+    {
+        var preview = await PostChainPreview(
+            new SetChainEntry { Key = "product:hyte-fr12-trio" },
+            new SetChainEntry { Key = GenericChainArtifacts.StripKey, LedCount = 20 },
+            new SetChainEntry { Key = "product:hyte-y50-solo" });
+        preview.EnsureSuccessStatusCode();
+        var previewBody = await preview.Content.ReadFromJsonAsync<ChainPreviewResponse>();
+        Assert.NotNull(previewBody);
+        Assert.False(previewBody!.Error);
+        Assert.NotNull(previewBody.Structure);
+        Assert.NotNull(previewBody.Map);
+
+        var post = await PostChain(
+            new SetChainEntry { Key = "product:hyte-fr12-trio" },
+            new SetChainEntry { Key = GenericChainArtifacts.StripKey, LedCount = 20 },
+            new SetChainEntry { Key = "product:hyte-y50-solo" });
+        post.EnsureSuccessStatusCode();
+
+        var structure = await _client.GetFromJsonAsync<DeviceStructureResponse>(
+            $"/devices/lighting-devices/{PortId}/structure");
+        Assert.NotNull(structure);
+
+        Assert.Equal(structure!.Chain.Select(c => c.Name), previewBody.Structure!.Chain.Select(c => c.Name));
+        Assert.Equal(structure.Chain.Select(c => c.LedCount), previewBody.Structure.Chain.Select(c => c.LedCount));
+        Assert.Equal(structure.Zones.Select(z => z.Id), previewBody.Structure.Zones.Select(z => z.Id));
+        Assert.Equal(structure.Segments[0].LedCount, previewBody.Structure.Segments[0].LedCount);
+        Assert.Equal(structure.Segments[0].LedCount, previewBody.Map!.Segments[0].LedCount);
+
+        var map = await _client.GetFromJsonAsync<DeviceMapResponse>(
+            $"/devices/lighting-devices/{PortId}/device-map");
+        Assert.NotNull(map);
+        var realLeds = map!.Segments[0].Leds;
+        var previewLeds = previewBody.Map.Segments[0].Leds;
+        Assert.Equal(realLeds.Count, previewLeds.Count);
+        for (int i = 0; i < realLeds.Count; i++)
+        {
+            Assert.Equal(realLeds[i].ZoneId, previewLeds[i].ZoneId);
+            Assert.Equal(realLeds[i].U, previewLeds[i].U);
+            Assert.Equal(realLeds[i].V, previewLeds[i].V);
+            Assert.Equal(realLeds[i].IsCustom, previewLeds[i].IsCustom);
+            Assert.Equal(realLeds[i].Disabled, previewLeds[i].Disabled);
+        }
+    }
+
+    [Fact]
+    public async Task Preview_writes_nothing()
+    {
+        var preview = await PostChainPreview(
+            new SetChainEntry { Key = "product:hyte-fr12" },
+            new SetChainEntry { Key = "product:hyte-y50-solo" });
+        preview.EnsureSuccessStatusCode();
+        var body = await preview.Content.ReadFromJsonAsync<ChainPreviewResponse>();
+        Assert.NotNull(body);
+        Assert.False(body!.Error);
+
+        var settings = _factory.Services.GetRequiredService<IConfigStore>().Load();
+        Assert.Empty(settings.Devices.PortChains);
+        Assert.Empty(settings.Devices.ZonePartitions);
+        Assert.Empty(settings.Devices.AppliedMappings);
+        Assert.Empty(settings.Devices.ZoneLedCounts);
+    }
+
+    [Fact]
+    public async Task Preview_rejects_exactly_what_the_post_rejects()
+    {
+        var unknown = await PostChainPreview(new SetChainEntry { Key = "product:does-not-exist" });
+        Assert.True((await unknown.Content.ReadFromJsonAsync<ChainPreviewResponse>())!.Error);
+
+        var emptyKey = await PostChainPreview(new SetChainEntry { Key = "" });
+        Assert.True((await emptyKey.Content.ReadFromJsonAsync<ChainPreviewResponse>())!.Error);
+
+        // Six generics at the per-link maximum: each is legal on its own, and
+        // the sum is what has to be caught.
+        var overCeilingLinks = Enumerable.Range(0, 6)
+            .Select(_ => new SetChainEntry { Key = GenericChainArtifacts.StripKey, LedCount = 4096 })
+            .ToArray();
+        var overCeiling = await PostChainPreview(overCeilingLinks);
+        Assert.True((await overCeiling.Content.ReadFromJsonAsync<ChainPreviewResponse>())!.Error);
+
+        var noCount = await PostChainPreview(new SetChainEntry { Key = GenericChainArtifacts.FanKey });
+        Assert.True((await noCount.Content.ReadFromJsonAsync<ChainPreviewResponse>())!.Error);
+
+        var settings = _factory.Services.GetRequiredService<IConfigStore>().Load();
+        Assert.Empty(settings.Devices.PortChains);
+    }
+
+    [Fact]
+    public async Task The_previewed_map_carries_the_products_real_geometry()
+    {
+        var preview = await PostChainPreview(new SetChainEntry { Key = "product:hyte-fr12" });
+        preview.EnsureSuccessStatusCode();
+        var body = await preview.Content.ReadFromJsonAsync<ChainPreviewResponse>();
+        Assert.NotNull(body);
+        Assert.False(body!.Error);
+
+        var leds = body!.Map!.Segments[0].Leds;
+        Assert.Equal(33, leds.Count);
+        // Every LED sharing one position would mean the seeded linear default
+        // never got overlaid with the FR12 artifact's real per-LED positions.
+        Assert.True(leds.Select(l => (l.U, l.V)).Distinct().Count() > 1);
     }
 }

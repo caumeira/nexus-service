@@ -102,26 +102,7 @@ public sealed class ZoneTopology
         var hit = FindZone(cardId, settings);
         if (hit is { } z)
         {
-            var rgbDevice = FindRgbDevice(z.Structure.OwningDeviceId);
-            if (rgbDevice is not null)
-            {
-                var layout = z.Zone.IsDefault
-                    ? LedLayoutResolver.ResolveOpenRgb(rgbDevice, z.Zone.LegacyZoneIndex, cardId, settings,
-                        ZoneResolution.ContextOf(z.Structure, z.Zone))
-                    : LedLayoutResolver.ResolveZoneOpenRgb(rgbDevice, z.Structure, z.Zone, settings);
-                return new CardResolution { Layout = layout, Device = rgbDevice };
-            }
-            // Structure-authored segment defaults win (they follow the zone's
-            // slices, so any partition shape keeps its true sub-shape); the
-            // tracker snapshot covers providers that only author per-frame UVs.
-            var (defU, defV) = ZoneResolution.DefaultUv(z.Structure, z.Zone);
-            if (defU is null || defV is null)
-            {
-                (defU, defV) = _contributorLayouts.GetDefaults(cardId);
-            }
-            var seeded = LedLayoutResolver.ResolveSeeded(cardId, z.Zone.FrameLedCount, defU, defV, settings,
-                ZoneResolution.ContextOf(z.Structure, z.Zone));
-            return new CardResolution { Layout = seeded };
+            return ResolveZone(z.Structure, z.Zone, settings);
         }
 
         if (_bridge is not null)
@@ -149,6 +130,37 @@ public sealed class ZoneTopology
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Resolve a zone already known to belong to a structure, skipping the
+    /// cardId lookup <see cref="FindZone"/> performs. A caller holding a
+    /// structure/zone pair that a registered source would not currently
+    /// reproduce (a chain preview's detached copy) resolves against exactly
+    /// that pair instead.
+    /// </summary>
+    public CardResolution ResolveZone(DeviceStructure structure, ResolvedZone zone, NexusSettings settings)
+    {
+        var rgbDevice = FindRgbDevice(structure.OwningDeviceId);
+        if (rgbDevice is not null)
+        {
+            var layout = zone.IsDefault
+                ? LedLayoutResolver.ResolveOpenRgb(rgbDevice, zone.LegacyZoneIndex, zone.Id, settings,
+                    ZoneResolution.ContextOf(structure, zone))
+                : LedLayoutResolver.ResolveZoneOpenRgb(rgbDevice, structure, zone, settings);
+            return new CardResolution { Layout = layout, Device = rgbDevice };
+        }
+        // Structure-authored segment defaults win (they follow the zone's
+        // slices, so any partition shape keeps its true sub-shape); the
+        // tracker snapshot covers providers that only author per-frame UVs.
+        var (defU, defV) = ZoneResolution.DefaultUv(structure, zone);
+        if (defU is null || defV is null)
+        {
+            (defU, defV) = _contributorLayouts.GetDefaults(zone.Id);
+        }
+        var seeded = LedLayoutResolver.ResolveSeeded(zone.Id, zone.FrameLedCount, defU, defV, settings,
+            ZoneResolution.ContextOf(structure, zone));
+        return new CardResolution { Layout = seeded };
     }
 
     /// <summary>Push a resolution into the matching live engine frame, honoring the contributor-tracker discipline.</summary>

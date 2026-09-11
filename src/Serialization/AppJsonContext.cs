@@ -701,6 +701,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SetChainEntry))]
 [JsonSerializable(typeof(ChainEntryDto))]
 [JsonSerializable(typeof(SetChainResponse))]
+[JsonSerializable(typeof(ChainPreviewResponse))]
 [JsonSerializable(typeof(PublishMappingResponse))]
 [JsonSerializable(typeof(ExportMappingResponse))]
 [JsonSerializable(typeof(PublishCloudBody))]
