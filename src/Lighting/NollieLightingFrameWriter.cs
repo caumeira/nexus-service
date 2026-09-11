@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.Nollie;
 using Nexus.Service.Persistence;
 
@@ -96,7 +97,7 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
         {
             // Every channel of this controller left uncontrolled: don't touch it
             // at all, so it keeps whatever its firmware is doing.
-            if (uncontrolled.Count > 0 && AllChannelsUncontrolled(controller, uncontrolled))
+            if (uncontrolled.Count > 0 && AllChannelsUncontrolled(controller, settings, uncontrolled))
             {
                 continue;
             }
@@ -104,16 +105,8 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
             var wrote = false;
             foreach (var ch in PushOrder(controller, counts))
             {
-                var id = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, ch);
-                var ledCount = NollieLightingDeviceProvider.DeclaredLedCount(counts, id, controller.Spec);
-
-                var frame = FindFrame(devices, id);
-                var buf = Rent(id, Math.Max(ledCount, 1) * 3);
-                var brightnessMul = ComputeBrightnessMul(id, disabled, uncontrolled, prefs, globalBrightness, out var adjust);
-                var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
-                Fill(buf, ledCount, frame, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
-
-                if (controller.SendChannel(ch, new ReadOnlySpan<byte>(buf, 0, ledCount * 3)))
+                var zones = NollieLightingDeviceProvider.ResolveChannelZones(controller, ch, settings);
+                if (PushChannel(devices, controller, ch, zones, disabled, uncontrolled, prefs, globalBrightness, nowTicks))
                 {
                     wrote = true;
                 }
@@ -123,6 +116,43 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
             // takes effect on receipt and ignores this.
             if (wrote) controller.SendLatch();
         }
+    }
+
+    /// <summary>
+    /// Fill one hardware channel's buffer from its resolved zones, laid down
+    /// back to back in chain order, and send it. Power, brightness, colour
+    /// trim and identify stay per-zone so one product in a chain can be
+    /// flashed or switched off without touching the ones beside it on the
+    /// same wire.
+    /// </summary>
+    private bool PushChannel(DeviceFrame[] devices, NollieController controller, int ch,
+        IReadOnlyList<ResolvedZone> zones,
+        IReadOnlyList<string> disabled, IReadOnlyList<string> uncontrolled,
+        IReadOnlyDictionary<string, LightingDevicePreference> prefs, float globalBrightness, long nowTicks)
+    {
+        var total = 0;
+        for (var i = 0; i < zones.Count; i++) total += Math.Max(0, zones[i].LedCount);
+
+        var bufferId = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, ch);
+        var buf = Rent(bufferId, Math.Max(total, 1) * 3);
+        Array.Clear(buf, 0, Math.Min(buf.Length, total * 3));
+
+        var offset = 0;
+        for (var i = 0; i < zones.Count; i++)
+        {
+            var zone = zones[i];
+            var ledCount = Math.Max(0, zone.LedCount);
+            if (ledCount > 0)
+            {
+                var frame = FindFrame(devices, zone.Id);
+                var brightnessMul = ComputeBrightnessMul(zone.Id, disabled, uncontrolled, prefs, globalBrightness, out var adjust);
+                var hasIdentify = _identify.TryGetActive(zone.Id, nowTicks, out var startTicks);
+                FillSlice(buf, offset, ledCount, frame, brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
+            }
+            offset += ledCount;
+        }
+
+        return controller.SendChannel(ch, new ReadOnlySpan<byte>(buf, 0, total * 3));
     }
 
     /// <summary>
@@ -151,11 +181,13 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
         return order;
     }
 
-    private static bool AllChannelsUncontrolled(NollieController controller, IReadOnlyList<string> uncontrolled)
+    /// <summary>A channel counts as uncontrolled only when every one of its resolved zones does.</summary>
+    private static bool AllChannelsUncontrolled(NollieController controller, NexusSettings settings, IReadOnlyList<string> uncontrolled)
     {
         for (var ch = 0; ch < controller.Spec.Channels; ch++)
         {
-            if (!uncontrolled.Contains(NollieLightingDeviceProvider.ChannelId(controller.DeviceId, ch)))
+            var zones = NollieLightingDeviceProvider.ResolveChannelZones(controller, ch, settings);
+            if (!ZoneResolution.IsFullyUncontrolled(zones, uncontrolled))
             {
                 return false;
             }
@@ -214,17 +246,17 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
         return Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
     }
 
-    private static void Fill(byte[] dst, int ledCount, DeviceFrame? frame,
+    /// <summary>Fills a slice of the channel buffer starting at LED index <paramref name="dstStart"/>, so several zones can tile one channel back to back.</summary>
+    private static void FillSlice(byte[] dst, int dstStart, int ledCount, DeviceFrame? frame,
         double brightnessMul, DeviceColorAdjust adjust, bool hasIdentify, long identifyStartTicks, long nowTicks)
     {
-        Array.Clear(dst, 0, Math.Min(dst.Length, ledCount * 3));
-
+        var baseOff = dstStart * 3;
         if (hasIdentify)
         {
             var elapsedMs = (nowTicks - identifyStartTicks) / TimeSpan.TicksPerMillisecond;
             var on = (elapsedMs / IdentifyFlashHalfPeriodMs) % 2 == 0;
             var v = on ? (byte)255 : (byte)0;
-            for (var i = 0; i < ledCount * 3 && i < dst.Length; i++) dst[i] = v;
+            for (var i = 0; i < ledCount * 3 && baseOff + i < dst.Length; i++) dst[baseOff + i] = v;
             return;
         }
         if (frame is null || brightnessMul <= 0.0) return;
@@ -235,12 +267,12 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
             for (var i = 0; i < ledCount; i++)
             {
                 var off = i * 3;
-                if (off + 2 >= src.Length || off + 2 >= dst.Length) break;
+                if (off + 2 >= src.Length || baseOff + off + 2 >= dst.Length) break;
                 adjust.Apply(src[off], src[off + 1], src[off + 2], brightnessMul,
                     out var ar, out var ag, out var ab);
-                dst[off] = ar;
-                dst[off + 1] = ag;
-                dst[off + 2] = ab;
+                dst[baseOff + off] = ar;
+                dst[baseOff + off + 1] = ag;
+                dst[baseOff + off + 2] = ab;
             }
             return;
         }
@@ -249,20 +281,20 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
             for (var i = 0; i < ledCount; i++)
             {
                 var off = i * 3;
-                if (off + 2 >= src.Length || off + 2 >= dst.Length) break;
-                dst[off] = src[off];
-                dst[off + 1] = src[off + 1];
-                dst[off + 2] = src[off + 2];
+                if (off + 2 >= src.Length || baseOff + off + 2 >= dst.Length) break;
+                dst[baseOff + off] = src[off];
+                dst[baseOff + off + 1] = src[off + 1];
+                dst[baseOff + off + 2] = src[off + 2];
             }
             return;
         }
         for (var i = 0; i < ledCount; i++)
         {
             var off = i * 3;
-            if (off + 2 >= src.Length || off + 2 >= dst.Length) break;
-            dst[off] = (byte)(src[off] * brightnessMul);
-            dst[off + 1] = (byte)(src[off + 1] * brightnessMul);
-            dst[off + 2] = (byte)(src[off + 2] * brightnessMul);
+            if (off + 2 >= src.Length || baseOff + off + 2 >= dst.Length) break;
+            dst[baseOff + off] = (byte)(src[off] * brightnessMul);
+            dst[baseOff + off + 1] = (byte)(src[off + 1] * brightnessMul);
+            dst[baseOff + off + 2] = (byte)(src[off + 2] * brightnessMul);
         }
     }
 }

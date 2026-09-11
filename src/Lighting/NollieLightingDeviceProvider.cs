@@ -90,46 +90,63 @@ public sealed class NollieLightingDeviceProvider :
         {
             for (var ch = 0; ch < controller.Spec.Channels; ch++)
             {
-                var id = ChannelId(controller.DeviceId, ch);
-                var ledCount = DeclaredLedCount(counts, id, controller.Spec);
-                var isOn = true;
-                for (var i = 0; i < disabled.Count; i++) if (disabled[i] == id) { isOn = false; break; }
-                var brightness = 100;
-                var hue = 0f;
-                var saturation = 1f;
-                if (prefs.TryGetValue(id, out var pref))
+                var structure = BuildChannelStructure(controller, ch, counts);
+                foreach (var zone in ZoneResolution.Resolve(structure, settings))
                 {
-                    brightness = pref.Brightness; hue = pref.Hue; saturation = pref.Saturation;
+                    resp.Devices.Add(BuildZoneCard(structure, zone, slot++, controller.DeviceId, disabled, prefs, layouts, settings));
                 }
-                var (defX, defY, defW, defH) = DefaultNollieLayout(slot);
-                layouts.TryGetValue(id, out var layout);
-
-                resp.Devices.Add(new LightingDevice
-                {
-                    Id = id,
-                    DeviceKey = ChannelKey(controller, ch),
-                    Name = $"{controller.Spec.Name} - {NollieProtocol.ChannelName(ch)}",
-                    Type = "ledstrip",
-                    IconType = "strip",
-                    LedsOn = isOn,
-                    Brightness = brightness,
-                    Hue = hue,
-                    Saturation = saturation,
-                    LedCount = ledCount,
-                    CanvasX = layout?.X ?? defX,
-                    CanvasY = layout?.Y ?? defY,
-                    CanvasW = layout?.W ?? defW,
-                    CanvasH = layout?.H ?? defH,
-                    CanvasRotation = NormalizeRotation(layout?.Rotation ?? 0),
-                    ParentDeviceId = controller.DeviceId,
-                    ZoneIndex = ch,
-                    ZoneType = "linear",
-                    ZoneResizable = true,
-                });
-                slot++;
             }
         }
         return resp;
+    }
+
+    /// <summary>Card for one resolved zone of a channel - the whole channel when unchained, one per product once a chain owns it.</summary>
+    private static LightingDevice BuildZoneCard(
+        DeviceStructure structure, ResolvedZone zone, int slot, string parentDeviceId,
+        IReadOnlyList<string> disabled,
+        IReadOnlyDictionary<string, LightingDevicePreference> prefs,
+        IReadOnlyDictionary<string, DeviceLayout> layouts,
+        NexusSettings settings)
+    {
+        var id = zone.Id;
+        var isOn = true;
+        for (var i = 0; i < disabled.Count; i++) if (disabled[i] == id) { isOn = false; break; }
+        var brightness = 100;
+        var hue = 0f;
+        var saturation = 1f;
+        if (prefs.TryGetValue(id, out var pref))
+        {
+            brightness = pref.Brightness; hue = pref.Hue; saturation = pref.Saturation;
+        }
+        var (defX, defY, defW, defH) = DefaultNollieLayout(slot);
+        layouts.TryGetValue(id, out var layout);
+        return new LightingDevice
+        {
+            Id = id,
+            DeviceKey = zone.DeviceKey,
+            Name = zone.Name,
+            Type = "ledstrip",
+            IconType = "strip",
+            LedsOn = isOn,
+            Brightness = brightness,
+            Hue = hue,
+            Saturation = saturation,
+            LedCount = zone.LedCount,
+            EnabledLedCount = ZoneResolution.CountEnabled(structure, zone, id, zone.LedCount, zone.Ordinal, settings),
+            CanvasX = layout?.X ?? defX,
+            CanvasY = layout?.Y ?? defY,
+            CanvasW = layout?.W ?? defW,
+            CanvasH = layout?.H ?? defH,
+            CanvasRotation = NormalizeRotation(layout?.Rotation ?? 0),
+            ParentDeviceId = parentDeviceId,
+            ZoneIndex = zone.Ordinal,
+            ZoneType = "linear",
+            // Only a zone that owns the whole channel may resize it; a chain
+            // link is sized by its product.
+            ZoneResizable = ZoneResolution.WholeResizableSegment(structure, zone) >= 0,
+            DeviceId = structure.DeviceId,
+            ZoneCustomizable = true,
+        };
     }
 
     private static string ChannelKey(NollieController controller, int cardIndex)
@@ -148,34 +165,50 @@ public sealed class NollieLightingDeviceProvider :
         {
             for (var ch = 0; ch < controller.Spec.Channels; ch++)
             {
-                var id = ChannelId(controller.DeviceId, ch);
-                var ledCount = DeclaredLedCount(counts, id, controller.Spec);
-                var name = $"{controller.Spec.Name} - {NollieProtocol.ChannelName(ch)}";
-                var key = ChannelKey(controller, ch);
-                var structure = new DeviceStructure { DeviceId = id, Name = name, DeviceKey = key, Partitionable = false };
-                structure.Segments.Add(new StructureSegment
-                {
-                    Index = 0,
-                    Name = NollieProtocol.ChannelName(ch),
-                    LedCount = ledCount,
-                    FrameLedCount = ledCount,
-                    Resizable = true,
-                    ZoneType = "linear",
-                });
-                structure.DefaultZones.Add(new DefaultZoneDef
-                {
-                    Id = id,
-                    Name = name,
-                    RawName = NollieProtocol.ChannelName(ch),
-                    DeviceKey = key,
-                    LegacyZoneIndex = -1,
-                    Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = ledCount } },
-                });
-                structures.Add(structure);
+                structures.Add(BuildChannelStructure(controller, ch, counts));
             }
         }
         return structures;
     }
+
+    /// <summary>
+    /// One channel's structure. Shared with the frame writer so the card
+    /// list, the engine frames, and the bytes on the wire all resolve the
+    /// same chain - a channel split several ways in one of them and not the
+    /// others would light the wrong LEDs rather than fail visibly.
+    /// </summary>
+    internal static DeviceStructure BuildChannelStructure(NollieController controller, int ch, IReadOnlyDictionary<string, int> counts)
+    {
+        var id = ChannelId(controller.DeviceId, ch);
+        var ledCount = DeclaredLedCount(counts, id, controller.Spec);
+        var name = $"{controller.Spec.Name} - {NollieProtocol.ChannelName(ch)}";
+        var rawName = NollieProtocol.ChannelName(ch);
+        var key = ChannelKey(controller, ch);
+        var structure = new DeviceStructure { DeviceId = id, Name = name, DeviceKey = key };
+        structure.Segments.Add(new StructureSegment
+        {
+            Index = 0,
+            Name = rawName,
+            LedCount = ledCount,
+            FrameLedCount = ledCount,
+            Resizable = true,
+            ZoneType = "linear",
+        });
+        structure.DefaultZones.Add(new DefaultZoneDef
+        {
+            Id = id,
+            Name = name,
+            RawName = rawName,
+            DeviceKey = key,
+            LegacyZoneIndex = -1,
+            Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = ledCount } },
+        });
+        return structure;
+    }
+
+    /// <summary>The zones one channel currently resolves to, in chain order.</summary>
+    internal static IReadOnlyList<ResolvedZone> ResolveChannelZones(NollieController controller, int ch, NexusSettings settings)
+        => ZoneResolution.Resolve(BuildChannelStructure(controller, ch, settings.Devices.ZoneLedCounts), settings);
 
     // ── ILightingDeviceProvider ──
 
@@ -287,32 +320,35 @@ public sealed class NollieLightingDeviceProvider :
         {
             for (var ch = 0; ch < controller.Spec.Channels; ch++)
             {
-                var id = ChannelId(controller.DeviceId, ch);
-                var ledCount = DeclaredLedCount(counts, id, controller.Spec);
-                var (defX, defY, defW, defH) = DefaultNollieLayout(slot++);
-                layouts.TryGetValue(id, out var layout);
-                var rot = NormalizeRotation(layout?.Rotation ?? 0);
-                var thisIdx = idx++;
-
-                if (_frameCache.TryGetValue(id, out var existing)
-                    && existing.Index == thisIdx
-                    && existing.LedCount == ledCount)
+                var structure = BuildChannelStructure(controller, ch, counts);
+                foreach (var zone in ZoneResolution.Resolve(structure, settings))
                 {
-                    existing.X = layout?.X ?? defX;
-                    existing.Y = layout?.Y ?? defY;
-                    existing.W = layout?.W ?? defW;
-                    existing.H = layout?.H ?? defH;
-                    existing.Rotation = rot;
-                    frames.Add(existing);
-                    continue;
-                }
+                    var id = zone.Id;
+                    var (defX, defY, defW, defH) = DefaultNollieLayout(slot++);
+                    layouts.TryGetValue(id, out var layout);
+                    var rot = NormalizeRotation(layout?.Rotation ?? 0);
+                    var thisIdx = idx++;
 
-                var frame = new DeviceFrame(
-                    index: thisIdx, id: id, ledCount: ledCount,
-                    x: layout?.X ?? defX, y: layout?.Y ?? defY,
-                    w: layout?.W ?? defW, h: layout?.H ?? defH, rotation: rot);
-                _frameCache[id] = frame;
-                frames.Add(frame);
+                    if (_frameCache.TryGetValue(id, out var existing)
+                        && existing.Index == thisIdx
+                        && existing.LedCount == zone.LedCount)
+                    {
+                        existing.X = layout?.X ?? defX;
+                        existing.Y = layout?.Y ?? defY;
+                        existing.W = layout?.W ?? defW;
+                        existing.H = layout?.H ?? defH;
+                        existing.Rotation = rot;
+                        frames.Add(existing);
+                        continue;
+                    }
+
+                    var frame = new DeviceFrame(
+                        index: thisIdx, id: id, ledCount: zone.LedCount,
+                        x: layout?.X ?? defX, y: layout?.Y ?? defY,
+                        w: layout?.W ?? defW, h: layout?.H ?? defH, rotation: rot);
+                    _frameCache[id] = frame;
+                    frames.Add(frame);
+                }
             }
         }
 

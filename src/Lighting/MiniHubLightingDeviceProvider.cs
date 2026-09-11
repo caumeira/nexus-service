@@ -341,8 +341,16 @@ public sealed class MiniHubLightingDeviceProvider :
         // from falling back to firmware animation on un-addressed channels.
         frames.Add(BuildOrReuseFrame($"{hubId}:port1", _hub.State.Port1.LedCount, slot++, layouts, counts, ref idx));
         frames.Add(BuildOrReuseFrame($"{hubId}:port2", _hub.State.Port2.LedCount, slot++, layouts, counts, ref idx));
-        frames.Add(BuildOrReuseFrame($"{hubId}:port3", _hub.State.Port3.LedCount, slot++, layouts, counts, ref idx));
-        frames.Add(BuildOrReuseFrame($"{hubId}:port4", _hub.State.Port4.LedCount, slot++, layouts, counts, ref idx));
+
+        // Ports 3/4 are chainable: one frame per resolved zone, matching
+        // GetAll - a chained port has one per product and each needs its
+        // own frame to light. The port id override in ZoneLedCounts is
+        // already folded into zone.LedCount, so it is safe to pass through
+        // as the frame's "firmware" count.
+        foreach (var zone in ZoneResolution.Resolve(BuildLedPortStructure(settings, hubId, 3, _hub.State.Port3.LedCount), settings))
+            frames.Add(BuildOrReuseFrame(zone.Id, zone.LedCount, slot++, layouts, counts, ref idx));
+        foreach (var zone in ZoneResolution.Resolve(BuildLedPortStructure(settings, hubId, 4, _hub.State.Port4.LedCount), settings))
+            frames.Add(BuildOrReuseFrame(zone.Id, zone.LedCount, slot++, layouts, counts, ref idx));
 
         // Prune cache entries no longer in the live set (e.g. hub serial
         // changed). For MiniHub the live set is fixed at 4 ports so this
