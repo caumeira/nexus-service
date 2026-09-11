@@ -368,10 +368,10 @@ public sealed class NollieLightingDeviceProvider :
     /// <summary>Grid of strip cards; wraps into rows since a 32-channel board contributes 32 cards.</summary>
     internal static (float x, float y, float w, float h) DefaultNollieLayout(int slot)
     {
-        const float W = 200f;
-        const float H = 50f;
-        const float GapX = 220f;
-        const float GapY = 70f;
+        const float W = 120f;
+        const float H = 105f;
+        const float GapX = 140f;
+        const float GapY = 125f;
         const float BaseX = 40f;
         const float BaseY = 40f;
         const int Cols = 4;

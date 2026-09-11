@@ -400,20 +400,20 @@ public sealed class MiniHubLightingDeviceProvider :
         return frame;
     }
 
-    /// <summary>Default canvas slots for MiniHub zones: y=463 with a 4-col,
-    /// 2-row wrap so all four ports fit on the 600-unit canvas. The second row
-    /// lands at y=528, within the canvas drag clamp (y + h ≤ CH - PAD = 588),
-    /// so the card doesn't snap upward on the first interaction.</summary>
+    /// <summary>Default canvas slots for MiniHub zones: a 4-col, 2-row grid
+    /// so up to eight ports (two hubs) fit before wrapping. The second row
+    /// lands within the canvas drag clamp (y + h ≤ CH - PAD = 588), so the
+    /// card doesn't snap upward on the first interaction.</summary>
     internal static (float x, float y, float w, float h) DefaultMiniHubLayout(int slot)
     {
-        const float Y = 463f;
-        const float W = 220f;
-        const float H = 60f;
-        const float Gap = 240f;
+        const float Y = 370f;
+        const float W = 120f;
+        const float H = 105f;
+        const float Gap = 140f;
         const float BaseX = 40f;
         const int Cols = 4;
         const int Rows = 2;
-        const float RowGap = 65f; // row 1 lands at y=528, last edge 588 == clamp
+        const float RowGap = 105f; // row 1 lands at y=475, last edge 580 ≤ clamp
         var s = ((slot % (Cols * Rows)) + Cols * Rows) % (Cols * Rows);
         var col = s % Cols;
         var row = s / Cols;
