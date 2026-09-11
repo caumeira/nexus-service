@@ -7056,6 +7056,37 @@
         }
       }
     },
+    "/qseries/link": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QSeriesLinkStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/qseries/link/repair": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/displays": {
       "get": {
         "tags": [
@@ -11508,6 +11539,38 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/LastRouteDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/session/recent-apps": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecentAppsDto"
               }
             }
           },
@@ -20697,6 +20760,43 @@
           }
         }
       },
+      "QSeriesLinkStatus": {
+        "type": "object",
+        "properties": {
+          "usbPresent": {
+            "type": "boolean"
+          },
+          "adbOnline": {
+            "type": "boolean"
+          },
+          "offlineSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "hostRebootPending": {
+            "type": "boolean"
+          },
+          "sleepingForSessionLock": {
+            "type": "boolean"
+          },
+          "serial": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "error": {
+            "type": "boolean"
+          },
+          "msg": {
+            "type": "string"
+          }
+        }
+      },
       "QSeriesRotationParams": {
         "type": "object",
         "properties": {
@@ -20756,6 +20856,17 @@
               "string"
             ],
             "format": "double"
+          }
+        }
+      },
+      "RecentAppsDto": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

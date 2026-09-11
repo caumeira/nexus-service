@@ -1024,6 +1024,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.WindowsDynamicLightingState))]
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.SetWindowsDynamicLightingBody))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LastRouteDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.RecentAppsDto))]
 
 // Install-time defaults table - read once on startup from the embedded
 // data/install-defaults.json resource. Nested POCOs are picked up
