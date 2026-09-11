@@ -405,8 +405,22 @@ public sealed class UiSettings
     /// <summary>Per-page density of the dashboard lighting/cooling pages, "simple" or "advanced"; migration seeds pre-existing installs to "advanced".</summary>
     public string LightingDashboardMode { get; set; } = "simple";
     public string CoolingDashboardMode { get; set; } = "simple";
-    /// <summary>False hides every device with Nexus Control off from the lighting and cooling device rails. Shared by both pages.</summary>
+    /// <summary>
+    /// Superseded by the two per-page flags below. Kept, and still written by
+    /// the client, so a build that predates the split keeps working and so the
+    /// split has something to seed from; nothing reads it to decide what a
+    /// page shows.
+    /// </summary>
     public bool ShowUncontrolledDevices { get; set; } = true;
+    /// <summary>
+    /// False hides every device with Nexus Control off from that page's device
+    /// rail. Per page: wanting every light listed says nothing about wanting
+    /// every fan listed. Null means the user has not chosen since the split, so
+    /// the page inherits <see cref="ShowUncontrolledDevices"/>.
+    /// </summary>
+    public bool? ShowUncontrolledLightingDevices { get; set; }
+    /// <inheritdoc cref="ShowUncontrolledLightingDevices"/>
+    public bool? ShowUncontrolledCoolingDevices { get; set; }
 }
 
 /// <summary>
@@ -423,6 +437,8 @@ public sealed class UiSettingsPatch
     public string? LightingDashboardMode { get; set; }
     public string? CoolingDashboardMode { get; set; }
     public bool? ShowUncontrolledDevices { get; set; }
+    public bool? ShowUncontrolledLightingDevices { get; set; }
+    public bool? ShowUncontrolledCoolingDevices { get; set; }
 }
 
 /// <summary>
