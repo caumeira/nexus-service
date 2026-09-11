@@ -66,8 +66,6 @@ public static class HyteChainArtifacts
         return null;
     }
 
-    public static bool IsHyte(string? key) => Find(key) is not null;
-
     /// <summary>The artifact for a first-party key, or null when the key is not one of ours.</summary>
     public static MappingArtifact? Build(string key)
     {

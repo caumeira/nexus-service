@@ -130,22 +130,29 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider, IDe
 
         // Counts persist under the hardware segment key (the legacy zone-card
         // id) so the wiring choice survives any re-partition, and overrides
-        // beyond the new count are pruned in the segment-local store.
+        // beyond the new count are pruned in the segment-local store. That
+        // store is keyed on the PORT at segment 0 since each header became its
+        // own device; pruning the board's key matched nothing.
         var segmentKey = $"{deviceId}-{zoneIdx}";
         _store.Update(s =>
         {
             s.Devices.ZoneLedCounts[segmentKey] = count;
-            if (s.Devices.DeviceLedOverrides.TryGetValue(deviceId, out var list))
+            if (s.Devices.DeviceLedOverrides.TryGetValue(segmentKey, out var list))
             {
                 var pruned = new List<SegmentLedOverride>(list.Count);
                 foreach (var o in list)
                 {
-                    if (o.Segment != zoneIdx || o.LedIndex < count)
+                    if (o.LedIndex < count)
                         pruned.Add(o);
                 }
                 if (pruned.Count != list.Count)
-                    s.Devices.DeviceLedOverrides[deviceId] = pruned;
+                    s.Devices.DeviceLedOverrides[segmentKey] = pruned;
             }
+            // A hand-typed count replaces whatever the chain declared, so the
+            // chain record and its partition must not outlive it describing
+            // products that no longer add up to the port.
+            if (s.Devices.PortChains.Remove(ZoneResolution.ChainKey(segmentKey, 0)))
+                s.Devices.ZonePartitions.Remove(segmentKey);
         });
 
         _bridge.RequestZoneResize(physIdx, zoneIdx, count);
@@ -246,7 +253,7 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider, IDe
                 {
                     if (zone.Id != id)
                         continue;
-                    if (ZoneResolution.WholeResizableSegment(structure, zone) < 0)
+                    if (ZoneResolution.WholeResizableSegment(structure, zone, settings) < 0)
                         return false;
                     // A port structure holds one segment, so its own index is
                     // always 0; the OpenRGB zone to resize is the one the port

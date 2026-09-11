@@ -95,15 +95,30 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
 
         // A port's zones: one when nothing is chained to it, otherwise one per
         // declared product, in chain order. Mirrored, every physical port
-        // streams the single mirror device's zones instead.
-        var mirrorZones = mirror
-            ? SmartHubLightingDeviceProvider.ResolveMirrorZones(settings, hubId, _hub)
-            : null;
+        // streams the single mirror device's zones instead. Resolved ONCE per
+        // tick and reused by both the uncontrolled check and the push loop -
+        // at 30 Hz this walks the partition dictionaries, and doing it per
+        // port per use was eight walks and eight allocations a tick.
+        if (mirror)
+        {
+            // One device, streamed to every physical port.
+            var shared = ResolveOrReuse(0, () => SmartHubLightingDeviceProvider.ResolveMirrorZones(settings, hubId, _hub));
+            for (var i = 0; i < _portZones.Length; i++) _portZones[i] = shared;
+        }
+        else
+        {
+            for (var i = 0; i < _portZones.Length; i++)
+            {
+                var channel = i + 1;
+                _portZones[i] = ResolveOrReuse(i, () => SmartHubLightingDeviceProvider.ResolvePortZones(
+                    settings, hubId, channel, FirmwareLedCount(channel)));
+            }
+        }
 
         // Every port uncontrolled: leave the hub alone entirely so it drops back
         // to its firmware animation. A chained port counts as uncontrolled only
         // when every one of its products does.
-        if (uncontrolled.Count > 0 && AllPortsUncontrolled(settings, hubId, mirrorZones, uncontrolled))
+        if (uncontrolled.Count > 0 && AllPortsUncontrolled(uncontrolled))
         {
             return;
         }
@@ -113,32 +128,44 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         // and stops it falling back to the firmware animation.
         for (var channel = 1; channel <= SmartHubProtocol.ArgbPortCount; channel++)
         {
-            var zones = mirrorZones ?? ZonesForPort(settings, hubId, channel);
-            PushPort(devices, zones, channel, disabled, uncontrolled, prefs, globalBrightness, nowTicks);
+            PushPort(devices, _portZones[channel - 1]!, channel, disabled, uncontrolled, prefs, globalBrightness, nowTicks);
         }
     }
 
-    private System.Collections.Generic.IReadOnlyList<ResolvedZone> ZonesForPort(NexusSettings settings, string hubId, int channel)
+    /// <summary>
+    /// Last tick's zones per port, kept so a resolve that loses a race can
+    /// reuse them. Resolution reads the partition dictionaries without the
+    /// store lock while routes mutate them in place, so an insert landing
+    /// mid-enumeration throws; the previous shape is a far better answer than
+    /// a dropped frame, and the next tick picks up the new one.
+    /// </summary>
+    private readonly System.Collections.Generic.IReadOnlyList<ResolvedZone>?[] _portZones =
+        new System.Collections.Generic.IReadOnlyList<ResolvedZone>?[SmartHubProtocol.ArgbPortCount];
+
+    private System.Collections.Generic.IReadOnlyList<ResolvedZone> ResolveOrReuse(
+        int index, Func<System.Collections.Generic.IReadOnlyList<ResolvedZone>> resolve)
     {
-        var firmwareLedCount = 0;
+        try { return resolve(); }
+        catch (InvalidOperationException)
+        {
+            return _portZones[index] ?? System.Array.Empty<ResolvedZone>();
+        }
+    }
+
+    private int FirmwareLedCount(int channel)
+    {
         foreach (var port in _hub.State.Ports)
         {
-            if (port.Channel == channel) { firmwareLedCount = port.LedCount; break; }
+            if (port.Channel == channel) return port.LedCount;
         }
-        return SmartHubLightingDeviceProvider.ResolvePortZones(settings, hubId, channel, firmwareLedCount);
+        return 0;
     }
 
-    private bool AllPortsUncontrolled(NexusSettings settings, string hubId,
-        System.Collections.Generic.IReadOnlyList<ResolvedZone>? mirrorZones,
-        System.Collections.Generic.IReadOnlyList<string> uncontrolled)
+    private bool AllPortsUncontrolled(System.Collections.Generic.IReadOnlyList<string> uncontrolled)
     {
-        if (mirrorZones is not null)
+        foreach (var zones in _portZones)
         {
-            return ZoneResolution.IsFullyUncontrolled(mirrorZones, uncontrolled);
-        }
-        for (var channel = 1; channel <= SmartHubProtocol.ArgbPortCount; channel++)
-        {
-            if (!ZoneResolution.IsFullyUncontrolled(ZonesForPort(settings, hubId, channel), uncontrolled))
+            if (zones is null || !ZoneResolution.IsFullyUncontrolled(zones, uncontrolled))
             {
                 return false;
             }
@@ -189,8 +216,13 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
             }
             else
             {
-                FillBufferSlice(dst, offset, frame.LedBytes, Math.Min(ledCount, frame.LedCount),
+                // A frame shorter than its zone (a refresh resized it) leaves
+                // a tail, which would otherwise keep whatever occupied that
+                // offset last tick.
+                var fromFrame = Math.Min(ledCount, frame.LedCount);
+                FillBufferSlice(dst, offset, frame.LedBytes, fromFrame,
                     brightnessMul, adjust, hasIdentify, startTicks, nowTicks);
+                for (var k = fromFrame; k < ledCount && offset + k < dst.Length; k++) dst[offset + k] = default;
             }
             offset += ledCount;
         }

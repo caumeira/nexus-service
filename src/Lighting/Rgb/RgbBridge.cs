@@ -994,14 +994,22 @@ public sealed class RgbBridge : IDisposable
                 {
                     foreach (var port in OpenRgbZoneSupport.BuildStructures(d, settingsSnapshot))
                     {
+                        // A chain's slices are in the port's EFFECTIVE count,
+                        // which only equals the hardware count once the header
+                        // accepted the RESIZEZONE. On one that ignores it (the
+                        // 12V case) the later links would otherwise resolve
+                        // past this header and write the next one's LEDs, so
+                        // the port's own region is a hard wall.
+                        var portEnd = port.FrameBaseOffset + port.Segments[0].FrameLedCount;
                         foreach (var portZone in Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(port, settingsSnapshot))
                         {
+                            var frameOffset = Nexus.Service.Lighting.Zones.ZoneResolution.FrameOffset(port, portZone);
                             BuildOrReuseFrame(portZone.Id, d, physicalIndex: d.Index,
                                 zoneIndex: portZone.IsDefault
                                     ? portZone.LegacyZoneIndex
-                                    : Nexus.Service.Lighting.Zones.ZoneResolution.WholeResizableSegment(port, portZone),
-                                zoneOffset: Nexus.Service.Lighting.Zones.ZoneResolution.FrameOffset(port, portZone),
-                                zoneLedCount: portZone.FrameLedCount,
+                                    : Nexus.Service.Lighting.Zones.ZoneResolution.WholeResizableSegment(port, portZone, settingsSnapshot),
+                                zoneOffset: Math.Min(frameOffset, portEnd),
+                                zoneLedCount: Math.Max(0, Math.Min(portZone.FrameLedCount, portEnd - frameOffset)),
                                 existingFrames, layouts, stripSlot, logicalOrdinal, framesList,
                                 isStrip: true, settingsSnapshot, port, portZone);
                             stripSlot++;
@@ -1028,7 +1036,7 @@ public sealed class RgbBridge : IDisposable
                 foreach (var zone in zones)
                 {
                     var frameOffset = Nexus.Service.Lighting.Zones.ZoneResolution.FrameOffset(structure, zone);
-                    var wholeSegment = Nexus.Service.Lighting.Zones.ZoneResolution.WholeResizableSegment(structure, zone);
+                    var wholeSegment = Nexus.Service.Lighting.Zones.ZoneResolution.WholeResizableSegment(structure, zone, settingsSnapshot);
                     BuildOrReuseFrame(zone.Id, d, physicalIndex: d.Index, zoneIndex: wholeSegment, zoneOffset: frameOffset,
                         zoneLedCount: zone.FrameLedCount, existingFrames, layouts,
                         cardSlot, logicalOrdinal, framesList,

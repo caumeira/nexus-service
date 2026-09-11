@@ -1,3 +1,4 @@
+using System;
 using Nexus.Service.Lighting.Mappings;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Devices;
@@ -11,9 +12,9 @@ public static partial class DevicesRoutes
     private const int MaxChainZoneLeds = 4096;
 
     /// <summary>
-    /// Ceiling for a whole chain. Without it six links of the per-link maximum
-    /// would ask a header for 24576 LEDs, which is persisted as the port's
-    /// count and then sent as a RESIZEZONE.
+    /// Ceiling for a whole chain. Without it a chain of links that are each
+    /// legal on their own asks the header for their sum, which is persisted as
+    /// the port's count and then sent as a RESIZEZONE.
     /// </summary>
     private const int MaxChainTotalLeds = 4096;
 
@@ -213,8 +214,15 @@ public static partial class DevicesRoutes
                 total += count;
             }
 
-            if (total > MaxChainTotalLeds)
-                return Results.Json(ApiResponse.Fail("chain is too long for one port"), AppJsonContext.Default.ApiResponse);
+            // The port's own ceiling wins where it advertises one: past it the
+            // chain would persist and render while the writer dropped the tail.
+            var portMax = structure.Segments[segment].MaxLedCount;
+            var ceiling = portMax > 0 ? Math.Min(portMax, MaxChainTotalLeds) : MaxChainTotalLeds;
+            if (total > ceiling)
+            {
+                return Results.Json(ApiResponse.Fail($"chain needs {total} LEDs; this port carries {ceiling}"),
+                    AppJsonContext.Default.ApiResponse);
+            }
 
             var chainKey = Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(deviceId, segment);
             // Resize is keyed by the card that owns the segment. On a port

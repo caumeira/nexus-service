@@ -83,7 +83,10 @@ public class NollieLightingDeviceProviderTests
         var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
         _provider.SetZoneLedCount(NollieLightingDeviceProvider.ChannelId(c.DeviceId, 2), 42);
 
-        var card = _provider.GetAll().Devices.Single(d => d.ZoneIndex == 2);
+        // By id, not by ZoneIndex: that is the zone's ordinal within its own
+        // channel now, so every unchained channel reports 0.
+        var card = _provider.GetAll().Devices
+            .Single(d => d.Id == NollieLightingDeviceProvider.ChannelId(c.DeviceId, 2));
         Assert.Equal(42, card.LedCount);
         Assert.Equal(42, _store.Load().Devices.ZoneLedCounts[card.Id]);
     }
@@ -201,25 +204,32 @@ public class NollieLightingDeviceProviderTests
     /// per device and blanking the LED map.
     /// </summary>
     [Fact]
-    public void Cards_leave_DeviceId_for_the_composite_to_fill()
+    public void Every_card_names_the_channel_it_belongs_to()
     {
-        Attach(0x16D5, 0x2A16, "SIXTEEN");
-        Assert.All(_provider.GetAll().Devices, d => Assert.Equal("", d.DeviceId));
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        // The chain and zone editors address the channel, which is the thing
+        // the user actually wired something to.
+        Assert.All(_provider.GetAll().Devices,
+            d => Assert.StartsWith(c.DeviceId + ":ch", d.DeviceId));
     }
 
-    /// <summary>Zone management stays hidden: cards come from a fixed per-channel list, not a resolvable partition.</summary>
+    /// <summary>
+    /// The protocol has no read command, so every channel's contents are the
+    /// user's declaration: the zones are a chain they compose, not a fixed
+    /// firmware list.
+    /// </summary>
     [Fact]
-    public void Cards_are_not_zone_customizable()
+    public void Cards_are_zone_customizable()
     {
         Attach(0x16D5, 0x2A16, "SIXTEEN");
-        Assert.All(_provider.GetAll().Devices, d => Assert.False(d.ZoneCustomizable));
+        Assert.All(_provider.GetAll().Devices, d => Assert.True(d.ZoneCustomizable));
     }
 
     [Fact]
-    public void Structures_are_not_partitionable()
+    public void Structures_are_partitionable()
     {
         Attach(0x16D5, 0x2A16, "SIXTEEN");
-        Assert.All(_provider.GetStructures(), s => Assert.False(s.Partitionable));
+        Assert.All(_provider.GetStructures(), s => Assert.True(s.Partitionable));
     }
 
     /// <summary>A declared count must reach the card, or the LED map has nothing to draw.</summary>

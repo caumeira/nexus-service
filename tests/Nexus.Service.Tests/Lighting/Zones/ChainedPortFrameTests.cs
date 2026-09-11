@@ -71,10 +71,15 @@ public class ChainedPortFrameTests
         Assert.All(ports, p => Assert.Equal(BoardId, p.OwningDeviceId));
         // Device-space start of each header inside the board's LED buffer.
         Assert.Equal(new[] { 0, 34, 122 }, ports.Select(p => p.FrameBaseOffset).ToArray());
-        // The segment keeps the board-level zone number: that is the index
-        // RESIZEZONE addresses, and a port's own segment list is always [0].
-        Assert.Equal(new[] { 0, 1, 2 }, ports.Select(p => p.Segments[0].Index).ToArray());
         Assert.All(ports, p => Assert.Single(p.Segments));
+        // The segment index is its POSITION in its own structure, so always 0
+        // on a port. The device-map routes use it as the segment key for
+        // MapFromSegment and for the override list, and a board-level number
+        // there unmaps every LED on headers past the first - after which the
+        // save path reads the empty result as "no overrides" and deletes the
+        // stored ones. The board zone number lives on LegacyZoneIndex.
+        Assert.Equal(new[] { 0, 0, 0 }, ports.Select(p => p.Segments[0].Index).ToArray());
+        Assert.Equal(new[] { 0, 1, 2 }, ports.Select(p => p.DefaultZones[0].LegacyZoneIndex).ToArray());
     }
 
     [Fact]
@@ -137,11 +142,13 @@ public class ChainedPortFrameTests
         // The first link starts at 0 like a whole-segment zone does. Treating
         // it as one resizes the entire 88-LED header down to the first
         // product's 34 and the rest of the chain stops tiling.
-        Assert.All(zones, z => Assert.True(ZoneResolution.WholeResizableSegment(chained, z) < 0));
+        Assert.All(zones, z => Assert.True(ZoneResolution.WholeResizableSegment(chained, z, settings) < 0));
 
-        // An unchained header still is one, and reports the board-level index.
+        // An unchained header still is one. The index it reports is the
+        // segment's POSITION in its own structure, which on a port is always
+        // 0: the device-map routes use that number as the segment key.
         var plain = ZoneResolution.Resolve(ports[0], settings)[0];
-        Assert.Equal(0, ZoneResolution.WholeResizableSegment(ports[0], plain));
+        Assert.Equal(0, ZoneResolution.WholeResizableSegment(ports[0], plain, settings));
     }
 
     [Fact]
@@ -154,6 +161,6 @@ public class ChainedPortFrameTests
         var chained = OpenRgbZoneSupport.BuildStructures(Board(), settings)[1];
         var zone = Assert.Single(ZoneResolution.Resolve(chained, settings));
 
-        Assert.Equal(1, ZoneResolution.WholeResizableSegment(chained, zone));
+        Assert.Equal(0, ZoneResolution.WholeResizableSegment(chained, zone, settings));
     }
 }

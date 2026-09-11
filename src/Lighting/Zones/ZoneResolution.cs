@@ -360,12 +360,18 @@ public static class ZoneResolution
 
     /// <summary>
     /// The segment a zone wholly covers when it is a single whole-resizable-segment
-    /// zone (rule 2 shape); negative otherwise. The count check is what separates
-    /// that shape from a chain's first link, which also starts at 0 but owns only
-    /// part of the port: treating it as whole-segment would resize the entire
-    /// header to the first product's count and destroy the rest of the chain.
+    /// zone (rule 2 shape); negative otherwise, which is what gates the LED-count
+    /// editor and the RESIZEZONE path.
+    ///
+    /// Two shapes must NOT qualify. A chain's first link also starts at 0, so
+    /// without the count check resizing it would resize the entire header to
+    /// one product's count. And a ONE-link chain does cover the whole segment,
+    /// so the settings are needed too: resizing it would restate a count the
+    /// chain owns, the partition would stop tiling, and the port would fall
+    /// back to a single zone leaving the chain record and the per-zone applied
+    /// mappings describing zones that no longer exist.
     /// </summary>
-    public static int WholeResizableSegment(DeviceStructure structure, ResolvedZone zone)
+    public static int WholeResizableSegment(DeviceStructure structure, ResolvedZone zone, NexusSettings settings)
     {
         if (zone.Slices.Count != 1)
         {
@@ -373,6 +379,10 @@ public static class ZoneResolution
         }
         var slice = zone.Slices[0];
         if (slice.Segment < 0 || slice.Segment >= structure.Segments.Count)
+        {
+            return -1;
+        }
+        if (settings.Devices.PortChains.ContainsKey(ChainKey(structure.DeviceId, slice.Segment)))
         {
             return -1;
         }

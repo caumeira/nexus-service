@@ -65,13 +65,43 @@ public sealed class ChainRouteTests : IDisposable
         }
     }
 
+    /// <summary>Two fixed segments, so the device map has a segment past the first to address.</summary>
+    private sealed class TwoSegmentSource : IDeviceStructureSource
+    {
+        public const string Id = "fakedev:two";
+
+        public IReadOnlyList<DeviceStructure> GetStructures()
+        {
+            var s = new DeviceStructure { DeviceId = Id, Name = "Two Segment", Partitionable = true };
+            var whole = new DefaultZoneDef { Id = Id, Name = "Two Segment", RawName = "All", LegacyZoneIndex = -1 };
+            for (int i = 0; i < 2; i++)
+            {
+                s.Segments.Add(new StructureSegment
+                {
+                    Index = i,
+                    Name = $"Seg {i}",
+                    LedCount = 4,
+                    FrameLedCount = 4,
+                    Resizable = false,
+                    ZoneType = "linear",
+                });
+                whole.Slices.Add(new ZoneSlice { Segment = i, Start = 0, Count = 4 });
+            }
+            s.DefaultZones.Add(whole);
+            return new[] { s };
+        }
+    }
+
     public ChainRouteTests()
     {
         _baseFactory = new NexusAppFactory();
         // Every read must go through THIS host: WithWebHostBuilder boots a
         // second one, and its IConfigStore caches its own copy of settings.
         _factory = _baseFactory.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
-            s.AddSingleton<IDeviceStructureSource>(sp => new FakePortSource(sp.GetRequiredService<IConfigStore>()))));
+        {
+            s.AddSingleton<IDeviceStructureSource>(sp => new FakePortSource(sp.GetRequiredService<IConfigStore>()));
+            s.AddSingleton<IDeviceStructureSource>(new TwoSegmentSource());
+        }));
         _client = _factory.CreateClient();
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", _factory.Services.GetRequiredService<TokenService>().Token);
@@ -90,6 +120,42 @@ public sealed class ChainRouteTests : IDisposable
     private Task<HttpResponseMessage> PostChain(params SetChainEntry[] entries)
         => _client.PostAsJsonAsync($"/devices/lighting-devices/{PortId}/mappings/chain",
             new SetChainBody { Entries = entries.ToList() });
+
+    [Fact]
+    public async Task An_override_on_a_later_segment_survives_a_save()
+    {
+        // The device map addresses LEDs by (segment, index), where segment is
+        // the segment's POSITION in the structure. A structure that reported
+        // something else there unmapped every LED past the first segment, and
+        // the save path then read the empty result as "no overrides" and
+        // deleted the device's stored ones.
+        var save = await _client.PostAsJsonAsync(
+            $"/devices/lighting-devices/{TwoSegmentSource.Id}/device-map",
+            new SaveDeviceMapBody
+            {
+                Overrides =
+                {
+                    new SegmentLedOverride { Segment = 1, LedIndex = 2, U = 0.25f, V = 0.75f },
+                },
+            });
+        save.EnsureSuccessStatusCode();
+
+        var stored = _factory.Services.GetRequiredService<IConfigStore>()
+            .Load().Devices.DeviceLedOverrides[TwoSegmentSource.Id];
+        var only = Assert.Single(stored);
+        Assert.Equal(1, only.Segment);
+        Assert.Equal(2, only.LedIndex);
+
+        var map = await _client.GetFromJsonAsync<DeviceMapResponse>(
+            $"/devices/lighting-devices/{TwoSegmentSource.Id}/device-map");
+        Assert.NotNull(map);
+        var second = map!.Segments[1];
+        Assert.Equal(1, second.Index);
+        // Every LED on the segment resolves to the zone covering it, and the
+        // edited one comes back marked.
+        Assert.All(second.Leds, l => Assert.NotEqual("", l.ZoneId));
+        Assert.True(second.Leds[2].IsCustom);
+    }
 
     [Fact]
     public async Task The_picker_offers_the_generics_first_and_reaches_the_network_for_nothing()

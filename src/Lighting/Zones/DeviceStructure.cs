@@ -20,6 +20,12 @@ public sealed class StructureSegment
     /// <summary>Hardware-reported count used for engine frame sizing and device-space offsets. Equals <see cref="LedCount"/> for fixed segments.</summary>
     public int FrameLedCount { get; set; }
     public bool Resizable { get; set; }
+    /// <summary>
+    /// Most LEDs this segment can carry, or 0 when nothing advertises one.
+    /// A chain longer than this would persist, render cards and frames, and
+    /// then be silently truncated by the writer.
+    /// </summary>
+    public int MaxLedCount { get; set; }
     /// <summary>"single" | "linear" | "matrix" - same vocabulary as the card DTO.</summary>
     public string ZoneType { get; set; } = "linear";
     /// <summary>

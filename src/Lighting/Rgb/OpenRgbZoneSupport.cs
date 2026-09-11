@@ -62,15 +62,22 @@ public static class OpenRgbZoneSupport
             };
             baseOffset += segment.FrameLedCount;
             // The port owns a single segment, so its slices are segment 0 and a
-            // chain partition never reaches past this header. Index keeps the
-            // board-level zone number, which is what the resize path sends.
+            // chain partition never reaches past this header. Index stays
+            // POSITIONAL: the device-map routes use it as the segment key for
+            // ZoneOverrideContext.MapFromSegment and for the override list, so
+            // putting the board's zone number here silently unmaps every LED
+            // on headers past the first - and the save path then treats the
+            // empty result as "no overrides" and deletes the stored ones. The
+            // board zone number lives on the default zone's LegacyZoneIndex,
+            // which is where the resize path reads it.
             port.Segments.Add(new StructureSegment
             {
-                Index = z,
+                Index = 0,
                 Name = segment.Name,
                 LedCount = segment.LedCount,
                 FrameLedCount = segment.FrameLedCount,
                 Resizable = segment.Resizable,
+                MaxLedCount = segment.MaxLedCount,
                 ZoneType = segment.ZoneType,
             });
             port.DefaultZones.Add(new DefaultZoneDef
@@ -134,6 +141,7 @@ public static class OpenRgbZoneSupport
                     LedCount = effective,
                     FrameLedCount = raw,
                     Resizable = split && IsZoneResizable(zone.ZoneType),
+                    MaxLedCount = zone.LedsMax > int.MaxValue ? 0 : (int)zone.LedsMax,
                     ZoneType = ZoneTypeName(zone.ZoneType),
                 });
             }
@@ -346,13 +354,16 @@ public static class OpenRgbZoneSupport
                         CanvasH = layout?.H ?? sh,
                         CanvasRotation = NormalizeRotation(layout?.Rotation ?? 0),
                         ParentDeviceId = baseId,
-                        ZoneIndex = z,
+                        // The hint, not the header: MappingApplyService reads
+                        // this to pick the artifact zone, and it has to pick
+                        // the one the render path resolved.
+                        ZoneIndex = zoneHint,
                         ZoneType = ZoneTypeName(zone.ZoneType),
                         // Only a zone owning the whole header may resize it. A
                         // chain link starts at 0 like a whole-port zone does,
                         // so without the count check every link would offer an
                         // LED-count editor that the resize path then refuses.
-                        ZoneResizable = ZoneResolution.WholeResizableSegment(portStructures[z], portZone) >= 0,
+                        ZoneResizable = ZoneResolution.WholeResizableSegment(portStructures[z], portZone, settings) >= 0,
                         // Each header is its own device now, so the card points
                         // at the port structure rather than the controller. The
                         // rail still groups it under the board through
@@ -374,7 +385,7 @@ public static class OpenRgbZoneSupport
                 prefs.TryGetValue(zone.Id, out var pref);
                 layouts.TryGetValue(zone.Id, out var layout);
                 var (zx, zy, zw, zh) = OpenRgbLightingDeviceProvider.DefaultCardLayout(cardSlot);
-                var wholeResizable = ZoneResolution.WholeResizableSegment(structure, zone);
+                var wholeResizable = ZoneResolution.WholeResizableSegment(structure, zone, settings);
                 result.Add(new LightingDevice
                 {
                     Id = zone.Id,
