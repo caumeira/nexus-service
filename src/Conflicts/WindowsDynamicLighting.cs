@@ -7,18 +7,12 @@ using Nexus.Service.Peripherals.Hid;
 namespace Nexus.Service.Conflicts;
 
 /// <summary>
-/// Reads and writes the one Windows Dynamic Lighting setting that decides
-/// whether Windows drives the same HID LampArray devices as Nexus. Its other
-/// settings - foreground-app handover, per-device switches, brightness and
-/// effects - only decide anything while this one is on, which is the state the
-/// conflict exists in.
-///
-/// The value names are the ones
-/// <c>C:\Windows\System32\SettingsHandlers_Lighting.dll</c> carries, which is
-/// what the Settings > Personalization > Dynamic Lighting page writes. They
-/// live in the interactive user's hive, so a LocalSystem service has to go
-/// through <see cref="Nexus.Service.Lifecycle.ConsoleUserSid"/> rather than
-/// HKCU, which would resolve to the service account.
+/// The one Windows Dynamic Lighting setting that decides whether Windows drives
+/// the same HID LampArray devices as Nexus; its other settings decide nothing
+/// while this one is off. The value name is the one
+/// <c>C:\Windows\System32\SettingsHandlers_Lighting.dll</c> carries, in the
+/// interactive user's hive - a LocalSystem service reaches it through
+/// <see cref="Nexus.Service.Lifecycle.ConsoleUserSid"/>, never HKCU.
 /// </summary>
 public static class WindowsDynamicLighting
 {
@@ -32,19 +26,10 @@ public static class WindowsDynamicLighting
     /// <summary>Whether this platform can carry the settings at all - the SPA hides the section otherwise.</summary>
     public static bool IsSupported() => OperatingSystem.IsWindows();
 
-    /// <summary>
-    /// A missing value reads as ON: Windows writes it only once the user has
-    /// touched the page, and it defaults to on, so treating absent as off
-    /// would show the section already handled on a machine where Windows is
-    /// still driving the lights.
-    /// </summary>
+    /// <summary>A missing value reads as ON: Windows writes it only once the page is touched, and it defaults to on.</summary>
     public static bool DwordIsOn(object? value) => value is not int number || number != 0;
 
-    /// <summary>
-    /// LampArray interfaces out of a HID enumeration, named the way Windows
-    /// names their <c>Devices</c> entry: the interface path without its
-    /// <c>\\?\</c> prefix.
-    /// </summary>
+    /// <summary>LampArray interfaces out of a HID enumeration, named as Windows names their <c>Devices</c> entry: the interface path without its <c>\\?\</c> prefix.</summary>
     public static List<string> LampArrayIds(IEnumerable<HidDeviceInfo> devices)
     {
         var ids = new List<string>();
@@ -77,9 +62,7 @@ public static class WindowsDynamicLighting
             state.Available = true;
             state.Enabled = DwordIsOn(root.GetValue(AmbientEnabledValue));
             // Windows keeps a Devices entry for every LampArray it has ever
-            // seen, so counting those subkeys reports hardware that is not
-            // plugged in. Count what it can drive right now instead - with
-            // nothing attached there is no conflict to show.
+            // seen, so counting subkeys reports hardware that is not plugged in.
             state.DeviceCount = PresentLampArrays().Count;
         }
         catch (Exception ex)
@@ -112,11 +95,7 @@ public static class WindowsDynamicLighting
         return Read();
     }
 
-    /// <summary>
-    /// Interface ids of the LampArray devices connected right now, on the same
-    /// HID usage the Windows settings page selects on. Enumeration walks every
-    /// HID interface and opens each one query-only.
-    /// </summary>
+    /// <summary>Connected LampArray interface ids. Walks every HID interface, opening each one query-only.</summary>
     [SupportedOSPlatform("windows")]
     private static List<string> PresentLampArrays()
     {

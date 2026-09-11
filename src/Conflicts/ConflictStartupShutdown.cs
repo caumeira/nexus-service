@@ -14,6 +14,9 @@ namespace Nexus.Service.Conflicts;
 /// the hardware before a competing vendor tool grabs it. Gated on
 /// <c>Ui.AutoKillConflictsAtStartup</c>, which is off by default.
 ///
+/// Windows' own Dynamic Lighting rides along under the same switch: it is the
+/// one conflict that cannot be ended, only turned off.
+///
 /// Driven off the watcher's detected set rather than walking the whole
 /// catalog: the watcher already filters out our own bundled OpenRGB child by
 /// install path, and one process-list scan replaces ~50.
@@ -67,6 +70,8 @@ public sealed class ConflictStartupShutdown : IHostedService
 
     private void RunSweepCore(HashSet<string> excluded)
     {
+        TurnOffWindowsDynamicLighting();
+
         // The "before" set is captured up front, for every target, and the
         // outcome is read from it afterwards. Per-app Killed flags undercount:
         // ProcessKiller tree-kills, and a vendor launcher can own another
@@ -114,6 +119,23 @@ public sealed class ConflictStartupShutdown : IHostedService
         _log.LogInformation("Startup conflict shutdown ended {Count} app(s).", killed.Count);
         try { AppsTerminated?.Invoke(killed); }
         catch (Exception ex) { _log.LogWarning(ex, "Startup conflict shutdown notification failed."); }
+    }
+
+    /// <summary>Skipped when no compatible device is attached - Windows drives nothing there.</summary>
+    private void TurnOffWindowsDynamicLighting()
+    {
+        if (!WindowsDynamicLighting.IsSupported()) return;
+        try
+        {
+            var state = WindowsDynamicLighting.Read();
+            if (!state.Available || !state.Enabled || state.DeviceCount == 0) return;
+            WindowsDynamicLighting.Write(enabled: false);
+            _log.LogInformation("Startup conflict shutdown: turned Windows Dynamic Lighting off.");
+        }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Startup conflict shutdown could not turn Windows Dynamic Lighting off.");
+        }
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
