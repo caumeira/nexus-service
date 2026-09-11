@@ -184,7 +184,8 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// the detector MUST be disabled here. Names match the
     /// <c>REGISTER_*_DETECTOR</c> strings in nexus-rgb/openrgb-headless verbatim
     /// (HYTEKeyboardControllerDetect.cpp -> "HYTE Keeb TKL";
-    /// LianLiControllerDetect.cpp -> "Lian Li Uni Hub - SL Infinity";
+    /// LianLiControllerDetect.cpp -> "Lian Li Uni Hub - SL Infinity" and
+    /// "Lian Li Uni Hub - SL" (the 0xA100 hub LianLiHub drives natively too);
     /// CorsairICueLinkControllerDetect.cpp -> "Corsair iCUE Link System Hub";
     /// NZXTHue2ControllerDetect.cpp -> "NZXT Kraken 2024 ELITE Series RGB").
     /// The Kraken is the same raw-HID case as the keeb: OpenRGB's Hue 2 controller
@@ -211,7 +212,7 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// has to happen here.
     /// </summary>
     private static readonly string[] AlwaysDisabledDetectors = {
-        "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub",
+        "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Lian Li Uni Hub - SL", "Corsair iCUE Link System Hub",
         "NZXT Kraken 2024 ELITE Series RGB", "HID LampArray Device",
         // Nollie controllers are driven natively; names match the
         // REGISTER_HID_DETECTOR strings in openrgb-headless.

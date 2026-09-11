@@ -224,6 +224,7 @@ public static class LightingDevicesCatalog
         // LianLiWireless. SL/TL-LCD are the fan-mounted LCD screens.
         Native("Lian Li", "Uni Hub",                "fan",      "0x0CF2", "0x7750"),
         Native("Lian Li", "Uni Fan SL",             "fan",      "0x0CF2", "0xA100"),
+        Native("Lian Li", "Uni Fan SL (Redragon)",  "fan",      "0x0CF2", "0xA106"),
         Native("Lian Li", "Uni Fan AL",             "fan",      "0x0CF2", "0xA101"),
         Native("Lian Li", "Uni Fan SL-Infinity",    "fan",      "0x0CF2", "0xA102"),
         Native("Lian Li", "Uni Fan SL v2",          "fan",      "0x0CF2", "0xA103"),
