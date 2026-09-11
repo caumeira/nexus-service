@@ -192,6 +192,11 @@ public sealed class NollieLightingDeviceProvider :
             LedCount = ledCount,
             FrameLedCount = ledCount,
             Resizable = true,
+            // Without the ceiling a chain past it is accepted, then clamped on
+            // the way to the firmware, so the partition no longer tiles the
+            // segment and the port falls back to one zone - orphaning the
+            // chain record and its per-zone mappings.
+            MaxLedCount = controller.Spec.MaxLedsPerChannel,
             ZoneType = "linear",
         });
         structure.DefaultZones.Add(new DefaultZoneDef

@@ -208,11 +208,18 @@ public static class OpenRgbZoneSupport
             {
                 return false;
             }
-            for (var z = 0; z < d.Zones.Count; z++)
+            // Per PORT, not per board zone: a chained header emits one card per
+            // link ("{base}-{z}:zN"), so testing the board's own zone ids here
+            // never matched and the board stayed on direct mode with every card
+            // handed over.
+            foreach (var port in BuildStructures(d, settings))
             {
-                if (!uncontrolled.Contains($"{baseId}-{z}"))
+                foreach (var portZone in ZoneResolution.Resolve(port, settings))
                 {
-                    return false;
+                    if (!uncontrolled.Contains(portZone.Id))
+                    {
+                        return false;
+                    }
                 }
             }
             return true;

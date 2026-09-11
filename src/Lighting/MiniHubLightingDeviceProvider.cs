@@ -275,6 +275,12 @@ public sealed class MiniHubLightingDeviceProvider :
             LedCount = effectiveLedCount,
             FrameLedCount = effectiveLedCount,
             Resizable = true,
+            // Without the ceiling a chain past it saves and renders while
+            // BuildLightingStream drops the tail, so the extra LEDs are simply
+            // dark. Port 4 is the big output.
+            MaxLedCount = channel == 4
+                ? Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubProtocol.Port4MaxLedCount
+                : Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubProtocol.OtherPortMaxLedCount,
             ZoneType = "linear",
         });
         structure.DefaultZones.Add(new DefaultZoneDef

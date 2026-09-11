@@ -521,6 +521,39 @@ public sealed class ChainRouteTests : IDisposable
     }
 
     [Fact]
+    public async Task A_chain_longer_than_the_port_declares_is_refused()
+    {
+        // The fixture port declares no ceiling, so this pins the generic cap's
+        // behaviour; MiniHub and Nollie now declare their firmware's own.
+        var links = Enumerable.Range(0, 6)
+            .Select(_ => new SetChainEntry { Key = GenericChainArtifacts.StripKey, LedCount = 1024 })
+            .ToArray();
+        var post = await PostChain(links);
+        var body = await post.Content.ReadFromJsonAsync<ApiResponse>();
+        Assert.True(body!.Error);
+        Assert.Contains("carries", body.Msg);
+    }
+
+    [Fact]
+    public async Task Nexus_Control_moves_the_whole_chain_not_one_link()
+    {
+        (await PostChain(
+            new SetChainEntry { Key = "product:hyte-fr12" },
+            new SetChainEntry { Key = "product:hyte-y50-solo" })).EnsureSuccessStatusCode();
+
+        // Off on one link: the links share one wire, so handing the port over
+        // while Nexus still drives a link means neither owns it.
+        var off = await _client.PostAsJsonAsync("/devices/lighting-devices/controlled",
+            new SetLightingDeviceControlledBody { Id = ZoneResolution.CustomZoneId(PortId, 0), Controlled = false });
+        off.EnsureSuccessStatusCode();
+
+        var uncontrolled = _factory.Services.GetRequiredService<IConfigStore>()
+            .Load().Devices.UncontrolledLightingDevices;
+        Assert.Contains(ZoneResolution.CustomZoneId(PortId, 0), uncontrolled);
+        Assert.Contains(ZoneResolution.CustomZoneId(PortId, 1), uncontrolled);
+    }
+
+    [Fact]
     public async Task The_ports_own_rename_survives_a_chain_write()
     {
         var store = _factory.Services.GetRequiredService<IConfigStore>();

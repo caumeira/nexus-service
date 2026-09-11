@@ -12,6 +12,8 @@ public sealed class StructureSegmentDto
     public int LedCount { get; set; }
     /// <summary>Resizable segments are walls: a zone touching one must be exactly that whole segment.</summary>
     public bool Resizable { get; set; }
+    /// <summary>Most LEDs this port can drive, 0 when the hardware declares no ceiling. The editor stops the chain growing past it, since the firmware would take the count and light only the head of it.</summary>
+    public int MaxLedCount { get; set; }
     public string ZoneType { get; set; } = "";
 }
 

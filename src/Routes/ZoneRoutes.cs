@@ -265,6 +265,7 @@ public static partial class DevicesRoutes
                 Name = seg.Name,
                 LedCount = seg.LedCount,
                 Resizable = seg.Resizable,
+                MaxLedCount = seg.MaxLedCount,
                 ZoneType = seg.ZoneType,
             });
         }
