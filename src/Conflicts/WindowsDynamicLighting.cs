@@ -2,12 +2,16 @@ using System;
 using System.Runtime.Versioning;
 using Microsoft.Win32;
 using Nexus.Service.Models.Conflicts;
+using Nexus.Service.Peripherals.Hid;
 
 namespace Nexus.Service.Conflicts;
 
 /// <summary>
-/// Reads and writes the Windows Dynamic Lighting settings that decide whether
-/// Windows drives the same HID LampArray devices as Nexus.
+/// Reads and writes the one Windows Dynamic Lighting setting that decides
+/// whether Windows drives the same HID LampArray devices as Nexus. Its other
+/// settings - foreground-app handover, per-device switches, brightness and
+/// effects - only decide anything while this one is on, which is the state the
+/// conflict exists in.
 ///
 /// The value names are the ones
 /// <c>C:\Windows\System32\SettingsHandlers_Lighting.dll</c> carries, which is
@@ -19,20 +23,38 @@ namespace Nexus.Service.Conflicts;
 public static class WindowsDynamicLighting
 {
     private const string LightingPath = @"Software\Microsoft\Lighting";
-    private const string DevicesPath = LightingPath + @"\Devices";
     private const string AmbientEnabledValue = "AmbientLightingEnabled";
-    private const string ForegroundControlValue = "ControlledByForegroundApp";
+
+    /// <summary>HID Lighting And Illumination page, LampArray usage - what Windows itself selects on.</summary>
+    private const int LampArrayUsagePage = 0x59;
+    private const int LampArrayUsage = 0x01;
 
     /// <summary>Whether this platform can carry the settings at all - the SPA hides the section otherwise.</summary>
     public static bool IsSupported() => OperatingSystem.IsWindows();
 
     /// <summary>
-    /// A missing value reads as ON: Windows writes these only once the user has
-    /// touched the page, and both default to on, so treating absent as off
+    /// A missing value reads as ON: Windows writes it only once the user has
+    /// touched the page, and it defaults to on, so treating absent as off
     /// would show the section already handled on a machine where Windows is
     /// still driving the lights.
     /// </summary>
     public static bool DwordIsOn(object? value) => value is not int number || number != 0;
+
+    /// <summary>
+    /// LampArray interfaces out of a HID enumeration, named the way Windows
+    /// names their <c>Devices</c> entry: the interface path without its
+    /// <c>\\?\</c> prefix.
+    /// </summary>
+    public static List<string> LampArrayIds(IEnumerable<HidDeviceInfo> devices)
+    {
+        var ids = new List<string>();
+        foreach (var hid in devices)
+        {
+            if (hid.UsagePage != LampArrayUsagePage || hid.Usage != LampArrayUsage) continue;
+            ids.Add(hid.Path.StartsWith(@"\\?\", StringComparison.Ordinal) ? hid.Path.Substring(4) : hid.Path);
+        }
+        return ids;
+    }
 
 #if WINDOWS
     /// <summary>
@@ -54,17 +76,11 @@ public static class WindowsDynamicLighting
 
             state.Available = true;
             state.Enabled = DwordIsOn(root.GetValue(AmbientEnabledValue));
-            state.ForegroundAppControl = DwordIsOn(root.GetValue(ForegroundControlValue));
-
-            using var devices = Registry.Users.OpenSubKey($@"{sid}\{DevicesPath}");
-            if (devices is null) return state;
-            foreach (var name in devices.GetSubKeyNames())
-            {
-                using var device = devices.OpenSubKey(name);
-                if (device is null) continue;
-                state.DeviceCount++;
-                if (DwordIsOn(device.GetValue(AmbientEnabledValue))) state.DevicesEnabled++;
-            }
+            // Windows keeps a Devices entry for every LampArray it has ever
+            // seen, so counting those subkeys reports hardware that is not
+            // plugged in. Count what it can drive right now instead - with
+            // nothing attached there is no conflict to show.
+            state.DeviceCount = PresentLampArrays().Count;
         }
         catch (Exception ex)
         {
@@ -73,36 +89,20 @@ public static class WindowsDynamicLighting
         return state;
     }
 
-    /// <summary>Applies the settings the caller named, a null leaving that one alone, and returns the state re-read afterwards.</summary>
+    /// <summary>Turns Windows' own lighting on or off, and returns the state re-read afterwards.</summary>
     [SupportedOSPlatform("windows")]
-    public static WindowsDynamicLightingState Write(bool? enabled, bool? foregroundAppControl, bool? deviceLighting)
+    public static WindowsDynamicLightingState Write(bool enabled)
     {
         var sid = Nexus.Service.Lifecycle.ConsoleUserSid.Resolve(LightingPath);
         if (sid is null) return new WindowsDynamicLightingState();
 
         try
         {
-            if (enabled is not null || foregroundAppControl is not null)
-            {
-                using var root = Registry.Users.OpenSubKey($@"{sid}\{LightingPath}", writable: true);
-                // A null open here is the access-denied case, which otherwise
-                // reaches the user as a toggle that simply does not move.
-                if (root is null) Console.Error.WriteLine($"[conflicts] dynamic lighting: cannot open {LightingPath} for write");
-                if (enabled is not null) root?.SetValue(AmbientEnabledValue, enabled.Value ? 1 : 0, RegistryValueKind.DWord);
-                if (foregroundAppControl is not null) root?.SetValue(ForegroundControlValue, foregroundAppControl.Value ? 1 : 0, RegistryValueKind.DWord);
-            }
-
-            if (deviceLighting is not null)
-            {
-                using var devices = Registry.Users.OpenSubKey($@"{sid}\{DevicesPath}", writable: true);
-                if (devices is null) Console.Error.WriteLine($"[conflicts] dynamic lighting: cannot open {DevicesPath} for write");
-                foreach (var name in devices?.GetSubKeyNames() ?? Array.Empty<string>())
-                {
-                    using var device = devices!.OpenSubKey(name, writable: true);
-                    if (device is null) Console.Error.WriteLine($"[conflicts] dynamic lighting: cannot open device {name} for write");
-                    device?.SetValue(AmbientEnabledValue, deviceLighting.Value ? 1 : 0, RegistryValueKind.DWord);
-                }
-            }
+            using var root = Registry.Users.OpenSubKey($@"{sid}\{LightingPath}", writable: true);
+            // A null open here is the access-denied case, which otherwise
+            // reaches the user as a toggle that simply does not move.
+            if (root is null) Console.Error.WriteLine($"[conflicts] dynamic lighting: cannot open {LightingPath} for write");
+            root?.SetValue(AmbientEnabledValue, enabled ? 1 : 0, RegistryValueKind.DWord);
         }
         catch (Exception ex)
         {
@@ -111,9 +111,28 @@ public static class WindowsDynamicLighting
 
         return Read();
     }
+
+    /// <summary>
+    /// Interface ids of the LampArray devices connected right now, on the same
+    /// HID usage the Windows settings page selects on. Enumeration walks every
+    /// HID interface and opens each one query-only.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private static List<string> PresentLampArrays()
+    {
+        try
+        {
+            return LampArrayIds(new Nexus.Service.Peripherals.Hid.WindowsHidEnumerator().FindAll());
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[conflicts] dynamic lighting device scan failed: {ex.Message}");
+            return new List<string>();
+        }
+    }
 #else
     public static WindowsDynamicLightingState Read() => new();
 
-    public static WindowsDynamicLightingState Write(bool? enabled, bool? foregroundAppControl, bool? deviceLighting) => new();
+    public static WindowsDynamicLightingState Write(bool enabled) => new();
 #endif
 }

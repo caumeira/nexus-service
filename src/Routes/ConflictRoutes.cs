@@ -103,19 +103,23 @@ public static class ConflictRoutes
         // the OS, driving the same LampArray devices. An unsupported platform
         // answers with the default state, whose Available false is what the SPA
         // reads to hide the section.
+        // Loopback only, like the POST below: reading it walks every HID
+        // interface on the box, which is not something a remote surface should
+        // be able to ask for, and no remote surface offers the setting.
         app.MapGet("/conflicts/dynamic-lighting", () => Results.Ok(
-            WindowsDynamicLighting.IsSupported() ? WindowsDynamicLighting.Read() : new WindowsDynamicLightingState()));
+            WindowsDynamicLighting.IsSupported() ? WindowsDynamicLighting.Read() : new WindowsDynamicLightingState()))
+            .LocalhostOnly();
 
-        // Applies only the settings the body names, then answers with the state
-        // re-read from the registry, so the SPA renders what Windows actually
-        // holds rather than what it asked for. Both no-op cases answer 200 with
-        // that same state: the client collapses every non-2xx to null, so an
-        // error status here would reach the user as nothing happening.
+        // Answers with the state re-read from the registry, so the SPA renders
+        // what Windows actually holds rather than what it asked for. Both no-op
+        // cases answer 200 with that same state: the client collapses every
+        // non-2xx to null, so an error status here would reach the user as
+        // nothing happening.
         app.MapPost("/conflicts/dynamic-lighting", (SetWindowsDynamicLightingBody? body) =>
         {
             if (!WindowsDynamicLighting.IsSupported()) return Results.Ok(new WindowsDynamicLightingState());
-            if (body is null) return Results.Ok(WindowsDynamicLighting.Read());
-            return Results.Ok(WindowsDynamicLighting.Write(body.Enabled, body.ForegroundAppControl, body.DeviceLighting));
+            if (body?.Enabled is null) return Results.Ok(WindowsDynamicLighting.Read());
+            return Results.Ok(WindowsDynamicLighting.Write(body.Enabled.Value));
         }).LocalhostOnly();
 
         // Terminate every running process matching the catalog entry for
