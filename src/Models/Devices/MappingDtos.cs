@@ -127,6 +127,8 @@ public sealed class SetChainEntry
 {
     public string? Key { get; set; }
     public int LedCount { get; set; }
+    /// <summary>Ordinal this link occupied in the chain currently on disk, so its rename follows it; null for a link the user just added, which starts unnamed.</summary>
+    public int? FromOrdinal { get; set; }
 }
 
 /// <summary>A port's current chain, one entry per zone in wire order.</summary>

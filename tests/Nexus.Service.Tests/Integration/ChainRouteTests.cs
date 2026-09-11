@@ -437,4 +437,55 @@ public sealed class ChainRouteTests : IDisposable
         // never got overlaid with the FR12 artifact's real per-LED positions.
         Assert.True(leds.Select(l => (l.U, l.V)).Distinct().Count() > 1);
     }
+
+    [Fact]
+    public async Task A_renamed_link_keeps_its_name_when_the_chain_is_reordered()
+    {
+        (await PostChain(
+            new SetChainEntry { Key = "product:hyte-fr12" },
+            new SetChainEntry { Key = "product:hyte-y50-solo" })).EnsureSuccessStatusCode();
+        var store = _factory.Services.GetRequiredService<IConfigStore>();
+        store.Update(s => s.Lighting.DeviceNames[ZoneResolution.CustomZoneId(PortId, 1)] = "YOOOO");
+
+        (await PostChain(
+            new SetChainEntry { Key = "product:hyte-y50-solo", FromOrdinal = 1 },
+            new SetChainEntry { Key = "product:hyte-fr12", FromOrdinal = 0 })).EnsureSuccessStatusCode();
+
+        var names = store.Load().Lighting.DeviceNames;
+        Assert.Equal("YOOOO", names[ZoneResolution.CustomZoneId(PortId, 0)]);
+        Assert.DoesNotContain(ZoneResolution.CustomZoneId(PortId, 1), names.Keys);
+    }
+
+    [Fact]
+    public async Task A_slot_that_changed_product_does_not_inherit_the_old_name()
+    {
+        (await PostChain(
+            new SetChainEntry { Key = "product:hyte-fr12" },
+            new SetChainEntry { Key = "product:hyte-y50-solo" })).EnsureSuccessStatusCode();
+        var store = _factory.Services.GetRequiredService<IConfigStore>();
+        store.Update(s => s.Lighting.DeviceNames[ZoneResolution.CustomZoneId(PortId, 1)] = "YOOOO");
+
+        // The second link is removed and a different product put in its place,
+        // so the client sends no origin for it.
+        (await PostChain(
+            new SetChainEntry { Key = "product:hyte-fr12", FromOrdinal = 0 },
+            new SetChainEntry { Key = "product:hyte-ln80" })).EnsureSuccessStatusCode();
+
+        var names = store.Load().Lighting.DeviceNames;
+        Assert.DoesNotContain(ZoneResolution.CustomZoneId(PortId, 1), names.Keys);
+    }
+
+    [Fact]
+    public async Task The_ports_own_rename_survives_a_chain_write()
+    {
+        var store = _factory.Services.GetRequiredService<IConfigStore>();
+        store.Update(s => s.Lighting.DeviceNames[PortId] = "ARGB Port #2");
+
+        (await PostChain(new SetChainEntry { Key = "product:hyte-fr12" })).EnsureSuccessStatusCode();
+
+        // The port's rename is device-level state, and an unchained port's
+        // only zone id IS the device id - dropping it with the outgoing slots
+        // would un-name the header on the first assign.
+        Assert.Equal("ARGB Port #2", store.Load().Lighting.DeviceNames[PortId]);
+    }
 }

@@ -197,6 +197,18 @@ public static partial class DevicesRoutes
             var response = new SetChainResponse();
             store.Update(s =>
             {
+                // A rename belongs to the product in a slot, not the slot: a
+                // link that only moved along the chain keeps its name, while a
+                // slot whose product changed must not inherit the old one's -
+                // the client says which by echoing each link's old ordinal.
+                var carried = CarriedChainNames(s, deviceId, plan.Origins);
+                foreach (var zoneId in oldZoneIds)
+                {
+                    // The port's own rename lives under the device id, which is
+                    // also its unchained default zone id; only the slots go.
+                    if (zoneId != deviceId) s.Lighting.DeviceNames.Remove(zoneId);
+                }
+                foreach (var (zoneId, name) in carried) s.Lighting.DeviceNames[zoneId] = name;
                 Nexus.Service.Lighting.Zones.ZoneStateDrop.Drop(s, oldZoneIds);
                 if (plan.Entries.Count == 0)
                 {
@@ -365,6 +377,8 @@ public static partial class DevicesRoutes
         public required List<Nexus.Service.Persistence.ZoneDef> Defs { get; init; }
         public required List<(int Ordinal, MappingArtifact Artifact)> Applied { get; init; }
         public required int Total { get; init; }
+        /// <summary>Per new ordinal, the ordinal it held in the chain on disk, or null when the link is new. Not persisted - it only moves per-zone state across the write.</summary>
+        public required List<int?> Origins { get; init; }
     }
 
     /// <summary>
@@ -482,7 +496,25 @@ public static partial class DevicesRoutes
             Defs = defs,
             Applied = applied,
             Total = total,
+            Origins = requested.ConvertAll(r => r.FromOrdinal),
         };
+    }
+
+    /// <summary>Renames to re-key onto the chain's new slots, read before the old slots' names are dropped.</summary>
+    private static List<(string ZoneId, string Name)> CarriedChainNames(
+        Nexus.Service.Persistence.NexusSettings settings, string deviceId, List<int?> origins)
+    {
+        var carried = new List<(string, string)>();
+        for (int i = 0; i < origins.Count; i++)
+        {
+            if (origins[i] is not { } from) continue;
+            var fromId = Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(deviceId, from);
+            if (settings.Lighting.DeviceNames.TryGetValue(fromId, out var name) && !string.IsNullOrWhiteSpace(name))
+            {
+                carried.Add((Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(deviceId, i), name));
+            }
+        }
+        return carried;
     }
 
     /// <summary>Applied-mapping record for a product a chain just assigned to a zone.</summary>
