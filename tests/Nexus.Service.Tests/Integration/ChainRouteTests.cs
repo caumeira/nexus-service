@@ -476,6 +476,51 @@ public sealed class ChainRouteTests : IDisposable
     }
 
     [Fact]
+    public async Task A_moved_link_keeps_its_brightness_canvas_rect_and_control_state()
+    {
+        (await PostChain(
+            new SetChainEntry { Key = "product:hyte-fr12" },
+            new SetChainEntry { Key = "product:hyte-y50-solo" })).EnsureSuccessStatusCode();
+        var store = _factory.Services.GetRequiredService<IConfigStore>();
+        var slot1 = ZoneResolution.CustomZoneId(PortId, 1);
+        store.Update(s =>
+        {
+            s.Devices.LightingDevicePrefs[slot1] = new LightingDevicePreference { Brightness = 42 };
+            s.Lighting.DeviceLayouts[slot1] = new DeviceLayout { X = 11, Y = 22, W = 33, H = 44 };
+            s.Devices.UncontrolledLightingDevices = new List<string> { slot1 };
+        });
+
+        // Appending a third link must not reset the two already wired: only
+        // their ordinal is the route's to change, not the device at it.
+        (await PostChain(
+            new SetChainEntry { Key = "product:hyte-fr12", FromOrdinal = 0 },
+            new SetChainEntry { Key = "product:hyte-y50-solo", FromOrdinal = 1 },
+            new SetChainEntry { Key = "product:hyte-ln80" })).EnsureSuccessStatusCode();
+
+        var after = store.Load();
+        Assert.Equal(42, after.Devices.LightingDevicePrefs[slot1].Brightness);
+        Assert.Equal(11, after.Lighting.DeviceLayouts[slot1].X);
+        Assert.Contains(slot1, after.Devices.UncontrolledLightingDevices);
+    }
+
+    [Fact]
+    public async Task A_replaced_link_does_not_inherit_the_old_devices_state()
+    {
+        (await PostChain(
+            new SetChainEntry { Key = "product:hyte-fr12" },
+            new SetChainEntry { Key = "product:hyte-y50-solo" })).EnsureSuccessStatusCode();
+        var store = _factory.Services.GetRequiredService<IConfigStore>();
+        var slot1 = ZoneResolution.CustomZoneId(PortId, 1);
+        store.Update(s => s.Devices.LightingDevicePrefs[slot1] = new LightingDevicePreference { Brightness = 42 });
+
+        (await PostChain(
+            new SetChainEntry { Key = "product:hyte-fr12", FromOrdinal = 0 },
+            new SetChainEntry { Key = "product:hyte-ln80" })).EnsureSuccessStatusCode();
+
+        Assert.DoesNotContain(slot1, store.Load().Devices.LightingDevicePrefs.Keys);
+    }
+
+    [Fact]
     public async Task The_ports_own_rename_survives_a_chain_write()
     {
         var store = _factory.Services.GetRequiredService<IConfigStore>();

@@ -197,19 +197,21 @@ public static partial class DevicesRoutes
             var response = new SetChainResponse();
             store.Update(s =>
             {
-                // A rename belongs to the product in a slot, not the slot: a
-                // link that only moved along the chain keeps its name, while a
-                // slot whose product changed must not inherit the old one's -
-                // the client says which by echoing each link's old ordinal.
-                var carried = CarriedChainNames(s, deviceId, plan.Origins);
+                // Per-zone state belongs to the product in a slot, not the
+                // slot: a link that only moved along the chain keeps its name,
+                // brightness, canvas rect and control state, while a slot whose
+                // product changed starts fresh. The client says which by
+                // echoing each link's old ordinal. Read before the drop below,
+                // which is what would otherwise reset every surviving link.
+                var carried = CarriedChainState(s, deviceId, plan.Origins);
                 foreach (var zoneId in oldZoneIds)
                 {
                     // The port's own rename lives under the device id, which is
                     // also its unchained default zone id; only the slots go.
                     if (zoneId != deviceId) s.Lighting.DeviceNames.Remove(zoneId);
                 }
-                foreach (var (zoneId, name) in carried) s.Lighting.DeviceNames[zoneId] = name;
                 Nexus.Service.Lighting.Zones.ZoneStateDrop.Drop(s, oldZoneIds);
+                RestoreChainState(s, carried);
                 if (plan.Entries.Count == 0)
                 {
                     // Clearing: the port goes back to one whole-segment zone
@@ -500,21 +502,65 @@ public static partial class DevicesRoutes
         };
     }
 
-    /// <summary>Renames to re-key onto the chain's new slots, read before the old slots' names are dropped.</summary>
-    private static List<(string ZoneId, string Name)> CarriedChainNames(
+    /// <summary>Per-slot state a moved chain link takes with it. Applied mappings are excluded: the route rewrites one per ordinal straight after.</summary>
+    private sealed class CarriedSlot
+    {
+        public required string ZoneId { get; init; }
+        public string? Name { get; init; }
+        public Nexus.Service.Persistence.LightingDevicePreference? Pref { get; init; }
+        public Nexus.Service.Persistence.DeviceLayout? Layout { get; init; }
+        public List<Nexus.Service.Lighting.Mappings.MappingGroup>? Groups { get; init; }
+        public bool Disabled { get; init; }
+        public bool Uncontrolled { get; init; }
+        public bool AutoApplyDeclined { get; init; }
+    }
+
+    /// <summary>Reads each surviving link's state under the ordinal it held, keyed to the ordinal it is moving to. Must run before <see cref="Nexus.Service.Lighting.Zones.ZoneStateDrop"/> clears the old slots.</summary>
+    private static List<CarriedSlot> CarriedChainState(
         Nexus.Service.Persistence.NexusSettings settings, string deviceId, List<int?> origins)
     {
-        var carried = new List<(string, string)>();
+        var carried = new List<CarriedSlot>();
         for (int i = 0; i < origins.Count; i++)
         {
             if (origins[i] is not { } from) continue;
             var fromId = Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(deviceId, from);
-            if (settings.Lighting.DeviceNames.TryGetValue(fromId, out var name) && !string.IsNullOrWhiteSpace(name))
+            settings.Lighting.DeviceNames.TryGetValue(fromId, out var name);
+            settings.Devices.LightingDevicePrefs.TryGetValue(fromId, out var pref);
+            settings.Lighting.DeviceLayouts.TryGetValue(fromId, out var layout);
+            settings.Devices.LedGroups.TryGetValue(fromId, out var groups);
+            carried.Add(new CarriedSlot
             {
-                carried.Add((Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(deviceId, i), name));
-            }
+                ZoneId = Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(deviceId, i),
+                Name = string.IsNullOrWhiteSpace(name) ? null : name,
+                Pref = pref,
+                Layout = layout,
+                Groups = groups,
+                Disabled = settings.Devices.DisabledLightingDevices.Contains(fromId),
+                Uncontrolled = settings.Devices.UncontrolledLightingDevices.Contains(fromId),
+                AutoApplyDeclined = settings.Devices.MappingAutoApplyDeclined.Contains(fromId),
+            });
         }
         return carried;
+    }
+
+    /// <summary>Writes the carried state back under each link's new ordinal.</summary>
+    private static void RestoreChainState(Nexus.Service.Persistence.NexusSettings settings, List<CarriedSlot> carried)
+    {
+        foreach (var slot in carried)
+        {
+            if (slot.Name is { } name) settings.Lighting.DeviceNames[slot.ZoneId] = name;
+            if (slot.Pref is { } pref) settings.Devices.LightingDevicePrefs[slot.ZoneId] = pref;
+            if (slot.Layout is { } layout) settings.Lighting.DeviceLayouts[slot.ZoneId] = layout;
+            if (slot.Groups is { } groups) settings.Devices.LedGroups[slot.ZoneId] = groups;
+            // Replaced rather than mutated: the frame writers read these lists
+            // lock-free at frame rate.
+            if (slot.Disabled && !settings.Devices.DisabledLightingDevices.Contains(slot.ZoneId))
+                settings.Devices.DisabledLightingDevices = [.. settings.Devices.DisabledLightingDevices, slot.ZoneId];
+            if (slot.Uncontrolled && !settings.Devices.UncontrolledLightingDevices.Contains(slot.ZoneId))
+                settings.Devices.UncontrolledLightingDevices = [.. settings.Devices.UncontrolledLightingDevices, slot.ZoneId];
+            if (slot.AutoApplyDeclined && !settings.Devices.MappingAutoApplyDeclined.Contains(slot.ZoneId))
+                settings.Devices.MappingAutoApplyDeclined.Add(slot.ZoneId);
+        }
     }
 
     /// <summary>Applied-mapping record for a product a chain just assigned to a zone.</summary>
