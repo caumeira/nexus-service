@@ -143,7 +143,7 @@ public sealed class NollieLightingDeviceProvider :
             ZoneType = "linear",
             // Only a zone that owns the whole channel may resize it; a chain
             // link is sized by its product.
-            ZoneResizable = ZoneResolution.WholeResizableSegment(structure, zone) >= 0,
+            ZoneResizable = ZoneResolution.WholeResizableSegment(structure, zone, settings) >= 0,
             DeviceId = structure.DeviceId,
             ZoneCustomizable = true,
         };

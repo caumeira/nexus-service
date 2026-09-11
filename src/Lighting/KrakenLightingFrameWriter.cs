@@ -46,6 +46,12 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
     private readonly Dictionary<string, long> _lastPushedAtMs = new();
     private readonly HashSet<string> _missingFrame = new();
 
+    // Last resolved zones per channel, keyed by channel id. Resolve reads
+    // ZonePartitions/PortChains/ZoneLedCounts lock-free while routes mutate
+    // them in place, so a mid-enumeration InvalidOperationException falls
+    // back to last tick's zones rather than dropping the frame.
+    private readonly Dictionary<string, IReadOnlyList<ResolvedZone>> _zoneCache = new();
+
     public KrakenLightingFrameWriter(
         LightingEngine engine, KrakenHub hub, IConfigStore store, Np50IdentifyTracker identify, FeatureGates? gates = null)
     {
@@ -118,7 +124,8 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
         for (int i = 0; i < channels.Count; i++)
         {
             var channelId = KrakenHub.ZoneIdForChannelIndex(i);
-            var zones = KrakenLightingDeviceProvider.ResolveChannelZones(settings, _hub.ModelName, channels[i], i);
+            var zones = ResolveOrReuse(channelId,
+                () => KrakenLightingDeviceProvider.ResolveChannelZones(settings, _hub.ModelName, channels[i], i));
 
             // Left uncontrolled means "hands off": stop pushing so the cooler keeps running
             // whatever firmware animation it was set to. A chained channel counts as
@@ -130,6 +137,20 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
             }
 
             PushChannel(devices, channelId, zones, channels[i], disabled, uncontrolled, prefs, globalBrightness, nowTicks);
+        }
+    }
+
+    private IReadOnlyList<ResolvedZone> ResolveOrReuse(string cacheKey, Func<IReadOnlyList<ResolvedZone>> resolve)
+    {
+        try
+        {
+            var zones = resolve();
+            _zoneCache[cacheKey] = zones;
+            return zones;
+        }
+        catch (InvalidOperationException)
+        {
+            return _zoneCache.TryGetValue(cacheKey, out var last) ? last : Array.Empty<ResolvedZone>();
         }
     }
 

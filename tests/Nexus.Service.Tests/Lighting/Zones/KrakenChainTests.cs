@@ -117,14 +117,14 @@ public class KrakenChainTests
         var chained = KrakenLightingDeviceProvider.BuildChannelStructure(chainedSettings, ModelName, UnknownFanChain(), FanChannelIndex);
         foreach (var zone in ZoneResolution.Resolve(chained, chainedSettings))
         {
-            Assert.True(ZoneResolution.WholeResizableSegment(chained, zone) < 0);
+            Assert.True(ZoneResolution.WholeResizableSegment(chained, zone, chainedSettings) < 0);
         }
 
         var plainSettings = new NexusSettings();
         plainSettings.Devices.ZoneLedCounts[FanZoneId] = 60;
         var plain = KrakenLightingDeviceProvider.BuildChannelStructure(plainSettings, ModelName, UnknownFanChain(), FanChannelIndex);
         var only = ZoneResolution.Resolve(plain, plainSettings)[0];
-        Assert.Equal(0, ZoneResolution.WholeResizableSegment(plain, only));
+        Assert.Equal(0, ZoneResolution.WholeResizableSegment(plain, only, plainSettings));
     }
 
     [Fact]

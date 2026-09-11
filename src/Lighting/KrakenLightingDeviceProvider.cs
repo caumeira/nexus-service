@@ -221,7 +221,7 @@ public sealed class KrakenLightingDeviceProvider :
             ZoneType = "linear",
             // Only a zone that owns the whole channel may resize it; a chain
             // link is sized by its product.
-            ZoneResizable = ZoneResolution.WholeResizableSegment(structure, zone) >= 0,
+            ZoneResizable = ZoneResolution.WholeResizableSegment(structure, zone, settings) >= 0,
         };
         if (structure.Partitionable)
         {

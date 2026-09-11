@@ -107,14 +107,14 @@ public class NollieChainTests
         var chained = NollieLightingDeviceProvider.BuildChannelStructure(controller, Channel, chainedSettings.Devices.ZoneLedCounts);
         foreach (var zone in ZoneResolution.Resolve(chained, chainedSettings))
         {
-            Assert.True(ZoneResolution.WholeResizableSegment(chained, zone) < 0);
+            Assert.True(ZoneResolution.WholeResizableSegment(chained, zone, chainedSettings) < 0);
         }
 
         var plainSettings = new NexusSettings();
         plainSettings.Devices.ZoneLedCounts[channelId] = 60;
         var plain = NollieLightingDeviceProvider.BuildChannelStructure(controller, Channel, plainSettings.Devices.ZoneLedCounts);
         var only = ZoneResolution.Resolve(plain, plainSettings)[0];
-        Assert.Equal(0, ZoneResolution.WholeResizableSegment(plain, only));
+        Assert.Equal(0, ZoneResolution.WholeResizableSegment(plain, only, plainSettings));
     }
 
     [Fact]

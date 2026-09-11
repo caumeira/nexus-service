@@ -100,14 +100,14 @@ public class MiniHubChainTests
         var chained = MiniHubLightingDeviceProvider.BuildLedPortStructure(chainedSettings, HubId, Channel, 0);
         foreach (var zone in ZoneResolution.Resolve(chained, chainedSettings))
         {
-            Assert.True(ZoneResolution.WholeResizableSegment(chained, zone) < 0);
+            Assert.True(ZoneResolution.WholeResizableSegment(chained, zone, chainedSettings) < 0);
         }
 
         var plainSettings = new NexusSettings();
         plainSettings.Devices.ZoneLedCounts[PortId] = 60;
         var plain = MiniHubLightingDeviceProvider.BuildLedPortStructure(plainSettings, HubId, Channel, 0);
         var only = ZoneResolution.Resolve(plain, plainSettings)[0];
-        Assert.Equal(0, ZoneResolution.WholeResizableSegment(plain, only));
+        Assert.Equal(0, ZoneResolution.WholeResizableSegment(plain, only, plainSettings));
     }
 
     [Fact]

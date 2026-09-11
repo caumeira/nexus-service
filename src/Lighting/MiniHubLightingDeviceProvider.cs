@@ -171,7 +171,7 @@ public sealed class MiniHubLightingDeviceProvider :
             // Only a zone that owns the whole port may resize it; a chain
             // link is sized by its product, and resizing one would silently
             // restate the port's total and break the tiling.
-            ZoneResizable = ZoneResolution.WholeResizableSegment(structure, zone) >= 0,
+            ZoneResizable = ZoneResolution.WholeResizableSegment(structure, zone, settings) >= 0,
             // The chain and zone editors address the PORT, which is the
             // device the user actually wired something to.
             DeviceId = structure.DeviceId,

@@ -33,6 +33,12 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
     /// <summary>Scratch RGB buffer per card id; grown on demand, reused every tick.</summary>
     private readonly Dictionary<string, byte[]> _buffers = new(StringComparer.Ordinal);
 
+    // Last resolved zones per channel, keyed by channel id. Resolve reads
+    // ZonePartitions/PortChains/ZoneLedCounts lock-free while routes mutate
+    // them in place, so a mid-enumeration InvalidOperationException falls
+    // back to last tick's zones rather than dropping the frame.
+    private readonly Dictionary<string, IReadOnlyList<ResolvedZone>> _zoneCache = new(StringComparer.Ordinal);
+
     public NollieLightingFrameWriter(LightingEngine engine, NollieHub hub, IConfigStore store, Np50IdentifyTracker identify, FeatureGates? gates = null)
     {
         _engine = engine;
@@ -95,9 +101,18 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
 
         foreach (var controller in controllers)
         {
+            // Resolved once per channel this tick, reused for the uncontrolled
+            // check and the push loop below.
+            var channelZones = new IReadOnlyList<ResolvedZone>[controller.Spec.Channels];
+            for (var ch = 0; ch < channelZones.Length; ch++)
+            {
+                channelZones[ch] = ResolveOrReuse(NollieLightingDeviceProvider.ChannelId(controller.DeviceId, ch),
+                    () => NollieLightingDeviceProvider.ResolveChannelZones(controller, ch, settings));
+            }
+
             // Every channel of this controller left uncontrolled: don't touch it
             // at all, so it keeps whatever its firmware is doing.
-            if (uncontrolled.Count > 0 && AllChannelsUncontrolled(controller, settings, uncontrolled))
+            if (uncontrolled.Count > 0 && AllChannelsUncontrolled(channelZones, uncontrolled))
             {
                 continue;
             }
@@ -105,8 +120,7 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
             var wrote = false;
             foreach (var ch in PushOrder(controller, counts))
             {
-                var zones = NollieLightingDeviceProvider.ResolveChannelZones(controller, ch, settings);
-                if (PushChannel(devices, controller, ch, zones, disabled, uncontrolled, prefs, globalBrightness, nowTicks))
+                if (PushChannel(devices, controller, ch, channelZones[ch], disabled, uncontrolled, prefs, globalBrightness, nowTicks))
                 {
                     wrote = true;
                 }
@@ -115,6 +129,20 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
             // Chunked controllers only apply once latched; the wide transport
             // takes effect on receipt and ignores this.
             if (wrote) controller.SendLatch();
+        }
+    }
+
+    private IReadOnlyList<ResolvedZone> ResolveOrReuse(string cacheKey, Func<IReadOnlyList<ResolvedZone>> resolve)
+    {
+        try
+        {
+            var zones = resolve();
+            _zoneCache[cacheKey] = zones;
+            return zones;
+        }
+        catch (InvalidOperationException)
+        {
+            return _zoneCache.TryGetValue(cacheKey, out var last) ? last : Array.Empty<ResolvedZone>();
         }
     }
 
@@ -182,11 +210,10 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
     }
 
     /// <summary>A channel counts as uncontrolled only when every one of its resolved zones does.</summary>
-    private static bool AllChannelsUncontrolled(NollieController controller, NexusSettings settings, IReadOnlyList<string> uncontrolled)
+    private static bool AllChannelsUncontrolled(IReadOnlyList<ResolvedZone>[] channelZones, IReadOnlyList<string> uncontrolled)
     {
-        for (var ch = 0; ch < controller.Spec.Channels; ch++)
+        foreach (var zones in channelZones)
         {
-            var zones = NollieLightingDeviceProvider.ResolveChannelZones(controller, ch, settings);
             if (!ZoneResolution.IsFullyUncontrolled(zones, uncontrolled))
             {
                 return false;

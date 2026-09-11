@@ -34,6 +34,12 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
 
     private readonly FeatureGates _gates;
 
+    // Last resolved zones per chainable port, keyed by port id. Resolve reads
+    // ZonePartitions/PortChains/ZoneLedCounts lock-free while routes mutate
+    // them in place, so a mid-enumeration InvalidOperationException falls
+    // back to last tick's zones rather than dropping the frame.
+    private readonly System.Collections.Generic.Dictionary<string, System.Collections.Generic.IReadOnlyList<ResolvedZone>> _zoneCache = new();
+
     public MiniHubLightingFrameWriter(LightingEngine engine, MiniHubHub hub, IConfigStore store, Np50IdentifyTracker identify, FeatureGates? gates = null)
     {
         _engine = engine; _hub = hub; _store = store; _identify = identify;
@@ -89,8 +95,10 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
         var nowTicks = DateTime.UtcNow.Ticks;
 
         var hubId = _hub.DeviceId;
-        var port3Zones = MiniHubLightingDeviceProvider.ResolveLedPortZones(settings, hubId, 3, _hub.State.Port3.LedCount);
-        var port4Zones = MiniHubLightingDeviceProvider.ResolveLedPortZones(settings, hubId, 4, _hub.State.Port4.LedCount);
+        var port3Zones = ResolveOrReuse($"{hubId}:port3",
+            () => MiniHubLightingDeviceProvider.ResolveLedPortZones(settings, hubId, 3, _hub.State.Port3.LedCount));
+        var port4Zones = ResolveOrReuse($"{hubId}:port4",
+            () => MiniHubLightingDeviceProvider.ResolveLedPortZones(settings, hubId, 4, _hub.State.Port4.LedCount));
 
         // Every port uncontrolled: leave the whole hub alone so it drops back to
         // its firmware animation, same as never pushing at all. A chained port
@@ -113,6 +121,21 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
         TryPushZone(devices, $"{hubId}:port2", channel: 2, disabled, uncontrolled, prefs, globalBrightness, nowTicks);
         PushPort(devices, port3Zones, channel: 3, disabled, uncontrolled, prefs, globalBrightness, nowTicks);
         PushPort(devices, port4Zones, channel: 4, disabled, uncontrolled, prefs, globalBrightness, nowTicks);
+    }
+
+    private System.Collections.Generic.IReadOnlyList<ResolvedZone> ResolveOrReuse(
+        string cacheKey, Func<System.Collections.Generic.IReadOnlyList<ResolvedZone>> resolve)
+    {
+        try
+        {
+            var zones = resolve();
+            _zoneCache[cacheKey] = zones;
+            return zones;
+        }
+        catch (InvalidOperationException)
+        {
+            return _zoneCache.TryGetValue(cacheKey, out var last) ? last : Array.Empty<ResolvedZone>();
+        }
     }
 
     private void TryPushZone(DeviceFrame[] devices, string id, int channel,
