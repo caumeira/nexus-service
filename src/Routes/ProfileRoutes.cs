@@ -333,12 +333,20 @@ public static class ProfileRoutes
                     { lp.StopAll(); }
                     catch { }
                 }
+                var coolingShared = settings.SharedCategories.Contains(ProfileSharing.Cooling);
                 pm.ResetProfile(id);
                 // Re-engage engines from the freshly-defaulted settings so the
                 // "on by default" cooling preset + lighting sync mode run
                 // instead of leaving the engines idle.
                 if (isActive)
                 {
+                    // Cooling's default preset is "off", which LiveEngineSync
+                    // does not apply (its arms all drive fans). Shared cooling
+                    // is not among the categories ResetProfile touches.
+                    if (!coolingShared)
+                    {
+                        LiveEngineSync.ReleaseCoolingAfterReset(fans, gates);
+                    }
                     LiveEngineSync.Apply(store, fans, lp, gates);
                 }
                 PanelTopics.BroadcastPrefs(hub);
@@ -388,6 +396,10 @@ public static class ProfileRoutes
                 // that writes through to active).
                 if (isActive || categoryIsShared)
                 {
+                    if (normalized == ProfileSharing.Cooling)
+                    {
+                        LiveEngineSync.ReleaseCoolingAfterReset(fans, gates);
+                    }
                     LiveEngineSync.Apply(store, fans, lp, gates);
                 }
                 PanelTopics.BroadcastPrefs(hub);
