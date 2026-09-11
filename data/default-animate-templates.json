@@ -2444,13 +2444,14 @@
     "speed": 70,
     "intensity": 1,
     "hue": 0.58,
-    "colorize": 0.55,
+    "colorize": 0,
     "saturation": 1.2,
     "contrast": 1.1,
     "params": {
      "u_density": 12,
      "u_pulse": 1.2,
-     "u_glow": 1.2
+     "u_glow": 1.2,
+     "u_spread": 0.75
     }
    },
    {
@@ -2463,7 +2464,8 @@
     "params": {
      "u_density": 22,
      "u_pulse": 2,
-     "u_glow": 1.8
+     "u_glow": 1.8,
+     "u_spread": 1
     }
    },
    {
@@ -2476,7 +2478,8 @@
     "params": {
      "u_density": 6,
      "u_pulse": 0.4,
-     "u_glow": 0.6
+     "u_glow": 0.6,
+     "u_spread": 0.3
     }
    },
    {
@@ -2489,7 +2492,8 @@
     "params": {
      "u_density": 16,
      "u_pulse": 1.6,
-     "u_glow": 1
+     "u_glow": 1,
+     "u_spread": 0.5
     }
    }
   ]

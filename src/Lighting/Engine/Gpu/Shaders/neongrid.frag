@@ -2,6 +2,7 @@ uniform float u_speed;
 uniform float u_density;  // extra: grid line density (3..30)
 uniform float u_pulse;    // extra: pulse flow intensity (0..2.5)
 uniform float u_glow;     // extra: line glow thickness (0.2..3)
+uniform float u_spread;   // extra: hue walk horizon -> viewer, 1 = one full wheel (0..1.5)
 
 // 80s outrun neon grid: perspective ground plane scrolling toward the
 // camera under a sunset horizon with a classic banded sun. Horizontal
@@ -19,6 +20,7 @@ void main() {
     float dens = clamp(u_density, 3.0, 30.0);
     float pulse = clamp(u_pulse, 0.0, 2.5);
     float glow = clamp(u_glow, 0.2, 3.0);
+    float spread = clamp(u_spread, 0.0, 1.5);
 
     // Sky: deep violet at top fading to warm magenta at the horizon.
     vec3 sky = mix(tintedPalette(0.72) * 0.06,
@@ -65,10 +67,13 @@ void main() {
         float pulsePhase = smoothstep(0.85, 1.0, fract(gridZ * 0.12));
         float flow = pulsePhase * lineZ * fade * pulse;
 
-        vec3 tint = tintedPalette(0.88);      // magenta neon
-        vec3 crossTint = tintedPalette(0.56); // cyan intersections
+        // Perspective packs most rows near the horizon; the square root
+        // spends the palette on them instead of the few wide rows up front.
+        float hueShift = spread * sqrt(gy);
+        vec3 tint = tintedPalette(0.88 + hueShift);      // magenta neon at the horizon
+        vec3 crossTint = tintedPalette(0.56 + hueShift); // cyan intersections
 
-        col += tint * lines * 0.65;
+        col += tint * lines;
         col += crossTint * cross * 2.8;
         col += tint * flow * 1.6;
     }

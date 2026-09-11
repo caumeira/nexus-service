@@ -137,6 +137,48 @@ public class LianLiHubTests
     }
 
     [Fact]
+    public void SendColorData_sl_v1_sends_via_interrupt_out()
+    {
+        var spy = new HubTransportSpy();
+        var hub = new LianLiHub();
+        hub.Attach(spy, SlProfile());
+
+        hub.SendColorData(2, new byte[] { 10, 20, 30 });
+
+        var call = Assert.Single(spy.Calls);
+        Assert.Equal(HubTransportSpy.CallKind.Write, call.Kind);
+        Assert.Equal(LianLiProtocol.OutputReportSize, call.Bytes.Length);
+        Assert.Equal(0xE0, call.Bytes[0]);
+        Assert.Equal(0x32, call.Bytes[1]); // 0x30 | channel
+        Assert.Equal(new byte[] { 10, 30, 20 }, call.Bytes[2..5]); // R, B, G on the wire
+    }
+
+    [Fact]
+    public void SendStartAction_sl_v1_sends_packed_quantity_feature_report()
+    {
+        var spy = new HubTransportSpy();
+        var hub = new LianLiHub();
+        hub.Attach(spy, SlProfile());
+
+        hub.SendStartAction(2, 3);
+
+        var call = Assert.Single(spy.Calls);
+        Assert.Equal(HubTransportSpy.CallKind.Feature, call.Kind);
+        Assert.Equal(new byte[] { 0xE0, 0x10, 0x32, 0x23, 0x00, 0x00, 0x00 }, call.Bytes);
+    }
+
+    [Fact]
+    public void Profile_is_sl_infinity_while_detached_and_the_attached_row_after()
+    {
+        var hub = new LianLiHub();
+        Assert.Equal(0xA102, hub.Profile.ProductId);
+        hub.Attach(new HubTransportSpy(), SlProfile());
+        Assert.Equal(0xA100, hub.Profile.ProductId);
+        hub.Detach();
+        Assert.Equal(0xA102, hub.Profile.ProductId);
+    }
+
+    [Fact]
     public void SendStartAction_sends_via_feature_report()
     {
         var spy = new HubTransportSpy();

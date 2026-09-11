@@ -335,7 +335,8 @@ as a synonym for `off`). The preset persists in
 ensures a single shared `preset-{name}` curve owns every fan; switching to
 `custom` restores the snapshot saved in
 `Cooling.CustomFanCurveAssignments`; switching to `off` releases every fan
-to BIOS Control.
+to hardware control (a Q-series hub goes to its `Cooling.HubControlModes`
+entry, firmware curve by default; an NP50 to its EEPROM default mode).
 
 ### Devices
 

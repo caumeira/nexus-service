@@ -827,6 +827,8 @@ public sealed class CoolingSettings
     public Dictionary<string, bool> FanLockOverrides { get; set; } = new();
     /// <summary>Channel ids Nexus stops driving entirely, so the motherboard or a vendor app owns them. Distinct from an unassigned channel, which is merely idle: this survives preset applies. Mirrors <see cref="DevicesSettings.UncontrolledLightingDevices"/>; see <see cref="Nexus.Service.Cooling.FanControlledState"/>.</summary>
     public List<string> UncontrolledFanChannels { get; set; } = new();
+    /// <summary>Where a hub with a shared control mode goes when Nexus stops driving it, keyed by device id: "firmware" (the cooler's onboard curve) or "motherboard" (PWM pass-through). An absent entry means firmware wherever the hub has one, so a stock install and a cooling reset both land there; only an explicit Hardware-control pick writes an entry. See <see cref="Nexus.Service.Cooling.QSeriesCoolerCoolingProvider"/>.</summary>
+    public Dictionary<string, string> HubControlModes { get; set; } = new();
     /// <summary>User-assigned display/monitoring-grouping role keyed by raw channel ID: one of <see cref="Nexus.Service.Models.Cooling.FanRoleKind.Cpu"/> / <see cref="Nexus.Service.Models.Cooling.FanRoleKind.Gpu"/>. An absent entry means <see cref="Nexus.Service.Models.Cooling.FanRoleKind.None"/>. Metadata only - does not affect fan control, locking, or preset logic.</summary>
     public Dictionary<string, string> FanRoles { get; set; } = new();
     /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "turbo" | "max" | "custom".</summary>
