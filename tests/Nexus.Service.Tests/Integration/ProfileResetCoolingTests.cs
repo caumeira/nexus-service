@@ -141,6 +141,69 @@ public sealed class ProfileResetCoolingTests
         }
     }
 
+    private static readonly string[] PresetCurveIds =
+        { "preset-silent", "preset-balanced", "preset-turbo", "preset-max" };
+
+    private static IReadOnlyList<string> CurveIds(WebApplicationFactory<Program> factory) =>
+        factory.Services.GetRequiredService<Nexus.Service.Persistence.IConfigStore>()
+            .Load().Cooling.Curves.Select(c => c.Id).ToList();
+
+    // A reset must land on the same four preset curves a clean install boots
+    // with, not on an empty list that only refills after a restart.
+    [Fact]
+    public async Task ResetCooling_SeedsTheDefaultPresetCurves()
+    {
+        var (factory, client, _) = Boot();
+        using (factory)
+        {
+            var id = await ActiveProfileId(factory, client);
+            Assert.True(FanProfiles.SeedDefaultPresetCurves(
+                factory.Services.GetRequiredService<IFanControlProvider>(),
+                factory.Services.GetRequiredService<Nexus.Service.Persistence.IConfigStore>()));
+
+            var res = await client.PostAsJsonAsync($"/profiles/{id}/reset/cooling", new { });
+
+            Assert.True(res.IsSuccessStatusCode);
+            Assert.Equal(PresetCurveIds, CurveIds(factory));
+        }
+    }
+
+    [Fact]
+    public async Task ResetWholeProfile_SeedsTheDefaultPresetCurves()
+    {
+        var (factory, client, _) = Boot();
+        using (factory)
+        {
+            var id = await ActiveProfileId(factory, client);
+
+            var res = await client.PostAsJsonAsync($"/profiles/{id}/reset", new { });
+
+            Assert.True(res.IsSuccessStatusCode);
+            Assert.Equal(PresetCurveIds, CurveIds(factory));
+        }
+    }
+
+    [Fact]
+    public async Task SharedCooling_ResetOnAnotherProfile_SeedsTheActiveProfile()
+    {
+        var (factory, client, _) = Boot();
+        using (factory)
+        {
+            var first = await ActiveProfileId(factory, client);
+            Assert.True((await client.PutAsJsonAsync("/profiles/sharing/categories",
+                new { category = "cooling", shared = true })).IsSuccessStatusCode);
+            var other = await CreateProfile(client, "Second");
+            // Creating a profile activates it; switch back so the reset names
+            // an inactive profile and goes through the shared branch.
+            Assert.True((await client.PostAsJsonAsync($"/profiles/{first}/switch", new { })).IsSuccessStatusCode);
+
+            var res = await client.PostAsJsonAsync($"/profiles/{other}/reset/cooling", new { });
+
+            Assert.True(res.IsSuccessStatusCode);
+            Assert.Equal(PresetCurveIds, CurveIds(factory));
+        }
+    }
+
     [Fact]
     public async Task ResetLighting_LeavesFansAlone()
     {

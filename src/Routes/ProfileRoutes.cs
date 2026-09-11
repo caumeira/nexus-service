@@ -345,6 +345,9 @@ public static class ProfileRoutes
                     // is not among the categories ResetProfile touches.
                     if (!coolingShared)
                     {
+                        // The same first-run seed a clean install gets, so a
+                        // reset lands on the four preset curves, not on none.
+                        FanProfiles.SeedDefaultPresetCurves(fans, store);
                         LiveEngineSync.ReleaseCoolingAfterReset(fans, gates);
                     }
                     LiveEngineSync.Apply(store, fans, lp, gates);
@@ -398,6 +401,7 @@ public static class ProfileRoutes
                 {
                     if (normalized == ProfileSharing.Cooling)
                     {
+                        FanProfiles.SeedDefaultPresetCurves(fans, store);
                         LiveEngineSync.ReleaseCoolingAfterReset(fans, gates);
                     }
                     LiveEngineSync.Apply(store, fans, lp, gates);

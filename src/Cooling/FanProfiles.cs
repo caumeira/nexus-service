@@ -426,9 +426,11 @@ public static class FanProfiles
     }
 
     /// <summary>
-    /// Seed the Silent / Balanced / Turbo / Max preset curves on first run so all
-    /// four exist the first time the cooling page is opened on a fresh install.
-    /// Runs at most once per profile (tracked by
+    /// Seed the Silent / Balanced / Turbo / Max preset curves so all four exist
+    /// the first time the cooling page is opened on a fresh install, after a
+    /// cooling reset (which hands the profile a blank <see cref="CoolingSettings"/>),
+    /// and on the first switch into a profile reset while inactive. Runs at
+    /// most once per seeded state (tracked by
     /// <see cref="CoolingSettings.CurvesSeeded"/>) and only adds curves when the
     /// profile is empty, so neither an existing install nor a user who later
     /// deletes every curve gets the presets resurrected. Fan outputs are
