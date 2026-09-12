@@ -23,22 +23,21 @@ public static class WindowsDynamicLighting
     private const int LampArrayUsagePage = 0x59;
     private const int LampArrayUsage = 0x01;
 
-    /// <summary>Whether this platform can carry the settings at all - the SPA hides the section otherwise.</summary>
+    /// <summary>Whether this platform can carry the setting at all.</summary>
     public static bool IsSupported() => OperatingSystem.IsWindows();
 
     /// <summary>A missing value reads as ON: Windows writes it only once the page is touched, and it defaults to on.</summary>
     public static bool DwordIsOn(object? value) => value is not int number || number != 0;
 
-    /// <summary>LampArray interfaces out of a HID enumeration, named as Windows names their <c>Devices</c> entry: the interface path without its <c>\\?\</c> prefix.</summary>
-    public static List<string> LampArrayIds(IEnumerable<HidDeviceInfo> devices)
+    /// <summary>How many of a HID enumeration are LampArrays - the usage is all that separates one from a mouse.</summary>
+    public static int CountLampArrays(IEnumerable<HidDeviceInfo> devices)
     {
-        var ids = new List<string>();
+        var count = 0;
         foreach (var hid in devices)
         {
-            if (hid.UsagePage != LampArrayUsagePage || hid.Usage != LampArrayUsage) continue;
-            ids.Add(hid.Path.StartsWith(@"\\?\", StringComparison.Ordinal) ? hid.Path.Substring(4) : hid.Path);
+            if (hid.UsagePage == LampArrayUsagePage && hid.Usage == LampArrayUsage) count++;
         }
-        return ids;
+        return count;
     }
 
 #if WINDOWS
@@ -63,7 +62,7 @@ public static class WindowsDynamicLighting
             state.Enabled = DwordIsOn(root.GetValue(AmbientEnabledValue));
             // Windows keeps a Devices entry for every LampArray it has ever
             // seen, so counting subkeys reports hardware that is not plugged in.
-            state.DeviceCount = PresentLampArrays().Count;
+            state.DeviceCount = PresentLampArrayCount();
         }
         catch (Exception ex)
         {
@@ -95,18 +94,18 @@ public static class WindowsDynamicLighting
         return Read();
     }
 
-    /// <summary>Connected LampArray interface ids. Walks every HID interface, opening each one query-only.</summary>
+    /// <summary>Connected LampArrays. Walks every HID interface, opening each one query-only.</summary>
     [SupportedOSPlatform("windows")]
-    private static List<string> PresentLampArrays()
+    private static int PresentLampArrayCount()
     {
         try
         {
-            return LampArrayIds(new Nexus.Service.Peripherals.Hid.WindowsHidEnumerator().FindAll());
+            return CountLampArrays(new WindowsHidEnumerator().FindAll());
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[conflicts] dynamic lighting device scan failed: {ex.Message}");
-            return new List<string>();
+            return 0;
         }
     }
 #else

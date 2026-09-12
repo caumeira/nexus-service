@@ -56,11 +56,7 @@ public sealed class DisableConflictAutostartResponse
     public int Disabled { get; set; }
 }
 
-/// <summary>
-/// The Windows Dynamic Lighting settings. Available is false when the console
-/// user's Lighting key could not be read, in which case every other field is
-/// meaningless and the SPA hides the section.
-/// </summary>
+/// <summary>Available is false when the console user's Lighting key could not be read, in which case every other field is meaningless.</summary>
 public sealed class WindowsDynamicLightingState
 {
     public bool Available { get; set; }
@@ -68,7 +64,7 @@ public sealed class WindowsDynamicLightingState
     /// <summary>Settings > Personalization > Dynamic Lighting, "Use Dynamic Lighting on my devices".</summary>
     public bool Enabled { get; set; }
 
-    /// <summary>Dynamic Lighting devices connected right now. Windows keeps registry entries for hardware that has been unplugged, so this counts the hardware instead.</summary>
+    /// <summary>Dynamic Lighting devices connected right now; with none there is nothing to contend for.</summary>
     public int DeviceCount { get; set; }
 }
 

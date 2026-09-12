@@ -121,20 +121,18 @@ public sealed class ConflictStartupShutdown : IHostedService
         catch (Exception ex) { _log.LogWarning(ex, "Startup conflict shutdown notification failed."); }
     }
 
-    /// <summary>Skipped when no compatible device is attached - Windows drives nothing there.</summary>
+    /// <summary>Unconditional: gating on a device being present would race HID enumeration at boot, and this sweep never runs twice.</summary>
     private void TurnOffWindowsDynamicLighting()
     {
         if (!WindowsDynamicLighting.IsSupported()) return;
         try
         {
-            var state = WindowsDynamicLighting.Read();
-            if (!state.Available || !state.Enabled || state.DeviceCount == 0) return;
             WindowsDynamicLighting.Write(enabled: false);
-            _log.LogInformation("Startup conflict shutdown: turned Windows Dynamic Lighting off.");
+            _log.LogInformation("Startup conflict shutdown: switched Windows Dynamic Lighting off.");
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Startup conflict shutdown could not turn Windows Dynamic Lighting off.");
+            _log.LogWarning(ex, "Startup conflict shutdown could not switch Windows Dynamic Lighting off.");
         }
     }
 
