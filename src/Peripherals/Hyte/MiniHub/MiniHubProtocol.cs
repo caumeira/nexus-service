@@ -124,6 +124,11 @@ public static class MiniHubProtocol
     /// of 0 means "no tach signal" → 0 RPM. Returns false if the header
     /// doesn't match the expected get-fan-speed reply (transport hiccup,
     /// wrong device on the port, etc.).
+    /// On firmware 1.0.1.1 the period bytes do not track the fans: they stay
+    /// frozen with no LED traffic, change at random while frames stream, and
+    /// ignore a 10%→100% duty change (Y70 bench, 2026-09-11). The poll is
+    /// kept as a transport liveness check; the cooling provider marks both
+    /// ports RpmUnavailable instead of showing the decoded value.
     /// </summary>
     public static bool TryParseFanSpeeds(ReadOnlySpan<byte> response, out int port1Rpm, out int port2Rpm)
     {

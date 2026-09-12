@@ -49,10 +49,10 @@ public sealed class MiniHubState
     /// </summary>
     public int Port2Fans { get; set; } = 3;
 
-    /// <summary>Last polled port-1 tach reading in RPM. 0 when the port has no fan or the firmware reports no tach signal.</summary>
+    /// <summary>Last polled port-1 "tach" value decoded as RPM. Not a fan measurement on firmware 1.0.1.1 (see <see cref="MiniHubProtocol.TryParseFanSpeeds"/>); kept for the poll trace only, never surfaced.</summary>
     public int Port1Rpm { get; set; }
 
-    /// <summary>Last polled port-2 tach reading in RPM. With a 3-fan daisy chain this is the speed of the fan whose tach wire the hub samples (firmware-defined).</summary>
+    /// <summary>Last polled port-2 "tach" value decoded as RPM. Same caveat as <see cref="Port1Rpm"/>.</summary>
     public int Port2Rpm { get; set; }
 
     /// <summary>Last commanded port-1 duty (10..100%). 0 means the port has never been driven from software.</summary>

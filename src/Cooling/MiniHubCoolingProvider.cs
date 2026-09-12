@@ -52,6 +52,10 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
 
     // ── IFanControlProvider ──
 
+    // RpmUnavailable on both ports: MiniHub firmware 1.0.1.1 answers the
+    // get-fan-speed poll with a byte that never tracks the fan (frozen with no
+    // LED traffic, random under the 30 Hz stream, unchanged between 10% and
+    // 100% duty - measured on the Y70 bench 2026-09-11), so no RPM is shown.
     public IReadOnlyList<FanChannel> GetFanChannels()
     {
         var connected = _hub.IsConnected;
@@ -71,7 +75,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = id,
                 Name = "Port 1 Fan",
                 DutyPercent = state.Port1Duty,
-                Rpm = state.Port1Rpm,
+                RpmUnavailable = true,
                 Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
                 DeviceName = MiniHubHub.ProductName,
@@ -87,7 +91,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = id,
                 Name = label,
                 DutyPercent = state.Port2Duty,
-                Rpm = state.Port2Rpm,
+                RpmUnavailable = true,
                 Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
                 DeviceName = MiniHubHub.ProductName,
@@ -169,7 +173,6 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = Port1Id(serial),
                 Name = "Port 1 Fan",
                 Type = "Fan",
-                Rpm = state.Port1Rpm,
                 Pwm = state.Port1Duty,
             });
         }
@@ -180,7 +183,6 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = Port2Id(serial),
                 Name = state.Port2Fans == 1 ? "Port 2 Fan" : $"Port 2 Fans ({state.Port2Fans})",
                 Type = "Fan",
-                Rpm = state.Port2Rpm,
                 Pwm = state.Port2Duty,
             });
         }

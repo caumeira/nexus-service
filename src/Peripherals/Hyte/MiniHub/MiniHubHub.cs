@@ -182,6 +182,9 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
 
     /// <summary>
     /// Query both port tach readings and stash them on <see cref="State"/>.
+    /// The values are junk on firmware 1.0.1.1 (see
+    /// <see cref="MiniHubProtocol.TryParseFanSpeeds"/>); the poll's job is
+    /// the round trip itself.
     /// Returns false on transport hiccup or malformed reply so the heartbeat
     /// can drop the transport and re-discover the port. The 300 ms read
     /// budget matches <see cref="PollFirmwareVersion"/>.
