@@ -1092,12 +1092,6 @@ public sealed class DevicesSettings
     /// which is what makes a multi-zone partition safe on a resizable segment:
     /// the count can no longer drift out from under the slices.
     /// </summary>
-    /// <summary>
-    /// Renamed from the short-lived "LedChains", which held plain product keys.
-    /// A changed element type would have thrown on load, and this loader is
-    /// all-or-nothing: one unreadable field discards the WHOLE settings file.
-    /// A new property name means the old key is simply ignored instead.
-    /// </summary>
     public Dictionary<string, List<ChainEntry>> PortChains { get; set; } = new();
 
     /// <summary>

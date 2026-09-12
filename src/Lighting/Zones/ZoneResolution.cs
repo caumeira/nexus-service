@@ -55,9 +55,8 @@ public static class ZoneResolution
 
     /// <summary>
     /// Segments whose LED count is owned by a product chain, so a multi-zone
-    /// partition over them is legitimate. A chain whose product count no longer
-    /// matches the live segment count is ignored, which drops the partition back
-    /// to the default rather than tiling a segment that moved underneath it.
+    /// partition over them is legitimate. A segment is owned when its chain
+    /// key holds a non-empty product list.
     /// </summary>
     public static IReadOnlySet<int> ChainOwnedSegments(DeviceStructure structure, NexusSettings settings)
     {

@@ -33,7 +33,7 @@ public static class OpenRgbZoneSupport
     /// so every per-card setting - counts, applied mappings, prefs, uncontrolled
     /// and disabled lists, canvas layout - keeps working untouched. Only the
     /// device-scoped dictionaries that used to hang off the parent need moving,
-    /// which SettingsMigrations does once.
+    /// which SplitMotherboardDeviceMigration does once.
     /// </summary>
     public static List<DeviceStructure> BuildStructures(RgbDevice d, NexusSettings settings)
     {
