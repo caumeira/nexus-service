@@ -933,13 +933,15 @@ public static partial class DevicesRoutes
         {
             var settings = store.Load();
             // defaults=true previews the factory layout: keep persisted LED
-            // counts and the partition (they describe the hardware as wired
-            // and the card shape) but drop mapping + override + group layers.
+            // counts, the partition, and port chains (they describe the
+            // hardware as wired and the card shape) but drop mapping +
+            // override + group layers.
             var effective = defaults == true
                 ? new Nexus.Service.Persistence.NexusSettings
                 {
                     Devices = new Nexus.Service.Persistence.DevicesSettings
                     {
+                        PortChains = settings.Devices.PortChains,
                         ZoneLedCounts = settings.Devices.ZoneLedCounts,
                         ZonePartitions = settings.Devices.ZonePartitions,
                         DeviceAspectRatios = settings.Devices.DeviceAspectRatios,

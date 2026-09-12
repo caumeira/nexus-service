@@ -3,6 +3,7 @@ using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Persistence;
+using Nexus.Service.Routes;
 
 namespace Nexus.Service.Tests.Lighting.Zones;
 
@@ -149,6 +150,20 @@ public class ChainedPortFrameTests
         // 0: the device-map routes use that number as the segment key.
         var plain = ZoneResolution.Resolve(ports[0], settings)[0];
         Assert.Equal(0, ZoneResolution.WholeResizableSegment(ports[0], plain, settings));
+    }
+
+    [Fact]
+    public void Device_map_defaults_facade_keeps_the_chained_ports_zone_count()
+    {
+        var settings = ChainedSecondHeader();
+        var facade = DevicesRoutes.DeviceMapDefaultsFacade(settings);
+        var chained = OpenRgbZoneSupport.BuildStructures(Board(), settings)[1];
+
+        var liveZones = ZoneResolution.Resolve(chained, settings);
+        var facadeZones = ZoneResolution.Resolve(chained, facade);
+
+        Assert.Equal(3, liveZones.Count);
+        Assert.Equal(liveZones.Count, facadeZones.Count);
     }
 
     [Fact]

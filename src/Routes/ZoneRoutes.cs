@@ -186,15 +186,16 @@ public static partial class DevicesRoutes
 
     /// <summary>
     /// Factory-defaults view of the settings for the device-map GET: keep the
-    /// partition, wired LED counts, and canvas aspect ratio (they describe
-    /// the hardware as wired and the editor canvas shape, matching the
-    /// per-card led-map defaults preview) but drop the override and
-    /// applied-mapping layers so the resolver yields provider defaults.
+    /// port chains, partition, wired LED counts, and canvas aspect ratio
+    /// (they describe the hardware as wired and the editor canvas shape,
+    /// matching the per-card led-map defaults preview) but drop the override
+    /// and applied-mapping layers so the resolver yields provider defaults.
     /// </summary>
     internal static NexusSettings DeviceMapDefaultsFacade(NexusSettings settings) => new()
     {
         Devices = new DevicesSettings
         {
+            PortChains = settings.Devices.PortChains,
             ZonePartitions = settings.Devices.ZonePartitions,
             ZoneLedCounts = settings.Devices.ZoneLedCounts,
             DeviceAspectRatios = settings.Devices.DeviceAspectRatios,
