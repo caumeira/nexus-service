@@ -527,6 +527,8 @@ public sealed class LightingSettings
     public Dictionary<string, string> DeviceNames { get; set; } = new();
     /// <summary>User-made card groups, in display order. Capped by the route layer; hardware groups are not listed here and cannot be dissolved.</summary>
     public List<DeviceGroup> DeviceGroups { get; set; } = new();
+    /// <summary>Sets of cards linked to one canvas frame and one selection. Same shape and cap as the groups; a card is in at most one link.</summary>
+    public List<DeviceGroup> DeviceLinks { get; set; } = new();
     /// <summary>
     /// Per-device Static assignments, keyed by lighting-device id. A device
     /// listed here wears its own look in Static instead of the shared canvas.

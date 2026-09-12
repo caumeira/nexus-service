@@ -626,6 +626,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SetLightingDeviceControlledBody))]
 [JsonSerializable(typeof(SetLightingDeviceNameBody))]
 [JsonSerializable(typeof(SetDeviceGroupsBody))]
+[JsonSerializable(typeof(SetDeviceLinksBody))]
 [JsonSerializable(typeof(SetLightingDeviceBrightness))]
 [JsonSerializable(typeof(SetLightingDeviceHue))]
 [JsonSerializable(typeof(SetLightingDeviceSaturation))]

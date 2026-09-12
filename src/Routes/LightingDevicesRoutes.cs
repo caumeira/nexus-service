@@ -298,6 +298,7 @@ public static partial class DevicesRoutes
             var lighting = store.Load().Lighting;
             Nexus.Service.Lighting.LightingDeviceNames.Apply(all.Devices, lighting.DeviceNames);
             all.Groups = lighting.DeviceGroups;
+            all.Links = lighting.DeviceLinks;
             return all;
         }).AllowPanel();
 
@@ -312,6 +313,17 @@ public static partial class DevicesRoutes
             store.Update(s => s.Lighting.DeviceGroups = groups);
             Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return Results.Ok(new SetDeviceGroupsBody { Groups = groups });
+        });
+
+        app.MapPut("/devices/lighting-devices/links", (
+            SetDeviceLinksBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            var links = Nexus.Service.Common.DeviceGroupList.Sanitize(body.Links);
+            store.Update(s => s.Lighting.DeviceLinks = links);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return Results.Ok(new SetDeviceLinksBody { Links = links });
         });
 
         // No existence check: the id is whatever card the list handed the UI, and
