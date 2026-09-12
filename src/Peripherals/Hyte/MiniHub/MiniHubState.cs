@@ -49,11 +49,23 @@ public sealed class MiniHubState
     /// </summary>
     public int Port2Fans { get; set; } = 3;
 
-    /// <summary>Last polled port-1 "tach" value decoded as RPM. Not a fan measurement on firmware 1.0.1.1 (see <see cref="MiniHubProtocol.TryParseFanSpeeds"/>); kept for the poll trace only, never surfaced.</summary>
+    /// <summary>Port-1 RPM agreed by <see cref="MiniHubTachConsensus"/>; 0 while <see cref="Port1RpmValid"/> is false.</summary>
     public int Port1Rpm { get; set; }
 
-    /// <summary>Last polled port-2 "tach" value decoded as RPM. Same caveat as <see cref="Port1Rpm"/>.</summary>
+    /// <summary>True when recent port-1 polls agree on a plausible speed. False hides the readout (RpmUnavailable) instead of showing a corrupted sample.</summary>
+    public bool Port1RpmValid { get; set; }
+
+    /// <summary>Port-2 RPM agreed by <see cref="MiniHubTachConsensus"/>; 0 while <see cref="Port2RpmValid"/> is false.</summary>
     public int Port2Rpm { get; set; }
+
+    /// <summary>Port-2 counterpart of <see cref="Port1RpmValid"/>.</summary>
+    public bool Port2RpmValid { get; set; }
+
+    /// <summary>Last raw port-1 poll decoded as RPM, before consensus. Trace only.</summary>
+    public int Port1RawRpm { get; set; }
+
+    /// <summary>Last raw port-2 poll decoded as RPM, before consensus. Trace only.</summary>
+    public int Port2RawRpm { get; set; }
 
     /// <summary>Last commanded port-1 duty (10..100%). 0 means the port has never been driven from software.</summary>
     public int Port1Duty { get; set; }

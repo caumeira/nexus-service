@@ -128,6 +128,10 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
             try { _transport?.Dispose(); } catch { /* best effort */ }
             _transport = null;
         }
+        _port1Tach.Reset();
+        _port2Tach.Reset();
+        State.Port1RpmValid = false;
+        State.Port2RpmValid = false;
     }
 
     public bool PollFirmwareVersion()
@@ -181,10 +185,10 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
     }
 
     /// <summary>
-    /// Query both port tach readings and stash them on <see cref="State"/>.
-    /// The values are junk on firmware 1.0.1.1 (see
-    /// <see cref="MiniHubProtocol.TryParseFanSpeeds"/>); the poll's job is
-    /// the round trip itself.
+    /// Query both port tach readings, feed them through
+    /// <see cref="MiniHubTachConsensus"/> and stash the agreed values on
+    /// <see cref="State"/> (see <see cref="MiniHubProtocol.TryParseFanSpeeds"/>
+    /// for why a single poll cannot be trusted).
     /// Returns false on transport hiccup or malformed reply so the heartbeat
     /// can drop the transport and re-discover the port. The 300 ms read
     /// budget matches <see cref="PollFirmwareVersion"/>.
@@ -200,8 +204,16 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
             var n = transport.Read(buf, 300);
             if (n < MiniHubProtocol.GetFanSpeedResponseLength) return FailPoll("fan-speed", $"short read ({n} bytes)");
             if (!MiniHubProtocol.TryParseFanSpeeds(buf.AsSpan(0, n), out var rpm1, out var rpm2)) return false;
-            State.Port1Rpm = rpm1;
-            State.Port2Rpm = rpm2;
+            State.Port1RawRpm = rpm1;
+            State.Port2RawRpm = rpm2;
+            _port1Tach.Add(rpm1);
+            _port2Tach.Add(rpm2);
+            var agreed1 = _port1Tach.Evaluate();
+            var agreed2 = _port2Tach.Evaluate();
+            State.Port1Rpm = agreed1 ?? 0;
+            State.Port1RpmValid = agreed1 is not null;
+            State.Port2Rpm = agreed2 ?? 0;
+            State.Port2RpmValid = agreed2 is not null;
             _pollFailures.Reset();
             return true;
         }
@@ -290,6 +302,8 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
     }
 
     private readonly PollFailureTracker _pollFailures = new("minihub");
+    private readonly MiniHubTachConsensus _port1Tach = new();
+    private readonly MiniHubTachConsensus _port2Tach = new();
     private int _consecutiveWriteFailures;
     private const int ConsecutiveWriteFailureThreshold = 5;
 }

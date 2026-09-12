@@ -52,7 +52,6 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
 
     // ── IFanControlProvider ──
 
-    // RpmUnavailable on both ports: see MiniHubProtocol.TryParseFanSpeeds.
     public IReadOnlyList<FanChannel> GetFanChannels()
     {
         var connected = _hub.IsConnected;
@@ -72,7 +71,8 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = id,
                 Name = "Port 1 Fan",
                 DutyPercent = state.Port1Duty,
-                RpmUnavailable = true,
+                Rpm = state.Port1Rpm,
+                RpmUnavailable = !state.Port1RpmValid,
                 Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
                 DeviceName = MiniHubHub.ProductName,
@@ -88,7 +88,8 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = id,
                 Name = label,
                 DutyPercent = state.Port2Duty,
-                RpmUnavailable = true,
+                Rpm = state.Port2Rpm,
+                RpmUnavailable = !state.Port2RpmValid,
                 Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
                 DeviceName = MiniHubHub.ProductName,
@@ -148,8 +149,9 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
         IProgress<FanCalibrationProgress> progress,
         CancellationToken ct)
     {
-        // Nothing to measure: the hub reports no usable RPM (see
-        // MiniHubProtocol.TryParseFanSpeeds), so a duty ramp learns nothing.
+        // A duty ramp needs a prompt RPM readback; the consensus filter takes
+        // ~8 s of agreeing polls per step (see MiniHubTachConsensus), and the
+        // port-2 chain never agrees below 100%. Skip, like NP50.
         return Task.FromResult<IReadOnlyList<FanCalibration>>(Array.Empty<FanCalibration>());
     }
 
@@ -170,6 +172,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = Port1Id(serial),
                 Name = "Port 1 Fan",
                 Type = "Fan",
+                Rpm = state.Port1RpmValid ? state.Port1Rpm : null,
                 Pwm = state.Port1Duty,
             });
         }
@@ -180,6 +183,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = Port2Id(serial),
                 Name = state.Port2Fans == 1 ? "Port 2 Fan" : $"Port 2 Fans ({state.Port2Fans})",
                 Type = "Fan",
+                Rpm = state.Port2RpmValid ? state.Port2Rpm : null,
                 Pwm = state.Port2Duty,
             });
         }
