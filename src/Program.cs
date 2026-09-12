@@ -530,8 +530,16 @@ app.UseStaticFiles(new StaticFileOptions
 {
     OnPrepareResponse = ctx =>
     {
-        if (ctx.Context.Request.Path.StartsWithSegments("/assets"))
-            ctx.Context.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        var path = ctx.Context.Request.Path;
+        if (!path.StartsWithSegments("/assets")) return;
+        // Vite's bundles under /assets are content-hashed, so they can be
+        // immutable. The device and brand icons are copied there unhashed from
+        // nexus-web/public and must revalidate, or a redrawn icon never
+        // reaches an install that already cached it.
+        ctx.Context.Response.Headers.CacheControl =
+            path.StartsWithSegments("/assets/devices") || path.StartsWithSegments("/assets/brands")
+                ? "no-cache"
+                : "public, max-age=31536000, immutable";
     },
 });
 

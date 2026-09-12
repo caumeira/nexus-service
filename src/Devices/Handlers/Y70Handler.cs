@@ -25,7 +25,7 @@ public sealed class Y70Handler : IDeviceHandler
     // Every panel variant surfaces under the family name; the specific variant
     // is carried by FirmwareType (the OTA catalog key for the serial models,
     // a diagnostics label for the DDC-only ones), not the label.
-    public string Name => "Y70 Touch";
+    public string Name => "HYTE Y70 Touch";
 
     public string Category => "display";
 
