@@ -84,13 +84,38 @@ public class MiniHubTachConsensusTests
     }
 
     [Fact]
-    public void Window_evicts_the_oldest_samples()
+    public void Agreed_value_holds_through_junk_until_its_samples_leave_the_window()
     {
         var c = new MiniHubTachConsensus();
         for (var i = 0; i < MiniHubTachConsensus.MinAgreeing; i++) c.Add(900);
         Assert.Equal(900, c.Evaluate());
-        for (var i = 0; i < MiniHubTachConsensus.WindowSize; i++) c.Add(30000);
+        // Junk polls follow; the last agreed value stays up while any 900 remains.
+        for (var i = 0; i < MiniHubTachConsensus.WindowSize - MiniHubTachConsensus.MinAgreeing; i++)
+        {
+            c.Add(30000);
+            Assert.Equal(900, c.Evaluate());
+        }
+        // The first 900 leaves the window on the next add; the hold ends only
+        // when the last one has gone.
+        for (var i = 0; i < MiniHubTachConsensus.MinAgreeing - 1; i++)
+        {
+            c.Add(30000);
+            Assert.Equal(900, c.Evaluate());
+        }
+        c.Add(30000);
         Assert.Null(c.Evaluate());
+    }
+
+    [Fact]
+    public void A_new_agreeing_cluster_replaces_the_held_value()
+    {
+        var c = new MiniHubTachConsensus();
+        for (var i = 0; i < MiniHubTachConsensus.MinAgreeing; i++) c.Add(1500);
+        Assert.Equal(1500, c.Evaluate());
+        for (var i = 0; i < MiniHubTachConsensus.MinAgreeing; i++) c.Add(700);
+        Assert.Equal(1500, c.Evaluate());
+        c.Add(700);
+        Assert.Equal(700, c.Evaluate());
     }
 
     [Fact]

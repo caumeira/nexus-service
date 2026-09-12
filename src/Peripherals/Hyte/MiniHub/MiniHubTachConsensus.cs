@@ -5,9 +5,11 @@ namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 /// <summary>
 /// Agreement filter over one MiniHub port's tach polls (why single polls
 /// cannot be trusted: <see cref="MiniHubProtocol.TryParseFanSpeeds"/>).
-/// A reading is published only when at least <see cref="MinAgreeing"/> of
-/// the last <see cref="WindowSize"/> plausible samples agree within
-/// <see cref="Tolerance"/>; otherwise the port reports no RPM.
+/// A reading is published once at least <see cref="MinAgreeing"/> of the
+/// last <see cref="WindowSize"/> plausible samples agree within
+/// <see cref="Tolerance"/>, and stays published while any sample near it is
+/// still in the window, so a port between agreed runs holds its last value
+/// instead of flickering to "no RPM".
 /// </summary>
 public sealed class MiniHubTachConsensus
 {
@@ -24,6 +26,7 @@ public sealed class MiniHubTachConsensus
     private readonly int[] _window = new int[WindowSize];
     private int _count;
     private int _next;
+    private int? _published;
 
     public void Add(int rpm)
     {
@@ -41,23 +44,43 @@ public sealed class MiniHubTachConsensus
         {
             _count = 0;
             _next = 0;
+            _published = null;
         }
     }
 
     /// <summary>
-    /// The agreed RPM, or null when no cluster of <see cref="MinAgreeing"/>
-    /// plausible samples exists. The largest cluster wins; its median is
-    /// returned so one stray neighbour cannot skew the value.
+    /// The published RPM, or null. A new cluster of <see cref="MinAgreeing"/>
+    /// plausible samples replaces the published value (largest cluster wins,
+    /// its median so one stray neighbour cannot skew it); without one, the
+    /// previous value holds until no sample within tolerance of it remains.
     /// </summary>
     public int? Evaluate()
     {
         lock (_lock)
         {
-            return EvaluateLocked();
+            var agreed = LargestClusterLocked();
+            if (agreed is not null)
+            {
+                _published = agreed;
+            }
+            else if (_published is { } held && !AnyAgreesLocked(held))
+            {
+                _published = null;
+            }
+            return _published;
         }
     }
 
-    private int? EvaluateLocked()
+    private bool AnyAgreesLocked(int center)
+    {
+        for (var j = 0; j < _count; j++)
+        {
+            if (Agrees(center, _window[j])) return true;
+        }
+        return false;
+    }
+
+    private int? LargestClusterLocked()
     {
         var bestCount = 0;
         var bestCenter = 0;
