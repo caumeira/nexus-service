@@ -16531,6 +16531,9 @@
           },
           "sourceId": {
             "type": "string"
+          },
+          "kind": {
+            "type": "string"
           }
         }
       },
