@@ -145,29 +145,29 @@ public class DeviceGroupListTests
     }
 
     [Fact]
-    public void SanitizeLinks_DissolvesShortLinksAndDropsTheRailFields()
+    public void SanitizeStacks_DissolvesShortStacksAndDropsTheRailFields()
     {
-        var links = DeviceGroupList.SanitizeLinks(new[]
+        var stacks = DeviceGroupList.SanitizeStacks(new[]
         {
             new DeviceGroup { Id = "l1", Name = "Keeb", Members = new List<string> { "a", "b" }, After = "x", Parent = "y" },
             Group("l2", "Pair", "b", "c"),
             Group("l3", "Lone", "d"),
         });
 
-        Assert.Single(links);
-        Assert.Equal("l1", links[0].Id);
-        Assert.Null(links[0].After);
-        Assert.Null(links[0].Parent);
+        Assert.Single(stacks);
+        Assert.Equal("l1", stacks[0].Id);
+        Assert.Null(stacks[0].After);
+        Assert.Null(stacks[0].Parent);
     }
 
     [Fact]
-    public void SanitizeLinks_HasNoCap()
+    public void SanitizeStacks_HasNoCap()
     {
         var many = Enumerable.Range(0, DeviceGroupList.MaxGroups + 4)
             .Select(i => Group($"l{i}", $"L{i}", $"a-{i}", $"b-{i}"))
             .ToArray();
 
-        Assert.Equal(many.Length, DeviceGroupList.SanitizeLinks(many).Count);
+        Assert.Equal(many.Length, DeviceGroupList.SanitizeStacks(many).Count);
     }
 
     [Fact]

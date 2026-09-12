@@ -6,7 +6,7 @@ namespace Nexus.Service.Common;
 
 /// <summary>
 /// Shared sanitizer for the lighting and cooling pages' user-made groups, and
-/// for the lighting page's device links. The client owns order and membership
+/// for the lighting page's device stacks. The client owns order and membership
 /// and PUTs the whole list, so this is the one place the invariants hold: at
 /// most <see cref="MaxGroups"/> groups, a member in at most one of them, and no
 /// blank ids or names.
@@ -62,30 +62,30 @@ public static class DeviceGroupList
     }
 
     /// <summary>
-    /// A link list as it will be stored: the group invariants minus the cap and
-    /// the rail fields, and a link holding fewer than two cards dissolves.
+    /// A stack list as it will be stored: the group invariants minus the cap and
+    /// the rail fields, and a stack holding fewer than two cards dissolves.
     /// </summary>
-    public static List<DeviceGroup> SanitizeLinks(IReadOnlyList<DeviceGroup>? incoming)
+    public static List<DeviceGroup> SanitizeStacks(IReadOnlyList<DeviceGroup>? incoming)
     {
         var result = new List<DeviceGroup>();
         if (incoming is null) return result;
 
         var claimed = new HashSet<string>(StringComparer.Ordinal);
         var ids = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var link in incoming)
+        foreach (var stack in incoming)
         {
-            var id = (link.Id ?? "").Trim();
+            var id = (stack.Id ?? "").Trim();
             if (id.Length == 0 || !ids.Add(id)) continue;
 
-            var members = new List<string>(link.Members.Count);
-            foreach (var member in link.Members)
+            var members = new List<string>(stack.Members.Count);
+            foreach (var member in stack.Members)
             {
                 var trimmed = (member ?? "").Trim();
                 if (trimmed.Length == 0 || !claimed.Add(trimmed)) continue;
                 members.Add(trimmed);
             }
             if (members.Count < 2) continue;
-            var name = (link.Name ?? "").Trim();
+            var name = (stack.Name ?? "").Trim();
             if (name.Length > MaxNameLength) name = name[..MaxNameLength];
             result.Add(new DeviceGroup { Id = id, Name = name, Members = members });
         }

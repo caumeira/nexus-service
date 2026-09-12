@@ -3552,7 +3552,7 @@
         }
       }
     },
-    "/devices/lighting-devices/links": {
+    "/devices/lighting-devices/stacks": {
       "put": {
         "tags": [
           "Nexus"
@@ -3561,7 +3561,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SetDeviceLinksBody"
+                "$ref": "#/components/schemas/SetDeviceStacksBody"
               }
             }
           },
@@ -16823,7 +16823,7 @@
               "$ref": "#/components/schemas/DeviceGroup"
             }
           },
-          "links": {
+          "stacks": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DeviceGroup"
@@ -21640,10 +21640,10 @@
           }
         }
       },
-      "SetDeviceLinksBody": {
+      "SetDeviceStacksBody": {
         "type": "object",
         "properties": {
-          "links": {
+          "stacks": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DeviceGroup"

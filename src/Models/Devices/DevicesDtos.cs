@@ -258,8 +258,8 @@ public class GetLightingDevicesResponse
     public List<LightingDevice> Devices { get; set; } = new();
     /// <summary>User-made card groups, in display order. Rides the device list so the page needs no second fetch and the lighting topic already refreshes it.</summary>
     public List<Nexus.Service.Persistence.DeviceGroup> Groups { get; set; } = new();
-    /// <summary>Cards linked to one canvas frame and one selection, riding the list the same way.</summary>
-    public List<Nexus.Service.Persistence.DeviceGroup> Links { get; set; } = new();
+    /// <summary>Cards stacked on one canvas frame and one selection, riding the list the same way.</summary>
+    public List<Nexus.Service.Persistence.DeviceGroup> Stacks { get; set; } = new();
 }
 
 /// <summary>Whole-list replace for the user-made groups; the client owns order and membership.</summary>
@@ -268,10 +268,10 @@ public class SetDeviceGroupsBody
     public List<Nexus.Service.Persistence.DeviceGroup> Groups { get; set; } = new();
 }
 
-/// <summary>Whole-list replace for the device links; the client owns membership.</summary>
-public class SetDeviceLinksBody
+/// <summary>Whole-list replace for the device stacks; the client owns membership.</summary>
+public class SetDeviceStacksBody
 {
-    public List<Nexus.Service.Persistence.DeviceGroup> Links { get; set; } = new();
+    public List<Nexus.Service.Persistence.DeviceGroup> Stacks { get; set; } = new();
 }
 
 public class SetDisabledLedsBody { public List<string> Devices { get; set; } = new(); }

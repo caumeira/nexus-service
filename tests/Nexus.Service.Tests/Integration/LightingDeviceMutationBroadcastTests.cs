@@ -101,7 +101,7 @@ public sealed class LightingDeviceMutationBroadcastTests : IClassFixture<StubDev
     }
 
     [Fact]
-    public async Task PutLinks_PersistsBroadcastsAndRidesGetAll()
+    public async Task PutStacks_PersistsBroadcastsAndRidesGetAll()
     {
         var hub = _factory.Services.GetRequiredService<MultiplexHub>();
         var captured = new List<string>();
@@ -109,15 +109,15 @@ public sealed class LightingDeviceMutationBroadcastTests : IClassFixture<StubDev
         using var sub = hub.AddTestSubscription(PanelTopics.Lighting);
 
         var res = await _client.PutAsync(
-            "/devices/lighting-devices/links",
-            new StringContent("""{"links":[{"id":"l1","name":"Keeb","members":["stub-zone","other"]}]}""", Encoding.UTF8, "application/json"));
+            "/devices/lighting-devices/stacks",
+            new StringContent("""{"stacks":[{"id":"l1","name":"Keeb","members":["stub-zone","other"]}]}""", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         Assert.Contains(PanelTopics.Lighting, captured);
         var all = await _client.GetAsync("/devices/lighting-devices/all");
         Assert.Equal(HttpStatusCode.OK, all.StatusCode);
         var json = await all.Content.ReadAsStringAsync();
-        Assert.Contains("\"links\":[{\"id\":\"l1\"", json);
+        Assert.Contains("\"stacks\":[{\"id\":\"l1\"", json);
         Assert.Contains("\"members\":[\"stub-zone\",\"other\"]", json);
     }
 
