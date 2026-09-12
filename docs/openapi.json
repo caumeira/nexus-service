@@ -3552,6 +3552,28 @@
         }
       }
     },
+    "/devices/lighting-devices/links": {
+      "put": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDeviceLinksBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/devices/lighting-devices/name": {
       "post": {
         "tags": [
@@ -4691,6 +4713,38 @@
       }
     },
     "/devices/lighting-devices/{deviceId}/mappings/chain": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetChainBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/devices/lighting-devices/{deviceId}/mappings/chain/preview": {
       "post": {
         "tags": [
           "Nexus"
@@ -14386,6 +14440,12 @@
               "null",
               "string"
             ]
+          },
+          "parent": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -16709,6 +16769,12 @@
             }
           },
           "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceGroup"
+            }
+          },
+          "links": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DeviceGroup"
@@ -21445,24 +21511,13 @@
       "SetChainBody": {
         "type": "object",
         "properties": {
-          "segment": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
           "entries": {
-            "type": "array",
+            "type": [
+              "null",
+              "array"
+            ],
             "items": {
               "$ref": "#/components/schemas/SetChainEntry"
-            }
-          },
-          "keys": {
-            "type": "array",
-            "items": {
-              "type": "string"
             }
           }
         }
@@ -21479,6 +21534,15 @@
           "ledCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "fromOrdinal": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
               "integer",
               "string"
             ],
@@ -21520,6 +21584,17 @@
         "type": "object",
         "properties": {
           "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceGroup"
+            }
+          }
+        }
+      },
+      "SetDeviceLinksBody": {
+        "type": "object",
+        "properties": {
+          "links": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DeviceGroup"
@@ -22002,18 +22077,6 @@
         "type": "object",
         "properties": {
           "enabled": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "foregroundAppControl": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "deviceLighting": {
             "type": [
               "null",
               "boolean"
@@ -23966,6 +24029,18 @@
           },
           "showUncontrolledDevices": {
             "type": "boolean"
+          },
+          "showUncontrolledLightingDevices": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "showUncontrolledCoolingDevices": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -24021,6 +24096,18 @@
             ]
           },
           "showUncontrolledDevices": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "showUncontrolledLightingDevices": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "showUncontrolledCoolingDevices": {
             "type": [
               "null",
               "boolean"

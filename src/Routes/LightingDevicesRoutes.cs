@@ -320,7 +320,7 @@ public static partial class DevicesRoutes
             Nexus.Service.Persistence.IConfigStore store,
             Nexus.Service.Sockets.MultiplexHub hub) =>
         {
-            var links = Nexus.Service.Common.DeviceGroupList.Sanitize(body.Links);
+            var links = Nexus.Service.Common.DeviceGroupList.SanitizeLinks(body.Links);
             store.Update(s => s.Lighting.DeviceLinks = links);
             Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return Results.Ok(new SetDeviceLinksBody { Links = links });

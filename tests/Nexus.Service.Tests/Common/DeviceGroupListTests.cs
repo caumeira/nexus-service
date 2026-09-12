@@ -145,6 +145,32 @@ public class DeviceGroupListTests
     }
 
     [Fact]
+    public void SanitizeLinks_DissolvesShortLinksAndDropsTheRailFields()
+    {
+        var links = DeviceGroupList.SanitizeLinks(new[]
+        {
+            new DeviceGroup { Id = "l1", Name = "Keeb", Members = new List<string> { "a", "b" }, After = "x", Parent = "y" },
+            Group("l2", "Pair", "b", "c"),
+            Group("l3", "Lone", "d"),
+        });
+
+        Assert.Single(links);
+        Assert.Equal("l1", links[0].Id);
+        Assert.Null(links[0].After);
+        Assert.Null(links[0].Parent);
+    }
+
+    [Fact]
+    public void SanitizeLinks_HasNoCap()
+    {
+        var many = Enumerable.Range(0, DeviceGroupList.MaxGroups + 4)
+            .Select(i => Group($"l{i}", $"L{i}", $"a-{i}", $"b-{i}"))
+            .ToArray();
+
+        Assert.Equal(many.Length, DeviceGroupList.SanitizeLinks(many).Count);
+    }
+
+    [Fact]
     public void Sanitize_UnplacesAParentThatNamesADroppedGroupOrLoops()
     {
         var many = Enumerable.Range(0, DeviceGroupList.MaxGroups)
