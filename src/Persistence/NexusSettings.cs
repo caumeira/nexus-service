@@ -497,6 +497,8 @@ public sealed class DeviceGroup
     public List<string> Members { get; set; } = new();
     /// <summary>Id of the rail row this group sits after; the empty string pins it to the top and null means never placed. Holds an emptied group in place, where anchoring to its first member could not.</summary>
     public string? After { get; set; }
+    /// <summary>The container this group sits in: null for the top level, another group's id, or a hardware group's block id. The client keeps nesting to two levels.</summary>
+    public string? Parent { get; set; }
 }
 
 public sealed class LightingSettings

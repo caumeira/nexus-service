@@ -126,4 +126,42 @@ public class DeviceGroupListTests
 
         Assert.Equal("", groups[0].After);
     }
+
+    [Fact]
+    public void Sanitize_KeepsTheParentAndBlanksAnEmptyOrSelfReferencingOne()
+    {
+        var groups = DeviceGroupList.Sanitize(new[]
+        {
+            new DeviceGroup { Id = "g1", Name = "Desk", Members = new List<string> { "a" }, Parent = " mb:openrgb-1 " },
+            new DeviceGroup { Id = "g2", Name = "Inner", Members = new List<string> { "b" }, Parent = "g1" },
+            new DeviceGroup { Id = "g3", Name = "Root", Members = new List<string> { "c" }, Parent = "" },
+            new DeviceGroup { Id = "g4", Name = "Loop", Members = new List<string> { "d" }, Parent = "g4" },
+        });
+
+        Assert.Equal("mb:openrgb-1", groups[0].Parent);
+        Assert.Equal("g1", groups[1].Parent);
+        Assert.Null(groups[2].Parent);
+        Assert.Null(groups[3].Parent);
+    }
+
+    [Fact]
+    public void Sanitize_UnplacesAParentThatNamesADroppedGroupOrLoops()
+    {
+        var many = Enumerable.Range(0, DeviceGroupList.MaxGroups)
+            .Select(i => Group($"g{i}", $"G{i}", $"card-{i}"))
+            .ToList();
+        var past = new DeviceGroup { Id = "gx", Name = "Past the cap", Members = new List<string> { "x" } };
+        many[0].Parent = "gx";      // names a group the cap drops
+        many[1].Parent = "g2";      // loops through g2
+        many[2].Parent = "g1";
+        many[3].Parent = "mb:board"; // a hardware id, unknown to the service
+        many.Add(past);
+
+        var groups = DeviceGroupList.Sanitize(many);
+
+        Assert.Null(groups[0].Parent);
+        Assert.Null(groups[1].Parent);
+        Assert.Equal("g1", groups[2].Parent);
+        Assert.Equal("mb:board", groups[3].Parent);
+    }
 }

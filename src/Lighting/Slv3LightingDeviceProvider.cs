@@ -326,7 +326,7 @@ public sealed class Slv3LightingDeviceProvider : ILightingDeviceProvider, ILight
         var structure = new DeviceStructure
         {
             DeviceId = deviceId,
-            Name = $"Lian Li Wireless Fan ({fan.FanCount}x)",
+            Name = "Lian Li Wireless Fan",
             DeviceKey = deviceKey,
         };
         structure.Segments.Add(new StructureSegment

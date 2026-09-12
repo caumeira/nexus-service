@@ -45,7 +45,7 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
             if (!fan.BoundToUs) continue;
             var portCount = EffectivePortCount(fan);
             var rpmUnavailable = fan.FanCount <= 0;
-            var deviceName = $"Lian Li Wireless Fan ({portCount}x)";
+            var deviceName = "Lian Li Wireless Fan";
             var minDuty = Slv3Protocol.MinDutyPercentFor(Slv3Protocol.ClassifyFanFamily((byte)fan.FanType));
             for (var port = 0; port < portCount; port++)
             {
@@ -147,7 +147,7 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
             components.Add(new CoolingComponent
             {
                 Id = DeviceId(fan.Mac),
-                Name = $"Lian Li Wireless Fan ({portCount}x)",
+                Name = "Lian Li Wireless Fan",
                 Type = "LianLiWireless",
                 Devices = devices,
             });
