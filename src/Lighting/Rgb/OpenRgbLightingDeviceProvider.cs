@@ -148,11 +148,7 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider, IDe
                 if (pruned.Count != list.Count)
                     s.Devices.DeviceLedOverrides[segmentKey] = pruned;
             }
-            // A hand-typed count replaces whatever the chain declared, so the
-            // chain record and its partition must not outlive it describing
-            // products that no longer add up to the port.
-            if (s.Devices.PortChains.Remove(ZoneResolution.ChainKey(segmentKey, 0)))
-                s.Devices.ZonePartitions.Remove(segmentKey);
+            ZoneResolution.DropChainForCount(s, segmentKey);
         });
 
         _bridge.RequestZoneResize(physIdx, zoneIdx, count);

@@ -54,6 +54,23 @@ public static class ZoneResolution
     }
 
     /// <summary>
+    /// A hand-typed count replaces what the chain declared, so the chain record,
+    /// its partition and the per-slot state of its cards go together; a slot's
+    /// name, layout or control state left behind resurfaces on the next chain.
+    /// </summary>
+    public static void DropChainForCount(NexusSettings settings, string deviceId)
+    {
+        if (!settings.Devices.PortChains.Remove(ChainKey(deviceId, 0))) return;
+        if (!settings.Devices.ZonePartitions.Remove(deviceId, out var partition)) return;
+        var zoneIds = new List<string>(partition.Count);
+        for (int i = 0; i < partition.Count; i++)
+            zoneIds.Add(CustomZoneId(deviceId, i));
+        ZoneStateDrop.Drop(settings, zoneIds);
+        foreach (var zoneId in zoneIds)
+            settings.Lighting.DeviceNames.Remove(zoneId);
+    }
+
+    /// <summary>
     /// Segments whose LED count is owned by a product chain, so a multi-zone
     /// partition over them is legitimate. A segment is owned when its chain
     /// key holds a non-empty product list.

@@ -38,7 +38,22 @@ public class ZoneLedCountChainGuardTests
                 new ChainEntry { Key = "product:hyte-fr12-trio", LedCount = 68 },
                 new ChainEntry { Key = "product:hyte-y50-solo", LedCount = 8 },
             };
+            // Per-slot state a later chain must not inherit.
+            var slot1 = ZoneResolution.CustomZoneId(portId, 1);
+            s.Lighting.DeviceNames[slot1] = "Rear fan";
+            s.Devices.AppliedMappings[slot1] = new Nexus.Service.Lighting.Mappings.AppliedMappingRef { MappingId = "product:hyte-y50-solo", Source = "builtin" };
+            s.Devices.DisabledLightingDevices = new() { slot1 };
         });
+    }
+
+    private static void AssertChainGone(NexusSettings settings, string portId)
+    {
+        Assert.False(settings.Devices.PortChains.ContainsKey(ZoneResolution.ChainKey(portId, 0)));
+        Assert.False(settings.Devices.ZonePartitions.ContainsKey(portId));
+        var slot1 = ZoneResolution.CustomZoneId(portId, 1);
+        Assert.False(settings.Lighting.DeviceNames.ContainsKey(slot1));
+        Assert.False(settings.Devices.AppliedMappings.ContainsKey(slot1));
+        Assert.DoesNotContain(slot1, settings.Devices.DisabledLightingDevices);
     }
 
     [Fact]
@@ -55,8 +70,7 @@ public class ZoneLedCountChainGuardTests
 
         var settings = store.Load();
         Assert.Equal(40, settings.Devices.ZoneLedCounts[portId]);
-        Assert.False(settings.Devices.PortChains.ContainsKey(ZoneResolution.ChainKey(portId, 0)));
-        Assert.False(settings.Devices.ZonePartitions.ContainsKey(portId));
+        AssertChainGone(settings, portId);
     }
 
     [Fact]
@@ -73,8 +87,7 @@ public class ZoneLedCountChainGuardTests
 
         var settings = store.Load();
         Assert.Equal(40, settings.Devices.ZoneLedCounts[portId]);
-        Assert.False(settings.Devices.PortChains.ContainsKey(ZoneResolution.ChainKey(portId, 0)));
-        Assert.False(settings.Devices.ZonePartitions.ContainsKey(portId));
+        AssertChainGone(settings, portId);
     }
 
     [Fact]
@@ -90,7 +103,6 @@ public class ZoneLedCountChainGuardTests
 
         var settings = store.Load();
         Assert.Equal(40, settings.Devices.ZoneLedCounts[portId]);
-        Assert.False(settings.Devices.PortChains.ContainsKey(ZoneResolution.ChainKey(portId, 0)));
-        Assert.False(settings.Devices.ZonePartitions.ContainsKey(portId));
+        AssertChainGone(settings, portId);
     }
 }

@@ -165,7 +165,7 @@ public sealed class KrakenLightingDeviceProvider :
         var slot = 0;
         foreach (var def in defs)
         {
-            var structure = BuildStructure(def, counts);
+            var structure = BuildStructure(def, counts, _hub.MaxDirectColors);
             foreach (var zone in ZoneResolution.Resolve(structure, settings))
             {
                 var circles = zone.IsDefault ? CirclesFor(def, zone.LedCount) : 1;
@@ -309,11 +309,7 @@ public sealed class KrakenLightingDeviceProvider :
         _store.Update(s =>
         {
             s.Devices.ZoneLedCounts[id] = count;
-            // A hand-typed count replaces whatever the chain declared, so the
-            // chain record and its partition must not outlive it describing
-            // products that no longer add up to the port.
-            if (s.Devices.PortChains.Remove(ZoneResolution.ChainKey(id, 0)))
-                s.Devices.ZonePartitions.Remove(id);
+            ZoneResolution.DropChainForCount(s, id);
         });
     }
 
@@ -347,7 +343,7 @@ public sealed class KrakenLightingDeviceProvider :
     /// ceiling (<see cref="KrakenHub.MaxDirectColors"/>) so a chain POST cannot
     /// declare more LEDs than the writer will ever push.
     /// </summary>
-    private static DeviceStructure BuildStructure(ZoneDef def, IReadOnlyDictionary<string, int> counts, int maxLedCount = 0)
+    private static DeviceStructure BuildStructure(ZoneDef def, IReadOnlyDictionary<string, int> counts, int maxLedCount)
     {
         var ledCount = EffectiveLedCount(def, counts);
         var (u, v) = BuildRingUv(ledCount, def.Rings, StartAngleFor(def.Rings));
@@ -380,12 +376,12 @@ public sealed class KrakenLightingDeviceProvider :
     }
 
     /// <summary>One channel's structure, built from public data so the frame writer (and tests) can resolve it without a provider instance.</summary>
-    internal static DeviceStructure BuildChannelStructure(NexusSettings settings, string modelName, KrakenLightingChannel channel, int index)
-        => BuildStructure(BuildZoneDef(modelName, channel, index), settings.Devices.ZoneLedCounts);
+    internal static DeviceStructure BuildChannelStructure(NexusSettings settings, string modelName, KrakenLightingChannel channel, int index, int maxLedCount)
+        => BuildStructure(BuildZoneDef(modelName, channel, index), settings.Devices.ZoneLedCounts, maxLedCount);
 
     /// <summary>The zones one channel currently resolves to, in chain order.</summary>
-    internal static IReadOnlyList<ResolvedZone> ResolveChannelZones(NexusSettings settings, string modelName, KrakenLightingChannel channel, int index)
-        => ZoneResolution.Resolve(BuildChannelStructure(settings, modelName, channel, index), settings);
+    internal static IReadOnlyList<ResolvedZone> ResolveChannelZones(NexusSettings settings, string modelName, KrakenLightingChannel channel, int index, int maxLedCount)
+        => ZoneResolution.Resolve(BuildChannelStructure(settings, modelName, channel, index, maxLedCount), settings);
 
     // Reused across the bridge refresh so the writer never sees a fresh zero-filled frame
     // for one tick and blanks the cooler.
@@ -407,7 +403,7 @@ public sealed class KrakenLightingDeviceProvider :
 
         foreach (var def in defs)
         {
-            var structure = BuildStructure(def, counts);
+            var structure = BuildStructure(def, counts, _hub.MaxDirectColors);
             foreach (var zone in ZoneResolution.Resolve(structure, settings))
             {
                 var circles = zone.IsDefault ? CirclesFor(def, zone.LedCount) : 1;

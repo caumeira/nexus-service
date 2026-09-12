@@ -54,7 +54,7 @@ public class KrakenChainTests
     public void The_pump_ring_is_not_partitionable()
     {
         var settings = new NexusSettings();
-        var structure = KrakenLightingDeviceProvider.BuildChannelStructure(settings, ModelName, PumpRing(), 0);
+        var structure = KrakenLightingDeviceProvider.BuildChannelStructure(settings, ModelName, PumpRing(), 0, KrakenProtocol.MaxDirectColors);
 
         Assert.False(structure.Partitionable);
         Assert.False(structure.Segments[0].Resizable);
@@ -64,7 +64,7 @@ public class KrakenChainTests
     public void The_fan_channel_is_partitionable_and_resizable()
     {
         var settings = new NexusSettings();
-        var structure = KrakenLightingDeviceProvider.BuildChannelStructure(settings, ModelName, UnknownFanChain(), FanChannelIndex);
+        var structure = KrakenLightingDeviceProvider.BuildChannelStructure(settings, ModelName, UnknownFanChain(), FanChannelIndex, KrakenProtocol.MaxDirectColors);
 
         Assert.True(structure.Partitionable);
         Assert.True(structure.Segments[0].Resizable);
@@ -77,7 +77,7 @@ public class KrakenChainTests
         settings.Devices.ZoneLedCounts[FanZoneId] = 60;
 
         var zone = Assert.Single(
-            KrakenLightingDeviceProvider.ResolveChannelZones(settings, ModelName, UnknownFanChain(), FanChannelIndex));
+            KrakenLightingDeviceProvider.ResolveChannelZones(settings, ModelName, UnknownFanChain(), FanChannelIndex, KrakenProtocol.MaxDirectColors));
 
         Assert.True(zone.IsDefault);
         Assert.Equal(FanZoneId, zone.Id);
@@ -87,7 +87,7 @@ public class KrakenChainTests
     [Fact]
     public void A_chained_fan_channel_is_one_zone_per_product_in_chain_order()
     {
-        var zones = KrakenLightingDeviceProvider.ResolveChannelZones(Chained(), ModelName, UnknownFanChain(), FanChannelIndex);
+        var zones = KrakenLightingDeviceProvider.ResolveChannelZones(Chained(), ModelName, UnknownFanChain(), FanChannelIndex, KrakenProtocol.MaxDirectColors);
 
         Assert.Equal(2, zones.Count);
         Assert.All(zones, z => Assert.False(z.IsDefault));
@@ -99,7 +99,7 @@ public class KrakenChainTests
     public void The_products_tile_the_fan_channel_buffer_back_to_back()
     {
         var settings = Chained();
-        var structure = KrakenLightingDeviceProvider.BuildChannelStructure(settings, ModelName, UnknownFanChain(), FanChannelIndex);
+        var structure = KrakenLightingDeviceProvider.BuildChannelStructure(settings, ModelName, UnknownFanChain(), FanChannelIndex, KrakenProtocol.MaxDirectColors);
         var zones = ZoneResolution.Resolve(structure, settings);
 
         // What the writer lays down: offset of each product inside the
@@ -114,7 +114,7 @@ public class KrakenChainTests
     public void Only_a_whole_channel_zone_may_resize_the_fan_channel()
     {
         var chainedSettings = Chained();
-        var chained = KrakenLightingDeviceProvider.BuildChannelStructure(chainedSettings, ModelName, UnknownFanChain(), FanChannelIndex);
+        var chained = KrakenLightingDeviceProvider.BuildChannelStructure(chainedSettings, ModelName, UnknownFanChain(), FanChannelIndex, KrakenProtocol.MaxDirectColors);
         foreach (var zone in ZoneResolution.Resolve(chained, chainedSettings))
         {
             Assert.True(ZoneResolution.WholeResizableSegment(chained, zone, chainedSettings) < 0);
@@ -122,7 +122,7 @@ public class KrakenChainTests
 
         var plainSettings = new NexusSettings();
         plainSettings.Devices.ZoneLedCounts[FanZoneId] = 60;
-        var plain = KrakenLightingDeviceProvider.BuildChannelStructure(plainSettings, ModelName, UnknownFanChain(), FanChannelIndex);
+        var plain = KrakenLightingDeviceProvider.BuildChannelStructure(plainSettings, ModelName, UnknownFanChain(), FanChannelIndex, KrakenProtocol.MaxDirectColors);
         var only = ZoneResolution.Resolve(plain, plainSettings)[0];
         Assert.Equal(0, ZoneResolution.WholeResizableSegment(plain, only, plainSettings));
     }
@@ -131,7 +131,7 @@ public class KrakenChainTests
     public void A_fan_channel_only_counts_as_uncontrolled_when_every_product_does()
     {
         var settings = Chained();
-        var zones = KrakenLightingDeviceProvider.ResolveChannelZones(settings, ModelName, UnknownFanChain(), FanChannelIndex);
+        var zones = KrakenLightingDeviceProvider.ResolveChannelZones(settings, ModelName, UnknownFanChain(), FanChannelIndex, KrakenProtocol.MaxDirectColors);
 
         Assert.False(ZoneResolution.IsFullyUncontrolled(zones, new[] { zones[0].Id }));
         Assert.True(ZoneResolution.IsFullyUncontrolled(zones, zones.Select(z => z.Id).ToArray()));
@@ -141,7 +141,7 @@ public class KrakenChainTests
     public void Dropping_the_chain_returns_the_fan_channel_to_one_zone()
     {
         var settings = Chained();
-        var structure = KrakenLightingDeviceProvider.BuildChannelStructure(settings, ModelName, UnknownFanChain(), FanChannelIndex);
+        var structure = KrakenLightingDeviceProvider.BuildChannelStructure(settings, ModelName, UnknownFanChain(), FanChannelIndex, KrakenProtocol.MaxDirectColors);
 
         Assert.True(ZoneResolution.DropChains(settings, structure));
         settings.Devices.ZonePartitions.Remove(FanZoneId);

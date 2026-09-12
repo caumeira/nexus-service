@@ -114,8 +114,8 @@ public sealed class AssignMappingBody
 /// <summary>Wire an ordered chain to one ARGB port. An empty chain clears it.</summary>
 public sealed class SetChainBody
 {
-    /// <summary>Chain in wire order: products, custom LED runs, or a mix.</summary>
-    public List<SetChainEntry> Entries { get; set; } = new();
+    /// <summary>Chain in wire order: products, custom LED runs, or a mix. Null on the wire reads as empty.</summary>
+    public List<SetChainEntry>? Entries { get; set; }
 }
 
 /// <summary>One requested link: a catalog product by key, or a bare LED count.</summary>

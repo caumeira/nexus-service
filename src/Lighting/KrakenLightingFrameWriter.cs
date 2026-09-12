@@ -125,7 +125,7 @@ public sealed class KrakenLightingFrameWriter : IHostedService, IDisposable
         {
             var channelId = KrakenHub.ZoneIdForChannelIndex(i);
             var zones = ResolveOrReuse(channelId,
-                () => KrakenLightingDeviceProvider.ResolveChannelZones(settings, _hub.ModelName, channels[i], i));
+                () => KrakenLightingDeviceProvider.ResolveChannelZones(settings, _hub.ModelName, channels[i], i, _hub.MaxDirectColors));
 
             // Left uncontrolled means "hands off": stop pushing so the cooler keeps running
             // whatever firmware animation it was set to. A chained channel counts as

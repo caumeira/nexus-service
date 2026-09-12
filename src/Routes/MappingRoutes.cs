@@ -164,7 +164,7 @@ public static partial class DevicesRoutes
             if (!structure.Segments[segment].Resizable)
                 return Results.Json(ApiResponse.Fail("segment is not an addressable port"), AppJsonContext.Default.ApiResponse);
 
-            var plan = TryBuildChainPlan(structure, segment, body.Entries, out var planError);
+            var plan = TryBuildChainPlan(structure, segment, body.Entries ?? new(), out var planError);
             if (plan is null)
                 return Results.Json(ApiResponse.Fail(planError!), AppJsonContext.Default.ApiResponse);
 
@@ -255,7 +255,7 @@ public static partial class DevicesRoutes
             if (!structure.Segments[segment].Resizable)
                 return Results.Json(new ChainPreviewResponse { Error = true, Msg = "segment is not an addressable port" }, AppJsonContext.Default.ChainPreviewResponse);
 
-            var plan = TryBuildChainPlan(structure, segment, body.Entries, out var planError);
+            var plan = TryBuildChainPlan(structure, segment, body.Entries ?? new(), out var planError);
             if (plan is null)
                 return Results.Json(new ChainPreviewResponse { Error = true, Msg = planError! }, AppJsonContext.Default.ChainPreviewResponse);
 

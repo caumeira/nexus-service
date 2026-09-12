@@ -304,11 +304,7 @@ public sealed class SmartHubLightingDeviceProvider :
         _store.Update(s =>
         {
             s.Devices.ZoneLedCounts[id] = count;
-            // A hand-typed count replaces whatever the chain declared, so the
-            // chain record and its partition must not outlive it describing
-            // products that no longer add up to the port.
-            if (s.Devices.PortChains.Remove(ZoneResolution.ChainKey(id, 0)))
-                s.Devices.ZonePartitions.Remove(id);
+            ZoneResolution.DropChainForCount(s, id);
         });
     }
 
