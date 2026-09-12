@@ -34,9 +34,12 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
 
     private IpLocation? _cachedLocation;
     private DateTime _locationFetchedUtc = DateTime.MinValue;
+    private readonly SemaphoreSlim _locationLock = new(1, 1);
 
     private readonly Dictionary<string, (WeatherSnapshot Snapshot, DateTime FetchedUtc)> _weatherCache = new();
+    private readonly Dictionary<string, Task<WeatherSnapshot?>> _inflight = new();
 
+    // Guards the two dictionaries; never held across an upstream call.
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     public OpenMeteoWeatherProvider(IHttpClientFactory http)
@@ -49,14 +52,12 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
         var manual = lat is not null && lon is not null;
         var key = manual ? $"{lat},{lon}" : "auto";
 
-        await _lock.WaitAsync().ConfigureAwait(false);
         try
         {
             var now = DateTime.UtcNow;
-
-            if (_weatherCache.TryGetValue(key, out var cached) && (now - cached.FetchedUtc) < WeatherTtl)
+            if (await TryGetCachedAsync(key, WeatherTtl, now).ConfigureAwait(false) is { } fresh)
             {
-                return cached.Snapshot;
+                return fresh;
             }
 
             IpLocation loc;
@@ -69,33 +70,78 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
                 var auto = await GetLocationAsync().ConfigureAwait(false);
                 if (auto is null)
                 {
-                    if (_weatherCache.TryGetValue(key, out var stale) && (now - stale.FetchedUtc) < StaleServeTtl)
-                    {
-                        return stale.Snapshot;
-                    }
-                    return WeatherSnapshot.Empty;
+                    return await TryGetCachedAsync(key, StaleServeTtl, now).ConfigureAwait(false) ?? WeatherSnapshot.Empty;
                 }
                 loc = auto;
             }
 
-            var snapshot = await FetchWeatherAsync(loc, manual ? label : null).ConfigureAwait(false);
+            // The rail asks for every saved place at once; one upstream round trip
+            // per key runs outside the lock, and callers for the same key share it.
+            Task<WeatherSnapshot?> fetch;
+            await _lock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (!_inflight.TryGetValue(key, out fetch!))
+                {
+                    fetch = FetchWeatherAsync(loc, manual ? label : null);
+                    _inflight[key] = fetch;
+                }
+            }
+            finally
+            {
+                _lock.Release();
+            }
+
+            WeatherSnapshot? snapshot;
+            try
+            {
+                snapshot = await fetch.ConfigureAwait(false);
+            }
+            finally
+            {
+                await _lock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (_inflight.TryGetValue(key, out var current) && ReferenceEquals(current, fetch))
+                    {
+                        _inflight.Remove(key);
+                    }
+                }
+                finally
+                {
+                    _lock.Release();
+                }
+            }
+
             if (snapshot is not null)
             {
-                _weatherCache[key] = (snapshot, now);
+                await _lock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    _weatherCache[key] = (snapshot, DateTime.UtcNow);
+                }
+                finally
+                {
+                    _lock.Release();
+                }
                 return snapshot;
             }
 
-            // Upstream failed; serve stale if available.
-            if (_weatherCache.TryGetValue(key, out var staleFallback) && (now - staleFallback.FetchedUtc) < StaleServeTtl)
-            {
-                return staleFallback.Snapshot;
-            }
-            return WeatherSnapshot.Empty;
+            return await TryGetCachedAsync(key, StaleServeTtl, now).ConfigureAwait(false) ?? WeatherSnapshot.Empty;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[weather] failed: {ex.Message}");
             return WeatherSnapshot.Empty;
+        }
+    }
+
+    private async Task<WeatherSnapshot?> TryGetCachedAsync(string key, TimeSpan ttl, DateTime now)
+    {
+        await _lock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            return _weatherCache.TryGetValue(key, out var cached) && (now - cached.FetchedUtc) < ttl ? cached.Snapshot : null;
         }
         finally
         {
@@ -105,14 +151,15 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
 
     private async Task<IpLocation?> GetLocationAsync()
     {
-        var now = DateTime.UtcNow;
-        if (_cachedLocation is not null && (now - _locationFetchedUtc) < LocationTtl)
-        {
-            return _cachedLocation;
-        }
-
+        await _locationLock.WaitAsync().ConfigureAwait(false);
         try
         {
+            var now = DateTime.UtcNow;
+            if (_cachedLocation is not null && (now - _locationFetchedUtc) < LocationTtl)
+            {
+                return _cachedLocation;
+            }
+
             using var client = _http.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(5);
             var resp = await client.GetAsync("https://ipwho.is/").ConfigureAwait(false);
@@ -140,6 +187,10 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
             Console.Error.WriteLine($"[weather] ipwho.is lookup failed: {ex.Message}");
             return _cachedLocation;
         }
+        finally
+        {
+            _locationLock.Release();
+        }
     }
 
     private async Task<WeatherSnapshot?> FetchWeatherAsync(IpLocation loc, string? labelOverride)
@@ -158,13 +209,19 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
             var airQualityTask = FetchAirQualityAsync(client, loc);
             var resp = await forecastTask.ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
+            {
+                await airQualityTask.ConfigureAwait(false);
                 return null;
+            }
 
             var payload = await resp.Content.ReadFromJsonAsync(
                 Nexus.Service.Serialization.AppJsonContext.Default.OpenMeteoResponse
             ).ConfigureAwait(false);
             if (payload?.Current is null)
+            {
+                await airQualityTask.ConfigureAwait(false);
                 return null;
+            }
 
             var c = payload.Current;
             var hourly = BuildHourlyForecast(payload.Hourly);
@@ -270,6 +327,9 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
     private static double? At(double?[]? values, int i) =>
         values is not null && i < values.Length ? values[i] : null;
 
+    private static int CodeAt(int?[]? values, int i) =>
+        values is not null && i < values.Length ? values[i] ?? -1 : -1;
+
     private static List<WeatherDailyForecast> BuildDailyForecast(OpenMeteoDaily? daily)
     {
         var rows = new List<WeatherDailyForecast>();
@@ -286,7 +346,7 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
             rows.Add(new WeatherDailyForecast
             {
                 Date = daily.Time[i] ?? "",
-                WeatherCode = daily.WeatherCode is not null && i < daily.WeatherCode.Length ? daily.WeatherCode[i] : -1,
+                WeatherCode = CodeAt(daily.WeatherCode, i),
                 TemperatureMinC = minC,
                 TemperatureMaxC = maxC,
                 TemperatureMinF = ToF(minC),
@@ -323,7 +383,7 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
             rows.Add(new WeatherHourlyForecast
             {
                 Time = hourly.Time[i] ?? "",
-                WeatherCode = hourly.WeatherCode is not null && i < hourly.WeatherCode.Length ? hourly.WeatherCode[i] : -1,
+                WeatherCode = CodeAt(hourly.WeatherCode, i),
                 TemperatureC = tempC,
                 TemperatureF = ToF(tempC),
                 ApparentTemperatureC = appC,
@@ -468,7 +528,7 @@ public sealed class OpenMeteoHourly
 {
     [JsonPropertyName("time")] public string[]? Time { get; set; }
     [JsonPropertyName("temperature_2m")] public double?[]? Temperature2m { get; set; }
-    [JsonPropertyName("weather_code")] public int[]? WeatherCode { get; set; }
+    [JsonPropertyName("weather_code")] public int?[]? WeatherCode { get; set; }
     [JsonPropertyName("apparent_temperature")] public double?[]? ApparentTemperature { get; set; }
     [JsonPropertyName("precipitation_probability")] public double?[]? PrecipitationProbability { get; set; }
     [JsonPropertyName("precipitation")] public double?[]? Precipitation { get; set; }
@@ -483,7 +543,7 @@ public sealed class OpenMeteoHourly
 public sealed class OpenMeteoDaily
 {
     [JsonPropertyName("time")] public string[]? Time { get; set; }
-    [JsonPropertyName("weather_code")] public int[]? WeatherCode { get; set; }
+    [JsonPropertyName("weather_code")] public int?[]? WeatherCode { get; set; }
     [JsonPropertyName("temperature_2m_min")] public double?[]? Temperature2mMin { get; set; }
     [JsonPropertyName("temperature_2m_max")] public double?[]? Temperature2mMax { get; set; }
     [JsonPropertyName("apparent_temperature_min")] public double?[]? ApparentTemperatureMin { get; set; }
