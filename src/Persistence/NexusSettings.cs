@@ -48,6 +48,8 @@ public sealed class NexusSettings
     public SteamSettings Steam { get; set; } = new();
     public DiscordSettings Discord { get; set; } = new();
     public HomeAssistantSettings HomeAssistant { get; set; } = new();
+    /// <summary>Saved weather locations shared by the weather page, immersive view and widget picker. NOT profile-scoped: workstation-level.</summary>
+    public WeatherSettings Weather { get; set; } = new();
     public TelemetrySettings Telemetry { get; set; } = new();
     public DiagnosticsSettings Diagnostics { get; set; } = new();
     public FeaturesSettings Features { get; set; } = new();
@@ -380,6 +382,22 @@ public sealed class HomeAssistantSettings
     /// <summary>Wrapped via SecretProtector on Windows; plaintext on macOS/Linux.</summary>
     public string Token { get; set; } = "";
     public bool Enabled { get; set; } = true;
+}
+
+public sealed class WeatherSettings
+{
+    /// <summary>"auto" (per location country) | "C" | "F". Governs the weather page; each widget keeps its own unit.</summary>
+    public string Unit { get; set; } = "auto";
+    public List<WeatherSavedLocation> Locations { get; set; } = new();
+}
+
+/// <summary>Same field names as the widget's per-instance <c>config.location</c> so one object flows through every surface.</summary>
+public sealed class WeatherSavedLocation
+{
+    public double Lat { get; set; }
+    public double Lon { get; set; }
+    public string Label { get; set; } = "";
+    public string Cc { get; set; } = "";
 }
 
 /// <summary>

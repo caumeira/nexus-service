@@ -355,6 +355,12 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoGeocodeResponse))]
 [JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoGeocodeResult))]
 [JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoGeocodeResult[]))]
+[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherAirQuality))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoAirQualityResponse))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoAirQualityCurrent))]
+[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherPrefsDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherSavedLocationDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Weather.WeatherSavedLocationDto>))]
 
 // Stocks
 [JsonSerializable(typeof(Nexus.Service.Models.Stocks.StockQuote))]
