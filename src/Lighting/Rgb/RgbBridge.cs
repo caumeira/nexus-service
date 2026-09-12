@@ -946,6 +946,18 @@ public sealed class RgbBridge : IDisposable
                 _devices = finalList;
             }
 
+            // Move any legacy per-device state on a split motherboard onto its
+            // ARGB header ids before this refresh resolves partitions and
+            // builds frames below. OpenRgbLightingDeviceProvider.GetStructures
+            // runs the same migration, but only when some other caller asks
+            // for structures first - too late once BuildOrReuseFrame has
+            // already cached a frame for the unmigrated shape.
+            if (SplitMotherboardDeviceMigration.NeedsApply(settingsSnapshot, finalList))
+            {
+                _store.Update(s => SplitMotherboardDeviceMigration.Apply(s, finalList));
+                settingsSnapshot = _store.Load();
+            }
+
             // Settled commits reconcile detector exclusions: a device the user
             // fully un-controlled gets snapshotted + denylisted (and the
             // subprocess bounced once to release it); a re-controlled one gets
