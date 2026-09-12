@@ -124,7 +124,21 @@ public static class ServiceLog
         // it from the stream and double-prefix. Before Initialize, fall back to the
         // current Console (no file yet).
         var console = isError ? _originalError ?? Console.Error : _originalOut ?? Console.Out;
-        console.WriteLine(message);
+        if (isError)
+        {
+            console.WriteLine(message);
+        }
+        else
+        {
+            // Unix ConsolePal locks Console.Out (the tee) around every console
+            // write, so the mirror must take it before the original writer or
+            // it deadlocks against a Console.Out.WriteLine in flight. The error
+            // path already orders its own writer before Console.Out.
+            lock (Console.Out)
+            {
+                console.WriteLine(message);
+            }
+        }
 
         WriteToFile($"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ} {level} {message}", newLine: true);
     }
