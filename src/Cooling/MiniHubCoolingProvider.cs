@@ -71,7 +71,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = id,
                 Name = "Port 1 Fan",
                 DutyPercent = state.Port1Duty,
-                Rpm = state.Port1Rpm,
+                Rpm = state.Port1RpmValid ? state.Port1Rpm : 0,
                 RpmUnavailable = !state.Port1RpmValid,
                 Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
@@ -88,7 +88,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Id = id,
                 Name = label,
                 DutyPercent = state.Port2Duty,
-                Rpm = state.Port2Rpm,
+                Rpm = state.Port2RpmValid ? state.Port2Rpm : 0,
                 RpmUnavailable = !state.Port2RpmValid,
                 Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
@@ -149,9 +149,9 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
         IProgress<FanCalibrationProgress> progress,
         CancellationToken ct)
     {
-        // A duty ramp needs a prompt RPM readback; the consensus filter takes
-        // ~8 s of agreeing polls per step (see MiniHubTachConsensus), and the
-        // port-2 chain never agrees below 100%. Skip, like NP50.
+        // A duty ramp needs a prompt RPM readback; MiniHubTachConsensus needs
+        // several agreeing polls per step and the port-2 chain never agrees
+        // below 100%. Skip, like NP50.
         return Task.FromResult<IReadOnlyList<FanCalibration>>(Array.Empty<FanCalibration>());
     }
 

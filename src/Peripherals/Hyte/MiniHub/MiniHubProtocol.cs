@@ -128,7 +128,8 @@ public static class MiniHubProtocol
     /// streaming, and the capture is corrupted whenever the fan PWM line is
     /// toggling: port 1 reads the true speed about half the time at any duty
     /// below 100% (junk the rest), port 2's 3-fan chain is clean only at
-    /// 100%, and motherboard mode is junk on both. Never surface one poll;
+    /// 100%, and motherboard mode is junk on port 2 and mostly on port 1.
+    /// Never surface one poll;
     /// <see cref="MiniHubTachConsensus"/> publishes only agreed readings.
     /// </summary>
     public static bool TryParseFanSpeeds(ReadOnlySpan<byte> response, out int port1Rpm, out int port2Rpm)

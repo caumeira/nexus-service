@@ -38,12 +38,27 @@ public class MiniHubTachConsensusTests
     }
 
     [Fact]
-    public void Motherboard_mode_keeps_port1_where_it_agrees_and_hides_port2()
+    public void Motherboard_mode_hides_port2_and_shows_port1_only_where_its_polls_agree()
     {
-        // 0xC7 = 199 → 753 RPM held long enough; the 0x05/0x0A junk decodes
-        // past 4000 RPM and never counts.
-        Assert.Equal(753, Feed(Port1Motherboard).Evaluate());
-        Assert.Null(Feed(Port2Motherboard).Evaluate());
+        // Port 1 under BIOS PWM holds 0xC7/0xC6 (753..757 RPM) for 15 s and
+        // is junk otherwise; depending on the heartbeat phase that run is
+        // either just enough or one sample short. Port 2 never repeats.
+        for (var phase = 0; phase < 4; phase++)
+        {
+            var port1 = Feed(Port1Motherboard, phase).Evaluate();
+            Assert.True(port1 is null or (>= 753 and <= 757), $"phase {phase}: {port1}");
+            Assert.Null(Feed(Port2Motherboard, phase).Evaluate());
+        }
+    }
+
+    [Fact]
+    public void Software_mode_results_hold_at_every_heartbeat_phase()
+    {
+        for (var phase = 0; phase < 4; phase++)
+        {
+            Assert.Equal(1063, Feed(Port1Software60, phase).Evaluate());
+            Assert.Null(Feed(Port2Software30, phase).Evaluate());
+        }
     }
 
     [Fact]
@@ -87,12 +102,12 @@ public class MiniHubTachConsensusTests
         Assert.Null(c.Evaluate());
     }
 
-    private static MiniHubTachConsensus Feed(string hexBytes)
+    private static MiniHubTachConsensus Feed(string hexBytes, int phase = 0)
     {
         var c = new MiniHubTachConsensus();
         var bytes = hexBytes.Split(' ', StringSplitOptions.RemoveEmptyEntries)
             .Select(h => Convert.ToByte(h, 16)).ToArray();
-        for (var i = 0; i < bytes.Length; i += 4)
+        for (var i = phase; i < bytes.Length; i += 4)
         {
             var reply = new byte[] { 0xFF, 0xDD, 0x06, 0x01, 0x00, bytes[i], 0x02, 0x00, bytes[i] };
             Assert.True(MiniHubProtocol.TryParseFanSpeeds(reply, out var rpm, out _));

@@ -131,7 +131,9 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
         _port1Tach.Reset();
         _port2Tach.Reset();
         State.Port1RpmValid = false;
+        State.Port1Rpm = 0;
         State.Port2RpmValid = false;
+        State.Port2Rpm = 0;
     }
 
     public bool PollFirmwareVersion()
@@ -208,10 +210,14 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
             State.Port2RawRpm = rpm2;
             _port1Tach.Add(rpm1);
             _port2Tach.Add(rpm2);
+            // Valid drops before Rpm moves and rises after, so a concurrent
+            // GetFanChannels never pairs a stale flag with a fresh value.
             var agreed1 = _port1Tach.Evaluate();
             var agreed2 = _port2Tach.Evaluate();
+            State.Port1RpmValid = false;
             State.Port1Rpm = agreed1 ?? 0;
             State.Port1RpmValid = agreed1 is not null;
+            State.Port2RpmValid = false;
             State.Port2Rpm = agreed2 ?? 0;
             State.Port2RpmValid = agreed2 is not null;
             _pollFailures.Reset();
