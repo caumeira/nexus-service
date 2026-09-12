@@ -132,7 +132,7 @@ public sealed class NollieLightingDeviceProvider :
             Hue = hue,
             Saturation = saturation,
             LedCount = zone.LedCount,
-            EnabledLedCount = ZoneResolution.CountEnabled(structure, zone, id, zone.LedCount, zone.Ordinal, settings),
+            EnabledLedCount = ZoneResolution.CountEnabled(structure, zone, id, zone.LedCount, zoneHint: 0, settings),
             CanvasX = layout?.X ?? defX,
             CanvasY = layout?.Y ?? defY,
             CanvasW = layout?.W ?? defW,
@@ -266,7 +266,15 @@ public sealed class NollieLightingDeviceProvider :
         if (count < 0) return;
         if (!TryResolve(id, out var controller, out _)) return;
         var clamped = Math.Min(count, controller.Spec.MaxLedsPerChannel);
-        _store.Update(s => s.Devices.ZoneLedCounts[id] = clamped);
+        _store.Update(s =>
+        {
+            s.Devices.ZoneLedCounts[id] = clamped;
+            // A hand-typed count replaces whatever the chain declared, so the
+            // chain record and its partition must not outlive it describing
+            // products that no longer add up to the port.
+            if (s.Devices.PortChains.Remove(ZoneResolution.ChainKey(id, 0)))
+                s.Devices.ZonePartitions.Remove(id);
+        });
         PushLedCountHandshake(controller);
         OnHubStateUpdated();
     }
@@ -282,6 +290,19 @@ public sealed class NollieLightingDeviceProvider :
             perChannel[ch] = DeclaredLedCount(counts, ChannelId(controller.DeviceId, ch), controller.Spec);
         }
         controller.SendLedCounts(perChannel);
+    }
+
+    /// <summary>
+    /// Re-sends the LED-count handshake for the controller owning id, reading
+    /// whatever count is currently persisted. For a caller that wrote
+    /// ZoneLedCounts directly (the chain POST) instead of through
+    /// SetZoneLedCount. A no-op for an unknown id or a controller whose
+    /// firmware does not want the handshake.
+    /// </summary>
+    public void PushLedCountHandshakeFor(string id)
+    {
+        if (TryResolve(id, out var controller, out _))
+            PushLedCountHandshake(controller);
     }
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);

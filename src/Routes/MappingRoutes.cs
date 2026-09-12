@@ -8,16 +8,6 @@ namespace Nexus.Service.Routes;
 
 public static partial class DevicesRoutes
 {
-    /// <summary>Ceiling for a hand-typed chain zone count; mirrors the artifact schema's per-zone cap.</summary>
-    private const int MaxChainZoneLeds = 4096;
-
-    /// <summary>
-    /// Ceiling for a whole chain. Without it a chain of links that are each
-    /// legal on their own asks the header for their sum, which is persisted as
-    /// the port's count and then sent as a RESIZEZONE.
-    /// </summary>
-    private const int MaxChainTotalLeds = 4096;
-
     /// <summary>
     /// Community mapping flow per lighting device: browse the registry
     /// (proxied through the service's disk cache so the SPA never talks to
@@ -158,6 +148,7 @@ public static partial class DevicesRoutes
             Nexus.Service.Lighting.Zones.ZoneTopology topology,
             Nexus.Service.Persistence.IConfigStore store,
             Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+            Nexus.Service.Lighting.NollieLightingDeviceProvider nollie,
             Nexus.Service.Sockets.MultiplexHub hub) =>
         {
             var structure = topology.FindStructure(deviceId);
@@ -166,20 +157,14 @@ public static partial class DevicesRoutes
             if (!structure.Partitionable)
                 return Results.Json(ApiResponse.Fail("device does not support zone partitions"), AppJsonContext.Default.ApiResponse);
             // A port is one device with one segment, so there is nothing to
-            // address: the chain always tiles segment 0. Segment survives on the
-            // body only so an older client's payload still parses.
+            // address: the chain always tiles segment 0.
             const int segment = 0;
             if (structure.Segments.Count != 1)
                 return Results.Json(ApiResponse.Fail("device is not a single addressable port"), AppJsonContext.Default.ApiResponse);
             if (!structure.Segments[segment].Resizable)
                 return Results.Json(ApiResponse.Fail("segment is not an addressable port"), AppJsonContext.Default.ApiResponse);
 
-            // Entries is the current form; Keys is the older all-products body.
-            var requested = body.Entries is { Count: > 0 }
-                ? body.Entries
-                : (body.Keys ?? new List<string>()).ConvertAll(k => new SetChainEntry { Key = k });
-
-            var plan = TryBuildChainPlan(structure, segment, requested, out var planError);
+            var plan = TryBuildChainPlan(structure, segment, body.Entries, out var planError);
             if (plan is null)
                 return Results.Json(ApiResponse.Fail(planError!), AppJsonContext.Default.ApiResponse);
 
@@ -236,6 +221,14 @@ public static partial class DevicesRoutes
                 }
             });
 
+            if (plan.Entries.Count > 0)
+            {
+                // ZoneLedCounts was written directly above rather than through
+                // SetZoneLedCount, so the legacy 1CH controller's LED-count
+                // handshake needs a separate push or its firmware keeps the
+                // old count.
+                nollie.PushLedCountHandshakeFor(defaultCardId);
+            }
             bridge?.RequestTopologyRefresh();
             Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             response.LedCount = plan.Total;
@@ -262,11 +255,7 @@ public static partial class DevicesRoutes
             if (!structure.Segments[segment].Resizable)
                 return Results.Json(new ChainPreviewResponse { Error = true, Msg = "segment is not an addressable port" }, AppJsonContext.Default.ChainPreviewResponse);
 
-            var requested = body.Entries is { Count: > 0 }
-                ? body.Entries
-                : (body.Keys ?? new List<string>()).ConvertAll(k => new SetChainEntry { Key = k });
-
-            var plan = TryBuildChainPlan(structure, segment, requested, out var planError);
+            var plan = TryBuildChainPlan(structure, segment, body.Entries, out var planError);
             if (plan is null)
                 return Results.Json(new ChainPreviewResponse { Error = true, Msg = planError! }, AppJsonContext.Default.ChainPreviewResponse);
 
@@ -406,7 +395,7 @@ public static partial class DevicesRoutes
             {
                 // A generic's geometry follows the count, so the count is
                 // the client's to set here and only here.
-                if (want.LedCount <= 0 || want.LedCount > MaxChainZoneLeds)
+                if (want.LedCount <= 0 || want.LedCount > GenericChainArtifacts.MaxArtifactLedCount)
                 {
                     error = "generic zone led count out of range";
                     return null;
@@ -448,7 +437,7 @@ public static partial class DevicesRoutes
         // The port's own ceiling wins where it advertises one: past it the
         // chain would persist and render while the writer dropped the tail.
         var portMax = structure.Segments[segment].MaxLedCount;
-        var ceiling = portMax > 0 ? Math.Min(portMax, MaxChainTotalLeds) : MaxChainTotalLeds;
+        var ceiling = portMax > 0 ? Math.Min(portMax, GenericChainArtifacts.MaxArtifactLedCount) : GenericChainArtifacts.MaxArtifactLedCount;
         if (total > ceiling)
         {
             error = $"chain needs {total} LEDs; this port carries {ceiling}";

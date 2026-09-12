@@ -114,12 +114,8 @@ public sealed class AssignMappingBody
 /// <summary>Wire an ordered chain to one ARGB port. An empty chain clears it.</summary>
 public sealed class SetChainBody
 {
-    /// <summary>Index of the port's hardware segment. A port has one segment, so this is vestigial; kept so an older client's payload still parses.</summary>
-    public int Segment { get; set; }
     /// <summary>Chain in wire order: products, custom LED runs, or a mix.</summary>
     public List<SetChainEntry> Entries { get; set; } = new();
-    /// <summary>Legacy all-products form. Used only when <see cref="Entries"/> is empty.</summary>
-    public List<string> Keys { get; set; } = new();
 }
 
 /// <summary>One requested link: a catalog product by key, or a bare LED count.</summary>

@@ -301,7 +301,15 @@ public sealed class SmartHubLightingDeviceProvider :
     public void SetZoneLedCount(string id, int count)
     {
         if (count < 0) return;
-        _store.Update(s => s.Devices.ZoneLedCounts[id] = count);
+        _store.Update(s =>
+        {
+            s.Devices.ZoneLedCounts[id] = count;
+            // A hand-typed count replaces whatever the chain declared, so the
+            // chain record and its partition must not outlive it describing
+            // products that no longer add up to the port.
+            if (s.Devices.PortChains.Remove(ZoneResolution.ChainKey(id, 0)))
+                s.Devices.ZonePartitions.Remove(id);
+        });
     }
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);

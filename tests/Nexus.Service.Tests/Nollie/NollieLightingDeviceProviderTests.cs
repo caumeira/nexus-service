@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Lighting;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Peripherals.Nollie;
 using Nexus.Service.Persistence;
@@ -108,6 +109,56 @@ public class NollieLightingDeviceProviderTests
         _provider.SetZoneLedCount("nollie-s-GHOST:ch0", 30);
         _provider.SetZoneLedCount($"{c.DeviceId}:ch99", 30);
         Assert.Empty(_store.Load().Devices.ZoneLedCounts);
+    }
+
+    [Fact]
+    public void SetZoneLedCount_on_a_chained_channel_drops_the_chain_and_partition()
+    {
+        var c = Attach(0x16D5, 0x2A16, "SIXTEEN");
+        var id = NollieLightingDeviceProvider.ChannelId(c.DeviceId, 0);
+        _store.Update(s =>
+        {
+            s.Devices.ZoneLedCounts[id] = 76;
+            s.Devices.ZonePartitions[id] = new()
+            {
+                new ZoneDef { Name = "FR12 Trio", Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = 68 } } },
+                new ZoneDef { Name = "Y50 Solo Fan", Slices = { new ZoneSlice { Segment = 0, Start = 68, Count = 8 } } },
+            };
+            s.Devices.PortChains[ZoneResolution.ChainKey(id, 0)] = new()
+            {
+                new ChainEntry { Key = "product:hyte-fr12-trio", LedCount = 68 },
+                new ChainEntry { Key = "product:hyte-y50-solo", LedCount = 8 },
+            };
+        });
+
+        _provider.SetZoneLedCount(id, 40);
+
+        var settings = _store.Load();
+        Assert.Equal(40, settings.Devices.ZoneLedCounts[id]);
+        Assert.False(settings.Devices.PortChains.ContainsKey(ZoneResolution.ChainKey(id, 0)));
+        Assert.False(settings.Devices.ZonePartitions.ContainsKey(id));
+    }
+
+    /// <summary>
+    /// The chain POST writes ZoneLedCounts directly rather than through
+    /// SetZoneLedCount, so the legacy 1CH controller needs this as a separate
+    /// path to the same handshake or its firmware keeps the old count.
+    /// </summary>
+    [Fact]
+    public void PushLedCountHandshakeFor_resends_a_count_written_outside_SetZoneLedCount()
+    {
+        var device = new FakeHidDevice(0x16D2, 0x1F11, "path-LEGACY", "LEGACY");
+        var controller = new NollieController(device, NollieProtocol.Lookup(0x16D2, 0x1F11)!);
+        _hub.Attach(controller);
+        var id = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, 0);
+        _store.Update(s => s.Devices.ZoneLedCounts[id] = 76);
+
+        _provider.PushLedCountHandshakeFor(id);
+
+        var report = Assert.Single(device.Writes);
+        Assert.Equal(0xFE, report[1]);
+        Assert.Equal(76, report[3]);
+        Assert.Equal(0, report[4]);
     }
 
     /// <summary>A count persisted above the ceiling (older build, edited file) is clamped on read, never trusted raw.</summary>

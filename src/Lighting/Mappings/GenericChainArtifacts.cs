@@ -17,6 +17,9 @@ public static class GenericChainArtifacts
     public const string FanKey = "generic:fan";
     public const string StripKey = "generic:strip";
 
+    /// <summary>Per-zone LED cap the artifact schema enforces, shared with the chain POST's own zone and total ceilings.</summary>
+    public const int MaxArtifactLedCount = 4096;
+
     /// <summary>Ring radius in UV space, leaving a margin inside the fan frame.</summary>
     private const float RingRadius = 0.42f;
 
@@ -27,7 +30,7 @@ public static class GenericChainArtifacts
     /// <summary>Null when the key is not generic or the count is out of range.</summary>
     public static MappingArtifact? Build(string key, int ledCount)
     {
-        if (!IsGeneric(key) || ledCount <= 0 || ledCount > 4096)
+        if (!IsGeneric(key) || ledCount <= 0 || ledCount > MaxArtifactLedCount)
             return null;
 
         var isFan = key == FanKey;

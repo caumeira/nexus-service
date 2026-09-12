@@ -231,7 +231,7 @@ public sealed class KrakenLightingDeviceProvider :
             // could chain.
             card.DeviceId = structure.DeviceId;
             card.ZoneCustomizable = true;
-            card.EnabledLedCount = ZoneResolution.CountEnabled(structure, zone, id, zone.LedCount, zone.Ordinal, settings);
+            card.EnabledLedCount = ZoneResolution.CountEnabled(structure, zone, id, zone.LedCount, zoneHint: 0, settings);
         }
         return card;
     }
@@ -306,7 +306,15 @@ public sealed class KrakenLightingDeviceProvider :
         {
             return;
         }
-        _store.Update(s => s.Devices.ZoneLedCounts[id] = count);
+        _store.Update(s =>
+        {
+            s.Devices.ZoneLedCounts[id] = count;
+            // A hand-typed count replaces whatever the chain declared, so the
+            // chain record and its partition must not outlive it describing
+            // products that no longer add up to the port.
+            if (s.Devices.PortChains.Remove(ZoneResolution.ChainKey(id, 0)))
+                s.Devices.ZonePartitions.Remove(id);
+        });
     }
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
@@ -324,7 +332,7 @@ public sealed class KrakenLightingDeviceProvider :
         var result = new List<DeviceStructure>(defs.Count);
         foreach (var def in defs)
         {
-            result.Add(BuildStructure(def, counts));
+            result.Add(BuildStructure(def, counts, _hub.MaxDirectColors));
         }
         return result;
     }
@@ -335,9 +343,11 @@ public sealed class KrakenLightingDeviceProvider :
     /// chain) is partitionable: the firmware cannot say what is daisy-chained
     /// to it, so the user declares the chain like any other ARGB port. The
     /// pump ring's count is always known, so it stays a single fixed,
-    /// non-partitionable zone.
+    /// non-partitionable zone. maxLedCount carries the fan channel's addressing
+    /// ceiling (<see cref="KrakenHub.MaxDirectColors"/>) so a chain POST cannot
+    /// declare more LEDs than the writer will ever push.
     /// </summary>
-    private static DeviceStructure BuildStructure(ZoneDef def, IReadOnlyDictionary<string, int> counts)
+    private static DeviceStructure BuildStructure(ZoneDef def, IReadOnlyDictionary<string, int> counts, int maxLedCount = 0)
     {
         var ledCount = EffectiveLedCount(def, counts);
         var (u, v) = BuildRingUv(ledCount, def.Rings, StartAngleFor(def.Rings));
@@ -353,6 +363,7 @@ public sealed class KrakenLightingDeviceProvider :
             LedCount = ledCount,
             FrameLedCount = ledCount,
             Resizable = IsCountUnknown(def),
+            MaxLedCount = IsCountUnknown(def) ? maxLedCount : 0,
             ZoneType = "linear",
             DefaultU = u,
             DefaultV = v,
