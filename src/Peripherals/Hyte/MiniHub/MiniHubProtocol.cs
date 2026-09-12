@@ -126,7 +126,7 @@ public static class MiniHubProtocol
     /// wrong device on the port, etc.).
     /// On firmware 1.0.1.1 the period bytes do not track the fans: they stay
     /// frozen with no LED traffic, change at random while frames stream, and
-    /// ignore a 10%→100% duty change (Y70 bench, 2026-09-11). The poll is
+    /// ignore a 10%→100% duty change. The poll is
     /// kept as a transport liveness check; the cooling provider marks both
     /// ports RpmUnavailable instead of showing the decoded value.
     /// </summary>

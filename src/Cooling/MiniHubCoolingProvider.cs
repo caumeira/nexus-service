@@ -52,10 +52,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
 
     // ── IFanControlProvider ──
 
-    // RpmUnavailable on both ports: MiniHub firmware 1.0.1.1 answers the
-    // get-fan-speed poll with a byte that never tracks the fan (frozen with no
-    // LED traffic, random under the 30 Hz stream, unchanged between 10% and
-    // 100% duty - measured on the Y70 bench 2026-09-11), so no RPM is shown.
+    // RpmUnavailable on both ports: see MiniHubProtocol.TryParseFanSpeeds.
     public IReadOnlyList<FanChannel> GetFanChannels()
     {
         var connected = _hub.IsConnected;
@@ -151,8 +148,8 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
         IProgress<FanCalibrationProgress> progress,
         CancellationToken ct)
     {
-        // Same rationale as NP50: hub-driven fans report stable RPM at known
-        // PWM and don't benefit from a calibration ramp.
+        // Nothing to measure: the hub reports no usable RPM (see
+        // MiniHubProtocol.TryParseFanSpeeds), so a duty ramp learns nothing.
         return Task.FromResult<IReadOnlyList<FanCalibration>>(Array.Empty<FanCalibration>());
     }
 
