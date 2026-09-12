@@ -89,7 +89,7 @@ src/
   Panel/               # panel pairing, kiosk launch, backgrounds; Streams/ = streamed-panel sessions + transports
   Deck/  Rendering/    # deck action model + headless executor; server-rendered tiles and key images
   Widgets/  Store/     # nexus.app/1 app host and installer; cloud app-store proxy, entitlements
-  Gallery/  Media/     # shared image sources; media import + library
+  Gallery/  Media/     # shared image/video sources; media import + library
   Activity/            # screen time, app detection, audio analysis
   Games/  Fps/         # installed-game catalog, FPS capture and per-game sessions
   FocusModes/  Audio/  # focus modes; per-app volume mixer and audio playback
