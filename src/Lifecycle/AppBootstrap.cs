@@ -182,6 +182,11 @@ internal static class AppBootstrap
             }
             curveEngine.ResetSmoothing();
             lightingEngine.Stop();
+            // A profile reset while it was inactive holds no curves yet (the
+            // boot seed only ran against the profile active at the time);
+            // seed here so it opens on the same four presets a clean install
+            // gets. No-op once the profile has been seeded.
+            FanProfiles.SeedDefaultPresetCurves(fans, configStore);
             // Re-engage engines with the incoming profile's settings so
             // a profile that has "silent" cooling + a plasma effect
             // resumes after the switch instead of leaving the engines
