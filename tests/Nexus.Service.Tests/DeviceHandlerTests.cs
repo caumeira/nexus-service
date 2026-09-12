@@ -25,7 +25,7 @@ public class DeviceHandlerTests
     {
         var h = TestHandlers.Cnvs();
         Assert.Equal("cnvs", h.Id);
-        Assert.Equal("CNVS", h.Name);
+        Assert.Equal("HYTE CNVS", h.Name);
         Assert.Equal("controller", h.Category);
         Assert.NotEmpty(h.Identifiers);
     }
