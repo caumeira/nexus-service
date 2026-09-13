@@ -34,7 +34,9 @@ public class LightingEngineSamplingTests
 
     private static (byte r, byte g, byte b) Led(byte[] leds, int i) => (leds[i * 3], leds[i * 3 + 1], leds[i * 3 + 2]);
 
-    private static DeviceFrame MakeRam() => new(0, "ram", 10, x: 300, y: 100, w: 40, h: 250, rotation: 90);
+    // A 250x40 strip turned a quarter clockwise about its centre: the same
+    // 40x250 upright footprint at x 300..340, first LED at the top.
+    private static DeviceFrame MakeRam() => new(0, "ram", 10, x: 195, y: 205, w: 250, h: 40, rotation: 90);
 
     [Fact]
     public async Task LinearStrip_OffCenterContent_LightsAllLeds()
@@ -96,6 +98,22 @@ public class LightingEngineSamplingTests
             for (int y = 16; y <= 51; y++) { c.SetPixel(49, y, 255, 0, 180); }
         }, footprintSampling: false);
         Assert.All(leds, v => Assert.Equal(0, v));
+    }
+
+    [Fact]
+    public async Task LinearStrip_TurnedFortyFiveDegrees_SamplesAlongTheDiagonal()
+    {
+        // A 200x20 strip centred at (500,300) units, turned 45 degrees: its two
+        // LEDs sit 100 units from the centre along the diagonal, so in the
+        // 160x90 canvas the last lands at (91,55) and the first near (69,34).
+        var strip = new DeviceFrame(0, "diag", 2, x: 400, y: 290, w: 200, h: 20, rotation: 45);
+        var leds = await RenderOnce(strip, c =>
+        {
+            c.Clear();
+            c.SetPixel(91, 55, 0, 200, 255);
+        });
+        Assert.Equal(((byte)0, (byte)0, (byte)0), Led(leds, 0));
+        Assert.Equal(((byte)0, (byte)200, (byte)255), Led(leds, 1));
     }
 
     [Fact]

@@ -110,7 +110,7 @@ public static class ProfileSharing
         switch (Normalize(category))
         {
             case Lighting:
-                target.Lighting = new LightingSettings();
+                target.Lighting = new LightingSettings { FreeRotationLayouts = true };
                 break;
             case Cooling:
                 target.Cooling = new CoolingSettings();
