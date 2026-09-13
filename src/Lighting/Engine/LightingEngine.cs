@@ -92,6 +92,14 @@ public sealed class LightingEngine : IDisposable
     }
     public void UpdateDevices(DeviceFrame[] devices) { _devices = devices; }
 
+    // Which part of its frame each stacked device samples; null or a miss
+    // means the whole frame. Replaced wholesale on every stack save.
+    private volatile Dictionary<string, Nexus.Service.Lighting.StackSlots.Slot>? _stackSlots;
+    public void SetStackSlots(IReadOnlyList<Nexus.Service.Persistence.DeviceGroup> stacks)
+    {
+        _stackSlots = Nexus.Service.Lighting.StackSlots.Index(stacks);
+    }
+
     /// <summary>
     /// Per-device Static assignments. Set once at wire-up; null in tests and any
     /// host that never assigns one, in which case sampling is unchanged.
@@ -665,11 +673,31 @@ public sealed class LightingEngine : IDisposable
                 continue;
             }
 
-            var rectX = dev.X / CW * cw;
-            var rectY = dev.Y / CH * ch;
-            var rectW = dev.W / CW * cw;
-            var rectH = dev.H / CH * ch;
-            var rot = ((dev.Rotation % 360) + 360) % 360;
+            // The stored rect is the frame before it turns; the frame turns
+            // about that rect's centre by Rotation degrees clockwise, in canvas
+            // units, so a turned frame samples what the page shows over the
+            // same stretched canvas. Every sample point below is laid out
+            // unturned in units, rotated about (frameCx, frameCy), and only
+            // then scaled onto the pixel grid. A stack slot is cut from the
+            // unturned rect and turns with the whole frame.
+            var rectX = dev.X;
+            var rectY = dev.Y;
+            var rectW = dev.W;
+            var rectH = dev.H;
+            var frameCx = rectX + rectW * 0.5f;
+            var frameCy = rectY + rectH * 0.5f;
+            var kx = cw / CW;
+            var ky = ch / CH;
+            var rad = (((dev.Rotation % 360) + 360) % 360) * (MathF.PI / 180f);
+            var cos = MathF.Cos(rad);
+            var sin = MathF.Sin(rad);
+            var absCos = MathF.Abs(cos);
+            var absSin = MathF.Abs(sin);
+            var slots = _stackSlots;
+            if (slots is not null && slots.TryGetValue(dev.Id, out var slot))
+            {
+                (rectX, rectY, rectW, rectH) = Nexus.Service.Lighting.StackSlots.Slice(rectX, rectY, rectW, rectH, slot);
+            }
 
             // Preview layout: editor draft positions keyed by LED index.
             // When present, build parallel U/V/Disabled arrays in index order
@@ -720,12 +748,16 @@ public sealed class LightingEngine : IDisposable
                 // Cell dims from a uniform cols x rows density estimate matched
                 // to the rect aspect. The true UV layout may be non-uniform, so
                 // neighbouring cells can overlap or leave small gaps; keyboards
-                // land at ~key-sized cells and keep per-key sharpness.
+                // land at ~key-sized cells and keep per-key sharpness. The cell
+                // read is the turned cell's bounding box.
                 var aspect = rectH > 0.001f ? rectW / rectH : 1f;
                 var cols = Math.Max(1, (int)MathF.Round(MathF.Sqrt(ledCount * aspect)));
                 var rows = Math.Max(1, (ledCount + cols - 1) / cols);
-                var uvHalfW = Math.Max(1f, rectW / cols) * 0.5f;
-                var uvHalfH = Math.Max(1f, rectH / rows) * 0.5f;
+                // Cells are at least one pixel on each axis.
+                var cellHalfW = Math.Max(1f / kx, rectW / cols) * 0.5f;
+                var cellHalfH = Math.Max(1f / ky, rectH / rows) * 0.5f;
+                var uvHalfW = (cellHalfW * absCos + cellHalfH * absSin) * kx;
+                var uvHalfH = (cellHalfW * absSin + cellHalfH * absCos) * ky;
                 for (int i = 0; i < ledCount; i++)
                 {
                     if (devLedDisabled is not null && i < devLedDisabled.Length && devLedDisabled[i])
@@ -733,30 +765,10 @@ public sealed class LightingEngine : IDisposable
                         dev.SetLed(i, 0, 0, 0);
                         continue;
                     }
-                    var u = devLedU[i];
-                    var v = devLedV[i];
-                    float ur, vr;
-                    switch (rot)
-                    {
-                        case 90:
-                            ur = 1f - v;
-                            vr = u;
-                            break;
-                        case 180:
-                            ur = 1f - u;
-                            vr = 1f - v;
-                            break;
-                        case 270:
-                            ur = v;
-                            vr = 1f - u;
-                            break;
-                        default:
-                            ur = u;
-                            vr = v;
-                            break;
-                    }
-                    var sx = rectX + ur * rectW;
-                    var sy = rectY + vr * rectH;
+                    var lx = rectX + devLedU[i] * rectW - frameCx;
+                    var ly = rectY + devLedV[i] * rectH - frameCy;
+                    var sx = (frameCx + lx * cos - ly * sin) * kx;
+                    var sy = (frameCy + lx * sin + ly * cos) * ky;
                     var (r, g, b) = FootprintSamplingEnabled
                         ? SampleLedFootprint(sx - uvHalfW, sy - uvHalfH, sx + uvHalfW, sy + uvHalfH)
                         : _canvas.GetPixel((int)sx, (int)sy);
@@ -765,43 +777,17 @@ public sealed class LightingEngine : IDisposable
                 continue;
             }
 
-            // Linear strip fallback: walk the LEDs along the rotation axis.
-            var cx = rectX + rectW * 0.5f;
-            var cy = rectY + rectH * 0.5f;
-            float dx, dy;
-            switch (rot)
-            {
-                case 90:
-                    dx = 0f;
-                    dy = rectH;
-                    break;
-                case 180:
-                    dx = -rectW;
-                    dy = 0f;
-                    break;
-                case 270:
-                    dx = 0f;
-                    dy = -rectH;
-                    break;
-                default:
-                    dx = rectW;
-                    dy = 0f;
-                    break;
-            }
-            // Each LED's cell spans the full frame breadth across the strip axis
-            // and one LED pitch along it, so content anywhere inside the frame
-            // reaches the LED at that position instead of only the centerline.
-            float linHalfW, linHalfH;
-            if (rot is 90 or 270)
-            {
-                linHalfW = Math.Max(1f, rectW) * 0.5f;
-                linHalfH = Math.Max(1f, rectH / ledCount) * 0.5f;
-            }
-            else
-            {
-                linHalfW = Math.Max(1f, rectW / ledCount) * 0.5f;
-                linHalfH = Math.Max(1f, rectH) * 0.5f;
-            }
+            // Linear strip fallback: the LEDs walk the unturned rect's width
+            // along its centreline, first LED at the left. Each LED's cell spans
+            // the full breadth across the strip and one LED pitch along it, so
+            // content anywhere inside the frame reaches the LED at that position
+            // instead of only the centerline; the read is the turned cell's
+            // bounding box.
+            var pitchHalf = Math.Max(1f / kx, rectW / ledCount) * 0.5f;
+            var breadthHalf = Math.Max(1f / ky, rectH) * 0.5f;
+            var linHalfW = (pitchHalf * absCos + breadthHalf * absSin) * kx;
+            var linHalfH = (pitchHalf * absSin + breadthHalf * absCos) * ky;
+            var midY = rectY + rectH * 0.5f - frameCy;
             var denom = ledCount > 1 ? 1f / (ledCount - 1) : 0f;
             for (int i = 0; i < ledCount; i++)
             {
@@ -811,8 +797,9 @@ public sealed class LightingEngine : IDisposable
                     continue;
                 }
                 var t = ledCount > 1 ? i * denom - 0.5f : 0f;
-                var sx = cx + t * dx;
-                var sy = cy + t * dy;
+                var lx = rectX + rectW * 0.5f + t * rectW - frameCx;
+                var sx = (frameCx + lx * cos - midY * sin) * kx;
+                var sy = (frameCy + lx * sin + midY * cos) * ky;
                 var (r, g, b) = FootprintSamplingEnabled
                     ? SampleLedFootprint(sx - linHalfW, sy - linHalfH, sx + linHalfW, sy + linHalfH)
                     : _canvas.GetPixel((int)sx, (int)sy);

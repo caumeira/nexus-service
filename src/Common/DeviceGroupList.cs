@@ -61,9 +61,14 @@ public static class DeviceGroupList
         return result;
     }
 
+    /// <summary>The frame layouts a stack may name; anything else is stored as null (overlap).</summary>
+    public static readonly string[] StackLayouts = { "overlap", "parallel", "series" };
+
     /// <summary>
     /// A stack list as it will be stored: the group invariants minus the cap and
-    /// the rail fields, and a stack holding fewer than two cards dissolves.
+    /// the rail fields, and a stack holding fewer than two cards dissolves. The
+    /// layout keeps only a known value, so a client never reads a word it does
+    /// not draw.
     /// </summary>
     public static List<DeviceGroup> SanitizeStacks(IReadOnlyList<DeviceGroup>? incoming)
     {
@@ -87,9 +92,15 @@ public static class DeviceGroupList
             if (members.Count < 2) continue;
             var name = (stack.Name ?? "").Trim();
             if (name.Length > MaxNameLength) name = name[..MaxNameLength];
-            result.Add(new DeviceGroup { Id = id, Name = name, Members = members });
+            result.Add(new DeviceGroup { Id = id, Name = name, Members = members, Layout = Known(stack.Layout, StackLayouts) });
         }
         return result;
+    }
+
+    private static string? Known(string? value, string[] allowed)
+    {
+        var trimmed = value?.Trim();
+        return trimmed is not null && Array.IndexOf(allowed, trimmed) >= 0 ? trimmed : null;
     }
 
     // A parent naming a group this pass dropped, or one whose chain leads back

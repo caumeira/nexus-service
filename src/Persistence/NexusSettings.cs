@@ -19,7 +19,7 @@ public sealed class NexusSettings
     /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
     /// tests and tooling can reference "current" without bit-rotting.
     /// </summary>
-    public const int CurrentSchemaVersion = 16;
+    public const int CurrentSchemaVersion = 17;
 
     /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. v9 prunes <see cref="AnimateSettings.Templates"/> to user deltas against the canonical defaults (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults"/>). v10 prunes <see cref="AnimateSettings.States"/> entries equal to the effect's resolved selected-slot look. v11 rewrites the legacy <c>marketplace:</c> app-placement prefix to <c>app:</c> across all persisted widget types (see <see cref="Nexus.Service.Widgets.AppPrefixMigration"/>). v12 adds the <see cref="ProfileSharing.Device"/> sharing category (Stream Deck bindings), defaulted to Shared so an upgrading install keeps today's workstation-global behavior. v13 marks any pre-existing settings.json as already lighting-onboarded (see <see cref="LightingOnboardingCompleted"/>) so the lighting device-selection screen only shows for fresh installs. v14 seeded a per-page density mode that was later removed; it is now a plain version bump. v15 seeds <see cref="UiSettings.LightingDashboardMode"/> and <see cref="UiSettings.CoolingDashboardMode"/> to "advanced" for any pre-existing settings.json, so the reintroduced per-page density mode default ("simple") only applies to fresh installs. v16 marks any pre-existing settings.json as already features-onboarded (see <see cref="FeaturesOnboardingCompleted"/>) so the feature-pillars onboarding screen only shows for fresh installs; <see cref="Features"/> itself is additive (every flag already defaults true) and carries no migration arm. The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -517,6 +517,8 @@ public sealed class DeviceGroup
     public string? After { get; set; }
     /// <summary>The container this group sits in: null for the top level, another group's id, or a hardware group's block id. The client keeps nesting to two levels.</summary>
     public string? Parent { get; set; }
+    /// <summary>Stacks only: how the members share the frame - "overlap" (every member on the whole frame), "parallel" (bands top to bottom) or "series" (columns left to right). Null on a rail group and on a stack that never chose, which reads as overlap.</summary>
+    public string? Layout { get; set; }
 }
 
 public sealed class LightingSettings
@@ -535,6 +537,8 @@ public sealed class LightingSettings
     public int FrameRate { get; set; } = InstallDefaults.Lighting.FrameRate;
     public double ScaleRatio { get; set; } = InstallDefaults.Lighting.ScaleRatio;
     public Dictionary<string, DeviceLayout> DeviceLayouts { get; set; } = new();
+    /// <summary>True once the layouts store the unturned frame (any rotation, turned about the centre); false marks a document whose 90/270 layouts still hold the turned footprint, which <see cref="Nexus.Service.Lighting.LayoutRotationMigration"/> unswaps.</summary>
+    public bool FreeRotationLayouts { get; set; }
     /// <summary>
     /// User-renamed lighting cards, keyed by lighting-device id. Applied by the
     /// /devices/lighting-devices/all route only - every internal consumer

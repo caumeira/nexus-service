@@ -764,7 +764,7 @@ public sealed partial class ProfileManager : IDisposable
 
         _store.Update(s =>
         {
-            s.Lighting = data.Lighting ?? new LightingSettings();
+            s.Lighting = data.Lighting ?? new LightingSettings { FreeRotationLayouts = true };
             // Pre-v10 profile files (local, imported, or cloud-synced) carry
             // fully materialized template dicts and dense activation states;
             // re-prune both on apply so they don't re-inflate settings.json
@@ -774,6 +774,10 @@ public sealed partial class ProfileManager : IDisposable
                 animate.Templates = Nexus.Service.Lighting.AnimateTemplateDefaults.Prune(animate.Templates);
                 Nexus.Service.Lighting.AnimateTemplateDefaults.PruneStates(animate);
             }
+            // Profile files never pass through JsonConfigStore.Migrate, so a
+            // profile saved before free rotation unswaps its quarter-turned
+            // layouts here, under the store lock (idempotent).
+            Nexus.Service.Lighting.LayoutRotationMigration.Apply(s.Lighting);
             s.Cooling = data.Cooling ?? new CoolingSettings();
 
             // Theme + Dashboard categories now live in dedicated top-level

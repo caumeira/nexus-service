@@ -62,6 +62,9 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
                 // of false until the user explicitly opts in.
                 _cached = new NexusSettings();
                 _cached.Telemetry.CollectAnonymousData = true;
+                // Written in the free-rotation layout convention from the start;
+                // only a document from before it needs the v17 unswap.
+                _cached.Lighting.FreeRotationLayouts = true;
                 Persist(_cached);
                 return _cached;
             }
@@ -132,6 +135,10 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// v16: any pre-existing settings.json predates the feature-pillars
     /// onboarding screen, so it is marked already-complete; only a fresh
     /// install sees the screen. Same shape as v8/v13/v15.
+    /// v17: quarter-turned lighting layouts stored their turned footprint;
+    /// they now store the unturned frame, so 90/270 records swap sides back.
+    /// Profiles carry their own lighting document and migrate in
+    /// ProfileManager.LoadProfileIntoSettings as they are applied.
     /// </summary>
     private static void Migrate(NexusSettings doc)
     {
@@ -197,6 +204,10 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         if (doc.SchemaVersion < 16)
         {
             doc.FeaturesOnboardingCompleted = true;
+        }
+        if (doc.SchemaVersion < 17)
+        {
+            Nexus.Service.Lighting.LayoutRotationMigration.Apply(doc.Lighting);
         }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }

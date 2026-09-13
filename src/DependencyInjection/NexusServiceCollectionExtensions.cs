@@ -474,6 +474,7 @@ public static class NexusServiceCollectionExtensions
             // and by hosts that assign no per-device colours.
             var engine = new LightingEngine();
             engine.StaticEffects = sp.GetRequiredService<Nexus.Service.Lighting.StaticDeviceEffectTracker>();
+            engine.SetStackSlots(sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>().Load().Lighting.DeviceStacks);
             return engine;
         });
         // Community LED mappings: resolver state for contributor frames, the

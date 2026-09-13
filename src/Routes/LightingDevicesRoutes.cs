@@ -298,7 +298,9 @@ public static partial class DevicesRoutes
             var lighting = store.Load().Lighting;
             Nexus.Service.Lighting.LightingDeviceNames.Apply(all.Devices, lighting.DeviceNames);
             all.Groups = lighting.DeviceGroups;
-            all.Stacks = lighting.DeviceStacks;
+            // Sanitized on the way out too, so a layout word another build
+            // stored reads as the default rather than reaching the page.
+            all.Stacks = Nexus.Service.Common.DeviceGroupList.SanitizeStacks(lighting.DeviceStacks);
             return all;
         }).AllowPanel();
 
@@ -318,10 +320,12 @@ public static partial class DevicesRoutes
         app.MapPut("/devices/lighting-devices/stacks", (
             SetDeviceStacksBody body,
             Nexus.Service.Persistence.IConfigStore store,
-            Nexus.Service.Sockets.MultiplexHub hub) =>
+            Nexus.Service.Sockets.MultiplexHub hub,
+            Nexus.Service.Lighting.Engine.LightingEngine engine) =>
         {
             var stacks = Nexus.Service.Common.DeviceGroupList.SanitizeStacks(body.Stacks);
             store.Update(s => s.Lighting.DeviceStacks = stacks);
+            engine.SetStackSlots(stacks);
             Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return Results.Ok(new SetDeviceStacksBody { Stacks = stacks });
         });
