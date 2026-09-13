@@ -91,8 +91,11 @@ public static partial class DevicesRoutes
             {
                 if (ModelId(d) == body.Id) { spec = d; break; }
             }
-            if (spec is null || !worker.AttachSimulated(spec.VendorId, spec.ProductId))
+            if (spec is null)
                 return Results.Json(ApiResponse.Fail("unknown model"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+            if (!worker.ControlEnabled)
+                return Results.Json(ApiResponse.Fail("Nexus Control is off for Nollie"), AppJsonContext.Default.ApiResponse, statusCode: 409);
+            worker.AttachSimulated(spec.VendorId, spec.ProductId);
             return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         }).LocalhostOnly();
 

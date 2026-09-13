@@ -42,6 +42,18 @@ public sealed class NollieConnectionWorker : BackgroundService
         _presence = presence;
     }
 
+    private bool AnyRealBoardAttached()
+    {
+        foreach (var controller in _hub.Controllers)
+        {
+            if (!IsSimulated(controller)) return true;
+        }
+        return false;
+    }
+
+    private static bool IsSimulated(NollieController controller)
+        => controller.Path.StartsWith(SimulatedNollieDevice.PathPrefix, StringComparison.Ordinal);
+
     /// <summary>
     /// True when any Nollie vendor is on the USB bus. Reconcile() calls FindAll(),
     /// which opens every HID interface on the host and serial-queries each one.
@@ -70,9 +82,10 @@ public sealed class NollieConnectionWorker : BackgroundService
                         _lighting.OnHubStateUpdated();
                     }
                 }
-                // IsConnected first, so a removal is still noticed even if the bus
-                // check misses a device that is already attached.
-                else if (_hub.IsConnected || AnyNolliePresent())
+                // A real board first, so a removal is still noticed even if the
+                // bus check misses a device that is already attached. A simulated
+                // board alone does not earn the HID walk.
+                else if (AnyRealBoardAttached() || AnyNolliePresent())
                 {
                     if (Reconcile())
                     {
@@ -161,7 +174,7 @@ public sealed class NollieConnectionWorker : BackgroundService
 
         foreach (var controller in _hub.Controllers)
         {
-            if (controller.Path.StartsWith(SimulatedNollieDevice.PathPrefix, StringComparison.Ordinal))
+            if (IsSimulated(controller))
             {
                 // Never on the bus; it leaves through DetachSimulated.
                 continue;
@@ -194,6 +207,9 @@ public sealed class NollieConnectionWorker : BackgroundService
         ServiceLog.Info($"[nollie] attached {spec.Name} ({spec.Channels}ch, max {spec.MaxLedsPerChannel} LEDs/ch) sn={(string.IsNullOrEmpty(controller.Serial) ? "-" : controller.Serial)} id={controller.DeviceId}");
     }
 
+    /// <summary>True while the Nexus Control switch for Nollie is on; a simulated board is refused otherwise, like a real one.</summary>
+    public bool ControlEnabled => _gate.IsEnabled(HandlerId);
+
     /// <summary>
     /// Dev tools: attaches a board with nothing behind it, so the cards, the
     /// device page and the standalone settings can be exercised without
@@ -203,7 +219,7 @@ public sealed class NollieConnectionWorker : BackgroundService
     public bool AttachSimulated(int vendorId, int productId)
     {
         var spec = NollieProtocol.Lookup(vendorId, productId);
-        if (spec is null || !_gate.IsEnabled(HandlerId)) return false;
+        if (spec is null || !ControlEnabled) return false;
         var device = new SimulatedNollieDevice(spec);
         if (_hub.HasPath(device.Path)) return true;
         Attach(new NollieController(device, spec));
@@ -211,18 +227,49 @@ public sealed class NollieConnectionWorker : BackgroundService
         return true;
     }
 
-    /// <summary>Dev tools: drops every simulated board.</summary>
+    /// <summary>
+    /// Dev tools: drops every simulated board and everything it wrote to
+    /// settings, so the next attach seeds fresh instead of inheriting edits
+    /// made against a board that was never there.
+    /// </summary>
     public void DetachSimulated()
     {
-        var dropped = false;
+        var dropped = new List<NollieController>();
         foreach (var controller in _hub.Controllers)
         {
-            if (!controller.Path.StartsWith(SimulatedNollieDevice.PathPrefix, StringComparison.Ordinal)) continue;
+            if (!IsSimulated(controller)) continue;
             _hub.Detach(controller.DeviceId);
-            dropped = true;
+            dropped.Add(controller);
             ServiceLog.Info($"[nollie] detached simulated {controller.Spec.Name} id={controller.DeviceId}");
         }
-        if (dropped) _lighting.OnHubStateUpdated();
+        if (dropped.Count == 0) return;
+        _store.Update(s =>
+        {
+            foreach (var controller in dropped)
+            {
+                foreach (var port in controller.Spec.Ports)
+                    DropPortState(s, NollieLightingDeviceProvider.PortId(controller.DeviceId, port));
+                s.Devices.Nollie.Standalone.Remove(controller.DeviceId);
+            }
+        });
+        _lighting.OnHubStateUpdated();
+    }
+
+    /// <summary>Everything persisted under one port id: its count, chain, partition and the per-zone state of its cards.</summary>
+    private static void DropPortState(NexusSettings s, string id)
+    {
+        var zoneIds = new List<string> { id };
+        if (s.Devices.ZonePartitions.Remove(id, out var partition))
+        {
+            for (var i = 0; i < partition.Count; i++)
+                zoneIds.Add(Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(id, i));
+        }
+        s.Devices.ZoneLedCounts.Remove(id);
+        s.Devices.PortChains.Remove(Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(id, 0));
+        s.Devices.DeviceLedOverrides.Remove(id);
+        s.Devices.DeviceAspectRatios.Remove(id);
+        Nexus.Service.Lighting.Zones.ZoneStateDrop.Drop(s, zoneIds);
+        foreach (var zoneId in zoneIds) s.Lighting.DeviceNames.Remove(zoneId);
     }
 
     /// <summary>
@@ -248,21 +295,7 @@ public sealed class NollieConnectionWorker : BackgroundService
 
         _store.Update(s =>
         {
-            foreach (var id in ids)
-            {
-                var zoneIds = new List<string> { id };
-                if (s.Devices.ZonePartitions.Remove(id, out var partition))
-                {
-                    for (var i = 0; i < partition.Count; i++)
-                        zoneIds.Add(Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(id, i));
-                }
-                s.Devices.ZoneLedCounts.Remove(id);
-                s.Devices.PortChains.Remove(Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(id, 0));
-                s.Devices.DeviceLedOverrides.Remove(id);
-                s.Devices.DeviceAspectRatios.Remove(id);
-                Nexus.Service.Lighting.Zones.ZoneStateDrop.Drop(s, zoneIds);
-                foreach (var zoneId in zoneIds) s.Lighting.DeviceNames.Remove(zoneId);
-            }
+            foreach (var id in ids) DropPortState(s, id);
         });
         ServiceLog.Info($"[nollie] dropped per-channel state for {ids.Count} Strimer channel(s) on {controller.DeviceId}; the connector is one port now");
     }

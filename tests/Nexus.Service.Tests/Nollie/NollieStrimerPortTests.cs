@@ -152,8 +152,16 @@ public class NollieStrimerPortTests
         Assert.False(worker.Reconcile());
         Assert.Single(_hub.Controllers);
 
+        // Edits made against the simulated board leave with it.
+        _store.Update(s => s.Devices.Nollie.Standalone[controller.DeviceId] = new NollieStandaloneSettings { Color = "#123456" });
         worker.DetachSimulated();
         Assert.Empty(_hub.Controllers);
+        var d = _store.Load().Devices;
+        Assert.DoesNotContain(d.ZoneLedCounts.Keys, k => k.StartsWith(controller.DeviceId, StringComparison.Ordinal));
+        Assert.DoesNotContain(d.PortChains.Keys, k => k.StartsWith(controller.DeviceId, StringComparison.Ordinal));
+        Assert.DoesNotContain(d.ZonePartitions.Keys, k => k.StartsWith(controller.DeviceId, StringComparison.Ordinal));
+        Assert.DoesNotContain(d.AppliedMappings.Keys, k => k.StartsWith(controller.DeviceId, StringComparison.Ordinal));
+        Assert.False(d.Nollie.Standalone.ContainsKey(controller.DeviceId));
         Assert.False(worker.AttachSimulated(0x1234, 0x5678));
     }
 
