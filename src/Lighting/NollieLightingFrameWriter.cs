@@ -15,7 +15,8 @@ namespace Nexus.Service.Lighting;
 /// Pushes engine output to every attached Nollie channel on its own 30 Hz
 /// timer, so a disabled channel still receives blank frames rather than holding
 /// whatever the firmware last drove. A channel with no declared count sends
-/// nothing and stays dark.
+/// nothing and stays dark. A port's buffer is tiled per zone, then cut into
+/// lanes: one channel for a plain header, six for a Strimer connector.
 /// </summary>
 public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
 {
@@ -33,7 +34,7 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
     /// <summary>Scratch RGB buffer per card id; grown on demand, reused every tick.</summary>
     private readonly Dictionary<string, byte[]> _buffers = new(StringComparer.Ordinal);
 
-    // Last resolved zones per channel, keyed by channel id. Resolve reads
+    // Last resolved zones per port, keyed by port id. Resolve reads
     // ZonePartitions/PortChains/ZoneLedCounts lock-free while routes mutate
     // them in place, so a mid-enumeration InvalidOperationException falls
     // back to last tick's zones rather than dropping the frame.
@@ -83,7 +84,7 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
         }
     }
 
-    private void Tick()
+    internal void Tick()
     {
         if (!_gates.Lighting) return;
         var controllers = _hub.Controllers;
@@ -95,32 +96,39 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
         var disabled = settings.Devices.DisabledLightingDevices;
         var uncontrolled = settings.Devices.UncontrolledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
-        var counts = settings.Devices.ZoneLedCounts;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
 
         foreach (var controller in controllers)
         {
-            // Resolved once per channel this tick, reused for the uncontrolled
+            // Resolved once per port this tick, reused for the uncontrolled
             // check and the push loop below.
-            var channelZones = new IReadOnlyList<ResolvedZone>[controller.Spec.Channels];
-            for (var ch = 0; ch < channelZones.Length; ch++)
+            var ports = controller.Spec.Ports;
+            var portZones = new IReadOnlyList<ResolvedZone>[ports.Count];
+            for (var i = 0; i < portZones.Length; i++)
             {
-                channelZones[ch] = ResolveOrReuse(NollieLightingDeviceProvider.ChannelId(controller.DeviceId, ch),
-                    () => NollieLightingDeviceProvider.ResolveChannelZones(controller, ch, settings));
+                var port = ports[i];
+                portZones[i] = ResolveOrReuse(NollieLightingDeviceProvider.PortId(controller.DeviceId, port),
+                    () => NollieLightingDeviceProvider.ResolvePortZones(controller, port, settings));
             }
 
-            // Every channel of this controller left uncontrolled: don't touch it
+            // Every port of this controller left uncontrolled: don't touch it
             // at all, so it keeps whatever its firmware is doing.
-            if (uncontrolled.Count > 0 && AllChannelsUncontrolled(channelZones, uncontrolled))
+            if (uncontrolled.Count > 0 && AllPortsUncontrolled(portZones, uncontrolled))
             {
                 continue;
             }
 
-            var wrote = false;
-            foreach (var ch in PushOrder(controller, counts))
+            var sends = new List<ChannelSend>(controller.Spec.Channels);
+            for (var i = 0; i < ports.Count; i++)
             {
-                if (PushChannel(devices, controller, ch, channelZones[ch], disabled, uncontrolled, prefs, globalBrightness, nowTicks))
+                FillPort(devices, controller, ports[i], portZones[i], disabled, uncontrolled, prefs, globalBrightness, nowTicks, sends);
+            }
+
+            var wrote = false;
+            foreach (var send in PushOrder(controller, sends))
+            {
+                if (controller.SendChannel(send.Card, new ReadOnlySpan<byte>(send.Buffer, send.Offset, send.Length)))
                 {
                     wrote = true;
                 }
@@ -131,6 +139,9 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
             if (wrote) controller.SendLatch();
         }
     }
+
+    /// <summary>One channel's bytes for this tick: a lane of a port buffer.</summary>
+    private readonly record struct ChannelSend(int Card, byte[] Buffer, int Offset, int Length);
 
     private IReadOnlyList<ResolvedZone> ResolveOrReuse(string cacheKey, Func<IReadOnlyList<ResolvedZone>> resolve)
     {
@@ -147,29 +158,32 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Fill one hardware channel's buffer from its resolved zones, laid down
-    /// back to back in chain order, and send it. Power, brightness, colour
-    /// trim and identify stay per-zone so one product in a chain can be
-    /// flashed or switched off without touching the ones beside it on the
-    /// same wire.
+    /// Fill one port's buffer from its resolved zones, laid down back to back
+    /// in chain order, then queue one send per lane that carries LEDs (plus
+    /// the wide transport's flag channels, whose marker delimits the update
+    /// even at zero LEDs). Power, brightness, colour trim and identify stay
+    /// per-zone so one product in a chain can be flashed or switched off
+    /// without touching the ones beside it on the same wire.
     /// </summary>
-    private bool PushChannel(DeviceFrame[] devices, NollieController controller, int ch,
+    private void FillPort(DeviceFrame[] devices, NollieController controller, NolliePort port,
         IReadOnlyList<ResolvedZone> zones,
         IReadOnlyList<string> disabled, IReadOnlyList<string> uncontrolled,
-        IReadOnlyDictionary<string, LightingDevicePreference> prefs, float globalBrightness, long nowTicks)
+        IReadOnlyDictionary<string, LightingDevicePreference> prefs, float globalBrightness, long nowTicks,
+        List<ChannelSend> sends)
     {
         var total = 0;
         for (var i = 0; i < zones.Count; i++) total += Math.Max(0, zones[i].LedCount);
+        total = Math.Min(total, port.MaxLedCount);
 
-        var bufferId = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, ch);
+        var bufferId = NollieLightingDeviceProvider.PortId(controller.DeviceId, port);
         var buf = Rent(bufferId, Math.Max(total, 1) * 3);
         Array.Clear(buf, 0, Math.Min(buf.Length, total * 3));
 
         var offset = 0;
-        for (var i = 0; i < zones.Count; i++)
+        for (var i = 0; i < zones.Count && offset < total; i++)
         {
             var zone = zones[i];
-            var ledCount = Math.Max(0, zone.LedCount);
+            var ledCount = Math.Min(Math.Max(0, zone.LedCount), total - offset);
             if (ledCount > 0)
             {
                 var frame = FindFrame(devices, zone.Id);
@@ -180,39 +194,40 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
             offset += ledCount;
         }
 
-        return controller.SendChannel(ch, new ReadOnlySpan<byte>(buf, 0, total * 3));
+        var spec = controller.Spec;
+        for (var lane = 0; lane < port.Lanes; lane++)
+        {
+            var card = port.FirstChannel + lane;
+            var laneLeds = port.LaneLeds(total, lane);
+            if (laneLeds > 0 || NollieProtocol.IsFlagChannel(spec, spec.HardwareChannel(card)))
+            {
+                // An empty flag-channel send carries no bytes, so its offset
+                // must not point past a buffer sized for a shorter port.
+                var offsetBytes = laneLeds > 0 ? lane * port.LaneLedCount * 3 : 0;
+                sends.Add(new ChannelSend(card, buf, offsetBytes, laneLeds * 3));
+            }
+        }
     }
 
     /// <summary>
-    /// Cards to push this tick. The reference driver sends configured channels
-    /// plus the wide transport's flag channels (even at zero LEDs, so the
-    /// marker still delimits the update) in ascending HARDWARE channel order;
-    /// the chunked path sends configured channels in card order and latches.
+    /// The reference driver sends the wide transport's channels in ascending
+    /// HARDWARE channel order; the chunked path sends in card order and
+    /// latches. Sends arrive in card order already.
     /// </summary>
-    private static List<int> PushOrder(NollieController controller, IReadOnlyDictionary<string, int> counts)
+    private static List<ChannelSend> PushOrder(NollieController controller, List<ChannelSend> sends)
     {
         var spec = controller.Spec;
-        var order = new List<int>(spec.Channels);
-        for (var ch = 0; ch < spec.Channels; ch++)
-        {
-            var id = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, ch);
-            var configured = NollieLightingDeviceProvider.DeclaredLedCount(counts, id, spec) > 0;
-            if (configured || NollieProtocol.IsFlagChannel(spec, spec.HardwareChannel(ch)))
-            {
-                order.Add(ch);
-            }
-        }
         if (spec.Transport == NollieTransport.Wide)
         {
-            order.Sort((a, b) => spec.HardwareChannel(a).CompareTo(spec.HardwareChannel(b)));
+            sends.Sort((a, b) => spec.HardwareChannel(a.Card).CompareTo(spec.HardwareChannel(b.Card)));
         }
-        return order;
+        return sends;
     }
 
-    /// <summary>A channel counts as uncontrolled only when every one of its resolved zones does.</summary>
-    private static bool AllChannelsUncontrolled(IReadOnlyList<ResolvedZone>[] channelZones, IReadOnlyList<string> uncontrolled)
+    /// <summary>A port counts as uncontrolled only when every one of its resolved zones does.</summary>
+    private static bool AllPortsUncontrolled(IReadOnlyList<ResolvedZone>[] portZones, IReadOnlyList<string> uncontrolled)
     {
-        foreach (var zones in channelZones)
+        foreach (var zones in portZones)
         {
             if (!ZoneResolution.IsFullyUncontrolled(zones, uncontrolled))
             {
@@ -273,7 +288,7 @@ public sealed class NollieLightingFrameWriter : IHostedService, IDisposable
         return Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
     }
 
-    /// <summary>Fills a slice of the channel buffer starting at LED index <paramref name="dstStart"/>, so several zones can tile one channel back to back.</summary>
+    /// <summary>Fills a slice of the port buffer starting at LED index <paramref name="dstStart"/>, so several zones can tile one port back to back.</summary>
     private static void FillSlice(byte[] dst, int dstStart, int ledCount, DeviceFrame? frame,
         double brightnessMul, DeviceColorAdjust adjust, bool hasIdentify, long identifyStartTicks, long nowTicks)
     {

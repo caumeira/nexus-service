@@ -217,16 +217,16 @@ public static partial class DevicesRoutes
                 {
                     var zoneId = Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(deviceId, ordinal);
                     response.ZoneIds.Add(zoneId);
-                    s.Devices.AppliedMappings[zoneId] = BuildAppliedMappingRef(artifact);
+                    s.Devices.AppliedMappings[zoneId] = Nexus.Service.Lighting.Zones.PortChainWriter.AppliedRef(artifact);
                 }
             });
 
             if (plan.Entries.Count > 0)
             {
                 // ZoneLedCounts was written directly above rather than through
-                // SetZoneLedCount, so the legacy 1CH controller's LED-count
-                // handshake needs a separate push or its firmware keeps the
-                // old count.
+                // SetZoneLedCount, so what follows from a count (the legacy 1CH
+                // controller's LED-count handshake, the standalone settings
+                // whose MOS bit tracks the GPU harness) needs a separate push.
                 nollie.PushLedCountHandshakeFor(defaultCardId);
             }
             bridge?.RequestTopologyRefresh();
@@ -423,7 +423,7 @@ public static partial class DevicesRoutes
                 error = $"{want.Key} failed validation";
                 return null;
             }
-            var count = artifact.Zones.Count > 0 ? artifact.Zones[0].LedCount ?? 0 : 0;
+            var count = Nexus.Service.Lighting.Zones.PortChainWriter.ProductLedCount(artifact);
             if (count <= 0)
             {
                 error = $"{want.Key} has no LEDs to chain";
@@ -466,12 +466,9 @@ public static partial class DevicesRoutes
                 // No ordinal suffix: three identical fans read as
                 // three "QX Fan" chips, and their position in the chain
                 // is what tells them apart.
-                var name = artifact!.Name;
                 defs.Add(new Nexus.Service.Persistence.ZoneDef
                 {
-                    Name = name.Length > Nexus.Service.Lighting.Zones.ZonePartitionValidator.MaxZoneNameLength
-                        ? name[..Nexus.Service.Lighting.Zones.ZonePartitionValidator.MaxZoneNameLength]
-                        : name,
+                    Name = Nexus.Service.Lighting.Zones.PortChainWriter.ZoneName(artifact!),
                     Slices = { new Nexus.Service.Persistence.ZoneSlice
                         { Segment = seg, Start = start, Count = count } },
                 });
@@ -552,18 +549,6 @@ public static partial class DevicesRoutes
         }
     }
 
-    /// <summary>Applied-mapping record for a product a chain just assigned to a zone.</summary>
-    private static AppliedMappingRef BuildAppliedMappingRef(MappingArtifact artifact) => new()
-    {
-        MappingId = artifact.Device.Key,
-        Source = MappingApplyService.SourceBuiltIn,
-        ContentHash = MappingHash.ContentHash(artifact),
-        Name = artifact.Name,
-        Artifact = artifact,
-        AppliedAt = System.DateTimeOffset.UtcNow,
-        AutoApplied = false,
-    };
-
     /// <summary>
     /// Detached settings copy with a chain plan overlaid onto the live
     /// snapshot: the same references for everything the chain does not
@@ -592,7 +577,7 @@ public static partial class DevicesRoutes
             foreach (var (ordinal, artifact) in plan.Applied)
             {
                 var zoneId = Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(deviceId, ordinal);
-                appliedMappings[zoneId] = BuildAppliedMappingRef(artifact);
+                appliedMappings[zoneId] = Nexus.Service.Lighting.Zones.PortChainWriter.AppliedRef(artifact);
             }
         }
 

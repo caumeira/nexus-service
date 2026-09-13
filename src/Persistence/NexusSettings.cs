@@ -1144,6 +1144,7 @@ public sealed class DevicesSettings
     public StrimerLightingSettings StrimerLighting { get; set; } = new();
     public Galahad2LightingSettings Galahad2Lighting { get; set; } = new();
     public CorsairSettings Corsair { get; set; } = new();
+    public NollieSettings Nollie { get; set; } = new();
     /// <summary>
     /// Per-hub channel composition (mirror ports / combine rings), keyed by hub
     /// id ("lianli", "smarthub:{serial}"). Absent key = the hub's default
@@ -1449,6 +1450,27 @@ public sealed class Galahad2LightingSettings
     public string InnerColor { get; set; } = "#FFFFFF";
     public string OuterColor { get; set; } = "#FFFFFF";
     public List<string> Colors { get; set; } = new();
+}
+
+public sealed class NollieSettings
+{
+    /// <summary>Standalone lighting per controller, keyed by controller id. Absent = <see cref="NollieStandaloneSettings"/>'s defaults.</summary>
+    public Dictionary<string, NollieStandaloneSettings> Standalone { get; set; } = new();
+}
+
+/// <summary>
+/// What a Nollie board runs on its own once Nexus lets go of it (service
+/// stop, Nexus Control off): a colour it holds, or its built-in effect.
+/// </summary>
+public sealed class NollieStandaloneSettings
+{
+    public const string ModeStatic = "static";
+    public const string ModeBuiltIn = "builtin";
+
+    /// <summary>"static" or "builtin".</summary>
+    public string Mode { get; set; } = ModeStatic;
+    /// <summary>"#RRGGBB" held in static mode; the default is off.</summary>
+    public string Color { get; set; } = "#000000";
 }
 
 public sealed class CorsairSettings

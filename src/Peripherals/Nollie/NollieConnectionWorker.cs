@@ -18,7 +18,7 @@ public sealed class NollieConnectionWorker : BackgroundService
     private const int PollMs = 5000;
     private const int MaxConsecutiveFailures = 3;
 
-    /// <summary>Nexus Control gate id. No IDeviceHandler is registered yet, so the gate reads its brand default (on).</summary>
+    /// <summary>Nexus Control gate id; <see cref="Devices.Handlers.NollieHandler"/> lists the device under it.</summary>
     public const string HandlerId = "nollie";
 
     /// <summary>Seed for a never-configured channel; matches the motherboard ARGB header seed in <c>RgbBridge</c>.</summary>
@@ -65,7 +65,7 @@ public sealed class NollieConnectionWorker : BackgroundService
                 {
                     if (_hub.IsConnected)
                     {
-                        _hub.DetachAll();
+                        ReleaseAll();
                         ServiceLog.Info("[nollie] released (Nexus Control off)");
                         _lighting.OnHubStateUpdated();
                     }
@@ -93,11 +93,37 @@ public sealed class NollieConnectionWorker : BackgroundService
             catch (OperationCanceledException) { break; }
         }
 
+        ReleaseAll();
+    }
+
+    /// <summary>
+    /// The fast-teardown entry: the Windows service exits without running
+    /// hosted-service StopAsync, so Program.cs calls this from the shutdown
+    /// task set. Safe to run twice; a released board is skipped.
+    /// </summary>
+    public void ReleaseAllForShutdown() => ReleaseAll();
+
+    /// <summary>
+    /// Hands every board to its firmware with its standalone lighting, then
+    /// drops the handles. A released controller refuses colour writes and a
+    /// detached one has no handle, so a frame-writer tick landing in between
+    /// cannot take a board back.
+    /// </summary>
+    internal void ReleaseAll()
+    {
+        var settings = _store.Load();
+        foreach (var controller in _hub.Controllers)
+        {
+            if (NollieStandalone.Release(controller, settings))
+            {
+                ServiceLog.Info($"[nollie] {controller.Spec.Name} id={controller.DeviceId} handed to firmware");
+            }
+        }
         _hub.DetachAll();
     }
 
     /// <summary>Attaches newly present controllers and drops gone or wedged ones. Returns true when the set changed.</summary>
-    private bool Reconcile()
+    internal bool Reconcile()
     {
         var changed = false;
         var livePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -119,7 +145,9 @@ public sealed class NollieConnectionWorker : BackgroundService
 
             var controller = new NollieController(device, spec);
             _hub.Attach(controller);
-            SeedChannelCounts(controller);
+            DropBundledChannelState(controller);
+            SeedPorts(controller);
+            NollieStandalone.Apply(controller, _store.Load());
             changed = true;
             ServiceLog.Info($"[nollie] attached {spec.Name} ({spec.Channels}ch, max {spec.MaxLedsPerChannel} LEDs/ch) sn={(string.IsNullOrEmpty(controller.Serial) ? "-" : controller.Serial)} id={controller.DeviceId}");
         }
@@ -155,27 +183,86 @@ public sealed class NollieConnectionWorker : BackgroundService
         return changed;
     }
 
-    /// <summary>Writes only absent keys, so a channel the user deliberately set to 0 stays 0 across replugs.</summary>
-    private void SeedChannelCounts(NollieController controller)
+    /// <summary>
+    /// A build that listed the Strimer channels one card each left per-channel
+    /// state under ids the port model no longer resolves. Nothing reads it
+    /// again, and a chain wired lane by lane has no port equivalent, so it is
+    /// dropped here rather than left behind; the port then seeds fresh.
+    /// </summary>
+    private void DropBundledChannelState(NollieController controller)
     {
-        var seed = Math.Min(DefaultChannelLedCount, controller.Spec.MaxLedsPerChannel);
-        var missing = new List<string>();
+        var ids = new List<string>();
         var counts = _store.Load().Devices.ZoneLedCounts;
-        for (var ch = 0; ch < controller.Spec.Channels; ch++)
+        foreach (var port in controller.Spec.Ports)
         {
-            var id = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, ch);
-            if (!counts.ContainsKey(id)) missing.Add(id);
+            if (port.Lanes == 1) continue;
+            for (var lane = 0; lane < port.Lanes; lane++)
+            {
+                var id = $"{controller.DeviceId}:ch{port.FirstChannel + lane}";
+                if (counts.ContainsKey(id)) ids.Add(id);
+            }
         }
-        if (missing.Count == 0) return;
+        if (ids.Count == 0) return;
 
         _store.Update(s =>
         {
-            foreach (var id in missing)
+            foreach (var id in ids)
             {
-                if (!s.Devices.ZoneLedCounts.ContainsKey(id)) s.Devices.ZoneLedCounts[id] = seed;
+                var zoneIds = new List<string> { id };
+                if (s.Devices.ZonePartitions.Remove(id, out var partition))
+                {
+                    for (var i = 0; i < partition.Count; i++)
+                        zoneIds.Add(Nexus.Service.Lighting.Zones.ZoneResolution.CustomZoneId(id, i));
+                }
+                s.Devices.ZoneLedCounts.Remove(id);
+                s.Devices.PortChains.Remove(Nexus.Service.Lighting.Zones.ZoneResolution.ChainKey(id, 0));
+                s.Devices.DeviceLedOverrides.Remove(id);
+                s.Devices.DeviceAspectRatios.Remove(id);
+                Nexus.Service.Lighting.Zones.ZoneStateDrop.Drop(s, zoneIds);
+                foreach (var zoneId in zoneIds) s.Lighting.DeviceNames.Remove(zoneId);
             }
         });
-        ServiceLog.Info($"[nollie] seeded {missing.Count} unconfigured channel(s) on {controller.DeviceId} at {seed} LEDs");
+        ServiceLog.Info($"[nollie] dropped per-channel state for {ids.Count} Strimer channel(s) on {controller.DeviceId}; the connector is one port now");
+    }
+
+    /// <summary>
+    /// Writes only ports with no persisted count, so a port the user
+    /// deliberately set to 0 (or whose chain they cleared) stays that way
+    /// across replugs. A plain header seeds a bare count; a Strimer
+    /// connector seeds its cable as a one-product chain, which is what the
+    /// Assign Devices editor then shows and lets the user swap.
+    /// </summary>
+    private void SeedPorts(NollieController controller)
+    {
+        var missing = new List<NolliePort>();
+        var counts = _store.Load().Devices.ZoneLedCounts;
+        foreach (var port in controller.Spec.Ports)
+        {
+            if (!counts.ContainsKey(NollieLightingDeviceProvider.PortId(controller.DeviceId, port))) missing.Add(port);
+        }
+        if (missing.Count == 0) return;
+
+        var seed = Math.Min(DefaultChannelLedCount, controller.Spec.MaxLedsPerChannel);
+        var seededCounts = 0;
+        var wiredProducts = 0;
+        _store.Update(s =>
+        {
+            foreach (var port in missing)
+            {
+                var id = NollieLightingDeviceProvider.PortId(controller.DeviceId, port);
+                if (s.Devices.ZoneLedCounts.ContainsKey(id)) continue;
+                if (port.DefaultProductKey is not null
+                    && Nexus.Service.Lighting.Zones.PortChainWriter.WireProduct(s, id, port.DefaultProductKey, port.MaxLedCount))
+                {
+                    wiredProducts++;
+                    continue;
+                }
+                s.Devices.ZoneLedCounts[id] = Math.Min(seed, port.MaxLedCount);
+                seededCounts++;
+            }
+        });
+        var wired = wiredProducts > 0 ? $", pre-wired {wiredProducts} Strimer port(s)" : "";
+        ServiceLog.Info($"[nollie] seeded {seededCounts} unconfigured port(s) on {controller.DeviceId} at {seed} LEDs{wired}");
     }
 
     /// <summary>
