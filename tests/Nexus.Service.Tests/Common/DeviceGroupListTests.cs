@@ -161,6 +161,31 @@ public class DeviceGroupListTests
     }
 
     [Fact]
+    public void SanitizeStacks_KeepsAKnownLayoutAndDropsTheRest()
+    {
+        var stacks = DeviceGroupList.SanitizeStacks(new[]
+        {
+            new DeviceGroup { Id = "l1", Members = new List<string> { "a", "b" }, Layout = " parallel " },
+            new DeviceGroup { Id = "l2", Members = new List<string> { "c", "d" }, Layout = "diagonal" },
+            new DeviceGroup { Id = "l3", Members = new List<string> { "e", "f" } },
+        });
+
+        Assert.Equal("parallel", stacks[0].Layout);
+        Assert.Null(stacks[1].Layout);
+        Assert.Null(stacks[2].Layout);
+    }
+
+    [Fact]
+    public void Sanitize_DropsTheLayoutOffARailGroup()
+    {
+        var group = new DeviceGroup { Id = "g1", Name = "G", Members = new List<string> { "a" }, Layout = "series" };
+
+        var groups = DeviceGroupList.Sanitize(new[] { group });
+
+        Assert.Null(groups[0].Layout);
+    }
+
+    [Fact]
     public void SanitizeStacks_HasNoCap()
     {
         var many = Enumerable.Range(0, DeviceGroupList.MaxGroups + 4)

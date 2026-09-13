@@ -129,6 +129,7 @@ public sealed class StreamDeckRoutesTests : IClassFixture<StreamDeckRouteHostFac
             Assert.Equal(mini.Transform, entry.GetProperty("transform").GetString());
             Assert.Equal(0, entry.GetProperty("orientation").GetInt32());
             Assert.Equal(0, entry.GetProperty("sleepAfterSeconds").GetInt32());
+            Assert.True(entry.GetProperty("sleepWhenLocked").GetBoolean());
             Assert.True(!entry.TryGetProperty("warning", out var warningEl) || warningEl.ValueKind == JsonValueKind.Null);
             Assert.True(!entry.TryGetProperty("conflictAppId", out var conflictEl) || conflictEl.ValueKind == JsonValueKind.Null);
         }
@@ -475,18 +476,33 @@ public sealed class StreamDeckRoutesTests : IClassFixture<StreamDeckRouteHostFac
     }
 
     [Fact]
-    public async Task UpdateDeck_PersistsOrientationAndSleepAfterSeconds()
+    public async Task UpdateDeck_PersistsOrientationSleepAfterSecondsAndSleepWhenLocked()
     {
         var (factory, client) = Boot();
         using (factory)
         {
-            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1", Json("{\"orientation\":180,\"sleepAfterSeconds\":120}"));
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1", Json("{\"orientation\":180,\"sleepAfterSeconds\":120,\"sleepWhenLocked\":false}"));
             Assert.True(res.IsSuccessStatusCode);
 
             var store = factory.Services.GetRequiredService<IConfigStore>();
             var deck = store.Load().StreamDeck.Decks["SERIAL-1"];
             Assert.Equal(180, deck.Orientation);
             Assert.Equal(120, deck.SleepAfterSeconds);
+            Assert.False(deck.SleepWhenLocked);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateDeck_OmittedSleepWhenLocked_KeepsTheDefaultOn()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1", Json("{\"name\":\"Desk\"}"));
+            Assert.True(res.IsSuccessStatusCode);
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.True(store.Load().StreamDeck.Decks["SERIAL-1"].SleepWhenLocked);
         }
     }
 

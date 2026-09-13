@@ -192,6 +192,9 @@ internal static class AppBootstrap
             // resumes after the switch instead of leaving the engines
             // idle until the user clicks something.
             LiveEngineSync.Apply(configStore, fans, lightingProvider, gates);
+            // Stacks are lighting-profile state the engine only re-reads on a
+            // stack save, so the incoming profile's slots are pushed here.
+            lightingEngine.SetStackSlots(configStore.Load().Lighting.DeviceStacks);
 
             // Keeb is profile-scoped via the Device sharing category;
             // push the incoming profile's game mode/firmware lighting/

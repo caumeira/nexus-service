@@ -1153,8 +1153,6 @@ public sealed class RgbBridge : IDisposable
         layouts.TryGetValue(id, out var layout);
         var rot = existing?.Rotation ?? layout?.Rotation ?? 0;
         rot = ((rot % 360) + 360) % 360;
-        if (rot != 0 && rot != 90 && rot != 180 && rot != 270)
-        { rot = 0; }
         // Defaults come from the same helpers the HTTP DTO uses, so DeviceFrame
         // + LightingDevice agree on on-canvas size/position when nothing's been
         // persisted yet.

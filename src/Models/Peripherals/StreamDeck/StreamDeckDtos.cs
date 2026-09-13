@@ -29,6 +29,7 @@ public sealed class StreamDeckSummaryDto
     public int Orientation { get; set; }
     /// <summary>Seconds of no key input before the deck blanks; a non-positive value disables sleep-after.</summary>
     public int SleepAfterSeconds { get; set; }
+    public bool SleepWhenLocked { get; set; }
     public string FirmwareVersion { get; set; } = "";
     /// <summary>"elgato-software-running" when Elgato's own app is contending for the deck; null otherwise.</summary>
     public string? Warning { get; set; }
@@ -45,7 +46,7 @@ public sealed class GetStreamDecksResponse
     public List<StreamDeckSummaryDto> Decks { get; set; } = new();
 }
 
-/// <summary>POST /streamdeck/decks/{serial} - rename and/or set brightness/orientation/sleep-after. Any field may be omitted.</summary>
+/// <summary>POST /streamdeck/decks/{serial} - rename and/or set brightness/orientation/sleep-after/sleep-when-locked. Any field may be omitted.</summary>
 public sealed class UpdateStreamDeckBody
 {
     public string? Name { get; set; }
@@ -54,6 +55,7 @@ public sealed class UpdateStreamDeckBody
     public int? Orientation { get; set; }
     /// <summary>Seconds of no key input before the deck blanks; clamped to a non-negative value.</summary>
     public int? SleepAfterSeconds { get; set; }
+    public bool? SleepWhenLocked { get; set; }
 }
 
 /// <summary>Shared envelope for GET/PUT /streamdeck/decks/{serial}/config.</summary>

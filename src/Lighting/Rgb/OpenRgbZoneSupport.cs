@@ -552,19 +552,6 @@ public static class OpenRgbZoneSupport
         _ => "unknown",
     };
 
-    /// <summary>
-    /// Clamp persisted rotation values to the four valid quarter-turns.
-    /// Older builds wrote a nonsense default (DTO bug); normalize on load.
-    /// </summary>
-    public static int NormalizeRotation(int rotation)
-    {
-        var r = ((rotation % 360) + 360) % 360;
-        return r switch
-        {
-            90 => 90,
-            180 => 180,
-            270 => 270,
-            _ => 0,
-        };
-    }
+    /// <summary>Persisted rotation folded into 0..359 degrees.</summary>
+    public static int NormalizeRotation(int rotation) => ((rotation % 360) + 360) % 360;
 }
