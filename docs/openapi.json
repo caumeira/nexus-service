@@ -3970,6 +3970,28 @@
         }
       }
     },
+    "/devices/lighting-devices/static-lock": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStaticLockBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/devices/lighting-devices/zone-size": {
       "post": {
         "tags": [
@@ -5942,6 +5964,94 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/devices/nollie": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/devices/nollie/{id}/standalone": {
+      "put": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NollieStandaloneRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/devices/nollie/dev/models": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/devices/nollie/dev/simulate": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NollieSimulateBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Nexus"
+        ],
         "responses": {
           "200": {
             "description": "OK"
@@ -8398,6 +8508,18 @@
       }
     },
     "/diagnostics/bundle/download": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/diagnostics/support-bundle/download": {
       "get": {
         "tags": [
           "Nexus"
@@ -14492,6 +14614,12 @@
               "null",
               "string"
             ]
+          },
+          "layout": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -19021,6 +19149,31 @@
           }
         }
       },
+      "NollieSimulateBody": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "NollieStandaloneRequest": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "color": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "Np50CoolingModeRequest": {
         "type": "object",
         "properties": {
@@ -22084,6 +22237,17 @@
               "null",
               "boolean"
             ]
+          }
+        }
+      },
+      "SetStaticLockBody": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "locked": {
+            "type": "boolean"
           }
         }
       },

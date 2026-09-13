@@ -3,9 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-#if WINDOWS
 using Microsoft.Extensions.DependencyInjection;
-#endif
 using Nexus.Service.Activity.Storage;
 using Nexus.Service.Auth;
 using Nexus.Service.Diagnostics;
@@ -168,6 +166,59 @@ public static class DiagnosticsHealthRoutes
 
             var zipBytes = DiagnosticsBundleBuilder.Build(health, incidents, smartSnapshot, memory, gpuResponse, coolingSnapshot, system, reportPdf);
             var fileName = $"nexus-diagnostics-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
+            return Results.File(zipBytes, "application/zip", fileName);
+        }).LocalhostOnly();
+
+        // Everything a bug report needs, as one download; loopback-only like open-logs.
+        app.MapGet("/diagnostics/support-bundle/download", (
+            DiagnosticsHealthModel healthModel,
+            EventLogMonitor events,
+            SteamGameLibraryCache steamCache,
+            SmartHealthMonitor smart,
+            MemoryDiagnosticOrchestrator memDiag,
+            GpuHealthMonitor gpu,
+            CoolingStallDetector cooling,
+            PnpProblemScanner pnp,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Conflicts.IConflictDetector conflicts,
+            IServiceProvider sp) =>
+        {
+            var bridge = sp.GetService<Nexus.Service.Lighting.Rgb.RgbBridge>();
+            var daemon = sp.GetService<Nexus.Service.Lighting.Rgb.OpenRgbProcessManager>();
+            var info = new SupportInfo
+            {
+                Version = BuildInfo.Version,
+#if DEV_TOOLS
+                DevTools = true,
+#endif
+                Os = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+                MachineName = Environment.MachineName,
+                ExportedAtUtc = DateTime.UtcNow.ToString("O"),
+                ServiceUptimeSeconds = (DateTime.Now - System.Diagnostics.Process.GetCurrentProcess().StartTime).TotalSeconds,
+                ConflictsRunning = conflicts.GetConflicts().Select(c => $"{c.Id} (pid {c.Pid})").ToList(),
+                ConflictScanReady = conflicts.DetectionReady,
+                LightingBridgeActive = bridge?.IsActive ?? false,
+                LightingRescanning = bridge?.IsRescanning ?? false,
+                LightingDevices = bridge?.Devices.Select(d => $"[{d.Index}] {d.Name} leds={d.LedCount}").ToList() ?? new(),
+                OpenRgbDaemonRunning = daemon?.IsRunning ?? false,
+                OpenRgbDaemonUptimeSeconds = daemon?.Uptime.TotalSeconds ?? 0,
+            };
+            var zipBytes = SupportBundleBuilder.Build(new SupportBundleBuilder.Sources
+            {
+                LogsDirectory = ServiceLog.LogsDirectory,
+                OpenRgbConfigDirectory = Nexus.Service.Lighting.Rgb.OpenRgbProcessManager.ResolveConfigDir(),
+                Settings = store.Load(),
+                Info = info,
+                StartupSnapshot = DiagnosticsBundleBuilder.ReadStartupSnapshot(),
+                Health = healthModel.BuildHealth(),
+                Incidents = BuildIncidentsResponse(events, steamCache, MaxIncidentDays, group: false),
+                Smart = smart.Snapshot(),
+                Memory = BuildMemoryResponse(memDiag),
+                Gpu = BuildGpuResponse(gpu, events),
+                Cooling = cooling.Snapshot(),
+                System = BuildSystemResponse(pnp, events),
+            });
+            var fileName = $"nexus-support-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
             return Results.File(zipBytes, "application/zip", fileName);
         }).LocalhostOnly();
 

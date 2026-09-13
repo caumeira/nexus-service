@@ -103,7 +103,7 @@ public static class DiagnosticsBundleBuilder
         }
     }
 
-    private static string ReadStartupSnapshot()
+    internal static string ReadStartupSnapshot()
     {
         var path = CurrentLogPath();
         if (path is null || !File.Exists(path))
