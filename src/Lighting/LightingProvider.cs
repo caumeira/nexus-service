@@ -118,7 +118,8 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// in which case the call is a no-op.
     /// </summary>
     // Every mode start routes through here, so clearing the Static ownership
-    // flag in one place means a new mode can never inherit per-device colours;
+    // flag in one place means a new mode can never inherit per-device colours
+    // (locked looks excepted - the tracker keeps honouring those);
     // StartStatic re-asserts it immediately after.
     private void EnsureRgbActive()
     {

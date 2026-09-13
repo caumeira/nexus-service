@@ -363,7 +363,10 @@ public class StaticDeviceLookDto
     /// <summary>Shader params. Without these a client that rebuilds a pick from
     /// this route and re-posts it flattens a pattern to a bare colour.</summary>
     public Dictionary<string, float> Params { get; set; } = new();
+    /// <summary>Held in every mode; picks are refused until unlocked.</summary>
+    public bool Locked { get; set; }
 }
+public class SetStaticLockBody { public string Id { get; set; } = ""; public bool Locked { get; set; } }
 public class SetZoneLedCountBody { public string Id { get; set; } = ""; public int Count { get; set; } }
 public class IdentifyLightingDeviceBody { public string Id { get; set; } = ""; public int DurationMs { get; set; } = 2000; }
 

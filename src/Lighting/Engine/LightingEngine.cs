@@ -118,7 +118,8 @@ public sealed class LightingEngine : IDisposable
     private CanvasBuffer? _assignCanvas;
     private readonly Dictionary<string, byte[]> _assignRenders = new(StringComparer.Ordinal);
     private int _assignVersionSeen = -1;
-    // Reused per-frame scratch: which devices ApplyTestOverlays painted.
+    // Reused per-frame scratch: which devices ApplyTestOverlays painted. Valid
+    // for the rest of the tick after SampleDevicesFromCanvas returns.
     private bool[] _overlaid = Array.Empty<bool>();
 
     /// <summary>
@@ -570,10 +571,17 @@ public sealed class LightingEngine : IDisposable
                             effect.RenderFrame(_canvas, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
                             Volatile.Write(ref _frozenRenderedEpoch, epoch);
                         }
-                        SampleDevicesFromCanvas();
+                        // One snapshot for the sample, the game pass and the
+                        // publish: UpdateDevices swaps the array lock-free,
+                        // and the skip mask below is indexed against it.
+                        var devices = _devices;
+                        SampleDevicesFromCanvas(devices);
                         if (effect is GameSyncEffect gs)
                         {
-                            gs.WriteToDevices(_devices);
+                            // A locked look (or a highlight / test pattern)
+                            // already owns its device; the game frame must
+                            // not paint over it.
+                            gs.WriteToDevices(devices, _overlaid);
                         }
                         // Dim as part of publishing, so the ramp is in the one
                         // frame readers see rather than a second write on top of
@@ -582,7 +590,7 @@ public sealed class LightingEngine : IDisposable
                         // One publish per tick, after every pass that paints:
                         // readers never see a frame with the canvas sample on
                         // some LEDs and an override on the rest.
-                        foreach (var dev in _devices)
+                        foreach (var dev in devices)
                         {
                             if (wakeLevel < 1f)
                             {
@@ -637,9 +645,8 @@ public sealed class LightingEngine : IDisposable
         }
     }
 
-    private void SampleDevicesFromCanvas()
+    private void SampleDevicesFromCanvas(DeviceFrame[] devices)
     {
-        var devices = _devices;
         var cw = _canvas.Width;
         var ch = _canvas.Height;
         const float CW = 1000f, CH = 600f;
@@ -852,7 +859,8 @@ public sealed class LightingEngine : IDisposable
 
     /// <summary>
     /// Paint the devices whose frame comes from something other than the canvas:
-    /// a zone highlight, a per-device Static assignment, or a test pattern.
+    /// a zone highlight, a per-device Static assignment (every one in Static,
+    /// only locked ones elsewhere), or a test pattern.
     /// Returns, per device, whether it painted the whole preview range, so the
     /// caller can skip a canvas sample that would only be overwritten.
     /// </summary>

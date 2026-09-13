@@ -222,6 +222,7 @@ public static partial class DevicesRoutes
                     ? new Dictionary<string, float>()
                     : new Dictionary<string, float>(kv.Value.Params),
                 Slot = kv.Value.Slot,
+                Locked = kv.Value.Locked,
             };
         }
         return copy;
@@ -433,6 +434,7 @@ public static partial class DevicesRoutes
                     Saturation = look.Saturation,
                     Contrast = look.Contrast,
                     Slot = look.Slot,
+                    Locked = look.Locked,
                     Params = look.Params is null
                         ? new Dictionary<string, float>()
                         : new Dictionary<string, float>(look.Params),
@@ -871,6 +873,13 @@ public static partial class DevicesRoutes
             {
                 return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
             }
+            // A locked device keeps its look until the user unlocks it; the
+            // hue/sat prefs stay untouched too, so a later unlock restores
+            // exactly what was locked.
+            if (staticEffects.IsLocked(body.Id))
+            {
+                return Results.Conflict(ApiResponse.Fail("device look is locked"));
+            }
             ld.SetHue(body.Id, body.Hue);
             ld.SetSaturation(body.Id, body.Saturation);
             // The prefs above are device metadata the UI reads back. The
@@ -897,6 +906,31 @@ public static partial class DevicesRoutes
                 });
             }
             CaptureDeviceStateIntoActive(store);
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
+
+        // Locks a device onto its Static look: the engine paints it in every
+        // mode and no pick can replace it until it is unlocked. Locking needs a
+        // look to hold, so a device without one answers 404.
+        app.MapPost("/devices/lighting-devices/static-lock", (
+            SetStaticLockBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            [Microsoft.AspNetCore.Mvc.FromServices] Nexus.Service.Lighting.StaticDeviceEffectTracker staticEffects,
+            FeatureGates gates,
+            Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            if (!gates.Lighting)
+            {
+                return Results.Conflict(new FeatureDisabledResponse { Feature = FeatureNames.Lighting });
+            }
+            if (!staticEffects.SetLocked(body.Id, body.Locked))
+            {
+                return Results.NotFound(ApiResponse.Fail("device has no static look to lock"));
+            }
+            CaptureDeviceStateIntoActive(store);
+            // Unlike a pick, a lock changes what OTHER clients may write, so
+            // they re-read the lock flags off this frame.
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
 

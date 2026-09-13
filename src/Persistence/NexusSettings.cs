@@ -500,6 +500,8 @@ public sealed class StaticDeviceLook
     /// nothing in the render path reads it - so a preset can restore the pick
     /// exactly as it was made.</summary>
     public int Slot { get; set; }
+    /// <summary>Held in every mode; picks are refused until unlocked.</summary>
+    public bool Locked { get; set; }
 }
 
 /// <summary>
