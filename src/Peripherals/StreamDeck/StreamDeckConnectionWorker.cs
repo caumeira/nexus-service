@@ -10,6 +10,7 @@ using Nexus.Service.Deck;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Fps;
+using Nexus.Service.Lighting;
 using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Models.Weather;
@@ -137,8 +138,32 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 
     /// <summary>Per-deck (keyed by serial) timestamp of the last key input, real or simulated. Seeded on connect; drives ApplySleepAfterIdle.</summary>
     private readonly Dictionary<string, DateTimeOffset> _lastInputAt = new(StringComparer.OrdinalIgnoreCase);
-    /// <summary>Per-deck (keyed by serial) sleep-after state: true once blanked by ApplySleepAfterIdle, cleared by the next key down.</summary>
+    /// <summary>Per-deck (keyed by serial) sleep-after state: true once blanked by ApplySleepAfterIdle or the session lock, cleared by the next key down.</summary>
     private readonly Dictionary<string, bool> _asleep = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Serials this worker blanked for the session lock. Unlock restores exactly these, whatever SleepWhenLocked reads by then.</summary>
+    private readonly HashSet<string> _sleptForLock = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>True between a lock and its unlock. Nothing re-derives lock state at startup; see SessionLockListener.</summary>
+    private bool _lockHold;
+    /// <summary>End of the window input at the lock screen bought; null when no window is open. Refreshed by every further input, checked by Tick.</summary>
+    private DateTimeOffset? _lockWakeDeadline;
+    /// <summary>In-progress brightness ramps keyed by serial, stepped by the animation loop. Guarded by _lock.</summary>
+    private readonly Dictionary<string, BrightnessRamp> _brightnessRamps = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Lock-free hint so the animation loop skips taking _lock every frame while no ramp is running; the authoritative check is _brightnessRamps under _lock.</summary>
+    private volatile bool _anyRampActive;
+
+    /// <summary>Arms and disarms the helper's lock-screen input poll (see SleepBlackoutCoordinator.LockInputWatch). Set by the Windows helper wiring; null elsewhere, which means no wake-on-input.</summary>
+    public Action<bool>? LockInputWatch { get; set; }
+
+    private sealed class BrightnessRamp
+    {
+        public int From;
+        public int To;
+        public DateTimeOffset StartedAt;
+        public TimeSpan Duration;
+        /// <summary>Last level pushed, so a frame that rounds to the same percent sends nothing.</summary>
+        public int LastSent;
+    }
 
     /// <summary>One dedicated input reader per connected real HID surface, keyed the same as _surfaces. Never holds an entry for SimulatedKey.</summary>
     private readonly Dictionary<string, StreamDeckInputReader> _inputReaders = new();
@@ -223,6 +248,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private readonly Dictionary<string, uint> _tileBroadcastHash = new(StringComparer.Ordinal);
 
     private readonly TimeProvider _clock;
+    private readonly SessionLockListener? _sessionLock;
 
     public StreamDeckConnectionWorker(
         IHidEnumerator hid,
@@ -237,7 +263,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         TimeProvider? clock = null,
         IWeatherProvider? weather = null,
         IFpsProvider? fps = null,
-        Nexus.Service.Cooling.IFanControlProvider? fans = null)
+        Nexus.Service.Cooling.IFanControlProvider? fans = null,
+        SessionLockListener? sessionLock = null)
     {
         _hid = hid;
         _presence = presence;
@@ -252,7 +279,9 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _weather = weather;
         _fps = fps;
         _fans = fans;
+        _sessionLock = sessionLock;
         _hub.OnTopicFirstSubscriber += OnStreamDeckTilesFirstSubscriber;
+        _sessionLock?.LockChanged += OnSessionLockChanged;
     }
 
     /// <summary>
@@ -303,7 +332,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private IStreamDeckSurface? FindBySerialLocked(string serial) =>
         _surfaces.Values.FirstOrDefault(s => string.Equals(s.Serial, serial, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>True if ApplySleepAfterIdle has blanked this deck and no key input has restored it yet.</summary>
+    /// <summary>True if ApplySleepAfterIdle or the session lock has blanked this deck and nothing has restored it yet.</summary>
     public bool IsAsleep(string serial)
     {
         lock (_lock)
@@ -367,6 +396,21 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     {
         lock (_lock)
         {
+            CancelBrightnessRampLocked(serial);
+            FindBySerialLocked(serial)?.SetBrightness(percent);
+        }
+    }
+
+    /// <summary>Live push unless the deck is asleep (the persisted value applies on wake). One acquisition, so a lock transition cannot land between the check and the write.</summary>
+    public void SetBrightnessIfAwake(string serial, int percent)
+    {
+        lock (_lock)
+        {
+            if (_asleep.TryGetValue(serial, out var asleep) && asleep)
+            {
+                return;
+            }
+            CancelBrightnessRampLocked(serial);
             FindBySerialLocked(serial)?.SetBrightness(percent);
         }
     }
@@ -381,6 +425,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             {
                 return;
             }
+            CancelBrightnessRampLocked(surface.Serial);
             surface.SetBrightness(0);
             _asleep[surface.Serial] = true;
         }
@@ -473,9 +518,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     }
 
     /// <summary>
-    /// Fast frame clock for in-progress blank-key holds, separate from the
-    /// 1-second reconcile Tick so the fill ring animates smoothly. Skips
-    /// taking _lock while no hold is active (the _anyHoldActive hint).
+    /// Fast frame clock for in-progress blank-key holds and brightness ramps,
+    /// separate from the 1-second reconcile Tick so the fill ring and the
+    /// lock fade animate smoothly. Skips taking _lock while neither is active
+    /// (the _anyHoldActive / _anyRampActive hints).
     /// </summary>
     private async Task AnimateLoopAsync(CancellationToken stoppingToken)
     {
@@ -486,6 +532,11 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[streamdeck-conn] hold animation exception: {ex.GetType().Name}: {ex.Message}");
+            }
+            try { if (_anyRampActive) { AnimateBrightnessRamps(); } }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[streamdeck-conn] brightness ramp exception: {ex.GetType().Name}: {ex.Message}");
             }
             try { await timer.WaitForNextTickAsync(stoppingToken); }
             catch (OperationCanceledException) { break; }
@@ -515,6 +566,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                 RegisterSimulatedIfNeeded();
                 ReconcileHidSurfaces();
                 PumpSimulatedInput();
+                ApplyLockWakeExpiry();
                 ApplySleepAfterIdle();
                 RefreshMonitoringKeys();
                 RefreshWeatherKeys();
@@ -589,6 +641,9 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _currentPageBySerial.Clear();
             _lastInputAt.Clear();
             _asleep.Clear();
+            _sleptForLock.Clear();
+            _brightnessRamps.Clear();
+            _anyRampActive = false;
             _heldKeysBySerial.Clear();
             _activeHolds.Clear();
             _monitoringHistory.Clear();
@@ -615,6 +670,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _folderPathsBySerial.Remove(existing.Serial);
         _lastInputAt.Remove(existing.Serial);
         _asleep.Remove(existing.Serial);
+        _sleptForLock.Remove(existing.Serial);
+        CancelBrightnessRampLocked(existing.Serial);
         _currentPageBySerial.Remove(existing.Serial);
         _heldKeysBySerial.Remove(existing.Serial);
         RemoveAllHoldsForSerial(existing.Serial);
@@ -627,7 +684,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     {
         lock (_lock)
         {
-            return _folderPathsBySerial.ContainsKey(serial) || _lastInputAt.ContainsKey(serial) || _asleep.ContainsKey(serial) || _currentPageBySerial.ContainsKey(serial);
+            return _folderPathsBySerial.ContainsKey(serial) || _lastInputAt.ContainsKey(serial) || _asleep.ContainsKey(serial) || _currentPageBySerial.ContainsKey(serial)
+                || _sleptForLock.Contains(serial) || _brightnessRamps.ContainsKey(serial);
         }
     }
 
@@ -698,6 +756,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _folderPathsBySerial.Remove(serial);
             _lastInputAt.Remove(serial);
             _asleep.Remove(serial);
+            _sleptForLock.Remove(serial);
+            CancelBrightnessRampLocked(serial);
             _currentPageBySerial.Remove(serial);
             _heldKeysBySerial.Remove(serial);
             RemoveAllHoldsForSerial(serial);
@@ -725,10 +785,22 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
     }
 
-    /// <summary>Applies persisted brightness, resets folder nav to root, and pushes the root view's cached images.</summary>
+    /// <summary>Applies persisted brightness (or black, mid-lock), resets folder nav to root, and pushes the root view's cached images.</summary>
     private void OnSurfaceConnected(IStreamDeckSurface surface)
     {
-        ApplyPersistedBrightness(surface);
+        // Plugged in (or re-enumerated) mid-lock: join the lock as a deck
+        // present at the transition did, unless input at the lock screen
+        // currently has the others up.
+        var joinsLock = _lockHold && SleepsWhenLocked(surface.Serial);
+        var blankNow = joinsLock && _lockWakeDeadline is null;
+        if (blankNow)
+        {
+            surface.SetBrightness(0);
+        }
+        else
+        {
+            ApplyPersistedBrightness(surface);
+        }
 
         _store.Update(s =>
         {
@@ -741,7 +813,12 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         });
 
         _lastInputAt[surface.Serial] = _clock.GetUtcNow();
-        _asleep[surface.Serial] = false;
+        _asleep[surface.Serial] = blankNow;
+        if (joinsLock)
+        {
+            _sleptForLock.Add(surface.Serial);
+            SetLockInputWatch(true);
+        }
         _folderPathsBySerial[surface.Serial] = new List<int>();
         _currentPageBySerial[surface.Serial] = 0;
         PushCurrentView(surface, viewChanged: true);
@@ -811,15 +888,21 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             {
                 continue;
             }
+            CancelBrightnessRampLocked(surface.Serial);
             surface.SetBrightness(0);
             _asleep[surface.Serial] = true;
             ServiceLog.Info($"[streamdeck] deck asleep after {deck.SleepAfterSeconds}s idle (serial={surface.Serial})");
         }
     }
 
-    /// <summary>Restores persisted brightness and clears the sleep-after flag if this deck was blanked. No-op otherwise.</summary>
+    /// <summary>Restores persisted brightness and clears the sleep-after flag if this deck was blanked. No-op otherwise. A deck blanked for the session lock takes the lock-screen input path instead (fade-in plus the idle window).</summary>
     private void WakeIfAsleep(IStreamDeckSurface surface)
     {
+        if (_lockHold && _sleptForLock.Contains(surface.Serial))
+        {
+            OnLockScreenInputLocked();
+            return;
+        }
         if (!_asleep.TryGetValue(surface.Serial, out var asleep) || !asleep)
         {
             return;
@@ -827,6 +910,258 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _asleep[surface.Serial] = false;
         ApplyPersistedBrightness(surface);
         ServiceLog.Info($"[streamdeck] deck woken by key input (serial={surface.Serial})");
+    }
+
+    /// <summary>
+    /// Session lock transition from SessionLockListener (already off the OS
+    /// callback thread). Lock fades every connected deck with SleepWhenLocked
+    /// to black on the lighting's own lock ramp; unlock fades back whatever
+    /// this blanked. Public so tests drive it without a listener.
+    /// </summary>
+    public void OnSessionLockChanged(bool locked)
+    {
+        bool? arm = null;
+        lock (_lock)
+        {
+            _lockWakeDeadline = null;
+            if (locked)
+            {
+                _lockHold = true;
+                foreach (var surface in _surfaces.Values)
+                {
+                    if (!surface.IsConnected || !SleepsWhenLocked(surface.Serial))
+                    {
+                        continue;
+                    }
+                    _sleptForLock.Add(surface.Serial);
+                    // Already dark from sleep-after: nothing to fade, but it is
+                    // still ours to restore on unlock.
+                    if (_asleep.TryGetValue(surface.Serial, out var asleep) && asleep)
+                    {
+                        continue;
+                    }
+                    _asleep[surface.Serial] = true;
+                    BeginBrightnessRampLocked(surface, 0, SleepBlackoutCoordinator.LockFadeDuration);
+                }
+                if (_sleptForLock.Count > 0)
+                {
+                    arm = true;
+                    ServiceLog.Info($"[streamdeck] session locked; fading {_sleptForLock.Count} deck(s) out over {(int)SleepBlackoutCoordinator.LockFadeDuration.TotalMilliseconds}ms");
+                }
+            }
+            else
+            {
+                _lockHold = false;
+                // Unconditional: the deck that armed the poll may have
+                // unplugged mid-lock, emptying the set.
+                arm = false;
+                var restored = RestoreLockSleptDecksLocked();
+                if (restored > 0)
+                {
+                    ServiceLog.Info($"[streamdeck] session unlocked; {restored} deck(s) fading back in");
+                }
+                _sleptForLock.Clear();
+            }
+        }
+        if (arm is bool enabled)
+        {
+            SetLockInputWatch(enabled);
+        }
+    }
+
+    /// <summary>
+    /// Input at the lock screen (the helper's poll, forwarded by the Windows
+    /// tray wiring). Fades lock-slept decks back in and opens the idle window
+    /// after which they go dark again; every further input refreshes it.
+    /// </summary>
+    public void OnLockScreenInput()
+    {
+        lock (_lock)
+        {
+            OnLockScreenInputLocked();
+        }
+    }
+
+    /// <summary>Caller must hold _lock. Shared by the helper's input report and a press on the deck itself.</summary>
+    private void OnLockScreenInputLocked()
+    {
+        if (!_lockHold || _sleptForLock.Count == 0)
+        {
+            return;
+        }
+        var now = _clock.GetUtcNow();
+        _lockWakeDeadline = now + SleepBlackoutCoordinator.DefaultLockWakeTimeout;
+        var woke = 0;
+        foreach (var serial in _sleptForLock)
+        {
+            var surface = FindBySerialLocked(serial);
+            if (surface is null || !surface.IsConnected)
+            {
+                continue;
+            }
+            // Someone is at the machine: the sleep-after idle clock restarts
+            // too, or its next tick cuts the deck the fade-in is lighting.
+            _lastInputAt[serial] = now;
+            if (!_asleep.TryGetValue(serial, out var asleep) || !asleep)
+            {
+                continue;
+            }
+            _asleep[serial] = false;
+            BeginBrightnessRampLocked(surface, PersistedBrightness(serial), SleepBlackoutCoordinator.UnlockFadeDuration);
+            woke++;
+        }
+        if (woke > 0)
+        {
+            ServiceLog.Info($"[streamdeck] input at the lock screen; {woke} deck(s) fading in over {(int)SleepBlackoutCoordinator.UnlockFadeDuration.TotalMilliseconds}ms");
+        }
+    }
+
+    /// <summary>
+    /// Once per tick: the lock-screen idle window elapsed with no further
+    /// input, so lock-slept decks that input brought up go dark again. Only
+    /// while the session is still locked; unlock clears the deadline.
+    /// </summary>
+    private void ApplyLockWakeExpiry()
+    {
+        if (!_lockHold || _lockWakeDeadline is not DateTimeOffset deadline || _clock.GetUtcNow() < deadline)
+        {
+            return;
+        }
+        _lockWakeDeadline = null;
+        var darkened = 0;
+        foreach (var serial in _sleptForLock)
+        {
+            var surface = FindBySerialLocked(serial);
+            if (surface is null || !surface.IsConnected)
+            {
+                continue;
+            }
+            if (_asleep.TryGetValue(serial, out var asleep) && asleep)
+            {
+                continue;
+            }
+            _asleep[serial] = true;
+            BeginBrightnessRampLocked(surface, 0, SleepBlackoutCoordinator.LockFadeDuration);
+            darkened++;
+        }
+        if (darkened > 0)
+        {
+            ServiceLog.Info($"[streamdeck] lock-screen idle window elapsed; {darkened} deck(s) fading out");
+        }
+    }
+
+    /// <summary>Caller must hold _lock. Fades lock-slept decks still dark back to persisted and returns how many; one input already lit is skipped, since a fresh ramp starts from black.</summary>
+    private int RestoreLockSleptDecksLocked()
+    {
+        var now = _clock.GetUtcNow();
+        var restored = 0;
+        foreach (var serial in _sleptForLock)
+        {
+            var surface = FindBySerialLocked(serial);
+            if (surface is null || !surface.IsConnected)
+            {
+                continue;
+            }
+            _lastInputAt[serial] = now;
+            if (!_asleep.TryGetValue(serial, out var asleep) || !asleep)
+            {
+                continue;
+            }
+            _asleep[serial] = false;
+            BeginBrightnessRampLocked(surface, PersistedBrightness(serial), SleepBlackoutCoordinator.UnlockFadeDuration);
+            restored++;
+        }
+        return restored;
+    }
+
+    private bool SleepsWhenLocked(string serial) =>
+        !_store.Load().StreamDeck.Decks.TryGetValue(serial, out var deck) || deck.SleepWhenLocked;
+
+    private int PersistedBrightness(string serial) =>
+        _store.Load().StreamDeck.Decks.TryGetValue(serial, out var deck) ? deck.Brightness : PhysicalDeckSettings.DefaultBrightness;
+
+    /// <summary>Starts (or retargets) a brightness ramp, picking up from the level an in-flight ramp last sent. Callers only ramp a lit deck to black or a dark deck up, so with no ramp running the start level is the other endpoint. Caller must hold _lock; the animation loop steps it.</summary>
+    private void BeginBrightnessRampLocked(IStreamDeckSurface surface, int to, TimeSpan duration)
+    {
+        var serial = surface.Serial;
+        var from = _brightnessRamps.TryGetValue(serial, out var running)
+            ? running.LastSent
+            : to == 0 ? PersistedBrightness(serial) : 0;
+        if (from == to)
+        {
+            _brightnessRamps.Remove(serial);
+            surface.SetBrightness(to);
+            _anyRampActive = _brightnessRamps.Count > 0;
+            return;
+        }
+        _brightnessRamps[serial] = new BrightnessRamp
+        {
+            From = from,
+            To = to,
+            StartedAt = _clock.GetUtcNow(),
+            Duration = duration,
+            LastSent = from,
+        };
+        _anyRampActive = true;
+    }
+
+    /// <summary>
+    /// One frame of every in-flight brightness ramp: pushes the level the
+    /// clock says the ramp is at whenever that rounds to a new percent, and
+    /// drops the ramp once it lands. Public so tests step it with a manual
+    /// clock, like AnimateHolds. A ramp whose surface has vanished is dropped.
+    /// </summary>
+    public void AnimateBrightnessRamps()
+    {
+        lock (_lock)
+        {
+            if (_brightnessRamps.Count == 0)
+            {
+                _anyRampActive = false;
+                return;
+            }
+            var now = _clock.GetUtcNow();
+            foreach (var serial in _brightnessRamps.Keys.ToList())
+            {
+                var ramp = _brightnessRamps[serial];
+                var surface = FindBySerialLocked(serial);
+                if (surface is null || !surface.IsConnected)
+                {
+                    _brightnessRamps.Remove(serial);
+                    continue;
+                }
+                var fraction = Math.Clamp((now - ramp.StartedAt).TotalMilliseconds / ramp.Duration.TotalMilliseconds, 0.0, 1.0);
+                var level = (int)Math.Round(ramp.From + (ramp.To - ramp.From) * fraction);
+                if (level != ramp.LastSent)
+                {
+                    surface.SetBrightness(level);
+                    ramp.LastSent = level;
+                }
+                if (fraction >= 1.0)
+                {
+                    _brightnessRamps.Remove(serial);
+                }
+            }
+            _anyRampActive = _brightnessRamps.Count > 0;
+        }
+    }
+
+    /// <summary>Caller must hold _lock. Drops any ramp in flight for a serial so a direct brightness write is not overwritten on the next frame.</summary>
+    private void CancelBrightnessRampLocked(string serial)
+    {
+        if (_brightnessRamps.Remove(serial))
+        {
+            _anyRampActive = _brightnessRamps.Count > 0;
+        }
+    }
+
+    private void SetLockInputWatch(bool enabled)
+    {
+        try { LockInputWatch?.Invoke(enabled); }
+        catch (Exception ex)
+        {
+            ServiceLog.Info($"[streamdeck] lock input watch {(enabled ? "arm" : "disarm")} failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -2470,6 +2805,9 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _folderPathsBySerial.Clear();
             _lastInputAt.Clear();
             _asleep.Clear();
+            _sleptForLock.Clear();
+            _brightnessRamps.Clear();
+            _anyRampActive = false;
             _currentPageBySerial.Clear();
             _heldKeysBySerial.Clear();
             _activeHolds.Clear();
@@ -2543,6 +2881,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     public override void Dispose()
     {
         _hub.OnTopicFirstSubscriber -= OnStreamDeckTilesFirstSubscriber;
+        _sessionLock?.LockChanged -= OnSessionLockChanged;
         DisconnectAll();
         // A host stop that is not a process exit leaves IFpsProvider holding
         // this source otherwise, so ETW capture would keep running with no

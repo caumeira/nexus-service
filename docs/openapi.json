@@ -23490,6 +23490,9 @@
             ],
             "format": "int32"
           },
+          "sleepWhenLocked": {
+            "type": "boolean"
+          },
           "firmwareVersion": {
             "type": "string"
           },
@@ -24391,6 +24394,12 @@
               "string"
             ],
             "format": "int32"
+          },
+          "sleepWhenLocked": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
