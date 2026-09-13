@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
+using Nexus.Service.Auth;
 using Nexus.Service.Models;
 using Nexus.Service.Peripherals.Nollie;
 using Nexus.Service.Persistence;
@@ -68,7 +70,40 @@ public static partial class DevicesRoutes
             NollieStandalone.Refresh(controller, store.Load());
             return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         });
+
+        // Simulated board (no HID hardware). Served in every build, like the
+        // Stream Deck simulator: the web shows the row only with dev tools on,
+        // and the routes are localhost-only.
+        app.MapGet("/devices/nollie/dev/models", () =>
+        {
+            var response = new NollieDevModelsResponse();
+            foreach (var d in NollieProtocol.Devices)
+            {
+                response.Models.Add(new NollieDevModelDto { Id = ModelId(d), Name = d.Name, Channels = d.Channels });
+            }
+            return Results.Json(response, AppJsonContext.Default.NollieDevModelsResponse);
+        }).LocalhostOnly();
+
+        app.MapPost("/devices/nollie/dev/simulate", (NollieSimulateBody body, NollieConnectionWorker worker) =>
+        {
+            NollieDevice? spec = null;
+            foreach (var d in NollieProtocol.Devices)
+            {
+                if (ModelId(d) == body.Id) { spec = d; break; }
+            }
+            if (spec is null || !worker.AttachSimulated(spec.VendorId, spec.ProductId))
+                return Results.Json(ApiResponse.Fail("unknown model"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+        }).LocalhostOnly();
+
+        app.MapDelete("/devices/nollie/dev/simulate", (NollieConnectionWorker worker) =>
+        {
+            worker.DetachSimulated();
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+        }).LocalhostOnly();
     }
+
+    private static string ModelId(NollieDevice d) => $"{d.VendorId:X4}:{d.ProductId:X4}";
 
     private static string NormalizeHex(string color)
         => (color.StartsWith('#') ? color : "#" + color).ToUpperInvariant();
@@ -96,4 +131,22 @@ public sealed class NollieStandaloneRequest
 {
     public string? Mode { get; set; }
     public string? Color { get; set; }
+}
+
+public sealed class NollieDevModelDto
+{
+    /// <summary>"VVVV:PPPP" hex.</summary>
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int Channels { get; set; }
+}
+
+public sealed class NollieDevModelsResponse
+{
+    public List<NollieDevModelDto> Models { get; set; } = new();
+}
+
+public sealed class NollieSimulateBody
+{
+    public string Id { get; set; } = "";
 }

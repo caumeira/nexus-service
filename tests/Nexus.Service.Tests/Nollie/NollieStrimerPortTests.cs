@@ -135,6 +135,28 @@ public class NollieStrimerPortTests
         Assert.Equal(108, d.ZoneLedCounts[gpu]);
     }
 
+    // ── Dev-tools simulated board ──
+
+    /// <summary>A simulated board goes through the same attach path and outlives a bus scan that never sees it.</summary>
+    [Fact]
+    public void A_simulated_board_seeds_like_a_real_one_and_survives_a_rescan()
+    {
+        var worker = NewWorker(new NoDevices());
+        Assert.True(worker.AttachSimulated(Vid, Pid));
+        Assert.True(worker.AttachSimulated(Vid, Pid));
+        var controller = Assert.Single(_hub.Controllers);
+        Assert.StartsWith(SimulatedNollieDevice.PathPrefix, controller.Path, StringComparison.Ordinal);
+        Assert.Equal(120, _store.Load().Devices.ZoneLedCounts[$"{controller.DeviceId}:strimer-atx"]);
+        Assert.Equal(22, _provider.GetAll().Devices.Count);
+
+        Assert.False(worker.Reconcile());
+        Assert.Single(_hub.Controllers);
+
+        worker.DetachSimulated();
+        Assert.Empty(_hub.Controllers);
+        Assert.False(worker.AttachSimulated(0x1234, 0x5678));
+    }
+
     // ── PortChainWriter ──
 
     [Fact]
@@ -217,6 +239,13 @@ public class NollieStrimerPortTests
     private sealed class NoUsb : IUsbEnumerator
     {
         public List<UsbDeviceEntry> Enumerate() => new();
+    }
+
+    private sealed class NoDevices : IHidEnumerator
+    {
+        public IReadOnlyList<HidDeviceInfo> Find(int vendorId, int productId) => Array.Empty<HidDeviceInfo>();
+        public IReadOnlyList<HidDeviceInfo> FindAll() => Array.Empty<HidDeviceInfo>();
+        public IHidDevice? Open(string path, bool forInput = false) => null;
     }
 
     /// <summary>One 32-channel board on the bus, opened by path.</summary>

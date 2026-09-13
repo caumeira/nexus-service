@@ -143,13 +143,8 @@ public sealed class NollieConnectionWorker : BackgroundService
             var device = _hid.Open(info.Path);
             if (device is null) continue;
 
-            var controller = new NollieController(device, spec);
-            _hub.Attach(controller);
-            DropBundledChannelState(controller);
-            SeedPorts(controller);
-            NollieStandalone.Apply(controller, _store.Load());
+            Attach(new NollieController(device, spec));
             changed = true;
-            ServiceLog.Info($"[nollie] attached {spec.Name} ({spec.Channels}ch, max {spec.MaxLedsPerChannel} LEDs/ch) sn={(string.IsNullOrEmpty(controller.Serial) ? "-" : controller.Serial)} id={controller.DeviceId}");
         }
 
         // A present controller none of whose interfaces matched is invisible to
@@ -166,6 +161,11 @@ public sealed class NollieConnectionWorker : BackgroundService
 
         foreach (var controller in _hub.Controllers)
         {
+            if (controller.Path.StartsWith(SimulatedNollieDevice.PathPrefix, StringComparison.Ordinal))
+            {
+                // Never on the bus; it leaves through DetachSimulated.
+                continue;
+            }
             if (!livePaths.Contains(controller.Path))
             {
                 _hub.Detach(controller.DeviceId);
@@ -181,6 +181,48 @@ public sealed class NollieConnectionWorker : BackgroundService
         }
 
         return changed;
+    }
+
+    /// <summary>Everything a newly present board gets: its persisted-state cleanup, port seeds and standalone settings.</summary>
+    private void Attach(NollieController controller)
+    {
+        var spec = controller.Spec;
+        _hub.Attach(controller);
+        DropBundledChannelState(controller);
+        SeedPorts(controller);
+        NollieStandalone.Apply(controller, _store.Load());
+        ServiceLog.Info($"[nollie] attached {spec.Name} ({spec.Channels}ch, max {spec.MaxLedsPerChannel} LEDs/ch) sn={(string.IsNullOrEmpty(controller.Serial) ? "-" : controller.Serial)} id={controller.DeviceId}");
+    }
+
+    /// <summary>
+    /// Dev tools: attaches a board with nothing behind it, so the cards, the
+    /// device page and the standalone settings can be exercised without
+    /// hardware. One per model; attaching the same model again is a no-op.
+    /// False for an unknown model or while Nexus Control is off.
+    /// </summary>
+    public bool AttachSimulated(int vendorId, int productId)
+    {
+        var spec = NollieProtocol.Lookup(vendorId, productId);
+        if (spec is null || !_gate.IsEnabled(HandlerId)) return false;
+        var device = new SimulatedNollieDevice(spec);
+        if (_hub.HasPath(device.Path)) return true;
+        Attach(new NollieController(device, spec));
+        _lighting.OnHubStateUpdated();
+        return true;
+    }
+
+    /// <summary>Dev tools: drops every simulated board.</summary>
+    public void DetachSimulated()
+    {
+        var dropped = false;
+        foreach (var controller in _hub.Controllers)
+        {
+            if (!controller.Path.StartsWith(SimulatedNollieDevice.PathPrefix, StringComparison.Ordinal)) continue;
+            _hub.Detach(controller.DeviceId);
+            dropped = true;
+            ServiceLog.Info($"[nollie] detached simulated {controller.Spec.Name} id={controller.DeviceId}");
+        }
+        if (dropped) _lighting.OnHubStateUpdated();
     }
 
     /// <summary>
