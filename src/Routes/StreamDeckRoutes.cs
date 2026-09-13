@@ -76,6 +76,7 @@ public static class StreamDeckRoutes
                     Brightness = deck.Brightness,
                     Orientation = deck.Orientation,
                     SleepAfterSeconds = deck.SleepAfterSeconds,
+                    SleepWhenLocked = deck.SleepWhenLocked,
                     FirmwareVersion = "",
                     Warning = null,
                     ConflictAppId = null,
@@ -112,13 +113,17 @@ public static class StreamDeckRoutes
                 {
                     deck.SleepAfterSeconds = Math.Max(0, body.SleepAfterSeconds.Value);
                 }
+                if (body.SleepWhenLocked is not null)
+                {
+                    deck.SleepWhenLocked = body.SleepWhenLocked.Value;
+                }
             });
-            // Skipped while the deck is asleep (sleep-after already blanked
-            // it): the new value already persisted above and applies the
-            // moment the next key press wakes it.
-            if (body.Brightness is not null && !worker.IsAsleep(serial))
+            // Skipped while the deck is asleep (sleep-after or the session
+            // lock blanked it): the new value already persisted above and
+            // applies the moment the deck wakes.
+            if (body.Brightness is not null)
             {
-                worker.FindBySerial(serial)?.SetBrightness(Math.Clamp(body.Brightness.Value, 0, 100));
+                worker.SetBrightnessIfAwake(serial, Math.Clamp(body.Brightness.Value, 0, 100));
             }
             PanelTopics.BroadcastStreamDeck(hub, new StreamDeckChangedFrame { Kind = "decks", Serial = serial });
             return ApiResponse.Ok();
@@ -706,6 +711,7 @@ public static class StreamDeckRoutes
         Brightness = deck?.Brightness ?? PhysicalDeckSettings.DefaultBrightness,
         Orientation = deck?.Orientation ?? 0,
         SleepAfterSeconds = deck?.SleepAfterSeconds ?? 0,
+        SleepWhenLocked = deck?.SleepWhenLocked ?? true,
         FirmwareVersion = surface.FirmwareVersion,
         Warning = warning,
         ConflictAppId = conflictAppId,
