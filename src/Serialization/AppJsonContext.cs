@@ -1130,6 +1130,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.StrimerLightingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto[]))]
+// Nollie ARGB controllers.
+[JsonSerializable(typeof(Nexus.Service.Routes.NollieBoardDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.NollieBoardDto[]))]
+[JsonSerializable(typeof(Nexus.Service.Routes.NollieBoardsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.NollieStandaloneRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.NollieDevModelDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.NollieDevModelsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.NollieSimulateBody))]
 
 // Diagnostics app: aggregated health + per-domain detail + bundle export.
 [JsonSerializable(typeof(Nexus.Service.Diagnostics.DiagnosticsHealthResponse))]

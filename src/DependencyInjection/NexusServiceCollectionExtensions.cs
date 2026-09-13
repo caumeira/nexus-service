@@ -661,7 +661,11 @@ public static class NexusServiceCollectionExtensions
             sp => sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingDeviceProvider>());
         services.AddSingleton<Nexus.Service.Lighting.NollieLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.NollieLightingFrameWriter>());
-        services.AddHostedService<Nexus.Service.Peripherals.Nollie.NollieConnectionWorker>();
+        // Registered as itself too: FastServiceShutdown hands the boards to
+        // their firmware through it, since the Windows service exits without
+        // running hosted-service StopAsync.
+        services.AddSingleton<Nexus.Service.Peripherals.Nollie.NollieConnectionWorker>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Peripherals.Nollie.NollieConnectionWorker>());
 
         // CNVS lighting: CnvsHub owns COM7 (not OpenRGB). This provider
         // surfaces the 50-LED zone to the lighting engine and the writer pushes
@@ -1079,6 +1083,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.KrakenHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CorsairLinkHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.StrimerHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.NollieHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.TryxHandler>();
         // Registered as itself (not just IDeviceHandler) - StreamDeckRoutes.cs
         // injects the concrete type directly for GetWarning's detectedDevices.

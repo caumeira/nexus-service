@@ -16,7 +16,7 @@ namespace Nexus.Service.Tests.Lighting.Zones;
 /// </summary>
 public class NollieChainTests
 {
-    private const int Channel = 0;
+    private static NolliePort Channel(NollieController controller) => controller.Spec.Ports[0];
 
     private static NollieController Attach()
     {
@@ -54,11 +54,11 @@ public class NollieChainTests
     public void An_unchained_channel_is_one_zone_carrying_the_channel_id()
     {
         var controller = Attach();
-        var channelId = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, Channel);
+        var channelId = NollieLightingDeviceProvider.PortId(controller.DeviceId, Channel(controller));
         var settings = new NexusSettings();
         settings.Devices.ZoneLedCounts[channelId] = 60;
 
-        var zone = Assert.Single(NollieLightingDeviceProvider.ResolveChannelZones(controller, Channel, settings));
+        var zone = Assert.Single(NollieLightingDeviceProvider.ResolvePortZones(controller, Channel(controller), settings));
 
         Assert.True(zone.IsDefault);
         Assert.Equal(channelId, zone.Id);
@@ -69,10 +69,10 @@ public class NollieChainTests
     public void A_chained_channel_is_one_zone_per_product_in_chain_order()
     {
         var controller = Attach();
-        var channelId = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, Channel);
+        var channelId = NollieLightingDeviceProvider.PortId(controller.DeviceId, Channel(controller));
         var settings = Chained(channelId);
 
-        var zones = NollieLightingDeviceProvider.ResolveChannelZones(controller, Channel, settings);
+        var zones = NollieLightingDeviceProvider.ResolvePortZones(controller, Channel(controller), settings);
 
         Assert.Equal(2, zones.Count);
         Assert.All(zones, z => Assert.False(z.IsDefault));
@@ -84,10 +84,10 @@ public class NollieChainTests
     public void The_products_tile_the_channel_buffer_back_to_back()
     {
         var controller = Attach();
-        var channelId = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, Channel);
+        var channelId = NollieLightingDeviceProvider.PortId(controller.DeviceId, Channel(controller));
         var settings = Chained(channelId);
 
-        var structure = NollieLightingDeviceProvider.BuildChannelStructure(controller, Channel, settings.Devices.ZoneLedCounts);
+        var structure = NollieLightingDeviceProvider.BuildPortStructure(controller, Channel(controller), settings.Devices.ZoneLedCounts);
         var zones = ZoneResolution.Resolve(structure, settings);
 
         // What the writer lays down: offset of each product inside the
@@ -102,9 +102,9 @@ public class NollieChainTests
     public void Only_a_whole_channel_zone_may_resize_the_channel()
     {
         var controller = Attach();
-        var channelId = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, Channel);
+        var channelId = NollieLightingDeviceProvider.PortId(controller.DeviceId, Channel(controller));
         var chainedSettings = Chained(channelId);
-        var chained = NollieLightingDeviceProvider.BuildChannelStructure(controller, Channel, chainedSettings.Devices.ZoneLedCounts);
+        var chained = NollieLightingDeviceProvider.BuildPortStructure(controller, Channel(controller), chainedSettings.Devices.ZoneLedCounts);
         foreach (var zone in ZoneResolution.Resolve(chained, chainedSettings))
         {
             Assert.True(ZoneResolution.WholeResizableSegment(chained, zone, chainedSettings) < 0);
@@ -112,7 +112,7 @@ public class NollieChainTests
 
         var plainSettings = new NexusSettings();
         plainSettings.Devices.ZoneLedCounts[channelId] = 60;
-        var plain = NollieLightingDeviceProvider.BuildChannelStructure(controller, Channel, plainSettings.Devices.ZoneLedCounts);
+        var plain = NollieLightingDeviceProvider.BuildPortStructure(controller, Channel(controller), plainSettings.Devices.ZoneLedCounts);
         var only = ZoneResolution.Resolve(plain, plainSettings)[0];
         Assert.Equal(0, ZoneResolution.WholeResizableSegment(plain, only, plainSettings));
     }
@@ -121,9 +121,9 @@ public class NollieChainTests
     public void A_channel_only_counts_as_uncontrolled_when_every_product_does()
     {
         var controller = Attach();
-        var channelId = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, Channel);
+        var channelId = NollieLightingDeviceProvider.PortId(controller.DeviceId, Channel(controller));
         var settings = Chained(channelId);
-        var zones = NollieLightingDeviceProvider.ResolveChannelZones(controller, Channel, settings);
+        var zones = NollieLightingDeviceProvider.ResolvePortZones(controller, Channel(controller), settings);
 
         Assert.False(ZoneResolution.IsFullyUncontrolled(zones, new[] { zones[0].Id }));
         Assert.True(ZoneResolution.IsFullyUncontrolled(zones, zones.Select(z => z.Id).ToArray()));
@@ -133,9 +133,9 @@ public class NollieChainTests
     public void Dropping_the_chain_returns_the_channel_to_one_zone()
     {
         var controller = Attach();
-        var channelId = NollieLightingDeviceProvider.ChannelId(controller.DeviceId, Channel);
+        var channelId = NollieLightingDeviceProvider.PortId(controller.DeviceId, Channel(controller));
         var settings = Chained(channelId);
-        var structure = NollieLightingDeviceProvider.BuildChannelStructure(controller, Channel, settings.Devices.ZoneLedCounts);
+        var structure = NollieLightingDeviceProvider.BuildPortStructure(controller, Channel(controller), settings.Devices.ZoneLedCounts);
 
         Assert.True(ZoneResolution.DropChains(settings, structure));
         settings.Devices.ZonePartitions.Remove(channelId);
