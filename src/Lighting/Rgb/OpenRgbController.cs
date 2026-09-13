@@ -26,7 +26,12 @@ public sealed class OpenRgbController : IRgbController
 {
     private const string ClientName = "nexus";
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan IoTimeout = TimeSpan.FromSeconds(3);
+    // Per socket read/write. The daemon replies from memory under a shared lock even
+    // mid-detection, so a reply this slow means its listen thread is wedged.
+    internal static readonly TimeSpan IoTimeout = TimeSpan.FromSeconds(3);
+    // Each lock holder is bounded by IoTimeout; waiting longer means a queue behind a wedge.
+    private static readonly TimeSpan LockWait = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DisconnectLockWait = TimeSpan.FromSeconds(1);
 
     private readonly string _host;
     private readonly int _port;
@@ -73,7 +78,12 @@ public sealed class OpenRgbController : IRgbController
             return true;
         }
 
-        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        { await WaitLockAsync(ct).ConfigureAwait(false); }
+        catch (IOException)
+        {
+            return false;
+        }
         try
         {
             CleanupSocketLocked();
@@ -91,10 +101,18 @@ public sealed class OpenRgbController : IRgbController
                 return false;
             }
 
+            // NetworkStream.ReadTimeout/WriteTimeout govern synchronous I/O only; the
+            // async bound lives in ReadExactLockedAsync / SendPacketLockedAsync.
+            NetworkStream stream;
+            try
+            { stream = tcp.GetStream(); }
+            catch
+            {
+                tcp.Dispose();
+                return false;
+            }
             _tcp = tcp;
-            _stream = tcp.GetStream();
-            _stream.ReadTimeout = (int)IoTimeout.TotalMilliseconds;
-            _stream.WriteTimeout = (int)IoTimeout.TotalMilliseconds;
+            _stream = stream;
 
             try
             {
@@ -145,10 +163,16 @@ public sealed class OpenRgbController : IRgbController
 
     public async Task DisconnectAsync()
     {
-        await _writeLock.WaitAsync().ConfigureAwait(false);
-        try
-        { CleanupSocketLocked(); }
-        finally { _writeLock.Release(); }
+        if (await _writeLock.WaitAsync(DisconnectLockWait).ConfigureAwait(false))
+        {
+            try
+            { CleanupSocketLocked(); }
+            finally { _writeLock.Release(); }
+            return;
+        }
+        // The holder is parked on a silent peer; closing the socket faults it, which releases the lock.
+        ServiceLog.Warn($"[openrgb] disconnect: socket busy for {DisconnectLockWait.TotalSeconds:F0}s, closing it under the pending request");
+        CleanupSocketLocked();
     }
 
     public async Task<IReadOnlyList<RgbDevice>> GetDevicesAsync(CancellationToken ct = default)
@@ -158,7 +182,7 @@ public sealed class OpenRgbController : IRgbController
             return Array.Empty<RgbDevice>();
         }
 
-        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        await WaitLockAsync(ct).ConfigureAwait(false);
         try
         {
             // Get controller count
@@ -201,9 +225,28 @@ public sealed class OpenRgbController : IRgbController
             }
             return devices;
         }
+        catch (Exception) when (DropSocketLocked())
+        {
+            throw;
+        }
         finally
         {
             _writeLock.Release();
+        }
+    }
+
+    /// <summary>Exception filter (always false): a failed request leaves the stream mid-packet, so drop the socket and let the bridge reconnect.</summary>
+    private bool DropSocketLocked()
+    {
+        CleanupSocketLocked();
+        return false;
+    }
+
+    private async Task WaitLockAsync(CancellationToken ct)
+    {
+        if (!await _writeLock.WaitAsync(LockWait, ct).ConfigureAwait(false))
+        {
+            throw new IOException($"OpenRGB socket busy for {LockWait.TotalSeconds:F0}s");
         }
     }
 
@@ -214,7 +257,7 @@ public sealed class OpenRgbController : IRgbController
             return;
         }
 
-        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        await WaitLockAsync(ct).ConfigureAwait(false);
         try
         {
             var mode = device.FindCustomMode();
@@ -237,6 +280,10 @@ public sealed class OpenRgbController : IRgbController
                     OpenRgbProtocol.PacketId.SetCustomMode, body: null, ct).ConfigureAwait(false);
             }
         }
+        catch (Exception) when (DropSocketLocked())
+        {
+            throw;
+        }
         finally { _writeLock.Release(); }
     }
 
@@ -248,8 +295,12 @@ public sealed class OpenRgbController : IRgbController
         }
 
         // Acquire BEFORE the try block - if WaitAsync throws (canceled/disposed)
-        // we must NOT call Release on a semaphore we never acquired.
-        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        // we must NOT call Release on a semaphore we never acquired. A frame that
+        // misses the bound is dropped rather than queued behind a wedged peer.
+        if (!await _writeLock.WaitAsync(LockWait, ct).ConfigureAwait(false))
+        {
+            return;
+        }
         try
         {
             try
@@ -296,7 +347,7 @@ public sealed class OpenRgbController : IRgbController
             return;
         }
 
-        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        await WaitLockAsync(ct).ConfigureAwait(false);
         try
         {
             try
@@ -321,7 +372,7 @@ public sealed class OpenRgbController : IRgbController
             return;
         }
 
-        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        await WaitLockAsync(ct).ConfigureAwait(false);
         try
         {
             try
@@ -343,14 +394,13 @@ public sealed class OpenRgbController : IRgbController
 
     private async Task SendPacketLockedAsync(uint deviceIndex, OpenRgbProtocol.PacketId packetId, byte[]? body, CancellationToken ct)
     {
-        if (_stream is null)
-        {
-            throw new IOException("not connected");
-        }
+        // Local copy: a bounded disconnect may null the field under us.
+        var stream = _stream ?? throw new IOException("not connected");
 
         var bodyLen = body?.Length ?? 0;
         var total = OpenRgbProtocol.HeaderSize + bodyLen;
         var buffer = ArrayPool<byte>.Shared.Rent(total);
+        var timedOut = false;
         try
         {
             OpenRgbProtocol.WriteHeader(buffer.AsSpan(0, OpenRgbProtocol.HeaderSize), deviceIndex, packetId, (uint)bodyLen);
@@ -359,22 +409,35 @@ public sealed class OpenRgbController : IRgbController
                 Buffer.BlockCopy(body, 0, buffer, OpenRgbProtocol.HeaderSize, bodyLen);
             }
 
-            await _stream.WriteAsync(buffer.AsMemory(0, total), ct).ConfigureAwait(false);
-            await _stream.FlushAsync(ct).ConfigureAwait(false);
+            var write = stream.WriteAsync(buffer.AsMemory(0, total), ct);
+            if (write.IsCompleted)
+            {
+                await write.ConfigureAwait(false);
+            }
+            else
+            {
+                // A write parks only once the peer stops draining and the send buffer is full.
+                try
+                { await write.AsTask().WaitAsync(IoTimeout).ConfigureAwait(false); }
+                catch (TimeoutException)
+                {
+                    timedOut = true;
+                    throw new IOException($"OpenRGB write timed out after {IoTimeout.TotalSeconds:F0}s");
+                }
+            }
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            // An abandoned write still references the buffer until the socket is torn down.
+            if (!timedOut)
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
         }
     }
 
     private async Task<(OpenRgbProtocol.PacketId id, byte[] body)> ReadPacketLockedAsync(CancellationToken ct)
     {
-        if (_stream is null)
-        {
-            throw new IOException("not connected");
-        }
-
         var headerBuf = new byte[OpenRgbProtocol.HeaderSize];
         await ReadExactLockedAsync(headerBuf, ct).ConfigureAwait(false);
         var (_, packetId, dataSize) = OpenRgbProtocol.ReadHeader(headerBuf);
@@ -400,11 +463,6 @@ public sealed class OpenRgbController : IRgbController
     private async Task<(OpenRgbProtocol.PacketId id, byte[] body)> ReadExpectedLockedAsync(
         OpenRgbProtocol.PacketId expected, uint expectedDeviceIndex, CancellationToken ct)
     {
-        if (_stream is null)
-        {
-            throw new IOException("not connected");
-        }
-
         // Bound the loop so we never spin forever on a desync.
         for (int attempt = 0; attempt < 16; attempt++)
         {
@@ -443,15 +501,27 @@ public sealed class OpenRgbController : IRgbController
 
     private async Task ReadExactLockedAsync(byte[] buffer, CancellationToken ct)
     {
-        if (_stream is null)
-        {
-            throw new IOException("not connected");
-        }
+        var stream = _stream ?? throw new IOException("not connected");
 
         var read = 0;
         while (read < buffer.Length)
         {
-            var n = await _stream.ReadAsync(buffer.AsMemory(read, buffer.Length - read), ct).ConfigureAwait(false);
+            var pending = stream.ReadAsync(buffer.AsMemory(read, buffer.Length - read), ct);
+            int n;
+            if (pending.IsCompleted)
+            {
+                n = await pending.ConfigureAwait(false);
+            }
+            else
+            {
+                // WaitAsync does not cancel the read; the caller's socket drop does.
+                try
+                { n = await pending.AsTask().WaitAsync(IoTimeout).ConfigureAwait(false); }
+                catch (TimeoutException)
+                {
+                    throw new IOException($"OpenRGB read timed out after {IoTimeout.TotalSeconds:F0}s");
+                }
+            }
             if (n == 0)
             {
                 throw new EndOfStreamException("OpenRGB connection closed");
@@ -463,18 +533,20 @@ public sealed class OpenRgbController : IRgbController
 
     private void CleanupSocketLocked()
     {
-        try
-        { _stream?.Dispose(); }
-        catch { }
-        try
-        { _tcp?.Close(); }
-        catch { }
-        try
-        { _tcp?.Dispose(); }
-        catch { }
-        _stream = null;
-        _tcp = null;
+        // Also reached without the lock from a bounded disconnect: swap the fields
+        // out first so a concurrent holder fails with "not connected".
+        var stream = Interlocked.Exchange(ref _stream, null);
+        var tcp = Interlocked.Exchange(ref _tcp, null);
         _protocolVersion = 0;
+        try
+        { stream?.Dispose(); }
+        catch { }
+        try
+        { tcp?.Close(); }
+        catch { }
+        try
+        { tcp?.Dispose(); }
+        catch { }
     }
 
     public async ValueTask DisposeAsync()
@@ -485,7 +557,8 @@ public sealed class OpenRgbController : IRgbController
         }
 
         _disposed = true;
+        // The lock is left undisposed: a holder still unwinding from a bounded
+        // disconnect releases it afterwards, and SemaphoreSlim owns no handle.
         await DisconnectAsync().ConfigureAwait(false);
-        _writeLock.Dispose();
     }
 }

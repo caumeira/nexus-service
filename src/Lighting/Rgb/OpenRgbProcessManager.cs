@@ -82,10 +82,19 @@ public sealed class OpenRgbProcessManager : IDisposable
                 try
                 {
                     proc.Kill(entireProcessTree: true);
-                    proc.WaitForExit(1000);
-                    ServiceLog.Info($"[openrgb-proc] killed orphan PID {proc.Id}");
+                    if (proc.WaitForExit(1000))
+                    {
+                        ServiceLog.Info($"[openrgb-proc] killed orphan PID {proc.Id}");
+                    }
+                    else
+                    {
+                        ServiceLog.Warn($"[openrgb-proc] orphan PID {proc.Id} still alive 1s after kill");
+                    }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    ServiceLog.Warn($"[openrgb-proc] orphan PID {proc.Id} kill failed: {ex.GetType().Name}: {ex.Message}");
+                }
                 finally { proc.Dispose(); }
             }
         }
@@ -99,6 +108,18 @@ public sealed class OpenRgbProcessManager : IDisposable
             lock (_lock)
             {
                 return _proc is { HasExited: false };
+            }
+        }
+    }
+
+    /// <summary>Uptime of the current daemon, zero when none; the bridge watchdog separates "not listening yet" from "stopped answering".</summary>
+    public TimeSpan Uptime
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _proc is { HasExited: false } ? DateTime.UtcNow - _startedUtc : TimeSpan.Zero;
             }
         }
     }
@@ -624,6 +645,7 @@ public sealed class OpenRgbProcessManager : IDisposable
 
                 _proc = proc;
                 _startedUtc = DateTime.UtcNow;
+                ServiceLog.Info($"[openrgb-proc] spawned pid={proc.Id}");
 
 #if WINDOWS
                 // Tie the headless server's lifetime to ours: an abrupt Nexus.exe
@@ -682,11 +704,23 @@ public sealed class OpenRgbProcessManager : IDisposable
         {
             if (_proc is { HasExited: false })
             {
+                var pid = _proc.Id;
                 _proc.Kill(entireProcessTree: true);
-                _proc.WaitForExit(500);
+                if (_proc.WaitForExit(500))
+                {
+                    ServiceLog.Info($"[openrgb-proc] killed pid={pid}");
+                }
+                else
+                {
+                    // Start() sweeps it again via CleanupOrphans.
+                    ServiceLog.Warn($"[openrgb-proc] pid={pid} still alive 500ms after kill");
+                }
             }
         }
-        catch { /* swallow - best effort */ }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[openrgb-proc] kill failed: {ex.GetType().Name}: {ex.Message}");
+        }
         try
         { _proc?.Dispose(); }
         catch { }
