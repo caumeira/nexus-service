@@ -24,6 +24,7 @@ public class StreamDeckPersistenceTests
             Brightness = 42,
             Orientation = 180,
             SleepAfterSeconds = 90,
+            SleepWhenLocked = false,
             Deck = new DeckConfig
             {
                 Pages = new List<DeckPage>
@@ -89,6 +90,7 @@ public class StreamDeckPersistenceTests
         Assert.Equal(42, deck.Brightness);
         Assert.Equal(180, deck.Orientation);
         Assert.Equal(90, deck.SleepAfterSeconds);
+        Assert.False(deck.SleepWhenLocked);
         Assert.Equal("abc123", deck.ImageRefs["0/0"]);
         Assert.Single(deck.Deck.Pages);
         var slots = deck.Deck.Pages[0].Slots;
@@ -114,6 +116,12 @@ public class StreamDeckPersistenceTests
         var deck = new PhysicalDeckSettings();
         Assert.Equal(0, deck.Orientation);
         Assert.Equal(0, deck.SleepAfterSeconds);
+    }
+
+    [Fact]
+    public void PhysicalDeckSettings_SleepWhenLocked_DefaultsOn()
+    {
+        Assert.True(new PhysicalDeckSettings().SleepWhenLocked);
     }
 }
 

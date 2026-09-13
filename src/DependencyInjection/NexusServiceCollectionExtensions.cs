@@ -542,7 +542,11 @@ public static class NexusServiceCollectionExtensions
         // Session-lock blanking. One hosted service on every desktop platform;
         // which source it uses is a compile-time branch inside it.
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
-            services.AddHostedService<Nexus.Service.Lighting.SessionLockListener>();
+        {
+            // Singleton so the Stream Deck worker can subscribe to LockChanged.
+            services.AddSingleton<Nexus.Service.Lighting.SessionLockListener>();
+            services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.SessionLockListener>());
+        }
 
         return services;
     }
@@ -778,7 +782,8 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Sensors.ISensorProvider>(),
                 weather: sp.GetRequiredService<Nexus.Service.Platform.Weather.IWeatherProvider>(),
                 fps: sp.GetRequiredService<Nexus.Service.Fps.IFpsProvider>(),
-                fans: sp.GetRequiredService<Nexus.Service.Cooling.IFanControlProvider>()));
+                fans: sp.GetRequiredService<Nexus.Service.Cooling.IFanControlProvider>(),
+                sessionLock: sp.GetService<Nexus.Service.Lighting.SessionLockListener>()));
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>());
 
         // Elgato Stream Deck profile import: read-only against the local

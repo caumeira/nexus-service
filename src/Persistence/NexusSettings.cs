@@ -1374,6 +1374,8 @@ public sealed class PhysicalDeckSettings
     public int Orientation { get; set; }
     /// <summary>Seconds of no key input before the deck blanks the display. A non-positive value disables sleep-after.</summary>
     public int SleepAfterSeconds { get; set; }
+    /// <summary>Blank the display while the desktop session is locked; input at the lock screen brings it back for a while.</summary>
+    public bool SleepWhenLocked { get; set; } = true;
     /// <summary>Last-known StreamDeckModel.ProductId, so a disconnected deck can still report its layout via StreamDeckModels.ByProductId.</summary>
     public int ProductId { get; set; }
     public DeckConfig Deck { get; set; } = new();
