@@ -6,12 +6,13 @@ using Nexus.Service.Peripherals.JpegPanels;
 namespace Nexus.Service.Panel.Streams;
 
 /// <summary>
-/// Presents one connected JPEG-over-HID cooler LCD as a streamed panel. Like the Kraken's
+/// Presents one connected chunked-HID cooler LCD as a streamed panel. Like the Kraken's
 /// there is no bus to poll: the hub's own connection worker owns discovery, so this reports
 /// whatever the hub currently holds and absence is a normal tick result.
 ///
-/// The profile asks for <see cref="StreamCodec.RawBgra"/> and the transport JPEG-encodes
-/// each frame; the overlay carries no image library, so the compression happens here.
+/// JPEG models ask for <see cref="StreamCodec.RawBgra"/> and the transport encodes each
+/// frame. Galahad II Vision asks for <see cref="StreamCodec.H264"/> because its firmware's
+/// C frame channel accepts H.264 rather than JPEG.
 /// </summary>
 public sealed class JpegPanelDiscovery : IStreamedPanelDiscovery
 {
@@ -51,7 +52,11 @@ public sealed class JpegPanelDiscovery : IStreamedPanelDiscovery
                     CssHeight = model.Height,
                     Dpr = 1.0,
                     Fps = model.Fps,
-                    Codec = StreamCodec.RawBgra,
+                    Codec = model.FrameEncoding == JpegPanelFrameEncoding.H264
+                        ? StreamCodec.H264
+                        : StreamCodec.RawBgra,
+                    // The HID frame command carries one encoded access unit per upload.
+                    WriteBatchFrames = 1,
                 },
             },
         };

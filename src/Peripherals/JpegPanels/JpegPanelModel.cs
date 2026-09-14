@@ -3,10 +3,16 @@ using System.Collections.Generic;
 
 namespace Nexus.Service.Peripherals.JpegPanels;
 
+public enum JpegPanelFrameEncoding
+{
+    Jpeg,
+    H264,
+}
+
 /// <summary>
-/// One cooler LCD that takes a whole JPEG per frame over plain HID. These are all the
-/// same shape - open a vendor HID interface, chunk a JPEG across output reports - so one
-/// hub drives the family and a model is just a row here.
+/// One cooler LCD that takes a whole encoded frame over plain HID. These are all the same
+/// shape - open a vendor HID interface and chunk a frame across output reports - so one hub
+/// drives the family and a model is just a row here.
 ///
 /// Every row but <see cref="HydroShiftLcd"/> was reconstructed from third-party protocol
 /// documentation and has never been run against hardware: we own no unit of any of them.
@@ -37,6 +43,25 @@ public sealed record JpegPanelModel(
     /// <summary>The panel's backlight is host-settable, so its record carries a brightness.</summary>
     public bool SupportsBrightness => Handshake is IJpegPanelBrightness;
 
+    /// <summary>Encoding accepted by the panel's frame command.</summary>
+    public JpegPanelFrameEncoding FrameEncoding { get; init; } = JpegPanelFrameEncoding.Jpeg;
+
+    /// <summary>
+    /// Frame report size when it differs from the control/interface report size. Galahad II
+    /// Vision uses the 512-byte C report while its control channel remains 1024 bytes.
+    /// </summary>
+    public int FrameReportLength { get; init; }
+
+    public int EffectiveFrameReportLength => FrameReportLength > 0 ? FrameReportLength : ReportLength;
+
+    /// <summary>Report id used by a frame command; Lian Li's C frame channel is report 3.</summary>
+    public byte FrameReportId { get; init; } = 0x02;
+
+    /// <summary>Command used for frames; zero keeps the model's selector for legacy rows.</summary>
+    public byte FrameCommand { get; init; }
+
+    public byte EffectiveFrameCommand => FrameCommand == 0 ? Selector : FrameCommand;
+
     /// <summary>Documented frame rate for the model; the profile's ceiling.</summary>
     public int Fps { get; init; } = 30;
 
@@ -63,7 +88,15 @@ public sealed record JpegPanelModel(
         HeaderStyle: JpegPanelHeaderStyle.LianLiSequenced,
         Selector: 0x0E,
         Surface: Models.Panel.PanelSurfaces.LcdRound)
-    { Fps = GalahadFps, Handshake = new LianLiAioHandshake("lianli-galahad2-lcd", GalahadFps) };
+    {
+        Fps = GalahadFps,
+        FrameEncoding = JpegPanelFrameEncoding.H264,
+        FrameReportLength = 512,
+        FrameReportId = 0x03,
+        FrameCommand = 0x0D,
+        Handshake = new LianLiAioHandshake(
+            "lianli-galahad2-lcd", GalahadFps, LianLiAioHandshake.Galahad2BrightnessMode),
+    };
 
     /// <summary>Documented rate for the Galahad II glass.</summary>
     private const int GalahadFps = 24;

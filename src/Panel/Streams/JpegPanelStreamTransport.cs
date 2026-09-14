@@ -7,17 +7,18 @@ using Nexus.Service.Platform;
 namespace Nexus.Service.Panel.Streams;
 
 /// <summary>
-/// Byte sink turning the overlay's raw BGRA frame stream into JPEG uploads on a cooler LCD.
+/// Byte sink for cooler LCDs. JPEG panels receive raw BGRA frames and are encoded here;
+/// Galahad II Vision receives the overlay's H.264 access units directly.
 ///
-/// The interface is a byte stream, not a frame queue: the paced writer may split or
-/// concatenate writes, so this buffers to exactly one frame before encoding. Frames are
-/// fixed-size, which makes the boundary unambiguous.
+/// The raw-BGRA path is a byte stream rather than a frame queue, so it buffers to exactly
+/// one fixed-size frame before encoding. The H.264 profile keeps writes at one access unit.
 /// </summary>
 public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrientablePanelTransport, IBrightnessPanelTransport
 {
     private readonly JpegPanelHub _hub;
-    private readonly BgraJpegEncoder _encoder;
+    private readonly BgraJpegEncoder? _encoder;
     private readonly byte[] _frame;
+    private readonly bool _usesH264;
     private int _filled;
     private bool _disposed;
 
@@ -34,6 +35,7 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
     private int _brightnessApplied = -1;
     private long _brightnessNextReadMs;
     private bool _brightnessFaultLogged;
+    private readonly object _brightnessLock = new();
 
     private readonly byte[] _turned;
 
@@ -42,8 +44,9 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
         _hub = hub;
         Serial = serial;
         var model = hub.Model;
-        _encoder = new BgraJpegEncoder(model.Width, model.Height);
-        _frame = new byte[_encoder.FrameBytes];
+        _usesH264 = model.FrameEncoding == JpegPanelFrameEncoding.H264;
+        _encoder = _usesH264 ? null : new BgraJpegEncoder(model.Width, model.Height);
+        _frame = _encoder is null ? Array.Empty<byte>() : new byte[_encoder.FrameBytes];
         _turned = model.QuarterTurnCcw ? new byte[_frame.Length] : Array.Empty<byte>();
     }
 
@@ -63,17 +66,34 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
         _brightnessNextReadMs = 0;
     }
 
-    /// <summary>Runs on the frame path, the only thread that owns this transport.</summary>
-    private void ApplyBrightness()
+    /// <summary>Applies a changed backlight from either the frame or settings path.</summary>
+    public bool ApplyBrightness()
+    {
+        lock (_brightnessLock)
+        {
+            _brightnessNextReadMs = 0;
+            return TryApplyBrightnessLocked();
+        }
+    }
+
+    private bool TryApplyBrightness()
+    {
+        lock (_brightnessLock)
+        {
+            return TryApplyBrightnessLocked();
+        }
+    }
+
+    private bool TryApplyBrightnessLocked()
     {
         if (_brightness is null)
         {
-            return;
+            return false;
         }
         long nowMs = Environment.TickCount64;
         if (nowMs < _brightnessNextReadMs)
         {
-            return;
+            return false;
         }
         _brightnessNextReadMs = nowMs + BrightnessTtlMs;
         int? wanted;
@@ -85,18 +105,24 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
                 _brightnessFaultLogged = true;
                 ServiceLog.Warn($"[{_hub.Model.HandlerId}] backlight source threw: {ex.GetType().Name}: {ex.Message}");
             }
-            return;
+            return false;
         }
         // No record value means the panel keeps what it powered up with.
-        if (wanted is not int percent || percent == _brightnessApplied)
+        if (wanted is not int percent)
         {
-            return;
+            return true;
+        }
+        if (percent == _brightnessApplied)
+        {
+            return true;
         }
         if (_hub.SetBrightness(percent))
         {
             _brightnessApplied = percent;
             ServiceLog.Info($"[{_hub.Model.HandlerId}] backlight {percent}%");
+            return true;
         }
+        return false;
     }
 
     public string Serial { get; }
@@ -118,6 +144,21 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
     public void Write(ReadOnlySpan<byte> payload)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_usesH264)
+        {
+            TryApplyBrightness();
+            if (_hub.SendFrame(payload))
+            {
+                _dropLogged = false;
+            }
+            else if (!_dropLogged)
+            {
+                _dropLogged = true;
+                ServiceLog.Warn($"[{_hub.Model.HandlerId}] frame rejected; retrying on the next frame");
+            }
+            return;
+        }
+
         while (!payload.IsEmpty)
         {
             int take = Math.Min(_frame.Length - _filled, payload.Length);
@@ -136,10 +177,15 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
 
     private void PushFrame()
     {
-        ApplyBrightness();
+        TryApplyBrightness();
         ReadOnlySpan<byte> jpeg;
         try
         {
+            var encoder = _encoder;
+            if (encoder is null)
+            {
+                return;
+            }
             var model = _hub.Model;
             // The record's flip/mirror acts on canonical upright content; the model's own
             // quarter turn is the panel's quirk and so goes last, closest to the glass.
@@ -149,7 +195,7 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
                 BgraQuarterTurn.RotateCcw(oriented, model.Width, model.Height, _turned);
                 oriented = _turned;
             }
-            jpeg = _encoder.Encode(oriented);
+            jpeg = encoder.Encode(oriented);
         }
         catch (Exception ex)
         {
@@ -181,6 +227,6 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
             return;
         }
         _disposed = true;
-        _encoder.Dispose();
+        _encoder?.Dispose();
     }
 }

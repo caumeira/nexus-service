@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Devices;
+using Nexus.Service.Panel.Streams;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Peripherals.JpegPanels;
 using Xunit;
@@ -72,7 +73,7 @@ public class JpegPanelHubTests
     [Fact]
     public void A_frame_goes_out_as_whole_reports_that_reassemble_to_the_jpeg()
     {
-        var model = JpegPanelModel.GalahadIiLcd;
+        var model = JpegPanelModel.HydroShiftLcd;
         using var hub = new JpegPanelHub(model);
         var device = new RecordingHidDevice();
         hub.Attach(device);
@@ -92,6 +93,52 @@ public class JpegPanelHubTests
             reassembled.AddRange(device.Writes[i].Skip(header).Take(declared));
         }
         Assert.Equal(jpeg, reassembled);
+    }
+
+    [Fact]
+    public void Galahad_frames_use_the_512_byte_c_h264_reports()
+    {
+        var model = JpegPanelModel.GalahadIiLcd;
+        using var hub = new JpegPanelHub(model);
+        var device = new RecordingHidDevice();
+        hub.Attach(device);
+        device.Writes.Clear();
+        var h264 = Enumerable.Range(0, 1200).Select(i => (byte)(i % 251)).ToArray();
+
+        Assert.True(hub.SendFrame(h264));
+
+        Assert.Equal(3, device.Writes.Count);
+        Assert.All(device.Writes, w => Assert.Equal(512, w.Length));
+        Assert.All(device.Writes, w => Assert.Equal(0x03, w[0]));
+        Assert.All(device.Writes, w => Assert.Equal(0x0D, w[1]));
+        Assert.Equal(new byte[] { 0x00, 0x00, 0x04, 0xB0 }, device.Writes[0][2..6]);
+        Assert.Equal(new byte[] { 0x00, 0x00, 0x00 }, device.Writes[0][6..9]);
+        Assert.Equal(new byte[] { 0x00, 0x00, 0x01 }, device.Writes[1][6..9]);
+        Assert.Equal(new byte[] { 0x00, 0x00, 0x02 }, device.Writes[2][6..9]);
+    }
+
+    [Fact]
+    public void Galahad_discovery_asks_the_overlay_for_h264_and_writes_it_without_reencoding()
+    {
+        using var hub = new JpegPanelHub(JpegPanelModel.GalahadIiLcd);
+        var device = new RecordingHidDevice();
+        hub.Attach(device);
+        device.Writes.Clear();
+
+        var discovery = new JpegPanelDiscovery(hub);
+        var info = Assert.Single(discovery.Discover());
+        Assert.Equal(StreamCodec.H264, info.Profile.Codec);
+
+        using var transport = discovery.CreateTransport(info);
+        transport.Open();
+        var accessUnit = Enumerable.Range(0, 16).Select(i => (byte)i).ToArray();
+        transport.Write(accessUnit);
+
+        var report = Assert.Single(device.Writes);
+        Assert.Equal(512, report.Length);
+        Assert.Equal(0x03, report[0]);
+        Assert.Equal(0x0D, report[1]);
+        Assert.Equal(accessUnit, report[11..(11 + accessUnit.Length)]);
     }
 
     [Fact]
@@ -134,10 +181,24 @@ public class JpegPanelHubTests
         Assert.False(JpegPanelModel.CorsairXc7.SupportsBrightness);
     }
 
+    [Fact]
+    public void Galahad_uses_the_newer_c_frame_channel_while_control_stays_on_b()
+    {
+        Assert.Equal(JpegPanelFrameEncoding.H264, JpegPanelModel.GalahadIiLcd.FrameEncoding);
+        Assert.Equal(1024, JpegPanelModel.GalahadIiLcd.ReportLength);
+        Assert.Equal(512, JpegPanelModel.GalahadIiLcd.EffectiveFrameReportLength);
+        Assert.Equal(0x03, JpegPanelModel.GalahadIiLcd.FrameReportId);
+        Assert.Equal(0x0D, JpegPanelModel.GalahadIiLcd.EffectiveFrameCommand);
+    }
+
     // The model table's handshakes are process-wide singletons, so a test that sets a
     // backlight takes its own instance rather than leaving one dimmed for the whole suite.
     private static JpegPanelModel Dimmable() =>
-        JpegPanelModel.GalahadIiLcd with { Handshake = new LianLiAioHandshake("test-lcd", 24) };
+        JpegPanelModel.GalahadIiLcd with
+        {
+            Handshake = new LianLiAioHandshake(
+                "test-lcd", 24, LianLiAioHandshake.Galahad2BrightnessMode),
+        };
 
     [Fact]
     public void SetBrightness_reaches_an_attached_panel_in_application_mode()
@@ -151,7 +212,7 @@ public class JpegPanelHubTests
 
         var control = Assert.Single(device.Writes);
         Assert.Equal(0x0C, control[1]);
-        Assert.Equal(0x01, control[11]);
+        Assert.Equal(LianLiAioHandshake.Galahad2BrightnessMode, control[11]);
         Assert.Equal(35, control[12]);
     }
 
