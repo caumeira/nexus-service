@@ -270,7 +270,7 @@ internal static class WindowsUserHelper
         // process, so a plain explorer spawn lands behind the app window.
         new DiagnosticsHandler(
             onOpenLogs: () => Platform.Windows.ForegroundNudge.OpenFolderOverApp(
-                Nexus.Service.Platform.ServiceLog.LogsDirectory),
+                Nexus.Service.Persistence.NexusDataPaths.NexusRoot()),
             onOpenEventViewer: () => Platform.Windows.ForegroundNudge.OpenFileOverApp("eventvwr.msc"),
             onOpenDeviceManager: () => Platform.Windows.ForegroundNudge.OpenFileOverApp("devmgmt.msc")
         ).Register(handlerRegistry);

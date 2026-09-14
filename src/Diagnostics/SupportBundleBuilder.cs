@@ -12,7 +12,7 @@ using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Diagnostics;
 
-/// <summary>What a bug report needs in one ZIP: every log file, the OpenRGB daemon's own logs and config, redacted settings, live state, and the diagnostics JSON the health page shows.</summary>
+/// <summary>What a bug report needs in one ZIP: every log file, the OTA install logs, the OpenRGB daemon's own logs and config, redacted settings, live state, and the diagnostics JSON the health page shows.</summary>
 public static class SupportBundleBuilder
 {
     /// <summary>Append-only logs (helper, gpu, tray) never rotate; only their tail ships.</summary>
@@ -21,6 +21,8 @@ public static class SupportBundleBuilder
     public sealed class Sources
     {
         public string LogsDirectory { get; init; } = "";
+        /// <summary>The OTA staging dir: a failed silent install leaves its only trace in the Inno log there.</summary>
+        public string UpdatesDirectory { get; init; } = "";
         public string OpenRgbConfigDirectory { get; init; } = "";
         public NexusSettings? Settings { get; init; }
         public SupportInfo Info { get; init; } = new();
@@ -46,6 +48,8 @@ public static class SupportBundleBuilder
             }
             WriteText(zip, "system-profile.txt", src.StartupSnapshot);
             AddLogs(zip, "logs/", src.LogsDirectory, "*.log");
+            AddLogs(zip, "updates/", src.UpdatesDirectory, Update.UpdateInstaller.InstallLogGlob);
+            AddFile(zip, "updates/" + Update.StagedInstallMarkerStore.MarkerFileName, Path.Combine(src.UpdatesDirectory, Update.StagedInstallMarkerStore.MarkerFileName));
             AddLogs(zip, "openrgb/logs/", Path.Combine(src.OpenRgbConfigDirectory, "logs"), "OpenRGB_*.log");
             AddFile(zip, "openrgb/OpenRGB.json", Path.Combine(src.OpenRgbConfigDirectory, "OpenRGB.json"));
             AddFile(zip, "openrgb/detector-map.json", Path.Combine(src.OpenRgbConfigDirectory, "detector-map.json"));

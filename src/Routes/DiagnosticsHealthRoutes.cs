@@ -206,6 +206,7 @@ public static class DiagnosticsHealthRoutes
             var zipBytes = SupportBundleBuilder.Build(new SupportBundleBuilder.Sources
             {
                 LogsDirectory = ServiceLog.LogsDirectory,
+                UpdatesDirectory = Nexus.Service.Update.UpdateDownloader.StagingDir,
                 OpenRgbConfigDirectory = Nexus.Service.Lighting.Rgb.OpenRgbProcessManager.ResolveConfigDir(),
                 Settings = store.Load(),
                 Info = info,
