@@ -203,10 +203,15 @@ public static class LightingDevicesCatalog
         Native("HYTE",    "CNVS",                   "mousemat", "0x3402", "0x0B00"),
         Native("HYTE",    "Keeb TKL",               "keyboard", "0x3402", "0x0300"),
         Native("HYTE",    "Smart Hub",              "light",    "0x3402", "0x0904"),
-        // Y70 cases are screen-only; DDC-only GW/Ina panels enumerate no USB.
+        // Y70 cases are screen-only. The GW / Ina panels enumerate no USB
+        // function at all (identified by monitor EDID, Y70DisplayProtocol.
+        // DdcOnlyPanelVariants), so their rows carry the keyless "-" the
+        // OpenRGB rows use.
         Native("HYTE",    "Y70 Touch",              "case",     "0x3402", "0x0C00", screen: true, rgb: false),
         Native("HYTE",    "Y70 Touch Infinite",     "case",     "0x3402", "0x0C01", screen: true, rgb: false),
         Native("HYTE",    "Y70 Touch Infinite",     "case",     "0x3402", "0x0C02", screen: true, rgb: false),
+        Native("HYTE",    "Y70 Touch GW",           "case",     "-",      "-",      screen: true, rgb: false),
+        Native("HYTE",    "Y70 Ina Touch",          "case",     "-",      "-",      screen: true, rgb: false),
 
         // iBUYPOWER - MiniHub PID from src/Peripherals/Hyte/MiniHub/MiniHubProtocol.cs;
         // keyboard / mouse PIDs from src/Peripherals/Ibp/IbpPeripheralProtocol.cs

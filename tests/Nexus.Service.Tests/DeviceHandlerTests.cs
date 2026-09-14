@@ -201,22 +201,24 @@ public class DeviceHandlerTests
     }
 
     [Theory]
-    [InlineData("RTK1234", "y70-gw")]
-    [InlineData("RTK2345", "y70-ina")]
-    public void Y70_ddc_only_monitor_has_no_warning_and_reports_its_variant(string edidFragment, string expectedVariant)
+    [InlineData("RTK1234", "y70-gw", "HYTE Y70 Touch GW")]
+    [InlineData("RTK2345", "y70-ina", "HYTE Y70 Ina Touch")]
+    public void Y70_ddc_only_monitor_has_no_warning_and_reports_its_variant(string edidFragment, string expectedVariant, string expectedName)
     {
         var h = TestHandlers.Y70(TopologyWithMonitor(edidFragment));
         Assert.True(h.IsConnected(new List<UsbDeviceEntry>()));
         Assert.Null(h.GetWarning(new List<UsbDeviceEntry>()));
         Assert.Equal(expectedVariant, h.FirmwareType);
+        Assert.Equal(expectedName, h.Name);
     }
 
     [Fact]
-    public void Y70_serial_variant_monitor_only_keeps_keyless_firmware_type()
+    public void Y70_serial_variant_monitor_only_keeps_keyless_firmware_type_and_family_name()
     {
         var h = TestHandlers.Y70(TopologyWithY70Monitor());
         Assert.Equal("usb-disconnected", h.GetWarning(new List<UsbDeviceEntry>()));
         Assert.Equal("y70", h.FirmwareType);
+        Assert.Equal("HYTE Y70 Touch", h.Name);
     }
 
     [Fact]

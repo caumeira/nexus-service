@@ -48,6 +48,9 @@ public class LightingDevicesCatalogTests
     [InlineData("NZXT", "Kraken X3", "0x1E71", "0x2007")]
     [InlineData("NZXT", "Kraken Elite", "0x1E71", "0x300C")]
     [InlineData("HYTE", "Y70 Touch", "0x3402", "0x0C00")]
+    // DDC-only panels: EDID identity, no USB function, so no VID/PID.
+    [InlineData("HYTE", "Y70 Touch GW", "-", "-")]
+    [InlineData("HYTE", "Y70 Ina Touch", "-", "-")]
     [InlineData("iBUYPOWER", "MiniHub", "0x3402", "0x0900")]
     public void Catalog_ListsNativelyDrivenFirstPartyDevices(string vendor, string model, string vid, string pid)
     {

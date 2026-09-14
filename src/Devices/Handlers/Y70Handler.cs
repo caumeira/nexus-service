@@ -22,10 +22,16 @@ public sealed class Y70Handler : IDeviceHandler
 
     public string Id => "y70";
 
-    // Every panel variant surfaces under the family name; the specific variant
-    // is carried by FirmwareType (the OTA catalog key for the serial models,
-    // a diagnostics label for the DDC-only ones), not the label.
-    public string Name => "HYTE Y70 Touch";
+    // The connected variant's marketed name, or the family name until a
+    // variant is known. A Truly is sold as a Y70 Touch Infinite, so it shares
+    // that label (matching the catalog rows for 0x0C01 / 0x0C02).
+    public string Name => FirmwareType switch
+    {
+        Y70DisplayProtocol.VariantInfinite or Y70DisplayProtocol.VariantTruly => "HYTE Y70 Touch Infinite",
+        Y70DisplayProtocol.VariantGw => "HYTE Y70 Touch GW",
+        Y70DisplayProtocol.VariantIna => "HYTE Y70 Ina Touch",
+        _ => "HYTE Y70 Touch",
+    };
 
     public string Category => "display";
 
