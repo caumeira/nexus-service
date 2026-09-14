@@ -55,41 +55,73 @@ internal static class Nexus2UninstallRules
 {
     public const string UninstallerFileName = "Uninstall HYTE Nexus.exe";
     public const string InstallDirName = "HYTE Nexus";
+    // Subject CNs Nexus 2 has shipped under: HYTE's parent company on current
+    // builds, HYTE itself on older ones. Exact, so a look-alike CN under any
+    // trusted CA is not enough.
+    private static readonly string[] TrustedSignerNames = { "American Future Technology Corp.", "HYTE" };
+    // Where electron-builder puts the product: the per-user and the
+    // all-users install roots. Anywhere else is a copy.
+    private static readonly string[] InstallParents =
+    {
+        Path.Combine("AppData", "Local", "Programs"),
+        "Program Files",
+    };
 
-    /// <summary>The values come from the console user's own hive, and the
-    /// service runs them as LocalSystem: only electron-builder's fixed
-    /// uninstaller name inside a directory of the product's name is accepted.</summary>
+    /// <summary>The values come from the console user's own hive and the exe
+    /// gets that user's elevated token without a prompt: only
+    /// electron-builder's fixed uninstaller name, inside the product's own
+    /// directory, under one of its install roots, is accepted.</summary>
     public static bool IsUninstallerPath(string exe)
     {
         try
         {
             var full = Path.GetFullPath(exe);
-            return string.Equals(Path.GetFileName(full), UninstallerFileName, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(Path.GetFileName(Path.GetDirectoryName(full) ?? ""), InstallDirName, StringComparison.OrdinalIgnoreCase);
+            var dir = Path.GetDirectoryName(full) ?? "";
+            var parent = Path.GetDirectoryName(dir) ?? "";
+            if (!string.Equals(Path.GetFileName(full), UninstallerFileName, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(Path.GetFileName(dir), InstallDirName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+            foreach (var root in InstallParents)
+            {
+                if (parent.EndsWith(Path.DirectorySeparatorChar + root, StringComparison.OrdinalIgnoreCase)
+                    || parent.EndsWith(Path.AltDirectorySeparatorChar + root, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
         catch { return false; }
     }
 
-    /// <summary>Signers Nexus 2 has shipped under: HYTE's parent company on
-    /// current builds, HYTE itself on older ones.</summary>
-    public static bool IsTrustedSigner(string subject) =>
-        subject.Contains("CN=American Future Technology Corp.", StringComparison.OrdinalIgnoreCase)
-        || subject.Contains("CN=HYTE", StringComparison.OrdinalIgnoreCase)
-        || subject.Contains("O=HYTE", StringComparison.OrdinalIgnoreCase);
+    /// <summary>Exact match on the signer's common name.</summary>
+    public static bool IsTrustedSigner(string commonName)
+    {
+        foreach (var name in TrustedSignerNames)
+        {
+            if (string.Equals(commonName, name, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /// <summary>Exe plus the RAW argument string (never an ArgumentList: NSIS
     /// takes everything after <c>_?=</c> verbatim and rejects quotes around
-    /// it). QuietUninstallString already carries <c>/S</c>; UninstallString
-    /// gets it appended. <c>_?=root</c> makes the uninstaller run in place
-    /// instead of from a temp copy, so the process waited on is the one doing
-    /// the work - it then cannot delete its own exe, which the caller sweeps.
-    /// Root is always the uninstaller's own directory, never the recorded
-    /// InstallLocation: the sweep deletes it recursively, and the ARP value is
-    /// user-writable (and empty on the builds in the field).</summary>
+    /// it). Only the install-mode switch is taken from the hive; <c>/S</c> and
+    /// <c>_?=root</c> are always appended: silent, and run in place instead of
+    /// from a temp copy so the process waited on is the one doing the work (it
+    /// then cannot delete its own exe, which the caller sweeps). Root is the
+    /// uninstaller's own directory, never the recorded InstallLocation: the
+    /// sweep deletes it recursively, and the ARP value is user-writable (and
+    /// empty on the builds in the field).</summary>
     public static (string Exe, string Arguments, string Root)? Compose(string? quietUninstallString, string? uninstallString)
     {
         var command = !string.IsNullOrWhiteSpace(quietUninstallString) ? quietUninstallString
-            : !string.IsNullOrWhiteSpace(uninstallString) ? uninstallString + " /S"
+            : !string.IsNullOrWhiteSpace(uninstallString) ? uninstallString
             : null;
         if (command is null)
         {
@@ -100,8 +132,9 @@ internal static class Nexus2UninstallRules
         {
             return null;
         }
+        var mode = args.Contains("/allusers", StringComparison.OrdinalIgnoreCase) ? "/allusers " : "/currentuser ";
         var root = Path.GetDirectoryName(Path.GetFullPath(exe))!;
-        return (exe, $"{args} _?={root}".Trim(), root);
+        return (exe, $"{mode}/S _?={root}", root);
     }
 }
 
@@ -257,7 +290,7 @@ public sealed class Nexus2Detector : INexus2Detector
             return !CheckProcessRunning();
         }
         var command = Nexus2UninstallRules.Compose(arp.QuietUninstallString, arp.UninstallString);
-        if (command is null || !File.Exists(command.Value.Exe) || !IsTrustedUninstaller(command.Value.Exe))
+        if (command is null)
         {
             Console.Error.WriteLine($"[nexus2] uninstall: refused ARP uninstall command '{arp.QuietUninstallString ?? arp.UninstallString ?? "(none)"}'");
             return false;
@@ -268,6 +301,11 @@ public sealed class Nexus2Detector : INexus2Detector
         await CloseAppAsync();
 
         var (exe, arguments, root) = command.Value;
+        // Checked after the close so the file checked is the file run.
+        if (!IsTrustedUninstaller(exe))
+        {
+            return false;
+        }
         var exit = await RunUninstallerInUserSessionAsync(exe, arguments);
         Console.Error.WriteLine($"[nexus2] uninstall: \"{exe}\" {arguments} -> exit {exit}");
         if (exit != 0)
@@ -297,8 +335,14 @@ public sealed class Nexus2Detector : INexus2Detector
     {
         try
         {
+            if (!File.Exists(exe))
+            {
+                Console.Error.WriteLine("[nexus2] uninstall: uninstaller missing");
+                return false;
+            }
             using var cert = Nexus.Service.Platform.Windows.AuthenticodeSigner.TryGetSignerCertificate(exe);
-            if (cert is null || !Nexus2UninstallRules.IsTrustedSigner(cert.Subject))
+            var signer = cert?.GetNameInfo(System.Security.Cryptography.X509Certificates.X509NameType.SimpleName, forIssuer: false);
+            if (signer is null || !Nexus2UninstallRules.IsTrustedSigner(signer))
             {
                 Console.Error.WriteLine($"[nexus2] uninstall: signer not trusted ({cert?.Subject ?? "unsigned"})");
                 return false;
@@ -333,14 +377,17 @@ public sealed class Nexus2Detector : INexus2Detector
             return -1;
         }
         var taskName = $"{UninstallTaskPrefix}{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
-        var xmlPath = UserSessionTaskXml.WriteTempFile(
-            UserSessionTaskXml.Build(username, $"\"{exe}\" {arguments}", elevated: true));
+        string? xmlPath = null;
+        var registered = false;
         try
         {
+            xmlPath = UserSessionTaskXml.WriteTempFile(
+                UserSessionTaskXml.Build(username, $"\"{exe}\" {arguments}", elevated: true));
             if (Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F") != 0)
             {
                 return -1;
             }
+            registered = true;
             var before = LivePids(UninstallerProcessName);
             if (Schtasks("/Run", "/TN", taskName) != 0)
             {
@@ -372,8 +419,14 @@ public sealed class Nexus2Detector : INexus2Detector
         }
         finally
         {
-            try { File.Delete(xmlPath); } catch { /* best-effort */ }
-            Schtasks("/Delete", "/TN", taskName, "/F");
+            if (xmlPath is not null)
+            {
+                try { File.Delete(xmlPath); } catch { /* best-effort */ }
+            }
+            if (registered)
+            {
+                Schtasks("/Delete", "/TN", taskName, "/F");
+            }
         }
     }
 
@@ -519,8 +572,7 @@ public sealed class Nexus2Detector : INexus2Detector
 
     /// <summary>The ARP entry as found. <see cref="UserSid"/> is set when the
     /// live entry sits in the console user's hive (a <c>/currentuser</c>
-    /// install), which is the one the LocalSystem-run uninstaller cannot
-    /// remove itself.</summary>
+    /// install), so the post-run sweep knows which hive to re-check.</summary>
     private sealed record ArpEntry(
         bool Found, bool Live, string? Version, string? InstallLocation,
         string? QuietUninstallString, string? UninstallString, string? UserSid);
