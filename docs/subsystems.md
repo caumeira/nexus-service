@@ -180,7 +180,11 @@ support-bundle ZIP export.
   process. Windows only: the Core Audio session walk runs in the user-session
   helper, since Session 0 sees none of the interactive session's audio.
   Levels are remembered by process name and re-applied when the app next
-  plays; named presets apply a whole set at once.
+  plays; named presets apply a whole set at once. The device list
+  (`/system/audio/devices`) also carries the default output's spatial sound
+  state (Windows Sonic, Dolby Atmos, DTS:X), switched via
+  `/system/audio/spatial` through the undocumented `IPolicyConfig` in
+  `Activity/WindowsAudioDeviceProvider.cs`; unsupported elsewhere.
 
 ## Remote access and pairing
 

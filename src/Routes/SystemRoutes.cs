@@ -135,6 +135,16 @@ public static class SystemRoutes
             mixer.NotifyEndpointsChanged();
             return ApiResponse.Ok();
         }).AllowPanel();
+        // Spatial sound (Windows Sonic / Dolby Atmos / DTS:X) on one output; an
+        // empty formatId turns it off. The provider reads the switch back from
+        // audiosrv before reporting success.
+        app.MapPost("/system/audio/spatial", (SetAudioSpatialBody body,
+            IAudioDeviceProvider a, Nexus.Service.Audio.AudioMixerService mixer) =>
+        {
+            if (!a.SetSpatial(body.DeviceId ?? "", body.FormatId ?? "")) return ApiResponse.Fail("failed to set spatial sound");
+            mixer.NotifyEndpointsChanged();
+            return ApiResponse.Ok();
+        }).AllowPanel();
 
         // Desktop-token only: the path is caller-named. A panel's playAudio deck
         // key plays the layout's saved path through POST /panel/deck/dispatch,

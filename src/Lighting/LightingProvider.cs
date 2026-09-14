@@ -800,7 +800,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "inkbloom" => new(0.72f, 0.50f, 50f, 1.00f, 1.00f, 1f),
         "cosmicdust" => new(0.75f, 0.35f, 35f, 1.00f, 1.00f, 1f),
         "chromaspiral" => new(0.00f, 0.00f, 60f, 1.00f, 1.00f, 1f),
-        "neongrid" => new(0.58f, 0.00f, 70f, 1.20f, 1.10f, 1f),
+        "neongrid" => new(0.70f, 0.85f, 70f, 1.50f, 1.10f, 1f),
         "oilslick" => new(0.00f, 0.00f, 40f, 1.25f, 1.05f, 1f),
         "caustics" => new(0.55f, 0.30f, 35f, 1.20f, 1.10f, 1f),
         "galaxy" => new(0.72f, 0.20f, 45f, 1.20f, 1.10f, 1f),

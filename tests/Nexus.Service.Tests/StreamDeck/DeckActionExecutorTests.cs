@@ -53,6 +53,7 @@ internal sealed class FakeAudioDeviceProvider : IAudioDeviceProvider
     public AudioDeviceList ListDevices() => new();
     public bool SetDefaultOutput(string deviceId) { Output = deviceId; return true; }
     public bool SetDefaultInput(string deviceId) { Input = deviceId; return true; }
+    public bool SetSpatial(string deviceId, string formatId) => false;
 }
 
 internal sealed class FakeVolumeProvider : IVolumeProvider
