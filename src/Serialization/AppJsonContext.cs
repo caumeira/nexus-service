@@ -800,7 +800,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AudioDevice))]
 [JsonSerializable(typeof(List<AudioDevice>))]
 [JsonSerializable(typeof(AudioDeviceList))]
+[JsonSerializable(typeof(AudioSpatialFormat))]
+[JsonSerializable(typeof(List<AudioSpatialFormat>))]
+[JsonSerializable(typeof(AudioSpatialState))]
 [JsonSerializable(typeof(SetAudioDefaultBody))]
+[JsonSerializable(typeof(SetAudioSpatialBody))]
 [JsonSerializable(typeof(PlayAudioBody))]
 // Per-app volume mixer
 [JsonSerializable(typeof(AudioSessionDto))]

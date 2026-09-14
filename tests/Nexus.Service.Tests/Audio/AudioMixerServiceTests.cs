@@ -432,6 +432,7 @@ public sealed class AudioMixerServiceTests
 
         public bool SetDefaultOutput(string deviceId) { DefaultOutput = deviceId; return true; }
         public bool SetDefaultInput(string deviceId) { DefaultInput = deviceId; return true; }
+        public bool SetSpatial(string deviceId, string formatId) => false;
     }
 
     private sealed class FakeVolume : IVolumeProvider

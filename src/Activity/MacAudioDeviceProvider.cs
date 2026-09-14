@@ -44,6 +44,7 @@ public sealed class MacAudioDeviceProvider : IAudioDeviceProvider
 
     public bool SetDefaultOutput(string deviceId) => SetDefault(deviceId, DefaultOutputDevice);
     public bool SetDefaultInput(string deviceId) => SetDefault(deviceId, DefaultInputDevice);
+    public bool SetSpatial(string deviceId, string formatId) => false;
 
     private static bool SetDefault(string uid, uint selector)
     {

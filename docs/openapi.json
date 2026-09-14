@@ -578,6 +578,35 @@
         }
       }
     },
+    "/system/audio/spatial": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAudioSpatialBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/system/audio/play": {
       "post": {
         "tags": [
@@ -13573,6 +13602,9 @@
               "$ref": "#/components/schemas/AudioDevice"
             }
           },
+          "spatial": {
+            "$ref": "#/components/schemas/AudioSpatialState"
+          },
           "error": {
             "type": "boolean"
           },
@@ -13716,6 +13748,37 @@
           },
           "active": {
             "type": "boolean"
+          }
+        }
+      },
+      "AudioSpatialFormat": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "AudioSpatialState": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "activeId": {
+            "type": "string"
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AudioSpatialFormat"
+            }
           }
         }
       },
@@ -21695,6 +21758,17 @@
         "type": "object",
         "properties": {
           "deviceId": {
+            "type": "string"
+          }
+        }
+      },
+      "SetAudioSpatialBody": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "formatId": {
             "type": "string"
           }
         }
