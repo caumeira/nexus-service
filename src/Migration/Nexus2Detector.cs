@@ -49,30 +49,44 @@ internal static class Nexus2DetectionRules
 }
 
 /// <summary>What the silent uninstall runs, from the ARP values. Pure so the
-/// command shaping stays under test; the run itself is Windows-only.</summary>
+/// command shaping and the trust rules stay under test; the run itself is
+/// Windows-only.</summary>
 internal static class Nexus2UninstallRules
 {
-    /// <summary>The uninstaller's own directory when the ARP entry records no
-    /// InstallLocation - electron-builder leaves it empty on the versions in
-    /// the field (2.16.5 on the lab PC) while the uninstaller path is always
-    /// filled in.</summary>
-    public static string? InstallRoot(string? installLocation, string uninstallerExe)
+    public const string UninstallerFileName = "Uninstall HYTE Nexus.exe";
+    public const string InstallDirName = "HYTE Nexus";
+
+    /// <summary>The values come from the console user's own hive, and the
+    /// service runs them as LocalSystem: only electron-builder's fixed
+    /// uninstaller name inside a directory of the product's name is accepted.</summary>
+    public static bool IsUninstallerPath(string exe)
     {
-        if (!string.IsNullOrWhiteSpace(installLocation))
+        try
         {
-            return installLocation.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var full = Path.GetFullPath(exe);
+            return string.Equals(Path.GetFileName(full), UninstallerFileName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(Path.GetFileName(Path.GetDirectoryName(full) ?? ""), InstallDirName, StringComparison.OrdinalIgnoreCase);
         }
-        try { return Path.GetDirectoryName(uninstallerExe); } catch { return null; }
+        catch { return false; }
     }
+
+    /// <summary>Signers Nexus 2 has shipped under: HYTE's parent company on
+    /// current builds, HYTE itself on older ones.</summary>
+    public static bool IsTrustedSigner(string subject) =>
+        subject.Contains("CN=American Future Technology Corp.", StringComparison.OrdinalIgnoreCase)
+        || subject.Contains("CN=HYTE", StringComparison.OrdinalIgnoreCase)
+        || subject.Contains("O=HYTE", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Exe plus the RAW argument string (never an ArgumentList: NSIS
     /// takes everything after <c>_?=</c> verbatim and rejects quotes around
     /// it). QuietUninstallString already carries <c>/S</c>; UninstallString
     /// gets it appended. <c>_?=root</c> makes the uninstaller run in place
     /// instead of from a temp copy, so the process waited on is the one doing
-    /// the work - it then cannot delete its own exe, which the caller sweeps.</summary>
-    public static (string Exe, string Arguments, string? Root)? Compose(
-        string? quietUninstallString, string? uninstallString, string? installLocation)
+    /// the work - it then cannot delete its own exe, which the caller sweeps.
+    /// Root is always the uninstaller's own directory, never the recorded
+    /// InstallLocation: the sweep deletes it recursively, and the ARP value is
+    /// user-writable (and empty on the builds in the field).</summary>
+    public static (string Exe, string Arguments, string Root)? Compose(string? quietUninstallString, string? uninstallString)
     {
         var command = !string.IsNullOrWhiteSpace(quietUninstallString) ? quietUninstallString
             : !string.IsNullOrWhiteSpace(uninstallString) ? uninstallString + " /S"
@@ -82,13 +96,12 @@ internal static class Nexus2UninstallRules
             return null;
         }
         var (exe, args) = Lifecycle.UserSessionTaskXml.SplitCommand(command);
-        if (exe.Length == 0)
+        if (!IsUninstallerPath(exe))
         {
             return null;
         }
-        var root = InstallRoot(installLocation, exe);
-        var arguments = string.IsNullOrEmpty(root) ? args : $"{args} _?={root}".Trim();
-        return (exe, arguments, root);
+        var root = Path.GetDirectoryName(Path.GetFullPath(exe))!;
+        return (exe, $"{args} _?={root}".Trim(), root);
     }
 }
 
@@ -117,10 +130,12 @@ public interface INexus2Detector
     /// <summary>Silently uninstalls Nexus 2 through its own NSIS uninstaller,
     /// after <see cref="CloseAppAsync"/>. Runs as the service (LocalSystem),
     /// which is what keeps it silent: the uninstaller's manifest demands
-    /// admin, so an in-session run would raise a UAC prompt. The per-user
-    /// leftovers that run cannot reach (the console user's ARP entry and
-    /// shortcuts) are swept here. True when no live install remains
-    /// afterwards, including when none was there to begin with.</summary>
+    /// admin, so an in-session run would raise a UAC prompt. The uninstaller
+    /// is only run when its path and Authenticode signer pass
+    /// <see cref="Nexus2UninstallRules"/>. The per-user leftovers that run
+    /// cannot reach (the console user's ARP entry and shortcuts) are swept
+    /// here. True when no live install remains afterwards, including when
+    /// none was there to begin with; false while another run is in flight.</summary>
     Task<bool> UninstallAsync();
 }
 
@@ -217,18 +232,37 @@ public sealed class Nexus2Detector : INexus2Detector
     // slow disk or a wedged HYTE.Nexus.Service can hold it for a while.
     private static readonly TimeSpan UninstallTimeout = TimeSpan.FromMinutes(3);
     private const string ShortcutFileName = "HYTE Nexus.lnk";
+    private readonly SemaphoreSlim _uninstallGate = new(1, 1);
 
     public async Task<bool> UninstallAsync()
+    {
+        // A second POST while one run is in flight would start a second
+        // uninstaller against a half-removed tree.
+        if (!await _uninstallGate.WaitAsync(0))
+        {
+            return false;
+        }
+        try
+        {
+            return await UninstallOnceAsync();
+        }
+        finally
+        {
+            _uninstallGate.Release();
+        }
+    }
+
+    private async Task<bool> UninstallOnceAsync()
     {
         var arp = CheckArpUninstallKey();
         if (!arp.Live)
         {
             return !CheckProcessRunning();
         }
-        var command = Nexus2UninstallRules.Compose(arp.QuietUninstallString, arp.UninstallString, arp.InstallLocation);
-        if (command is null || !File.Exists(command.Value.Exe))
+        var command = Nexus2UninstallRules.Compose(arp.QuietUninstallString, arp.UninstallString);
+        if (command is null || !File.Exists(command.Value.Exe) || !IsTrustedUninstaller(command.Value.Exe))
         {
-            Console.Error.WriteLine($"[nexus2] uninstall: no runnable uninstaller in the ARP entry (exe={command?.Exe ?? "(none)"})");
+            Console.Error.WriteLine($"[nexus2] uninstall: refused ARP uninstall command '{arp.QuietUninstallString ?? arp.UninstallString ?? "(none)"}'");
             return false;
         }
 
@@ -237,7 +271,7 @@ public sealed class Nexus2Detector : INexus2Detector
         await CloseAppAsync();
 
         var (exe, arguments, root) = command.Value;
-        var exit = RunUninstaller(exe, arguments);
+        var exit = await RunUninstallerAsync(exe, arguments);
         Console.Error.WriteLine($"[nexus2] uninstall: \"{exe}\" {arguments} -> exit {exit}");
         if (exit != 0)
         {
@@ -261,9 +295,33 @@ public sealed class Nexus2Detector : INexus2Detector
         return !after.Live && !CheckProcessRunning();
     }
 
+    // The path came from a user-writable hive and runs as LocalSystem: it
+    // must carry a valid Authenticode chain from a signer Nexus 2 ships under.
+    private static bool IsTrustedUninstaller(string exe)
+    {
+        try
+        {
+            using var cert = Nexus.Service.Platform.Windows.AuthenticodeSigner.TryGetSignerCertificate(exe);
+            if (cert is null || !Nexus2UninstallRules.IsTrustedSigner(cert.Subject))
+            {
+                Console.Error.WriteLine($"[nexus2] uninstall: signer not trusted ({cert?.Subject ?? "unsigned"})");
+                return false;
+            }
+            // No revocation fetch: a box without internet must still be able
+            // to uninstall, and the signature itself is what proves origin.
+            Update.UpdateIntegrity.VerifyTrustChain(exe, revocation: false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[nexus2] uninstall: signature check failed ({ex.Message})");
+            return false;
+        }
+    }
+
     // Raw Arguments on purpose (see Nexus2UninstallRules.Compose); ShellExecutor
     // quotes each ArgumentList entry, which NSIS rejects after _?=.
-    private static int RunUninstaller(string exe, string arguments)
+    private static async Task<int> RunUninstallerAsync(string exe, string arguments)
     {
         try
         {
@@ -272,14 +330,19 @@ public sealed class Nexus2Detector : INexus2Detector
                 Arguments = arguments,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(exe) ?? "",
+                WorkingDirectory = Environment.SystemDirectory,
             };
             using var proc = Process.Start(psi);
             if (proc is null)
             {
                 return -1;
             }
-            if (!proc.WaitForExit((int)UninstallTimeout.TotalMilliseconds))
+            using var cts = new CancellationTokenSource(UninstallTimeout);
+            try
+            {
+                await proc.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
             {
                 Console.Error.WriteLine($"[nexus2] uninstall: timed out after {UninstallTimeout.TotalSeconds:F0}s");
                 try { proc.Kill(entireProcessTree: true); } catch { /* best-effort */ }
@@ -294,13 +357,9 @@ public sealed class Nexus2Detector : INexus2Detector
         }
     }
 
-    private static void SweepInstallRoot(string? root, string exe)
+    private static void SweepInstallRoot(string root, string exe)
     {
         try { if (File.Exists(exe)) File.Delete(exe); } catch { /* best-effort */ }
-        if (string.IsNullOrEmpty(root))
-        {
-            return;
-        }
         try
         {
             if (Directory.Exists(root))
