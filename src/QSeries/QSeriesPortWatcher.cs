@@ -12,6 +12,8 @@ using AdvancedSharpAdbClient;
 using AdvancedSharpAdbClient.DeviceCommands;
 using AdvancedSharpAdbClient.Models;
 using AdvancedSharpAdbClient.Receivers;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Common.ExternalTools;
 using Nexus.Service.Devices;
@@ -878,6 +880,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             }
 
             await EnsureReverseAsync(device, ct);
+            await RestartQshellOnRequestAsync(device, ct);
             await EnsureQshellForegroundAsync(device, ct);
             await ReassertPanelDisplayAsync(device, ct);
             RegisterDeviceTarget(device.Serial);
@@ -913,6 +916,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
         foreach (var key in _qshellVersionCodeBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _qshellVersionCodeBySerial.Remove(key);
+        }
+        foreach (var key in _lastQshellStaleRestartBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _lastQshellStaleRestartBySerial.Remove(key);
         }
         _qshellPresenceUnknownLogged.RemoveWhere(k => !seenSerials.Contains(k));
         _activityMissingBySerial.RemoveWhere(k => !seenSerials.Contains(k));
@@ -1951,6 +1958,108 @@ public sealed class QSeriesPortWatcher : BackgroundService
         catch (SemaphoreFullException) { }
     }
 
+    /// <summary>
+    /// When a qshell restart was requested, else null, plus the reason for the
+    /// log. Same stamp-and-window shape as <see cref="_rebootRequestedAt"/>,
+    /// same lock. Cleared by every reboot: a reboot re-bootstraps qshell
+    /// anyway, and a stamp surviving it would bounce the fresh session.
+    /// </summary>
+    private DateTimeOffset? _qshellRestartRequestedAt;
+    private string _qshellRestartReason = "";
+
+    /// <summary>
+    /// Minimum gap between stale-session restarts per serial. The stale
+    /// page's socket keeps reconnecting with its old token until the restart
+    /// lands, so signals arrive on every attempt in between; one bounce per
+    /// cooldown is enough.
+    /// </summary>
+    private static readonly TimeSpan QshellStaleRestartCooldown = TimeSpan.FromMinutes(2);
+    private readonly Dictionary<string, DateTimeOffset> _lastQshellStaleRestartBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// qshell allocates its record and token once at boot and never re-checks,
+    /// so after a reinstall that purged the store it runs the old page forever
+    /// while the desktop edits a fresh record. A force-stop + start
+    /// re-bootstraps it. Runs on the tick thread like the reboot, which owns
+    /// the transport.
+    /// </summary>
+    internal void RequestQshellRestart(string reason)
+    {
+        lock (_rebootRequestLock)
+        {
+            _qshellRestartRequestedAt = DateTimeOffset.UtcNow;
+            _qshellRestartReason = reason;
+        }
+        try { _wake.Release(); }
+        catch (SemaphoreFullException) { }
+    }
+
+    /// <summary>
+    /// Stale-session signal from the request side: a request on the Q-series
+    /// tunnel listener (the only client adb reverse points there) that names a
+    /// record the store no longer has, or carries a token this service never
+    /// minted. Any other caller - the dashboard, a phone, a relay dispatch -
+    /// gets its 404 / 401 and nothing else.
+    /// </summary>
+    public static void NotifyStaleTunnelSession(HttpContext ctx, IServiceProvider sp, string reason)
+    {
+        var tunnel = sp.GetService<Nexus.Service.Panel.PanelTunnelMonitor>();
+        if (tunnel?.Port is not int tunnelPort || ctx.Connection.LocalPort != tunnelPort) return;
+        sp.GetService<QSeriesPortWatcher>()?.RequestQshellRestart(reason);
+    }
+
+    private bool TakeQshellRestartRequest(out string reason)
+    {
+        lock (_rebootRequestLock)
+        {
+            reason = _qshellRestartReason;
+            if (_qshellRestartRequestedAt is not { } at) return false;
+            _qshellRestartRequestedAt = null;
+            return DateTimeOffset.UtcNow - at <= RebootRequestWindow;
+        }
+    }
+
+    private void ClearQshellRestartRequest()
+    {
+        lock (_rebootRequestLock) _qshellRestartRequestedAt = null;
+    }
+
+    /// <summary>
+    /// <c>am force-stop</c> qshell so its bootstrap runs again (fresh /pair
+    /// token, fresh record allocation), then start it. The one case a running
+    /// qshell is bounced; see <see cref="EnsureQshellForegroundAsync"/>.
+    /// </summary>
+    private async Task RestartQshellOnRequestAsync(DeviceData device, CancellationToken ct)
+    {
+        if (!TakeQshellRestartRequest(out var reason)) return;
+        var now = DateTimeOffset.UtcNow;
+        if (_lastQshellStaleRestartBySerial.TryGetValue(device.Serial, out var last)
+            && now - last < QshellStaleRestartCooldown)
+        {
+            return;
+        }
+        _lastQshellStaleRestartBySerial[device.Serial] = now;
+        _lastQshellStartBySerial[device.Serial] = now;
+        try
+        {
+            await _client.ExecuteShellCommandAsync(device, $"am force-stop {QshellPackage}", new ConsoleOutputReceiver(), ct);
+            var startReceiver = new ConsoleOutputReceiver();
+            await _client.ExecuteShellCommandAsync(device, $"am start -n {QshellComponent}", startReceiver, ct);
+            // The force-stop emptied the home task and an adb am start can only
+            // make a standard task, so re-arm the HOME-task sweep for this
+            // serial or the chooser is uncovered the next time the task ends.
+            _homeTaskEnsuredThisRun.Remove(device.Serial);
+            _homeTaskAttemptsBySerial.Remove(device.Serial);
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: restarted qshell for a stale panel session ({reason}; {startReceiver.ToString().Trim()})");
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: stale-session qshell restart failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
     /// <summary>Takes a pending reboot request if one is still within its window.</summary>
     private bool TakeRebootRequest()
     {
@@ -1983,6 +2092,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             ServiceLog.Info($"[qseries-port-watcher] {device.Serial}: reboot requested by user; rebooting panel");
             await _client.RebootAsync(device, ct);
+            ClearQshellRestartRequest();
             return true;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -2829,6 +2939,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: transport id {lastTransportId} -> {transportId} (USB re-enumeration / reseat); rebooting device to reset USB-FFS");
             await _client.RebootAsync(device, ct);
+            ClearQshellRestartRequest();
             return true;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -3065,6 +3176,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: panel never contacted the service {sinceFirstSeen.TotalSeconds:F0}s after first sighting; rebooting to clear a hard USB-FFS wedge or a stranded qshell (attempt {rebootCount + 1}/{MaxEscalationRebootsPerRun})");
             await _client.RebootAsync(device, ct);
+            ClearQshellRestartRequest();
             // Record the reboot only after it's issued; if RebootAsync throws (stale
             // transport id mid-re-enumeration) leave the flags unset so the next tick
             // retries instead of latching the attempt as spent.

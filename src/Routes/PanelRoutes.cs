@@ -303,11 +303,16 @@ public static class PanelRoutes
             return Results.Json(record, AppJsonContext.Default.PanelDeviceRecord);
         }).AllowPanel();
 
-        app.MapGet("/panel/devices/{id}", (string id, PanelDeviceRegistry registry) =>
+        app.MapGet("/panel/devices/{id}", (string id, HttpContext ctx, PanelDeviceRegistry registry, IServiceProvider sp) =>
         {
             var record = registry.Get(id);
             if (record is null)
+            {
+                // Over the Q-series tunnel this is a qshell still on the page it
+                // bootstrapped before a reinstall wiped the store; bounce it.
+                Nexus.Service.QSeries.QSeriesPortWatcher.NotifyStaleTunnelSession(ctx, sp, $"missing record {id}");
                 return Results.NotFound(ApiResponse.Fail("device not found"));
+            }
             // Persisted layout if present, else the surface-specific
             // starter. The starter isn't written back; it only persists once
             // the client posts an edit. Falls back to the y70 seed when the
