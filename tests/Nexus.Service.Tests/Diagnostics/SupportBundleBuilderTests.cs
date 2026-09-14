@@ -36,7 +36,7 @@ public class SupportBundleBuilderTests : IDisposable
     }
 
     [Fact]
-    public void Bundles_every_log_the_daemon_logs_and_config_and_caps_oversized_logs_to_a_tail()
+    public void Bundles_every_log_the_install_logs_the_daemon_logs_and_config_and_caps_oversized_logs_to_a_tail()
     {
         var logs = Path.Combine(_root, "logs");
         File.WriteAllText(Path.Combine(logs, "nexus-service.log"), "live\n");
@@ -49,10 +49,17 @@ public class SupportBundleBuilderTests : IDisposable
         File.WriteAllText(Path.Combine(orgb, "logs", "OpenRGB_20260913_120005.log"), "daemon\n");
         File.WriteAllText(Path.Combine(orgb, "OpenRGB.json"), "{}");
         File.WriteAllText(Path.Combine(orgb, "detector-map.json"), "{}");
+        var updates = Path.Combine(_root, "updates");
+        Directory.CreateDirectory(updates);
+        File.WriteAllText(Path.Combine(updates, "ota-install-3.0.14-1757800000.log"), "inno\n");
+        File.WriteAllText(Path.Combine(updates, "pending-install.json"), "{}");
+        File.WriteAllText(Path.Combine(updates, "run-ota-3.0.14.cmd"), "@echo off");
+        File.WriteAllText(Path.Combine(updates, "Nexus-Setup.exe"), "MZ");
 
         var entries = Entries(SupportBundleBuilder.Build(new SupportBundleBuilder.Sources
         {
             LogsDirectory = logs,
+            UpdatesDirectory = updates,
             OpenRgbConfigDirectory = orgb,
             Info = new SupportInfo { Version = "v1", MachineName = "box" },
             StartupSnapshot = "snap",
@@ -65,6 +72,10 @@ public class SupportBundleBuilderTests : IDisposable
         Assert.Contains("openrgb/logs/OpenRGB_20260913_120005.log", entries.Keys);
         Assert.Contains("openrgb/OpenRGB.json", entries.Keys);
         Assert.Contains("openrgb/detector-map.json", entries.Keys);
+        Assert.Contains("updates/ota-install-3.0.14-1757800000.log", entries.Keys);
+        Assert.Contains("updates/pending-install.json", entries.Keys);
+        Assert.DoesNotContain("updates/run-ota-3.0.14.cmd", entries.Keys);
+        Assert.DoesNotContain("updates/Nexus-Setup.exe", entries.Keys);
         Assert.Contains("support-info.json", entries.Keys);
         Assert.Equal("snap", System.Text.Encoding.UTF8.GetString(entries["system-profile.txt"]));
 
