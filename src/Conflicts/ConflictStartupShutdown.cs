@@ -9,10 +9,11 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Conflicts;
 
 /// <summary>
-/// Opt-in one-shot: at service start, terminate every conflicting app the
-/// watcher currently detects that the user has not excluded, so Nexus takes
-/// the hardware before a competing vendor tool grabs it. Gated on
-/// <c>Ui.AutoKillConflictsAtStartup</c>, which is off by default.
+/// One-shot: at service start, terminate every conflicting app the watcher
+/// currently detects that the user has not excluded, so Nexus takes the
+/// hardware before a competing vendor tool grabs it. Gated on
+/// <c>Ui.AutoKillConflictsAtStartup</c> and on onboarding having run (see
+/// <see cref="SweepAllowed"/>).
 ///
 /// Windows' own Dynamic Lighting rides along under the same switch: it is the
 /// one conflict that cannot be ended, only turned off.
@@ -46,10 +47,20 @@ public sealed class ConflictStartupShutdown : IHostedService
         _log = log;
     }
 
+    /// <summary>The switch, plus every onboarding flag: a fresh install's first
+    /// start comes before the onboarding conflict step, which is where the user
+    /// sees these apps and decides about them, so the sweep waits until the
+    /// sequence has finished (or been skipped) before it ever ends one.</summary>
+    internal static bool SweepAllowed(NexusSettings settings) =>
+        settings.Ui.AutoKillConflictsAtStartup
+        && settings.OnboardingCompleted
+        && settings.FeaturesOnboardingCompleted
+        && settings.LightingOnboardingCompleted;
+
     public Task StartAsync(CancellationToken cancellationToken)
     {
         var settings = _store.Load();
-        if (!settings.Ui.AutoKillConflictsAtStartup) return Task.CompletedTask;
+        if (!SweepAllowed(settings)) return Task.CompletedTask;
 
         var excluded = new HashSet<string>(
             settings.Ui.ConflictAutoKillExclusions,
