@@ -193,7 +193,8 @@ dotnet test
 
 The suite is AOT-safe. Hardware drivers sit behind provider interfaces with
 fake implementations; allocation-budget tests keep the per-frame hot paths
-zero-alloc. `tests/Nexus.Service.Benchmarks` is a BenchmarkDotNet project for
+zero-alloc. Every pull request runs this build and suite in CI
+(`.github/workflows/ci.yml`); see `CONTRIBUTING.md`. `tests/Nexus.Service.Benchmarks` is a BenchmarkDotNet project for
 those hot paths, outside the solution and the publish:
 
 ```sh
