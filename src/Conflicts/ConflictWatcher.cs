@@ -49,7 +49,7 @@ public sealed class ConflictWatcher : BackgroundService, IConflictDetector
     private readonly MultiplexHub _hub;
     private readonly OpenRgbProcessManager? _openRgb;
 
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+    internal static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// A gap longer than this between scans means scanning had stopped, so the

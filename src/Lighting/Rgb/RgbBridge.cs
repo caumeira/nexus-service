@@ -588,6 +588,14 @@ public sealed class RgbBridge : IDisposable
         BounceSubprocess("user-rescan");
     }
 
+    /// <summary>A competing RGB app exited: re-run detection for the controllers it held. Resets the watchdog, as the app may have been what the daemon was failing on.</summary>
+    public void RecoverAfterConflictExit()
+    {
+        lock (_lock)
+        { ResetWatchdogLocked(); }
+        BounceSubprocess("conflict-exit");
+    }
+
     private void ResetWatchdogLocked()
     {
         _watchdogGaveUp = false;
@@ -671,7 +679,7 @@ public sealed class RgbBridge : IDisposable
             // new information. Only these reasons can settle unchanged; a
             // topology or exclusion bounce alters the list, so its signature re-logs
             // on its own and clearing here would re-print the block on every flap.
-            if (reason is "user-rescan" or "system-resume" or "watchdog")
+            if (reason is "user-rescan" or "system-resume" or "watchdog" or "conflict-exit")
             {
                 _loggedDeviceSignatures.Clear();
             }
