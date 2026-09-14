@@ -48,6 +48,50 @@ internal static class Nexus2DetectionRules
     }
 }
 
+/// <summary>What the silent uninstall runs, from the ARP values. Pure so the
+/// command shaping stays under test; the run itself is Windows-only.</summary>
+internal static class Nexus2UninstallRules
+{
+    /// <summary>The uninstaller's own directory when the ARP entry records no
+    /// InstallLocation - electron-builder leaves it empty on the versions in
+    /// the field (2.16.5 on the lab PC) while the uninstaller path is always
+    /// filled in.</summary>
+    public static string? InstallRoot(string? installLocation, string uninstallerExe)
+    {
+        if (!string.IsNullOrWhiteSpace(installLocation))
+        {
+            return installLocation.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        try { return Path.GetDirectoryName(uninstallerExe); } catch { return null; }
+    }
+
+    /// <summary>Exe plus the RAW argument string (never an ArgumentList: NSIS
+    /// takes everything after <c>_?=</c> verbatim and rejects quotes around
+    /// it). QuietUninstallString already carries <c>/S</c>; UninstallString
+    /// gets it appended. <c>_?=root</c> makes the uninstaller run in place
+    /// instead of from a temp copy, so the process waited on is the one doing
+    /// the work - it then cannot delete its own exe, which the caller sweeps.</summary>
+    public static (string Exe, string Arguments, string? Root)? Compose(
+        string? quietUninstallString, string? uninstallString, string? installLocation)
+    {
+        var command = !string.IsNullOrWhiteSpace(quietUninstallString) ? quietUninstallString
+            : !string.IsNullOrWhiteSpace(uninstallString) ? uninstallString + " /S"
+            : null;
+        if (command is null)
+        {
+            return null;
+        }
+        var (exe, args) = Lifecycle.UserSessionTaskXml.SplitCommand(command);
+        if (exe.Length == 0)
+        {
+            return null;
+        }
+        var root = InstallRoot(installLocation, exe);
+        var arguments = string.IsNullOrEmpty(root) ? args : $"{args} _?={root}".Trim();
+        return (exe, arguments, root);
+    }
+}
+
 /// <summary>
 /// Detects a legacy HYTE Nexus (Nexus 2) install and offers coexistence
 /// actions. Nexus 2 was Windows-only, so the non-Windows implementation is a
@@ -69,6 +113,15 @@ public interface INexus2Detector
     /// Nexus 2's own bundled OpenRGB.exe. Idempotent: true when nothing ends
     /// up running, including when nothing was running to begin with.</summary>
     Task<bool> CloseAppAsync();
+
+    /// <summary>Silently uninstalls Nexus 2 through its own NSIS uninstaller,
+    /// after <see cref="CloseAppAsync"/>. Runs as the service (LocalSystem),
+    /// which is what keeps it silent: the uninstaller's manifest demands
+    /// admin, so an in-session run would raise a UAC prompt. The per-user
+    /// leftovers that run cannot reach (the console user's ARP entry and
+    /// shortcuts) are swept here. True when no live install remains
+    /// afterwards, including when none was there to begin with.</summary>
+    Task<bool> UninstallAsync();
 }
 
 #if WINDOWS
@@ -160,6 +213,138 @@ public sealed class Nexus2Detector : INexus2Detector
         }
     }
 
+    // Nexus 2's uninstaller does its own taskkill sweep plus RmDir /r; a
+    // slow disk or a wedged HYTE.Nexus.Service can hold it for a while.
+    private static readonly TimeSpan UninstallTimeout = TimeSpan.FromMinutes(3);
+    private const string ShortcutFileName = "HYTE Nexus.lnk";
+
+    public async Task<bool> UninstallAsync()
+    {
+        var arp = CheckArpUninstallKey();
+        if (!arp.Live)
+        {
+            return !CheckProcessRunning();
+        }
+        var command = Nexus2UninstallRules.Compose(arp.QuietUninstallString, arp.UninstallString, arp.InstallLocation);
+        if (command is null || !File.Exists(command.Value.Exe))
+        {
+            Console.Error.WriteLine($"[nexus2] uninstall: no runnable uninstaller in the ARP entry (exe={command?.Exe ?? "(none)"})");
+            return false;
+        }
+
+        // Graceful close first: the uninstaller's own sweep is a hard taskkill,
+        // which on a process holding device HID can wedge the hardware.
+        await CloseAppAsync();
+
+        var (exe, arguments, root) = command.Value;
+        var exit = RunUninstaller(exe, arguments);
+        Console.Error.WriteLine($"[nexus2] uninstall: \"{exe}\" {arguments} -> exit {exit}");
+        if (exit != 0)
+        {
+            return false;
+        }
+
+        // Run in place, the uninstaller cannot remove its own exe or its
+        // directory; everything else under the root is already gone.
+        SweepInstallRoot(root, exe);
+        // A /currentuser install registers under the console user's hive,
+        // which the LocalSystem run saw as its own (empty) HKCU and so left
+        // behind - along with that user's Start Menu and Desktop links.
+        if (arp.UserSid is not null)
+        {
+            DeleteUserArpEntry(arp.UserSid);
+            DeleteUserShortcuts();
+        }
+        DisableAutostart();
+
+        var after = CheckArpUninstallKey();
+        return !after.Live && !CheckProcessRunning();
+    }
+
+    // Raw Arguments on purpose (see Nexus2UninstallRules.Compose); ShellExecutor
+    // quotes each ArgumentList entry, which NSIS rejects after _?=.
+    private static int RunUninstaller(string exe, string arguments)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo(exe)
+            {
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(exe) ?? "",
+            };
+            using var proc = Process.Start(psi);
+            if (proc is null)
+            {
+                return -1;
+            }
+            if (!proc.WaitForExit((int)UninstallTimeout.TotalMilliseconds))
+            {
+                Console.Error.WriteLine($"[nexus2] uninstall: timed out after {UninstallTimeout.TotalSeconds:F0}s");
+                try { proc.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+                return -2;
+            }
+            return proc.ExitCode;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[nexus2] uninstall: could not start the uninstaller: {ex.Message}");
+            return -1;
+        }
+    }
+
+    private static void SweepInstallRoot(string? root, string exe)
+    {
+        try { if (File.Exists(exe)) File.Delete(exe); } catch { /* best-effort */ }
+        if (string.IsNullOrEmpty(root))
+        {
+            return;
+        }
+        try
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[nexus2] uninstall: install root left behind ({ex.Message})");
+        }
+    }
+
+    private static void DeleteUserArpEntry(string sid)
+    {
+        try
+        {
+            using var parent = Registry.Users.OpenSubKey($@"{sid}\{HkuUninstallSubPath}", writable: true);
+            parent?.DeleteSubKeyTree(UninstallGuid, throwOnMissingSubKey: false);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[nexus2] uninstall: user ARP entry left behind ({ex.Message})");
+        }
+    }
+
+    private static void DeleteUserShortcuts()
+    {
+        string? profile = null;
+        try { profile = ConsoleUserSid.ResolveProfilePath(); } catch { /* no console user */ }
+        if (string.IsNullOrEmpty(profile))
+        {
+            return;
+        }
+        foreach (var link in new[]
+        {
+            Path.Combine(profile, "Desktop", ShortcutFileName),
+            Path.Combine(profile, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", ShortcutFileName),
+        })
+        {
+            try { if (File.Exists(link)) File.Delete(link); } catch { /* best-effort */ }
+        }
+    }
+
     private static async Task CloseGracefullyThenKillAsync(Process[] processes, TimeSpan gracePeriod)
     {
         using (var cts = new CancellationTokenSource(gracePeriod))
@@ -217,7 +402,7 @@ public sealed class Nexus2Detector : INexus2Detector
 
     private static string? ResolveInstallRootPrefix()
     {
-        var (_, _, _, installLocation) = CheckArpUninstallKey();
+        var installLocation = CheckArpUninstallKey().InstallLocation;
         if (string.IsNullOrEmpty(installLocation))
         {
             return null;
@@ -226,18 +411,29 @@ public sealed class Nexus2Detector : INexus2Detector
             + Path.DirectorySeparatorChar;
     }
 
+    /// <summary>The ARP entry as found. <see cref="UserSid"/> is set when the
+    /// live entry sits in the console user's hive (a <c>/currentuser</c>
+    /// install), which is the one the LocalSystem-run uninstaller cannot
+    /// remove itself.</summary>
+    private sealed record ArpEntry(
+        bool Found, bool Live, string? Version, string? InstallLocation,
+        string? QuietUninstallString, string? UninstallString, string? UserSid);
+
     /// <summary>Live is true once an entry whose own recorded location still
     /// exists is found; the first such entry supplies Version and
     /// InstallLocation, so a stale per-user entry cannot veto a live
     /// machine-wide one.</summary>
-    private static (bool Found, bool Live, string? Version, string? InstallLocation) CheckArpUninstallKey()
+    private static ArpEntry CheckArpUninstallKey()
     {
         var found = false;
         var live = false;
         string? version = null;
         string? installLocation = null;
+        string? quietUninstall = null;
+        string? uninstall = null;
+        string? userSid = null;
 
-        void Fold(RegistryKey? key)
+        void Fold(RegistryKey? key, string? sid)
         {
             if (key is null)
             {
@@ -256,6 +452,9 @@ public sealed class Nexus2Detector : INexus2Detector
             live = true;
             version = key.GetValue("DisplayVersion") as string;
             installLocation = location;
+            quietUninstall = key.GetValue("QuietUninstallString") as string;
+            uninstall = key.GetValue("UninstallString") as string;
+            userSid = sid;
         }
 
         try
@@ -264,7 +463,7 @@ public sealed class Nexus2Detector : INexus2Detector
             if (sid is not null)
             {
                 using var key = Registry.Users.OpenSubKey($@"{sid}\{HkuUninstallKeyPath}");
-                Fold(key);
+                Fold(key, sid);
             }
         }
         catch { /* per-check swallow */ }
@@ -272,18 +471,18 @@ public sealed class Nexus2Detector : INexus2Detector
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(HklmUninstall64Path);
-            Fold(key);
+            Fold(key, null);
         }
         catch { /* per-check swallow */ }
 
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(HklmUninstall32Path);
-            Fold(key);
+            Fold(key, null);
         }
         catch { /* per-check swallow */ }
 
-        return (found, live, version, installLocation);
+        return new ArpEntry(found, live, version, installLocation, quietUninstall, uninstall, userSid);
     }
 
     private static bool ScheduledTaskFileExists()
@@ -361,5 +560,7 @@ public sealed class Nexus2Detector : INexus2Detector
     public bool DisableAutostart() => false;
 
     public Task<bool> CloseAppAsync() => Task.FromResult(false);
+
+    public Task<bool> UninstallAsync() => Task.FromResult(false);
 }
 #endif
