@@ -128,14 +128,12 @@ public interface INexus2Detector
     Task<bool> CloseAppAsync();
 
     /// <summary>Silently uninstalls Nexus 2 through its own NSIS uninstaller,
-    /// after <see cref="CloseAppAsync"/>. Runs as the service (LocalSystem),
-    /// which is what keeps it silent: the uninstaller's manifest demands
-    /// admin, so an in-session run would raise a UAC prompt. The uninstaller
-    /// is only run when its path and Authenticode signer pass
-    /// <see cref="Nexus2UninstallRules"/>. The per-user leftovers that run
-    /// cannot reach (the console user's ARP entry and shortcuts) are swept
-    /// here. True when no live install remains afterwards, including when
-    /// none was there to begin with; false while another run is in flight.</summary>
+    /// after <see cref="CloseAppAsync"/>. Runs in the console user's session
+    /// with the user's elevated token (a Task Scheduler one-shot, no UAC
+    /// prompt for an administrator), and only when the uninstaller's path and
+    /// Authenticode signer pass <see cref="Nexus2UninstallRules"/>. True when
+    /// no live install remains afterwards, including when none was there to
+    /// begin with; false while another run is in flight.</summary>
     Task<bool> UninstallAsync();
 }
 
@@ -231,7 +229,6 @@ public sealed class Nexus2Detector : INexus2Detector
     // Nexus 2's uninstaller does its own taskkill sweep plus RmDir /r; a
     // slow disk or a wedged HYTE.Nexus.Service can hold it for a while.
     private static readonly TimeSpan UninstallTimeout = TimeSpan.FromMinutes(3);
-    private const string ShortcutFileName = "HYTE Nexus.lnk";
     private readonly SemaphoreSlim _uninstallGate = new(1, 1);
 
     public async Task<bool> UninstallAsync()
@@ -271,7 +268,7 @@ public sealed class Nexus2Detector : INexus2Detector
         await CloseAppAsync();
 
         var (exe, arguments, root) = command.Value;
-        var exit = await RunUninstallerAsync(exe, arguments);
+        var exit = await RunUninstallerInUserSessionAsync(exe, arguments);
         Console.Error.WriteLine($"[nexus2] uninstall: \"{exe}\" {arguments} -> exit {exit}");
         if (exit != 0)
         {
@@ -281,13 +278,11 @@ public sealed class Nexus2Detector : INexus2Detector
         // Run in place, the uninstaller cannot remove its own exe or its
         // directory; everything else under the root is already gone.
         SweepInstallRoot(root, exe);
-        // A /currentuser install registers under the console user's hive,
-        // which the LocalSystem run saw as its own (empty) HKCU and so left
-        // behind - along with that user's Start Menu and Desktop links.
+        // The uninstaller removes its own ARP entry and task; re-done here
+        // because Live is what the next Detect() reads.
         if (arp.UserSid is not null)
         {
             DeleteUserArpEntry(arp.UserSid);
-            DeleteUserShortcuts();
         }
         DisableAutostart();
 
@@ -295,8 +290,9 @@ public sealed class Nexus2Detector : INexus2Detector
         return !after.Live && !CheckProcessRunning();
     }
 
-    // The path came from a user-writable hive and runs as LocalSystem: it
-    // must carry a valid Authenticode chain from a signer Nexus 2 ships under.
+    // The path came from a user-writable hive and gets the user's elevated
+    // token without a prompt: it must carry a valid Authenticode chain from a
+    // signer Nexus 2 ships under.
     private static bool IsTrustedUninstaller(string exe)
     {
         try
@@ -319,22 +315,41 @@ public sealed class Nexus2Detector : INexus2Detector
         }
     }
 
-    // Raw Arguments on purpose (see Nexus2UninstallRules.Compose); ShellExecutor
-    // quotes each ArgumentList entry, which NSIS rejects after _?=.
-    private static async Task<int> RunUninstallerAsync(string exe, string arguments)
+    private const string UninstallerProcessName = "Uninstall HYTE Nexus";
+    private const string UninstallTaskPrefix = "NexusUninstallNexus2_";
+    private static readonly TimeSpan UninstallLaunchTimeout = TimeSpan.FromSeconds(20);
+
+    // Runs in the console user's session with the user's elevated token, the
+    // way Apps & Features runs it: as LocalSystem in session 0 the NSIS
+    // uninstaller dies with STATUS_ACCESS_VIOLATION before doing anything.
+    // Task Scheduler reports nothing back about the process it starts, so the
+    // uninstaller process itself is what gets awaited.
+    private static async Task<int> RunUninstallerInUserSessionAsync(string exe, string arguments)
     {
+        var username = UserHelperBootstrapper.ResolveActiveConsoleUsername();
+        if (string.IsNullOrEmpty(username))
+        {
+            Console.Error.WriteLine("[nexus2] uninstall: no console user to run the uninstaller as");
+            return -1;
+        }
+        var taskName = $"{UninstallTaskPrefix}{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        var xmlPath = UserSessionTaskXml.WriteTempFile(
+            UserSessionTaskXml.Build(username, $"\"{exe}\" {arguments}", elevated: true));
         try
         {
-            var psi = new ProcessStartInfo(exe)
+            if (Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F") != 0)
             {
-                Arguments = arguments,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = Environment.SystemDirectory,
-            };
-            using var proc = Process.Start(psi);
+                return -1;
+            }
+            var before = LivePids(UninstallerProcessName);
+            if (Schtasks("/Run", "/TN", taskName) != 0)
+            {
+                return -1;
+            }
+            using var proc = await WaitForNewProcessAsync(UninstallerProcessName, before, UninstallLaunchTimeout);
             if (proc is null)
             {
+                Console.Error.WriteLine("[nexus2] uninstall: the task ran but no uninstaller process appeared (limited token?)");
                 return -1;
             }
             using var cts = new CancellationTokenSource(UninstallTimeout);
@@ -352,9 +367,59 @@ public sealed class Nexus2Detector : INexus2Detector
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[nexus2] uninstall: could not start the uninstaller: {ex.Message}");
+            Console.Error.WriteLine($"[nexus2] uninstall: could not run the uninstaller: {ex.Message}");
             return -1;
         }
+        finally
+        {
+            try { File.Delete(xmlPath); } catch { /* best-effort */ }
+            Schtasks("/Delete", "/TN", taskName, "/F");
+        }
+    }
+
+    private static int Schtasks(params string[] args)
+    {
+        var exit = Nexus.Service.Platform.ShellExecutor.RunExit("schtasks.exe", 10000, args);
+        if (exit != 0)
+        {
+            Console.Error.WriteLine($"[nexus2] uninstall: schtasks {args[0]} exit {exit}");
+        }
+        return exit;
+    }
+
+    private static HashSet<int> LivePids(string processName)
+    {
+        var pids = new HashSet<int>();
+        foreach (var p in Process.GetProcessesByName(processName))
+        {
+            pids.Add(p.Id);
+            p.Dispose();
+        }
+        return pids;
+    }
+
+    private static async Task<Process?> WaitForNewProcessAsync(string processName, HashSet<int> before, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            Process? found = null;
+            foreach (var p in Process.GetProcessesByName(processName))
+            {
+                if (found is null && !before.Contains(p.Id))
+                {
+                    found = p;
+                    continue;
+                }
+                p.Dispose();
+            }
+            if (found is not null)
+            {
+                return found;
+            }
+            await Task.Delay(250);
+        }
+        return null;
     }
 
     private static void SweepInstallRoot(string root, string exe)
@@ -383,24 +448,6 @@ public sealed class Nexus2Detector : INexus2Detector
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[nexus2] uninstall: user ARP entry left behind ({ex.Message})");
-        }
-    }
-
-    private static void DeleteUserShortcuts()
-    {
-        string? profile = null;
-        try { profile = ConsoleUserSid.ResolveProfilePath(); } catch { /* no console user */ }
-        if (string.IsNullOrEmpty(profile))
-        {
-            return;
-        }
-        foreach (var link in new[]
-        {
-            Path.Combine(profile, "Desktop", ShortcutFileName),
-            Path.Combine(profile, "AppData", "Roaming", "Microsoft", "Windows", "Start Menu", "Programs", ShortcutFileName),
-        })
-        {
-            try { if (File.Exists(link)) File.Delete(link); } catch { /* best-effort */ }
         }
     }
 
