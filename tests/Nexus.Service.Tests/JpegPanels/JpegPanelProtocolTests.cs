@@ -73,29 +73,6 @@ public class JpegPanelProtocolTests
         Assert.All(report[(11 + 4)..], b => Assert.Equal(0, b));
     }
 
-    [Fact]
-    public void LianLi_c_frame_uses_report_three_and_the_512_byte_payload_budget()
-    {
-        var frame = Jpeg(700);
-        var report = new byte[512];
-
-        var written = JpegPanelProtocol.FillChunk(
-            report,
-            JpegPanelHeaderStyle.LianLiSequenced,
-            0x0D,
-            frame,
-            offset: 0,
-            chunkIndex: 0,
-            reportId: 0x03);
-
-        Assert.Equal(501, written);
-        Assert.Equal(0x03, report[0]);
-        Assert.Equal(0x0D, report[1]);
-        Assert.Equal(new byte[] { 0x00, 0x00, 0x02, 0xBC }, report[2..6]);
-        Assert.Equal(new byte[] { 0x01, 0xF5 }, report[9..11]);
-        Assert.Equal(frame.Take(501), report[11..].ToArray());
-    }
-
     // ── Corsair XC7 / Elite Capellix ──
 
     [Fact]
@@ -191,8 +168,6 @@ public class JpegPanelProtocolTests
     [Theory]
     [InlineData(JpegPanelHeaderStyle.LianLiSequenced, 1024, 1013, 1)]
     [InlineData(JpegPanelHeaderStyle.LianLiSequenced, 1024, 1014, 2)]
-    [InlineData(JpegPanelHeaderStyle.LianLiSequenced, 512, 501, 1)]
-    [InlineData(JpegPanelHeaderStyle.LianLiSequenced, 512, 502, 2)]
     [InlineData(JpegPanelHeaderStyle.CorsairChunked, 1024, 1016, 1)]
     [InlineData(JpegPanelHeaderStyle.CorsairChunked, 1024, 1017, 2)]
     // ID-Cooling's first report holds less than the rest, so its counts are not a

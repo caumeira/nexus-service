@@ -96,29 +96,29 @@ public class JpegPanelHubTests
     }
 
     [Fact]
-    public void Galahad_frames_use_the_512_byte_c_h264_reports()
+    public void Galahad_frames_use_the_1024_byte_b_jpeg_reports()
     {
         var model = JpegPanelModel.GalahadIiLcd;
         using var hub = new JpegPanelHub(model);
         var device = new RecordingHidDevice();
         hub.Attach(device);
         device.Writes.Clear();
-        var h264 = Enumerable.Range(0, 1200).Select(i => (byte)(i % 251)).ToArray();
+        var jpeg = Enumerable.Range(0, 2500).Select(i => (byte)(i % 251)).ToArray();
 
-        Assert.True(hub.SendFrame(h264));
+        Assert.True(hub.SendFrame(jpeg));
 
         Assert.Equal(3, device.Writes.Count);
-        Assert.All(device.Writes, w => Assert.Equal(512, w.Length));
-        Assert.All(device.Writes, w => Assert.Equal(0x03, w[0]));
-        Assert.All(device.Writes, w => Assert.Equal(0x0D, w[1]));
-        Assert.Equal(new byte[] { 0x00, 0x00, 0x04, 0xB0 }, device.Writes[0][2..6]);
+        Assert.All(device.Writes, w => Assert.Equal(1024, w.Length));
+        Assert.All(device.Writes, w => Assert.Equal(0x02, w[0]));
+        Assert.All(device.Writes, w => Assert.Equal(0x0E, w[1]));
+        Assert.Equal(new byte[] { 0x00, 0x00, 0x09, 0xC4 }, device.Writes[0][2..6]);
         Assert.Equal(new byte[] { 0x00, 0x00, 0x00 }, device.Writes[0][6..9]);
         Assert.Equal(new byte[] { 0x00, 0x00, 0x01 }, device.Writes[1][6..9]);
         Assert.Equal(new byte[] { 0x00, 0x00, 0x02 }, device.Writes[2][6..9]);
     }
 
     [Fact]
-    public void Galahad_discovery_asks_the_overlay_for_h264_and_writes_it_without_reencoding()
+    public void Galahad_discovery_asks_the_overlay_for_raw_bgra_and_encodes_jpeg()
     {
         using var hub = new JpegPanelHub(JpegPanelModel.GalahadIiLcd);
         var device = new RecordingHidDevice();
@@ -127,18 +127,19 @@ public class JpegPanelHubTests
 
         var discovery = new JpegPanelDiscovery(hub);
         var info = Assert.Single(discovery.Discover());
-        Assert.Equal(StreamCodec.H264, info.Profile.Codec);
+        Assert.Equal(StreamCodec.RawBgra, info.Profile.Codec);
 
         using var transport = discovery.CreateTransport(info);
         transport.Open();
-        var accessUnit = Enumerable.Range(0, 16).Select(i => (byte)i).ToArray();
-        transport.Write(accessUnit);
+        transport.Write(new byte[JpegPanelModel.GalahadIiLcd.Width * JpegPanelModel.GalahadIiLcd.Height * 4]);
 
-        var report = Assert.Single(device.Writes);
-        Assert.Equal(512, report.Length);
-        Assert.Equal(0x03, report[0]);
-        Assert.Equal(0x0D, report[1]);
-        Assert.Equal(accessUnit, report[11..(11 + accessUnit.Length)]);
+        Assert.NotEmpty(device.Writes);
+        var report = device.Writes[0];
+        Assert.Equal(1024, report.Length);
+        Assert.Equal(0x02, report[0]);
+        Assert.Equal(0x0E, report[1]);
+        Assert.Equal(0xFF, report[11]);
+        Assert.Equal(0xD8, report[12]);
     }
 
     [Fact]
@@ -182,13 +183,11 @@ public class JpegPanelHubTests
     }
 
     [Fact]
-    public void Galahad_uses_the_newer_c_frame_channel_while_control_stays_on_b()
+    public void Galahad_uses_the_b_jpeg_frame_channel_and_control_stays_on_b()
     {
-        Assert.Equal(JpegPanelFrameEncoding.H264, JpegPanelModel.GalahadIiLcd.FrameEncoding);
         Assert.Equal(1024, JpegPanelModel.GalahadIiLcd.ReportLength);
-        Assert.Equal(512, JpegPanelModel.GalahadIiLcd.EffectiveFrameReportLength);
-        Assert.Equal(0x03, JpegPanelModel.GalahadIiLcd.FrameReportId);
-        Assert.Equal(0x0D, JpegPanelModel.GalahadIiLcd.EffectiveFrameCommand);
+        Assert.Equal(0x0E, JpegPanelModel.GalahadIiLcd.Selector);
+        Assert.Equal(JpegPanelHeaderStyle.LianLiSequenced, JpegPanelModel.GalahadIiLcd.HeaderStyle);
     }
 
     // The model table's handshakes are process-wide singletons, so a test that sets a

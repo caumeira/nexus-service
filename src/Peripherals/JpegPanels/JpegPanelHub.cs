@@ -5,11 +5,11 @@ using Nexus.Service.Platform;
 namespace Nexus.Service.Peripherals.JpegPanels;
 
 /// <summary>
-/// Owns the HID handle for one chunked cooler LCD and serialises frame uploads.
+/// Owns the HID handle for one JPEG-over-HID cooler LCD and serialises frame uploads.
 /// One instance per <see cref="JpegPanelModel"/>; the connection worker attaches and
 /// detaches it as the device comes and goes.
 ///
-/// A frame is a whole encoded image chunked across consecutive output reports. There is no
+/// A frame is a whole JPEG chunked across consecutive output reports. There is no
 /// acknowledgement to wait for on any of these devices, so a failed write is the only
 /// error signal - which is why every write result is checked.
 /// </summary>
@@ -18,10 +18,9 @@ public sealed class JpegPanelHub : IDisposable
     private readonly object _lock = new();
     private readonly JpegPanelModel _model;
 
-    // Reuse one buffer for control/init reports and one for frame chunks. A 30 fps stream
-    // would otherwise allocate a report per chunk.
+    // Reuse one report-sized buffer for control and frame chunks. A 30 fps stream would
+    // otherwise allocate a report per chunk.
     private readonly byte[] _report;
-    private readonly byte[] _frameReport;
 
     private IHidDevice? _device;
     private volatile bool _attached;
@@ -31,7 +30,6 @@ public sealed class JpegPanelHub : IDisposable
     {
         _model = model;
         _report = new byte[model.ReportLength];
-        _frameReport = new byte[model.EffectiveFrameReportLength];
     }
 
     public JpegPanelModel Model => _model;
@@ -130,13 +128,13 @@ public sealed class JpegPanelHub : IDisposable
     }
 
     /// <summary>
-    /// Pushes one encoded frame. Returns false on the first rejected report, leaving
+    /// Pushes one encoded JPEG frame. Returns false on the first rejected report, leaving
     /// the frame half-written - the next frame starts from chunk 0, so a partial upload
     /// costs one dropped frame rather than a desynchronised stream.
     /// </summary>
-    public bool SendFrame(ReadOnlySpan<byte> frame)
+    public bool SendFrame(ReadOnlySpan<byte> jpeg)
     {
-        if (frame.IsEmpty)
+        if (jpeg.IsEmpty)
         {
             return false;
         }
@@ -155,21 +153,20 @@ public sealed class JpegPanelHub : IDisposable
             }
             int offset = 0;
             int chunkIndex = 0;
-            while (offset < frame.Length)
+            while (offset < jpeg.Length)
             {
                 int written = JpegPanelProtocol.FillChunk(
-                    _frameReport,
+                    _report,
                     _model.HeaderStyle,
-                    _model.EffectiveFrameCommand,
-                    frame,
+                    _model.Selector,
+                    jpeg,
                     offset,
-                    chunkIndex,
-                    _model.FrameReportId);
+                    chunkIndex);
                 if (written <= 0)
                 {
                     return false;
                 }
-                if (!_device.Write(_frameReport))
+                if (!_device.Write(_report))
                 {
                     return false;
                 }

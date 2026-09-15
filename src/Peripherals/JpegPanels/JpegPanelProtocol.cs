@@ -3,8 +3,8 @@ using System;
 namespace Nexus.Service.Peripherals.JpegPanels;
 
 /// <summary>
-/// How one vendor frames a panel frame across a sequence of HID output reports. Every
-/// style here chunks the same way - a whole frame split over consecutive reports - and
+/// How one vendor frames a JPEG frame across a sequence of HID output reports. Every
+/// style here chunks the same way - a whole JPEG split over consecutive reports - and
 /// differs only in what precedes the bytes.
 ///
 /// Reconstructed from third-party protocol documentation for each device. Only
@@ -15,7 +15,7 @@ public enum JpegPanelHeaderStyle
     /// <summary>
     /// Lian Li HydroShift LCD and Galahad II LCD. 11 bytes: report id, command, big-endian
     /// 32-bit total length, 24-bit sequence, 16-bit chunk length. The B report uses id 0x02
-    /// and carries 1013 bytes in a 1024-byte report; the C report uses id 0x03.
+    /// and carries 1013 bytes in a 1024-byte report.
     /// </summary>
     LianLiSequenced,
 
@@ -43,7 +43,7 @@ public enum JpegPanelHeaderStyle
 }
 
 /// <summary>
-/// Builds the HID output reports that carry one panel frame. Pure and allocation-light:
+/// Builds the HID output reports that carry one JPEG frame. Pure and allocation-light:
 /// the caller owns one report-sized buffer and this fills it in place, so a 30 fps
 /// stream does not churn the heap.
 /// </summary>
@@ -80,8 +80,7 @@ public static class JpegPanelProtocol
         byte selector,
         ReadOnlySpan<byte> jpeg,
         int offset,
-        int chunkIndex,
-        byte reportId = 0x02)
+        int chunkIndex)
     {
         if (offset < 0 || offset > jpeg.Length)
         {
@@ -102,7 +101,7 @@ public static class JpegPanelProtocol
         switch (style)
         {
             case JpegPanelHeaderStyle.LianLiSequenced:
-                report[0] = reportId;
+                report[0] = 0x02;
                 report[1] = selector;
                 WriteUInt32BigEndian(report[2..], jpeg.Length);
                 report[6] = (byte)((chunkIndex >> 16) & 0xFF);

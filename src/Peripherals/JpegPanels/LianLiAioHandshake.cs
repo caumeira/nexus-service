@@ -9,11 +9,9 @@ namespace Nexus.Service.Peripherals.JpegPanels;
 /// Puts a Lian Li AIO LCD into application mode - the state in which it renders pushed
 /// frames instead of its own firmware UI - and hands the glass back on detach.
 ///
-/// Shared by the HydroShift LCD and Galahad II families, which run one protocol over three
-/// report ids: A (report 1, 64 bytes) for pump/fan/firmware, B (report 2, 1024 bytes) for
-/// LCD control and legacy frames, C (report 3, 512 bytes) for H.264 frames on newer firmware.
-/// The model selects the frame channel; this handshake owns the shared B-command control
-/// path.
+/// Shared by the HydroShift LCD and Galahad II families, which use report A (report 1,
+/// 64 bytes) for pump/fan/firmware and report B (report 2, 1024 bytes) for LCD control and
+/// JPEG frames. This handshake owns the shared B-command control path.
 ///
 /// Without this the panel accepts every frame report and keeps showing its local UI, which
 /// is why this family cannot be driven by fixed init reports the way ID-Cooling's is.

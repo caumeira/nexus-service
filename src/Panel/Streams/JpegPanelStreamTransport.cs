@@ -7,18 +7,17 @@ using Nexus.Service.Platform;
 namespace Nexus.Service.Panel.Streams;
 
 /// <summary>
-/// Byte sink for cooler LCDs. JPEG panels receive raw BGRA frames and are encoded here;
-/// Galahad II Vision receives the overlay's H.264 access units directly.
+/// Byte sink for cooler LCDs. The overlay supplies raw BGRA frames and this transport
+/// encodes them to the JPEG format accepted by the panel HID protocols.
 ///
 /// The raw-BGRA path is a byte stream rather than a frame queue, so it buffers to exactly
-/// one fixed-size frame before encoding. The H.264 profile keeps writes at one access unit.
+/// one fixed-size frame before encoding.
 /// </summary>
 public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrientablePanelTransport, IBrightnessPanelTransport
 {
     private readonly JpegPanelHub _hub;
-    private readonly BgraJpegEncoder? _encoder;
+    private readonly BgraJpegEncoder _encoder;
     private readonly byte[] _frame;
-    private readonly bool _usesH264;
     private int _filled;
     private bool _disposed;
 
@@ -44,9 +43,8 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
         _hub = hub;
         Serial = serial;
         var model = hub.Model;
-        _usesH264 = model.FrameEncoding == JpegPanelFrameEncoding.H264;
-        _encoder = _usesH264 ? null : new BgraJpegEncoder(model.Width, model.Height);
-        _frame = _encoder is null ? Array.Empty<byte>() : new byte[_encoder.FrameBytes];
+        _encoder = new BgraJpegEncoder(model.Width, model.Height);
+        _frame = new byte[_encoder.FrameBytes];
         _turned = model.QuarterTurnCcw ? new byte[_frame.Length] : Array.Empty<byte>();
     }
 
@@ -144,21 +142,6 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
     public void Write(ReadOnlySpan<byte> payload)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (_usesH264)
-        {
-            TryApplyBrightness();
-            if (_hub.SendFrame(payload))
-            {
-                _dropLogged = false;
-            }
-            else if (!_dropLogged)
-            {
-                _dropLogged = true;
-                ServiceLog.Warn($"[{_hub.Model.HandlerId}] frame rejected; retrying on the next frame");
-            }
-            return;
-        }
-
         while (!payload.IsEmpty)
         {
             int take = Math.Min(_frame.Length - _filled, payload.Length);
@@ -181,11 +164,6 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
         ReadOnlySpan<byte> jpeg;
         try
         {
-            var encoder = _encoder;
-            if (encoder is null)
-            {
-                return;
-            }
             var model = _hub.Model;
             // The record's flip/mirror acts on canonical upright content; the model's own
             // quarter turn is the panel's quirk and so goes last, closest to the glass.
@@ -195,7 +173,7 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
                 BgraQuarterTurn.RotateCcw(oriented, model.Width, model.Height, _turned);
                 oriented = _turned;
             }
-            jpeg = encoder.Encode(oriented);
+            jpeg = _encoder.Encode(oriented);
         }
         catch (Exception ex)
         {
@@ -227,6 +205,6 @@ public sealed class JpegPanelStreamTransport : IStreamedPanelTransport, IOrienta
             return;
         }
         _disposed = true;
-        _encoder?.Dispose();
+        _encoder.Dispose();
     }
 }
