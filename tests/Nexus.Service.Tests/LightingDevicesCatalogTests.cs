@@ -152,6 +152,25 @@ public class LightingDevicesCatalogTests
         }
     }
 
+    /// <summary>
+    /// Every CNVS PID the handler claims needs its own row: the Supported Devices dot
+    /// matches on exact VID:PID, so a revision missing from the catalog shows as
+    /// unsupported while the service is driving it (NEX-72, a 0B01 unit).
+    /// </summary>
+    [Fact]
+    public void Catalog_CoversEveryCnvsPidTheHandlerClaims()
+    {
+        foreach (var productId in Nexus.Service.Peripherals.Hyte.Cnvs.CnvsProtocol.ProductIds)
+        {
+            var pid = "0x" + productId.ToString("X4");
+            var row = LightingDevicesCatalog.All.Single(d => d.VendorId == "0x3402" && d.ProductId == pid);
+            Assert.Equal("nexus", row.Source);
+            Assert.Equal("HYTE", row.Vendor);
+            Assert.Equal("CNVS", row.Model);
+            Assert.Equal("mousemat", row.Category);
+        }
+    }
+
     /// <summary>The MiniHub ships on HYTE's shared 0x3402 VID but is iBUYPOWER's product.</summary>
     [Fact]
     public void Catalog_BrandsTheMiniHubAsIbuypower()
