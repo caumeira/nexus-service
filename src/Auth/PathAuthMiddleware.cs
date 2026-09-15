@@ -239,6 +239,7 @@ internal static class PathAuthMiddleware
                 && AuthRequestPolicy.IsLocalHostHeader(ctx)
                 && tokens.Validate(requestToken))
             {
+                ctx.RequestServices.GetService<Nexus.Service.Panel.PanelTunnelMonitor>()?.MarkAuthorized(ctx);
                 await next(ctx);
                 return;
             }
@@ -251,13 +252,10 @@ internal static class PathAuthMiddleware
 
             if (!hasPanelSession)
             {
-                // On the Q-series tunnel port the only client is qshell, and a
-                // token it holds that this service does not know means it is
-                // still running the page it bootstrapped before a reinstall.
-                Nexus.Service.QSeries.QSeriesPortWatcher.NotifyStaleTunnelSession(ctx, ctx.RequestServices, "unknown token");
                 await AuthErrorResponse.WriteAsync(ctx, 401, "Unauthorized", "This panel is not paired with the Nexus service.");
                 return;
             }
+            ctx.RequestServices.GetService<Nexus.Service.Panel.PanelTunnelMonitor>()?.MarkAuthorized(ctx);
 
             // Pair Remote killswitch. When OFF, phone-session-authed requests
             // are rejected even though the session is otherwise valid. The

@@ -308,9 +308,7 @@ public static class PanelRoutes
             var record = registry.Get(id);
             if (record is null)
             {
-                // Over the Q-series tunnel this is a qshell still on the page it
-                // bootstrapped before a reinstall wiped the store; bounce it.
-                Nexus.Service.QSeries.QSeriesPortWatcher.NotifyStaleTunnelSession(ctx, sp, $"missing record {id}");
+                Nexus.Service.QSeries.QSeriesPortWatcher.NotifyTunnelRecordMissing(ctx, sp, id);
                 return Results.NotFound(ApiResponse.Fail("device not found"));
             }
             // Persisted layout if present, else the surface-specific
