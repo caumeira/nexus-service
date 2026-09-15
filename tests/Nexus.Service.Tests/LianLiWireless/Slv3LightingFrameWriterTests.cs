@@ -63,6 +63,78 @@ public class Slv3LightingFrameWriterTests
     }
 
     [Fact]
+    public void Tick_streams_a_bound_strimer_as_one_cable_in_wire_order()
+    {
+        var (hub, net, tx) = Slv3TestHub.CreateConnected();
+        net.Fans.Add(new Slv3TestHub.SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 1, DevType = 2, FanCount = 0 });
+        Assert.True(hub.DriveTick());
+
+        var store = new InMemoryConfigStore();
+        var identify = new Np50IdentifyTracker();
+        var provider = new Slv3LightingDeviceProvider(hub, store, identify);
+        var frame = Assert.Single(provider.BuildFrames(0));
+        Assert.Equal(6 * 22, frame.LedCount);
+        var engine = new LightingEngine();
+        engine.UpdateDevices(new[] { frame });
+        var writer = new Slv3LightingFrameWriter(engine, hub, store, identify, provider, () => 200 * TimeSpan.TicksPerMillisecond);
+        // LED n painted red = n so the wire order is checkable after decode.
+        for (var n = 0; n < frame.LedCount; n++)
+        {
+            frame.SetLed(n, (byte)n, 0, 0);
+        }
+        frame.Publish();
+
+        writer.Tick();
+
+        // Header packet (RF payload index 0 in chunk-seq-0 USB frame): RF [18]
+        // packet index at USB [22], RF [27] LED count at USB [31].
+        var sync = RgbSyncFrames(tx);
+        var header = sync.Find(f => f[22] == 0);
+        Assert.NotNull(header);
+        Assert.Equal(6 * 22, header![31]);
+
+        // Reassemble the data parts and decode: LED n at n * 3, R,G,B
+        // interleaved, through BuildFrameBuffer's full-brightness scale.
+        var compressedLen = (header[24] << 24) | (header[25] << 16) | (header[26] << 8) | header[27];
+        var payloads = ReassembleRfPayloads(tx);
+        var compressed = new List<byte>();
+        foreach (var payload in payloads)
+        {
+            if (payload[1] != Slv3Protocol.RfRgbSync || payload[18] == 0) continue;
+            compressed.AddRange(payload.AsSpan(Slv3RgbFrame.DataPacketOffset, Slv3RgbFrame.DataPacketChunk).ToArray());
+        }
+        var (_, raw) = TinyUz.Decompress(compressed.ToArray().AsSpan(0, compressedLen));
+        Assert.Equal(6 * 22 * 3, raw.Length);
+        for (var n = 0; n < 6 * 22; n++)
+        {
+            Assert.Equal((byte)((n * 255) >> 8), raw[n * 3]);
+            Assert.Equal(0, raw[n * 3 + 1]);
+        }
+    }
+
+    // Joins the 60-byte USB chunks (chunk seq at [1], RF bytes at [4..]) back
+    // into the 240-byte RF payloads the hub sent, in send order.
+    private static List<byte[]> ReassembleRfPayloads(Slv3TestHub.FakeTxTransport tx)
+    {
+        var payloads = new List<byte[]>();
+        byte[]? current = null;
+        foreach (var frame in tx.SentFrames)
+        {
+            if (frame.Length < 64 || frame[0] != Slv3Protocol.UsbSendRf) continue;
+            if (frame[1] == 0)
+            {
+                current = new byte[Slv3Protocol.RfPayloadSize];
+                payloads.Add(current);
+            }
+            if (current is null) continue;
+            var offset = frame[1] * 60;
+            var len = Math.Min(60, Slv3Protocol.RfPayloadSize - offset);
+            if (len > 0) frame.AsSpan(4, len).CopyTo(current.AsSpan(offset));
+        }
+        return payloads;
+    }
+
+    [Fact]
     public void Tick_does_not_resend_once_content_is_unchanged_and_confirmed()
     {
         var (hub, _, tx, _, _, writer, frames) = CreateBoundSetup();

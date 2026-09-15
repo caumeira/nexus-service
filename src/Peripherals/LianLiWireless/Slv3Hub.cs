@@ -413,11 +413,12 @@ public sealed class Slv3Hub : IDisposable
     // control pass. L-Connect skips a chain that enumerates no fans; here such
     // a chain is still driven once the user sets a port duty on it (the cooling
     // provider exposes its ports), and left alone on the mobo-sync default.
+    // A Strimer has no fan ports at all and is never re-bound from here.
     private void SyncPwmLocked()
     {
         foreach (var record in _lastFanRecords)
         {
-            if (!IsBoundToUsLocked(record))
+            if (!IsBoundToUsLocked(record) || record.IsStrimer)
             {
                 continue;
             }
@@ -610,7 +611,8 @@ public sealed class Slv3Hub : IDisposable
                 var key = Convert.ToHexString(record.Mac);
                 if (!_knownChains.ContainsKey(key))
                 {
-                    ServiceLog.Info($"[lianli-wireless] chain {key} appeared ({record.FanCount} fan(s), {record.Family})");
+                    var what = record.IsStrimer ? $"Strimer dev_type {record.DevType}" : $"{record.FanCount} fan(s), {record.Family}";
+                    ServiceLog.Info($"[lianli-wireless] chain {key} appeared ({what})");
                 }
                 _knownChains[key] = new Slv3KnownChain(record, nowMs);
             }

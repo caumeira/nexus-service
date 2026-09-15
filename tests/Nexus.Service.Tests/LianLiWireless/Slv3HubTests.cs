@@ -337,6 +337,20 @@ public class Slv3HubTests
     }
 
     [Fact]
+    public void Strimer_never_gets_a_pwm_sync_frame_even_with_a_port_duty_set()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 1, DevType = 2, FanCount = 0 });
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+        Assert.Equal(0, CountBindFrames(tx));
+
+        Assert.True(hub.SetPortDuty(Convert.ToHexString(FanMac), 0, 50));
+        Assert.True(hub.DriveTick());
+        Assert.Equal(0, CountBindFrames(tx));
+    }
+
+    [Fact]
     public void Zero_fan_chain_is_left_on_mobo_sync_until_a_port_duty_is_set()
     {
         var (hub, net, tx, _) = CreateConnectedHub();

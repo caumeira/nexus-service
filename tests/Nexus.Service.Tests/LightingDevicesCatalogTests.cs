@@ -42,6 +42,7 @@ public class LightingDevicesCatalogTests
     [InlineData("Lian Li", "Uni Fan SL-Infinity", "0x0CF2", "0xA102")]
     [InlineData("Lian Li", "Galahad II Trinity", "0x0416", "0x7373")]
     [InlineData("Lian Li", "SL-LCD", "0x1CBE", "0x0005")]
+    [InlineData("Lian Li", "Strimer Wireless", "-", "-")]
     [InlineData("Tryx", "Panorama", "0x391A", "0x1011")]
     [InlineData("Corsair", "iCUE LINK System Hub", "0x1B1C", "0x0C3F")]
     [InlineData("NZXT", "Kraken Z3", "0x1E71", "0x3008")]
