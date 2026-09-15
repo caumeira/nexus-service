@@ -425,6 +425,64 @@ public class JsonConfigStoreMigrationTests : IDisposable
     }
 
     [Fact]
+    public void Load_V15_KeepsTheStartupShutdownOffForExistingInstall()
+    {
+        File.WriteAllText(_settingsPath, """
+        {
+          "schemaVersion": 15
+        }
+        """);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.False(s.Ui.AutoKillConflictsAtStartup);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_V16_KeepsAnExplicitStartupShutdownChoice()
+    {
+        File.WriteAllText(_settingsPath, """
+        {
+          "schemaVersion": 16,
+          "ui": { "autoKillConflictsAtStartup": true }
+        }
+        """);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.True(s.Ui.AutoKillConflictsAtStartup);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_NoSettingsFile_StartupShutdownDefaultsOn()
+    {
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.True(s.Ui.AutoKillConflictsAtStartup);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
     public void Load_NoSettingsFile_FeaturesOnboardingCompletedDefaultsFalse()
     {
         var store = new JsonConfigStore(_settingsPath);

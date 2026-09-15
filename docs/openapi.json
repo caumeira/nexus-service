@@ -1083,6 +1083,18 @@
         }
       }
     },
+    "/migration/nexus2/uninstall": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/migration/nexus2/preview": {
       "post": {
         "tags": [

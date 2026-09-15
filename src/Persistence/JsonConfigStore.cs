@@ -204,6 +204,11 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         if (doc.SchemaVersion < 16)
         {
             doc.FeaturesOnboardingCompleted = true;
+            // Predates Ui.AutoKillConflictsAtStartup (shipped at v16), whose
+            // default is now on: an upgrade keeps the off it ran with, and the
+            // onboarding flags set above would otherwise let the first start
+            // sweep vendor apps the user never saw listed.
+            doc.Ui.AutoKillConflictsAtStartup = false;
         }
         if (doc.SchemaVersion < 17)
         {

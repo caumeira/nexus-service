@@ -522,6 +522,13 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<Nexus.Service.Lighting.Rgb.IRgbController>(_ =>
                 new Nexus.Service.Lighting.Rgb.OpenRgbController());
             services.AddSingleton<Nexus.Service.Lighting.Rgb.RgbBridge>();
+            // The conflict catalog is Windows-only; elsewhere the poll would enumerate processes for nothing.
+            if (OperatingSystem.IsWindows())
+            {
+                services.AddHostedService(sp => new Nexus.Service.Conflicts.ConflictExitRecovery(
+                    sp.GetRequiredService<Nexus.Service.Conflicts.IConflictDetector>(),
+                    sp.GetRequiredService<Nexus.Service.Lighting.Rgb.RgbBridge>()));
+            }
         }
         else
         {
