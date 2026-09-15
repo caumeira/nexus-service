@@ -8,8 +8,9 @@ namespace Nexus.Service.Peripherals.JpegPanels;
 /// shape - open a vendor HID interface, chunk a JPEG across output reports - so one hub
 /// drives the family and a model is just a row here.
 ///
-/// Every row but <see cref="HydroShiftLcd"/> was reconstructed from third-party protocol
-/// documentation and has never been run against hardware: we own no unit of any of them.
+/// Every row but <see cref="HydroShiftLcd"/> and <see cref="GalahadIiLcd"/> was reconstructed
+/// from third-party protocol documentation and has never been run against hardware: we own
+/// no unit of any of them.
 /// They ship experimental with Nexus Control off by default so a build never grabs an
 /// untested cooler on its own.
 /// </summary>

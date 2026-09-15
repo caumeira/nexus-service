@@ -1,5 +1,6 @@
 using System;
 using Nexus.Service.Peripherals.Hid;
+using Nexus.Service.Peripherals.Galahad2;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.JpegPanels;
@@ -25,6 +26,8 @@ public sealed class JpegPanelHub : IDisposable
     private IHidDevice? _device;
     private volatile bool _attached;
     private bool _disposed;
+
+    public event Action? StateChanged;
 
     public JpegPanelHub(JpegPanelModel model)
     {
@@ -76,6 +79,7 @@ public sealed class JpegPanelHub : IDisposable
             }
 
             _attached = true;
+            NotifyStateChanged();
             return true;
         }
     }
@@ -99,6 +103,7 @@ public sealed class JpegPanelHub : IDisposable
             _attached = false;
             _device?.Dispose();
             _device = null;
+            NotifyStateChanged();
         }
     }
 
@@ -177,6 +182,44 @@ public sealed class JpegPanelHub : IDisposable
         }
     }
 
+    /// <summary>
+    /// Sends the Galahad II LCD pump's per-LED report through the same handle as the panel
+    /// stream. Keeping this on the panel hub prevents a second owner from interleaving
+    /// control and frame reports on the shared HID interface.
+    /// </summary>
+    public bool SendPumpPerLed(ReadOnlySpan<byte> colors)
+    {
+        if (!IsGalahad2Lcd)
+        {
+            return false;
+        }
+        var packet = Galahad2Protocol.EncodePumpPerLed(colors);
+        lock (_lock)
+        {
+            return _device != null && _attached && _device.Write(packet);
+        }
+    }
+
+    /// <summary>Sends a Galahad II pump zone/effect command padded to the panel's report size.</summary>
+    public bool SendPumpZoneLighting(byte ring, byte mode, byte brightness, byte speed, byte direction, ReadOnlySpan<byte> colors)
+    {
+        if (!IsGalahad2Lcd)
+        {
+            return false;
+        }
+        var packet = Galahad2Protocol.EncodeLighting(ring, mode, brightness, speed, direction, colors);
+        lock (_lock)
+        {
+            if (_device == null || !_attached)
+            {
+                return false;
+            }
+            _report.AsSpan().Clear();
+            packet.AsSpan().CopyTo(_report);
+            return _device.Write(_report);
+        }
+    }
+
     private bool WriteRawLocked(ReadOnlySpan<byte> payload)
     {
         if (_device == null)
@@ -188,6 +231,14 @@ public sealed class JpegPanelHub : IDisposable
         _report.AsSpan().Clear();
         payload.CopyTo(_report);
         return _device.Write(_report);
+    }
+
+    private bool IsGalahad2Lcd =>
+        string.Equals(_model.HandlerId, JpegPanelModel.GalahadIiLcd.HandlerId, StringComparison.Ordinal);
+
+    private void NotifyStateChanged()
+    {
+        try { StateChanged?.Invoke(); } catch { }
     }
 
     public void Dispose()
@@ -202,6 +253,7 @@ public sealed class JpegPanelHub : IDisposable
             _attached = false;
             _device?.Dispose();
             _device = null;
+            NotifyStateChanged();
         }
     }
 }
