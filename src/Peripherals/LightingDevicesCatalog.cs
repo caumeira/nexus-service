@@ -191,8 +191,9 @@ public static class LightingDevicesCatalog
     /// Devices Nexus drives natively, curated so they carry the correct model,
     /// category, and VID/PID independent of how the OpenRGB fork happens to register
     /// them. VID/PIDs come from the protocol constants under src/Peripherals/*. One
-    /// row per marketed model; a native lighting/cooling driver adds its row here so
-    /// the device shows in the Supported Devices UI.
+    /// row per USB PID a native driver claims (the connected dot matches exact
+    /// VID:PID); a native lighting/cooling driver adds its rows here so the device
+    /// shows in the Supported Devices UI.
     /// </summary>
     private static readonly IReadOnlyList<SupportedDeviceDto> FirstPartyDevices = new List<SupportedDeviceDto>
     {
@@ -200,7 +201,11 @@ public static class LightingDevicesCatalog
         Native("HYTE",    "THICC Q60",              "aio",      "0x3402", "0x0400", screen: true),
         Native("HYTE",    "THICC Q80",              "aio",      "0x3402", "0x0403", screen: true),
         Native("HYTE",    "Nexus Portal NP50",      "light",    "0x3402", "0x0901"),
+        // CNVS: one row per CnvsProtocol.ProductIds entry - the web connected dot matches exact VID:PID.
+        Native("HYTE",    "CNVS",                   "mousemat", "0x3402", "0x0BFF"),
         Native("HYTE",    "CNVS",                   "mousemat", "0x3402", "0x0B00"),
+        Native("HYTE",    "CNVS",                   "mousemat", "0x3402", "0x0B01"),
+        Native("HYTE",    "CNVS",                   "mousemat", "0x3402", "0x0B02"),
         Native("HYTE",    "Keeb TKL",               "keyboard", "0x3402", "0x0300"),
         Native("HYTE",    "Smart Hub",              "light",    "0x3402", "0x0904"),
         // Y70 cases are screen-only. The GW / Ina panels enumerate no USB
