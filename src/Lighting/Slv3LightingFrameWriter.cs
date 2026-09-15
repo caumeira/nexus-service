@@ -13,12 +13,12 @@ using RgbColor = Nexus.Service.Peripherals.Hyte.Np50.RgbColor;
 namespace Nexus.Service.Lighting;
 
 /// <summary>
-/// Streams engine frames to every bound SLV3 wireless fan chain as a
-/// single-frame RF_RgbSync animation - an "OpenRGB-style / live direct
-/// mode". There is no
+/// Streams engine frames to every bound SLV3 wireless fan chain (and Strimer
+/// Wireless cable) as a single-frame RF_RgbSync animation - an "OpenRGB-style
+/// / live direct mode". There is no
 /// firmware ROM-effect catalog exposed for wireless fans: every tick composes
 /// each chain's resolved zone frames into a fan-major buffer (the family's
-/// wire LED count per fan) and pushes it through
+/// wire LED count per fan; a Strimer's whole cable) and pushes it through
 /// <see cref="Slv3Hub.SendRgbFrame"/> only when the buffer content changed,
 /// or when the chain's RX-reported effect_index has had time to echo the last
 /// push and still disagrees (the push was lost, or the chain reset). L-Connect
@@ -182,27 +182,39 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
             SegmentFrameComposer.Compose(
                 structure, zones, devices, disabled, uncontrolled, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
 
-            // Ring length is family-dependent; it must match the provider's
-            // structure for this chain or the fan-major interleave below
-            // misaligns.
-            var fanInfo = FindFanInfo(macHex);
-            if (fanInfo is null) continue;
-            var ringLen = Slv3LightingDeviceProvider.RingLedsFor(fanInfo);
-            var ledsPerFan = ringLen * 2;
-            var fanCount = structure.Segments[Slv3LightingDeviceProvider.InnerSegment].LedCount / ringLen;
-            if (fanCount <= 0) continue;
-            var totalLeds = fanCount * ledsPerFan;
-            EnsureWireBuffer(totalLeds);
-
-            var inner = _segmentBuffers[Slv3LightingDeviceProvider.InnerSegment];
-            var outer = _segmentBuffers[Slv3LightingDeviceProvider.OuterSegment];
-            for (var f = 0; f < fanCount; f++)
+            int totalLeds;
+            if (Slv3LightingDeviceProvider.IsStrimerStructure(structure))
             {
-                var baseIdx = f * ledsPerFan;
-                for (var i = 0; i < ringLen; i++)
+                // The cable's one segment is the wire buffer, in wire order.
+                var cable = _segmentBuffers[0];
+                totalLeds = cable.Length;
+                EnsureWireBuffer(totalLeds);
+                cable.CopyTo(_wireBuffer, 0);
+            }
+            else
+            {
+                // Ring length is family-dependent; it must match the provider's
+                // structure for this chain or the fan-major interleave below
+                // misaligns.
+                var fanInfo = FindFanInfo(macHex);
+                if (fanInfo is null) continue;
+                var ringLen = Slv3LightingDeviceProvider.RingLedsFor(fanInfo);
+                var ledsPerFan = ringLen * 2;
+                var fanCount = structure.Segments[Slv3LightingDeviceProvider.InnerSegment].LedCount / ringLen;
+                if (fanCount <= 0) continue;
+                totalLeds = fanCount * ledsPerFan;
+                EnsureWireBuffer(totalLeds);
+
+                var inner = _segmentBuffers[Slv3LightingDeviceProvider.InnerSegment];
+                var outer = _segmentBuffers[Slv3LightingDeviceProvider.OuterSegment];
+                for (var f = 0; f < fanCount; f++)
                 {
-                    _wireBuffer[baseIdx + i] = inner[f * ringLen + i];
-                    _wireBuffer[baseIdx + ringLen + i] = outer[f * ringLen + i];
+                    var baseIdx = f * ledsPerFan;
+                    for (var i = 0; i < ringLen; i++)
+                    {
+                        _wireBuffer[baseIdx + i] = inner[f * ringLen + i];
+                        _wireBuffer[baseIdx + ringLen + i] = outer[f * ringLen + i];
+                    }
                 }
             }
 

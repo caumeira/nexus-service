@@ -244,6 +244,9 @@ public static class LightingDevicesCatalog
         Native("Lian Li", "Galahad II Trinity",     "aio",      "0x0416", "0x7373"),
         Native("Lian Li", "Galahad II Performance", "aio",      "0x0416", "0x7371"),
         Native("Lian Li", "L-Wireless Kit",         "fan",      "0x0416", "0x8040"),
+        // RF-only behind the kit's dongle: no USB identity of its own, so keyless
+        // like the DDC panels (a VID:PID row would merge into the kit's).
+        Native("Lian Li", "Strimer Wireless",       "light",    "-",      "-"),
         Native("Lian Li", "SL-LCD",                 "light",    "0x1CBE", "0x0005", screen: true),
         Native("Lian Li", "TL-LCD",                 "light",    "0x1CBE", "0x0006", screen: true),
 
