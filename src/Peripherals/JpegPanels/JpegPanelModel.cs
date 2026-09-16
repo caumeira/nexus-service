@@ -66,8 +66,7 @@ public sealed record JpegPanelModel(
         Surface: Models.Panel.PanelSurfaces.LcdRound)
     {
         Fps = GalahadFps,
-        Handshake = new LianLiAioHandshake(
-            "lianli-galahad2-lcd", GalahadFps, LianLiAioHandshake.Galahad2BrightnessMode),
+        Handshake = new LianLiAioHandshake("lianli-galahad2-lcd", GalahadFps),
     };
 
     /// <summary>Documented rate for the Galahad II glass.</summary>

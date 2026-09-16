@@ -36,8 +36,11 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake, IJpegPanelBrightne
     private const byte ModeLocalUi = 0x00;
     private const byte ModeApplication = 0x01;
 
-    /// <summary>The Galahad II uses its settings value for brightness-only control packets.</summary>
-    internal const byte Galahad2BrightnessMode = 0x04;
+    /// <summary>
+    /// Family-wide LcdSetting mode used for brightness-only control packets (reference
+    /// driver: not Galahad-specific, HydroShift takes it too).
+    /// </summary>
+    internal const byte LcdSettingMode = 0x04;
 
     /// <summary>Backlight a panel runs at until the user sets one.</summary>
     public const byte DefaultBrightness = 100;
@@ -52,18 +55,16 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake, IJpegPanelBrightne
 
     private readonly string _handlerId;
     private readonly byte _fps;
-    private readonly byte _brightnessMode;
     private byte[]? _report;
 
     // The panel forgets the backlight across a power cycle; holding it here is what lets
     // the attach packet carry it back.
     private byte _brightness = DefaultBrightness;
 
-    public LianLiAioHandshake(string handlerId, int fps, byte brightnessMode = ModeApplication)
+    public LianLiAioHandshake(string handlerId, int fps)
     {
         _handlerId = handlerId;
         _fps = (byte)Math.Clamp(fps, 1, 60);
-        _brightnessMode = brightnessMode;
     }
 
     public bool OnAttach(IHidDevice device, int reportLength)
@@ -120,7 +121,7 @@ public sealed class LianLiAioHandshake : IJpegPanelHandshake, IJpegPanelBrightne
     public bool ApplyBrightness(IHidDevice device, int reportLength)
     {
         var report = Buffer(reportLength);
-        if (!SendLcdControl(device, report, _brightnessMode, _brightness))
+        if (!SendLcdControl(device, report, LcdSettingMode, _brightness))
         {
             return false;
         }
