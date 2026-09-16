@@ -167,9 +167,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
                 rgb.Devices.RemoveAll(d =>
                     d.Name.Contains("Lian Li Strimer", StringComparison.OrdinalIgnoreCase));
             }
-            if (_galahad2.IsConnected || (_galahad2Lcd?.IsConnected ?? false))
+            if (_galahad2.IsConnected)
             {
-                // OpenRGB names this device "Lian Li GAII Trinity".
+                // OpenRGB names this device "Lian Li GAII Trinity". The LCD variant
+                // (0x7395) is never enumerated by OpenRGB, so it has no row here to
+                // remove - folding it into this condition would instead strip a real
+                // Trinity's row whenever the LCD happens to be connected too.
                 rgb.Devices.RemoveAll(d =>
                     d.Name.Contains("GAII", StringComparison.OrdinalIgnoreCase));
             }
@@ -394,7 +397,10 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         if (strimerIds.Count > 0)    _strimer.SetDisabled(strimerIds);
         if (galahad2LcdIds.Count > 0)
         {
-            (_galahad2Lcd as ILightingDeviceProvider ?? _galahad2).SetDisabled(galahad2LcdIds);
+            // IsGalahad2LcdId only matches PumpZoneId, which only exists when
+            // _galahad2Lcd produced it - falling back to _galahad2 here would hand
+            // an LCD-scoped id to the wired provider, which doesn't own it.
+            _galahad2Lcd!.SetDisabled(galahad2LcdIds);
         }
         if (galahad2Ids.Count > 0)   _galahad2.SetDisabled(galahad2Ids);
         if (krakenIds.Count > 0)     _kraken.SetDisabled(krakenIds);
@@ -420,7 +426,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         : IsLianLiWirelessId(id) ? _lianLiWireless
         : IsCorsairId(id)    ? _corsair
         : IsStrimerId(id)    ? _strimer
-        : IsGalahad2LcdId(id) ? (_galahad2Lcd as ILightingDeviceProvider ?? _galahad2)
+        : IsGalahad2LcdId(id) ? _galahad2Lcd!
         : IsGalahad2Id(id)   ? _galahad2
         : IsNollieId(id)     ? _nollie
         : IsKrakenId(id)     ? _kraken

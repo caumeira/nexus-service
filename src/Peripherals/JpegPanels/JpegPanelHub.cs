@@ -51,6 +51,7 @@ public sealed class JpegPanelHub : IDisposable
     /// </summary>
     public bool Attach(IHidDevice device)
     {
+        bool attached;
         lock (_lock)
         {
             _device?.Dispose();
@@ -79,9 +80,10 @@ public sealed class JpegPanelHub : IDisposable
             }
 
             _attached = true;
-            NotifyStateChanged();
-            return true;
+            attached = true;
         }
+        NotifyStateChanged();
+        return attached;
     }
 
     public void Detach()
@@ -103,8 +105,8 @@ public sealed class JpegPanelHub : IDisposable
             _attached = false;
             _device?.Dispose();
             _device = null;
-            NotifyStateChanged();
         }
+        NotifyStateChanged();
     }
 
     /// <summary>
@@ -193,10 +195,14 @@ public sealed class JpegPanelHub : IDisposable
         {
             return false;
         }
-        var packet = Galahad2Protocol.EncodePumpPerLed(colors);
         lock (_lock)
         {
-            return _device != null && _attached && _device.Write(packet);
+            if (_device == null || !_attached)
+            {
+                return false;
+            }
+            Galahad2Protocol.EncodePumpPerLed(colors, _report);
+            return _device.Write(_report);
         }
     }
 
@@ -253,7 +259,7 @@ public sealed class JpegPanelHub : IDisposable
             _attached = false;
             _device?.Dispose();
             _device = null;
-            NotifyStateChanged();
         }
+        NotifyStateChanged();
     }
 }

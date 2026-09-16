@@ -15,8 +15,10 @@ namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Drives the Galahad II LCD pump head through the panel hub that already owns MI_01.
-/// Canvas frames use the twelve-position per-LED report; selected firmware effects keep
-/// using the separate 0x83 zone command.
+/// Canvas only - the LCD firmware's own effect table diverges from the wired Trinity's
+/// past mode 6 (see Galahad2LightingFrameWriter.BuildColorBytes / Galahad2LightingModes),
+/// and the UI never offers a firmware mode for this device anyway (it only lists them for
+/// lianli-aio), so there is no reachable, correctly-mapped non-canvas path to drive.
 /// </summary>
 public sealed class Galahad2LcdLightingFrameWriter : IHostedService, IDisposable
 {
@@ -36,12 +38,9 @@ public sealed class Galahad2LcdLightingFrameWriter : IHostedService, IDisposable
     private bool _hasLastCanvas;
     private bool _lastWasCanvas;
     private byte? _lastCanvasBrightness;
-    private int? _lastFirmwareSig;
     private bool _loggedNoCanvasFrame;
     private bool _loggedCanvasFailure;
     private bool _loggedCanvasSuccess;
-    private bool _loggedFirmwareFailure;
-    private bool _loggedFirmwareSuccess;
 
     private const int PerLedColorBytes = Galahad2LcdLightingDeviceProvider.PumpLedCount * 3;
 
@@ -128,57 +127,25 @@ public sealed class Galahad2LcdLightingFrameWriter : IHostedService, IDisposable
             return;
         }
 
-        if (lighting.Mode == "canvas")
+        if (lighting.Mode != "canvas")
         {
-            if (_engine.Devices.Length == 0)
+            // Not reachable from the UI (it only offers firmware modes for lianli-aio),
+            // and there is no verified firmware-mode byte table for this device - see the
+            // class doc. Treat anything else as "nothing to draw" rather than guess.
+            ResetCaches();
+            return;
+        }
+        if (_engine.Devices.Length == 0)
+        {
+            if (!_loggedNoCanvasFrame)
             {
-                if (!_loggedNoCanvasFrame)
-                {
-                    ServiceLog.Warn("[lianli-galahad2-lcd] pump RGB skipped: lighting engine has no pump frame");
-                    _loggedNoCanvasFrame = true;
-                }
-                ResetCaches();
-                return;
+                ServiceLog.Warn("[lianli-galahad2-lcd] pump RGB skipped: lighting engine has no pump frame");
+                _loggedNoCanvasFrame = true;
             }
-            _lastFirmwareSig = null;
-            TickCanvas(structure, zones, settings, globalBrightness, brightnessRaw);
+            ResetCaches();
             return;
         }
-
-        var mode = Galahad2LightingModes.Find(lighting.Mode);
-        if (mode is null)
-        {
-            return;
-        }
-        var signature = ComputeFirmwareSig(lighting, brightnessRaw);
-        if (_lastFirmwareSig.HasValue && _lastFirmwareSig.Value == signature)
-        {
-            return;
-        }
-
-        _lastWasCanvas = false;
-        _lastCanvasBrightness = null;
-        if (_hub.SendPumpZoneLighting(
-            // The LCD's pump channel is scope 0; its two visible sides mirror this channel.
-            ring: 0,
-            mode: mode.WireByte,
-            brightness: brightnessRaw,
-            speed: (byte)Math.Clamp(lighting.Speed, 0, 4),
-            direction: (byte)Math.Clamp(lighting.Direction, 0, 1),
-            colors: Galahad2LightingFrameWriter.BuildColorBytes(lighting, mode)))
-        {
-            _lastFirmwareSig = signature;
-            if (!_loggedFirmwareSuccess)
-            {
-                ServiceLog.Info($"[lianli-galahad2-lcd] pump RGB firmware mode active ({lighting.Mode})");
-                _loggedFirmwareSuccess = true;
-            }
-        }
-        else if (!_loggedFirmwareFailure)
-        {
-            ServiceLog.Warn("[lianli-galahad2-lcd] pump RGB firmware write rejected");
-            _loggedFirmwareFailure = true;
-        }
+        TickCanvas(structure, zones, settings, globalBrightness, brightnessRaw);
     }
 
     private void TickCanvas(
@@ -259,22 +226,5 @@ public sealed class Galahad2LcdLightingFrameWriter : IHostedService, IDisposable
         _hasLastCanvas = false;
         _lastWasCanvas = false;
         _lastCanvasBrightness = null;
-        _lastFirmwareSig = null;
-    }
-
-    private static int ComputeFirmwareSig(Galahad2LightingSettings settings, byte brightnessRaw)
-    {
-        var hash = new HashCode();
-        hash.Add(settings.Mode);
-        hash.Add(settings.Speed);
-        hash.Add(settings.Direction);
-        hash.Add(brightnessRaw);
-        hash.Add(settings.InnerColor);
-        hash.Add(settings.OuterColor);
-        foreach (var color in settings.Colors)
-        {
-            hash.Add(color);
-        }
-        return hash.ToHashCode();
     }
 }

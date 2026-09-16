@@ -11,6 +11,9 @@ internal static class Galahad2Protocol
     public const int ProductIdRegular = 0x7373;
     public const int ProductIdLcd = 0x7395;
 
+    // The pump ring has 24 physical LEDs, but only 12 are independently addressable -
+    // the other 12 mirror them. Confirmed against real hardware (also matches what
+    // SignalRGB exposes for this pump), not a guess.
     public const int PumpLedCount = 12;
     public const int PerLedReportLength = 1024;
 
@@ -69,33 +72,46 @@ internal static class Galahad2Protocol
 
     // The LCD variant uses a separate 1024-byte B-report for the pump's individually
     // addressable positions. The UI order is reversed on the wire by the controller.
-    public static byte[] EncodePumpPerLed(ReadOnlySpan<byte> colors)
+    //
+    // Provenance: this 61-byte data length / 24-byte zero prefix / reversed LED order
+    // is NOT in lian-li-linux or OpenRGB - checked both. lian-li-linux's AIO LCD pump
+    // path (hydroshift_lcd/rgb.rs) only drives the same 0x83 zone/effect command
+    // EncodeLighting already sends, over a 64-byte A-report; it has no per-LED B-report
+    // command at all. This layout came out of an AI-assisted reverse-engineering pass
+    // with no capture trail kept, so it can't be cited to a source - what backs it
+    // instead is a direct hardware check: canvas colours visibly track live on the pump
+    // head on a real Galahad II LCD (recorded on video), matching what this function
+    // sends. Treat the exact byte layout as verified-by-observation, not documented -
+    // if a real capture ever surfaces, replace this note with that citation.
+    //
+    // Writes into `destination` (caller-owned, reused across ticks at ~30 fps) rather
+    // than allocating a fresh 1024-byte packet every call.
+    public static void EncodePumpPerLed(ReadOnlySpan<byte> colors, Span<byte> destination)
     {
-        var packet = new byte[PerLedReportLength];
-        packet[0] = 0x02;
-        packet[1] = CmdPerLed;
-        WriteUInt32BigEndian(packet.AsSpan(2, 4), PumpPerLedDataLength);
+        destination[..PerLedReportLength].Clear();
+        destination[0] = 0x02;
+        destination[1] = CmdPerLed;
+        WriteUInt32BigEndian(destination.Slice(2, 4), PumpPerLedDataLength);
         // bytes 6..8 are the 24-bit packet sequence; the first and only packet is zero.
-        packet[9] = (byte)(PumpPerLedDataLength >> 8);
-        packet[10] = (byte)PumpPerLedDataLength;
+        destination[9] = (byte)(PumpPerLedDataLength >> 8);
+        destination[10] = (byte)PumpPerLedDataLength;
 
         // data[0] is the pump zone. data[1..24] is a controller-required zero prefix.
-        packet[PerLedHeaderLength] = 0x00;
+        destination[PerLedHeaderLength] = 0x00;
         var colorBytes = Math.Min(colors.Length, PumpLedCount * 3);
         for (var position = 0; position < PumpLedCount; position++)
         {
             var source = position * 3;
-            var destination = PerLedHeaderLength + 1 + PumpPerLedPrefixLength
+            var target = PerLedHeaderLength + 1 + PumpPerLedPrefixLength
                 + (PumpLedCount - 1 - position) * 3;
             if (source + 2 >= colorBytes)
             {
                 continue;
             }
-            packet[destination] = colors[source];
-            packet[destination + 1] = colors[source + 1];
-            packet[destination + 2] = colors[source + 2];
+            destination[target] = colors[source];
+            destination[target + 1] = colors[source + 1];
+            destination[target + 2] = colors[source + 2];
         }
-        return packet;
     }
 
     // Reply payload (4 bytes): [fanRpm_hi, fanRpm_lo, pumpRpm_hi, pumpRpm_lo] (BE16 each).

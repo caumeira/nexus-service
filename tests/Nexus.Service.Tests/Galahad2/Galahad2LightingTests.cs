@@ -127,7 +127,8 @@ public class Galahad2LightingTests
     [Fact]
     public void EncodePumpPerLed_uses_the_1024_byte_report_and_pump_header()
     {
-        var packet = Galahad2Protocol.EncodePumpPerLed(new byte[36]);
+        var packet = new byte[1024];
+        Galahad2Protocol.EncodePumpPerLed(new byte[36], packet);
 
         Assert.Equal(1024, packet.Length);
         Assert.Equal(0x02, packet[0]);
@@ -148,7 +149,8 @@ public class Galahad2LightingTests
             colors[i] = (byte)(i + 1);
         }
 
-        var packet = Galahad2Protocol.EncodePumpPerLed(colors);
+        var packet = new byte[1024];
+        Galahad2Protocol.EncodePumpPerLed(colors, packet);
 
         // data starts at byte 11; data[25] is the first transmitted RGB triplet.
         Assert.Equal(new byte[] { 34, 35, 36 }, packet[36..39]); // UI LED 12
@@ -164,7 +166,8 @@ public class Galahad2LightingTests
         colors[37] = 0xBB;
         colors[38] = 0xCC;
 
-        var packet = Galahad2Protocol.EncodePumpPerLed(colors);
+        var packet = new byte[1024];
+        Galahad2Protocol.EncodePumpPerLed(colors, packet);
 
         Assert.All(packet[36..72], b => Assert.Equal(0, b));
     }

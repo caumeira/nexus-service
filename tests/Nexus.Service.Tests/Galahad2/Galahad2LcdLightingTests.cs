@@ -111,7 +111,7 @@ public sealed class Galahad2LcdLightingTests
     private static JpegPanelModel Model() => JpegPanelModel.GalahadIiLcd with
     {
         Handshake = new LianLiAioHandshake(
-            "test-lcd", 24, LianLiAioHandshake.Galahad2BrightnessMode),
+            "test-lcd", 24),
     };
 
     private sealed class RecordingHidDevice : IHidDevice

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Mappings;
-using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Peripherals.Galahad2;
@@ -18,7 +17,7 @@ namespace Nexus.Service.Lighting;
 /// opening a second handle.
 /// </summary>
 public sealed class Galahad2LcdLightingDeviceProvider :
-    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource, IOpenRgbDeviceOwner
+    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
 {
     public const string DeviceId = "lianli-galahad2-lcd";
     public const string PumpZoneId = "lianli-galahad2-lcd:pump";
@@ -38,9 +37,6 @@ public sealed class Galahad2LcdLightingDeviceProvider :
     }
 
     public bool IsConnected => _hub.IsConnected;
-
-    public bool OwnsOpenRgbDevice(RgbDevice device) =>
-        IsConnected && device.Name.Contains("GAII", StringComparison.OrdinalIgnoreCase);
 
     public event Action? DevicesChanged;
 

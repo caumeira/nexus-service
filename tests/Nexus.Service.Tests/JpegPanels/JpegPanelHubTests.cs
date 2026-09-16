@@ -244,7 +244,7 @@ public class JpegPanelHubTests
         JpegPanelModel.GalahadIiLcd with
         {
             Handshake = new LianLiAioHandshake(
-                "test-lcd", 24, LianLiAioHandshake.Galahad2BrightnessMode),
+                "test-lcd", 24),
         };
 
     [Fact]
@@ -259,7 +259,7 @@ public class JpegPanelHubTests
 
         var control = Assert.Single(device.Writes);
         Assert.Equal(0x0C, control[1]);
-        Assert.Equal(LianLiAioHandshake.Galahad2BrightnessMode, control[11]);
+        Assert.Equal(LianLiAioHandshake.LcdSettingMode, control[11]);
         Assert.Equal(35, control[12]);
     }
 
