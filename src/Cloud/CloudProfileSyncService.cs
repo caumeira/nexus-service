@@ -668,14 +668,22 @@ public sealed class CloudProfileSyncService : BackgroundService
             var cloudRow = cloudRows.FirstOrDefault(r => r.AppId == appId && r.Key == key);
             var localHash = local is not null ? HashAppData(local.Data) : null;
 
-            var action = CloudSyncDecision.Decide(
-                localExists: local is not null,
-                localHash: localHash,
-                cloudExists: cloudRow is not null,
-                cloudRevision: cloudRow?.Revision ?? 0,
-                hasSyncRecord: local?.Cloud is not null,
-                syncedRevision: local?.Cloud?.Revision ?? 0,
-                syncedHash: local?.Cloud?.Hash);
+            // CloudSyncDecision.Decide treats "local missing, cloud exists" as
+            // None for profiles - deleting a profile must not resurrect it from
+            // its own backup. App data has no delete UI or explicit-import flow
+            // in this round; a missing local copy always means "never written
+            // here yet" (fresh install) or "restore after reinstall", both of
+            // which the contract requires to auto-pull.
+            var action = local is null && cloudRow is not null
+                ? CloudSyncAction.Pull
+                : CloudSyncDecision.Decide(
+                    localExists: local is not null,
+                    localHash: localHash,
+                    cloudExists: cloudRow is not null,
+                    cloudRevision: cloudRow?.Revision ?? 0,
+                    hasSyncRecord: local?.Cloud is not null,
+                    syncedRevision: local?.Cloud?.Revision ?? 0,
+                    syncedHash: local?.Cloud?.Hash);
 
             switch (action)
             {
