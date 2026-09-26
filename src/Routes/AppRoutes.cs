@@ -329,6 +329,53 @@ public static class AppRoutes
             return Results.Json(result, AppJsonContext.Default.AppProxyResponse);
         }).AllowPanel();
 
+        // Generic per-(app,key) persistent JSON document store. Gated by the
+        // manifest's capabilities.appData flag, same shape check as dispatch's
+        // capabilities.dispatch allowlist.
+        app.MapGet("/apps-api/data/{appId}/{key}", (string appId, string key, AppRegistry registry, AppDataStore appDataStore) =>
+        {
+            var gate = CheckAppDataAccess(appId, key, registry);
+            if (gate is not null) return gate;
+
+            var (revision, updatedAt, data) = appDataStore.Get(appId, key);
+            return Results.Json(new AppDataDocumentDto { Revision = revision, UpdatedAt = updatedAt, Data = data },
+                AppJsonContext.Default.AppDataDocumentDto);
+        }).AllowPanel();
+
+        app.MapPut("/apps-api/data/{appId}/{key}",
+            (string appId, string key, AppDataPutRequest body, AppRegistry registry, AppDataStore appDataStore,
+             AppDataWriteRateLimiter limiter, MultiplexHub hub) =>
+        {
+            var gate = CheckAppDataAccess(appId, key, registry);
+            if (gate is not null) return gate;
+
+            if (!limiter.TryAcquire(appId))
+            {
+                return Results.Json(ApiResponse.Fail("rate limit exceeded"),
+                    AppJsonContext.Default.ApiResponse, statusCode: 429);
+            }
+
+            var result = appDataStore.Put(appId, key, body.BaseRevision, body.Data);
+            switch (result.Outcome)
+            {
+                case AppDataStore.PutOutcome.TooLarge:
+                    return Results.Json(ApiResponse.Fail("data exceeds the 256 KiB per-document limit"),
+                        AppJsonContext.Default.ApiResponse, statusCode: 413);
+                case AppDataStore.PutOutcome.TooManyKeys:
+                    return Results.Json(ApiResponse.Fail("app has reached the 16-key limit"),
+                        AppJsonContext.Default.ApiResponse, statusCode: 422);
+                case AppDataStore.PutOutcome.Conflict:
+                    return Results.Json(
+                        new AppDataDocumentDto { Revision = result.Revision, UpdatedAt = result.UpdatedAt, Data = result.Data },
+                        AppJsonContext.Default.AppDataDocumentDto, statusCode: 409);
+                default:
+                    AppDataTopics.Broadcast(hub, appId, key,
+                        new AppDataDocumentDto { Revision = result.Revision, UpdatedAt = result.UpdatedAt, Data = result.Data });
+                    return Results.Json(new AppDataPutResultDto { Revision = result.Revision, UpdatedAt = result.UpdatedAt },
+                        AppJsonContext.Default.AppDataPutResultDto);
+            }
+        }).AllowPanel();
+
         // (The legacy GET /apps-api/installed/{id}/worker.js route was
         // removed - Tier 2 workers always boot through a per-spawn code
         // session URL `/apps-api/code/{sessionId}/worker.js`, so the
@@ -584,5 +631,27 @@ public static class AppRoutes
         var raw = http.Request.Query["touch"].ToString();
         if (string.IsNullOrEmpty(raw)) return null;
         return raw != "false" && raw != "0";
+    }
+
+    /// <summary>Shared validation for both app-data routes: app id shape, app installed, capabilities.appData, key shape. Returns null when the caller may proceed.</summary>
+    private static IResult? CheckAppDataAccess(string appId, string key, AppRegistry registry)
+    {
+        if (!AppIds.IsValid(appId))
+        {
+            return Results.Json(ApiResponse.Fail("invalid app id"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+        }
+        if (!AppDataKeys.IsValid(key))
+        {
+            return Results.Json(ApiResponse.Fail("invalid key"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+        }
+        if (!registry.TryGet(appId, out var entry))
+        {
+            return Results.Json(ApiResponse.Fail("app not installed"), AppJsonContext.Default.ApiResponse, statusCode: 404);
+        }
+        if (!entry.Manifest.Capabilities.AppData)
+        {
+            return Results.Json(ApiResponse.Fail("app does not declare capabilities.appData"), AppJsonContext.Default.ApiResponse, statusCode: 403);
+        }
+        return null;
     }
 }

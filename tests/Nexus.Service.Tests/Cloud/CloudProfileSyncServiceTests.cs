@@ -16,6 +16,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
     private readonly FakeCloudApiClient _api;
     private readonly CloudAccountService _accounts;
     private readonly StubCoolingProvider _fans;
+    private readonly Nexus.Service.Widgets.AppDataStore _appData;
     private readonly CloudProfileSyncService _sync;
     private readonly ManualTimeProvider _clock;
 
@@ -31,7 +32,8 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         _fans = new StubCoolingProvider(_store);
         _clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
         _accounts = new CloudAccountService(_api, _store, _clock);
-        _sync = new CloudProfileSyncService(_api, _accounts, _profiles, _store, _fans, _clock);
+        _appData = new Nexus.Service.Widgets.AppDataStore(() => Path.Combine(_tempDir, "app-data"));
+        _sync = new CloudProfileSyncService(_api, _accounts, _profiles, _store, _fans, _appData, _clock);
     }
 
     public void Dispose()

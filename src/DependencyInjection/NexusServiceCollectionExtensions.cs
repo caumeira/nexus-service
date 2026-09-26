@@ -1763,6 +1763,8 @@ public static class NexusServiceCollectionExtensions
             return registry;
         });
         services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();
+        services.AddSingleton<Nexus.Service.Widgets.AppDataStore>();
+        services.AddSingleton<Nexus.Service.Widgets.AppDataWriteRateLimiter>();
 
         // Generic external-tool manager (NEX-13): fetches + installs a device's
         // sidecar payload, routed to a per-target strategy. Hosted so its StopAsync

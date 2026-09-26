@@ -13,6 +13,7 @@ using Nexus.Service.Models.Cloud;
 using Nexus.Service.Models.Profiles;
 using Nexus.Service.Persistence;
 using Nexus.Service.Serialization;
+using Nexus.Service.Widgets;
 
 namespace Nexus.Service.Cloud;
 
@@ -41,6 +42,7 @@ public sealed class CloudProfileSyncService : BackgroundService
     private readonly ProfileManager _profiles;
     private readonly IConfigStore _store;
     private readonly IFanControlProvider _fans;
+    private readonly AppDataStore _appData;
     private readonly TimeProvider _clock;
 
     private readonly SemaphoreSlim _syncGate = new(1, 1);
@@ -51,18 +53,19 @@ public sealed class CloudProfileSyncService : BackgroundService
     private volatile string _lastSyncAt = "";
     private volatile string? _syncedAccountId;
 
-    public CloudProfileSyncService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles, IConfigStore store, IFanControlProvider fans)
-        : this(api, accounts, profiles, store, fans, TimeProvider.System)
+    public CloudProfileSyncService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles, IConfigStore store, IFanControlProvider fans, AppDataStore appData)
+        : this(api, accounts, profiles, store, fans, appData, TimeProvider.System)
     {
     }
 
-    internal CloudProfileSyncService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles, IConfigStore store, IFanControlProvider fans, TimeProvider clock)
+    internal CloudProfileSyncService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles, IConfigStore store, IFanControlProvider fans, AppDataStore appData, TimeProvider clock)
     {
         _api = api;
         _accounts = accounts;
         _profiles = profiles;
         _store = store;
         _fans = fans;
+        _appData = appData;
         _clock = clock;
     }
 
@@ -316,6 +319,7 @@ public sealed class CloudProfileSyncService : BackgroundService
         }
         _dirtySince.Clear();
         _conflicts.Clear();
+        _appDataConflicts.Clear();
         lock (_overCapWarned)
         {
             _overCapWarned.Clear();
@@ -479,6 +483,14 @@ public sealed class CloudProfileSyncService : BackgroundService
             }
         }
 
+        // App data is account-wide (not per-profile), so it runs once per pass
+        // rather than per profile id - skip it on a single-profile manual
+        // trigger (onlyProfileId set), which asks for exactly one profile.
+        if (onlyProfileId is null)
+        {
+            await SyncAppDataAsync(accountId, ct).ConfigureAwait(false);
+        }
+
         _lastSyncAt = now.ToString("o");
         _accounts.MarkSynced(accountId, now);
         _state = !_conflicts.IsEmpty || anyPending ? "dirty" : "idle";
@@ -622,6 +634,130 @@ public sealed class CloudProfileSyncService : BackgroundService
         });
     }
 
+    // ── app-data sync (generic per-(app,key) persistent JSON documents) ────
+
+    private readonly ConcurrentDictionary<string, CloudAppDataSyncConflict> _appDataConflicts = new(StringComparer.Ordinal);
+
+    internal sealed record CloudAppDataSyncConflict(string AppId, string Key, int CloudRevision, string? CloudUpdatedAt, string? CloudUpdatedByInstallId);
+
+    /// <summary>Read-only snapshot of unresolved app-data conflicts, keyed "appId/key". No HTTP route surfaces these yet - the contract that introduced app-data sync asked only for detection plus a resolver, not a specific wire shape, so this stays internal until a caller needs it.</summary>
+    internal IReadOnlyCollection<CloudAppDataSyncConflict> AppDataConflicts => _appDataConflicts.Values.ToList();
+
+    private static string AppDataConflictKey(string appId, string key) => appId + "/" + key;
+
+    /// <summary>Same push/pull/conflict/tombstone matrix as the profile loop, run once per account (app data has no per-profile scoping) against every appId/key this machine has locally or the account has in the cloud.</summary>
+    private async Task SyncAppDataAsync(string accountId, CancellationToken ct)
+    {
+        var listResult = await _accounts.WithAuthAsync(accountId, token => _api.ListAppDataAsync(token, ct), ct).ConfigureAwait(false);
+        if (!listResult.Success)
+        {
+            return;
+        }
+        var cloudRows = listResult.Value ?? new List<CloudAppDataSummaryDto>();
+
+        var ids = new HashSet<(string AppId, string Key)>(_appData.EnumerateAll());
+        foreach (var row in cloudRows)
+        {
+            ids.Add((row.AppId, row.Key));
+        }
+
+        foreach (var (appId, key) in ids)
+        {
+            ct.ThrowIfCancellationRequested();
+            var local = _appData.TryRead(appId, key);
+            var cloudRow = cloudRows.FirstOrDefault(r => r.AppId == appId && r.Key == key);
+            var localHash = local is not null ? HashAppData(local.Data) : null;
+
+            var action = CloudSyncDecision.Decide(
+                localExists: local is not null,
+                localHash: localHash,
+                cloudExists: cloudRow is not null,
+                cloudRevision: cloudRow?.Revision ?? 0,
+                hasSyncRecord: local?.Cloud is not null,
+                syncedRevision: local?.Cloud?.Revision ?? 0,
+                syncedHash: local?.Cloud?.Hash);
+
+            switch (action)
+            {
+                case CloudSyncAction.None:
+                    _appDataConflicts.TryRemove(AppDataConflictKey(appId, key), out _);
+                    break;
+
+                case CloudSyncAction.Push:
+                    await PushAppDataAsync(accountId, appId, key, local!.Data, localHash!, local.Cloud?.Revision ?? 0, ct).ConfigureAwait(false);
+                    break;
+
+                case CloudSyncAction.Pull:
+                    await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
+                    _appDataConflicts.TryRemove(AppDataConflictKey(appId, key), out _);
+                    break;
+
+                case CloudSyncAction.Conflict:
+                    _appDataConflicts[AppDataConflictKey(appId, key)] =
+                        new CloudAppDataSyncConflict(appId, key, cloudRow!.Revision, cloudRow.UpdatedAt, cloudRow.UpdatedByInstallId);
+                    break;
+
+                case CloudSyncAction.DeleteRemote:
+                    await _accounts.WithAuthAsync(accountId, token => _api.DeleteAppDataAsync(token, appId, key, ct), ct).ConfigureAwait(false);
+                    break;
+
+                case CloudSyncAction.DeleteLocal:
+                    // App data has no "last document" guard like ProfileManager's
+                    // last-profile rule - dropping the local file is always safe.
+                    _appData.Delete(appId, key);
+                    break;
+            }
+        }
+    }
+
+    private async Task PushAppDataAsync(string accountId, string appId, string key, JsonElement data, string hash, int baseRevision, CancellationToken ct)
+    {
+        var request = new CloudPutAppDataRequest { BaseRevision = baseRevision, Payload = data, InstallId = OwnInstallId() };
+        var result = await _accounts.WithAuthAsync(accountId, token => _api.PutAppDataAsync(token, appId, key, request, ct), ct).ConfigureAwait(false);
+
+        if (result.StatusCode == 409 && result.Value is { Revision: not null })
+        {
+            _appDataConflicts[AppDataConflictKey(appId, key)] =
+                new CloudAppDataSyncConflict(appId, key, result.Value.Revision!.Value, result.Value.UpdatedAt, result.Value.UpdatedByInstallId);
+            return;
+        }
+        if (!result.Success || result.Value?.Revision is not { } revision)
+        {
+            return;
+        }
+
+        _appData.SetCloudState(appId, key, new AppDataCloudState
+        {
+            Revision = revision,
+            Hash = hash,
+            SyncedAt = (result.Value.UpdatedAt ?? DateTimeOffset.UtcNow.ToString("o")),
+        });
+    }
+
+    private async Task PullAppDataAsync(string accountId, string appId, string key, CancellationToken ct)
+    {
+        var result = await _accounts.WithAuthAsync(accountId, token => _api.GetAppDataAsync(token, appId, key, ct), ct).ConfigureAwait(false);
+        if (!result.Success || result.Value?.Payload is not { } payload)
+        {
+            return;
+        }
+
+        var hash = HashAppData(payload);
+        _appData.Import(appId, key, payload, new AppDataCloudState
+        {
+            Revision = result.Value.Revision,
+            Hash = hash,
+            SyncedAt = result.Value.UpdatedAt ?? DateTimeOffset.UtcNow.ToString("o"),
+        });
+    }
+
+    internal static string HashAppData(JsonElement data)
+    {
+        var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.JsonElement);
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(json));
+        return Convert.ToHexString(bytes);
+    }
+
     /// <summary>Pushes every profile whose export payload no longer matches its last-synced hash, ignoring the debounce window. Used for the outgoing side of an account switch and for shutdown flush.</summary>
     private async Task FlushAccountAsync(string accountId, CancellationToken ct)
     {
@@ -646,6 +782,8 @@ public sealed class CloudProfileSyncService : BackgroundService
 
             await PushAsync(accountId, entry.Id, entry.Name, localExport, hash, syncRecord?.Revision ?? 0, ct).ConfigureAwait(false);
         }
+
+        await SyncAppDataAsync(accountId, ct).ConfigureAwait(false);
     }
 
     // ── account switch (archive + wholesale replace) ────────────────────

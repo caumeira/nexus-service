@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json;
 using Nexus.Service.Models.Profiles;
 
 namespace Nexus.Service.Models.Cloud;
@@ -170,6 +171,40 @@ public sealed class CloudAvatarUploadResponse
 {
     public string Large { get; set; } = "";
     public string Small { get; set; } = "";
+}
+
+/// <summary>One row of GET /account/app-data - no payload, so the sync pass can size up the account's whole app-data set without pulling every document.</summary>
+public sealed class CloudAppDataSummaryDto
+{
+    public string AppId { get; set; } = "";
+    public string Key { get; set; } = "";
+    public int Revision { get; set; }
+    public string? UpdatedAt { get; set; }
+    public long SizeBytes { get; set; }
+    public string? UpdatedByInstallId { get; set; }
+}
+
+/// <summary>GET /account/app-data/:appId/:key. Absent document reads as Revision 0, UpdatedAt/Payload null.</summary>
+public sealed class CloudAppDataDto
+{
+    public int Revision { get; set; }
+    public string? UpdatedAt { get; set; }
+    public JsonElement? Payload { get; set; }
+}
+
+public sealed class CloudPutAppDataRequest
+{
+    public int BaseRevision { get; set; }
+    public JsonElement Payload { get; set; }
+    public string InstallId { get; set; } = "";
+}
+
+/// <summary>200 -> Revision/UpdatedAt set, UpdatedByInstallId null; 409 -> all three set (no payload echoed - the caller GETs it if it needs the conflicting content). Both live on one type since AOT source-gen deserialization can't pick a shape dynamically.</summary>
+public sealed class CloudPutAppDataResult
+{
+    public int? Revision { get; set; }
+    public string? UpdatedAt { get; set; }
+    public string? UpdatedByInstallId { get; set; }
 }
 
 /// <summary>Error body shape assumed for non-2xx cloud responses: a stable machine code (e.g. "email_unverified", "invalid_credentials") plus a human message. RetryAt (ISO timestamp) is set for cooldown errors like username_cooldown.</summary>

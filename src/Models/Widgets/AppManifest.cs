@@ -247,6 +247,14 @@ public sealed class AppManifestCapabilities
     public bool Config { get; set; } = true;
 
     /// <summary>
+    /// Opt-in to the generic per-(app,key) persistent JSON document store.
+    /// Gates every <c>/apps-api/data/{appId}/{key}</c> route; false (default)
+    /// leaves the app with no persistent storage beyond its own settings.
+    /// </summary>
+    [JsonPropertyName("appData")]
+    public bool AppData { get; set; }
+
+    /// <summary>
     /// Opt-in Tier 2 capability. When <c>true</c>, the bundle must ship
     /// a <c>worker.js</c> alongside the manifest; the host spawns a Web
     /// Worker per widget instance and exposes the <c>nexus.*</c> API there.

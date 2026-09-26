@@ -63,6 +63,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Dictionary<string, HubCompositionSettings>))]
 [JsonSerializable(typeof(ProfileManifest))]
 [JsonSerializable(typeof(ProfileExport))]
+[JsonSerializable(typeof(AppDataFile))]
+[JsonSerializable(typeof(AppDataCloudState))]
 // Shared POCOs nested under NexusSettings root - picked up transitively but
 // listed explicitly so the source generator emits the proper converters.
 [JsonSerializable(typeof(ThemeSettings))]
