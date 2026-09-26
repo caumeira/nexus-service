@@ -17,9 +17,10 @@ public sealed class AppDataFile
     public AppDataCloudState? Cloud { get; set; }
 }
 
-/// <summary>Last known-synced state for one app-data document under the active cloud account, mirroring CloudProfileSyncRecord's role for profiles.</summary>
+/// <summary>Last known-synced state for one app-data document under one cloud account, mirroring CloudProfileSyncRecord's role for profiles. Scoped to <see cref="AccountId"/> because the file (unlike a profile's sync record, which lives under CloudAccountRecord) is not itself account-keyed: a doc synced under a previous account is treated as never synced when a different account is now signed in.</summary>
 public sealed class AppDataCloudState
 {
+    public string AccountId { get; set; } = "";
     public int Revision { get; set; }
     public string Hash { get; set; } = "";
     public string SyncedAt { get; set; } = "";

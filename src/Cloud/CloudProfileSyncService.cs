@@ -319,7 +319,6 @@ public sealed class CloudProfileSyncService : BackgroundService
         }
         _dirtySince.Clear();
         _conflicts.Clear();
-        _appDataConflicts.Clear();
         lock (_overCapWarned)
         {
             _overCapWarned.Clear();
@@ -635,17 +634,16 @@ public sealed class CloudProfileSyncService : BackgroundService
     }
 
     // ── app-data sync (generic per-(app,key) persistent JSON documents) ────
+    //
+    // No user-facing conflict resolution: the user chose "back up to the
+    // account, newest document wins" for app data (unlike profiles, which
+    // keep an explicit picker). A doc's Cloud.AccountId gates whether its
+    // bookkeeping applies - synced under a different (or no) account, it
+    // reads as never synced, so the first sync after switching accounts
+    // resolves every doc by push/pull/newest-wins rather than trusting stale
+    // revision/hash bookkeeping from the old account.
 
-    private readonly ConcurrentDictionary<string, CloudAppDataSyncConflict> _appDataConflicts = new(StringComparer.Ordinal);
-
-    internal sealed record CloudAppDataSyncConflict(string AppId, string Key, int CloudRevision, string? CloudUpdatedAt, string? CloudUpdatedByInstallId);
-
-    /// <summary>Read-only snapshot of unresolved app-data conflicts, keyed "appId/key". No HTTP route surfaces these yet - the contract that introduced app-data sync asked only for detection plus a resolver, not a specific wire shape, so this stays internal until a caller needs it.</summary>
-    internal IReadOnlyCollection<CloudAppDataSyncConflict> AppDataConflicts => _appDataConflicts.Values.ToList();
-
-    private static string AppDataConflictKey(string appId, string key) => appId + "/" + key;
-
-    /// <summary>Same push/pull/conflict/tombstone matrix as the profile loop, run once per account (app data has no per-profile scoping) against every appId/key this machine has locally or the account has in the cloud.</summary>
+    /// <summary>Same account-scoped local/cloud lookup CloudSyncDecision.Decide expects, but "local missing, cloud exists" pulls unconditionally (app data auto-restores after reinstall; profiles do not) and a genuine two-sided divergence resolves by newest updatedAt instead of surfacing a conflict.</summary>
     private async Task SyncAppDataAsync(string accountId, CancellationToken ct)
     {
         var listResult = await _accounts.WithAuthAsync(accountId, token => _api.ListAppDataAsync(token, ct), ct).ConfigureAwait(false);
@@ -666,69 +664,108 @@ public sealed class CloudProfileSyncService : BackgroundService
             ct.ThrowIfCancellationRequested();
             var local = _appData.TryRead(appId, key);
             var cloudRow = cloudRows.FirstOrDefault(r => r.AppId == appId && r.Key == key);
+            var syncedForThisAccount = local?.Cloud is { } cloud && cloud.AccountId == accountId ? cloud : null;
             var localHash = local is not null ? HashAppData(local.Data) : null;
 
-            // CloudSyncDecision.Decide treats "local missing, cloud exists" as
-            // None for profiles - deleting a profile must not resurrect it from
-            // its own backup. App data has no delete UI or explicit-import flow
-            // in this round; a missing local copy always means "never written
-            // here yet" (fresh install) or "restore after reinstall", both of
-            // which the contract requires to auto-pull.
-            var action = local is null && cloudRow is not null
-                ? CloudSyncAction.Pull
-                : CloudSyncDecision.Decide(
-                    localExists: local is not null,
-                    localHash: localHash,
-                    cloudExists: cloudRow is not null,
-                    cloudRevision: cloudRow?.Revision ?? 0,
-                    hasSyncRecord: local?.Cloud is not null,
-                    syncedRevision: local?.Cloud?.Revision ?? 0,
-                    syncedHash: local?.Cloud?.Hash);
-
-            switch (action)
+            if (local is null && cloudRow is null)
             {
-                case CloudSyncAction.None:
-                    _appDataConflicts.TryRemove(AppDataConflictKey(appId, key), out _);
-                    break;
-
-                case CloudSyncAction.Push:
-                    await PushAppDataAsync(accountId, appId, key, local!.Data, localHash!, local.Cloud?.Revision ?? 0, ct).ConfigureAwait(false);
-                    break;
-
-                case CloudSyncAction.Pull:
-                    await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
-                    _appDataConflicts.TryRemove(AppDataConflictKey(appId, key), out _);
-                    break;
-
-                case CloudSyncAction.Conflict:
-                    _appDataConflicts[AppDataConflictKey(appId, key)] =
-                        new CloudAppDataSyncConflict(appId, key, cloudRow!.Revision, cloudRow.UpdatedAt, cloudRow.UpdatedByInstallId);
-                    break;
-
-                case CloudSyncAction.DeleteRemote:
-                    await _accounts.WithAuthAsync(accountId, token => _api.DeleteAppDataAsync(token, appId, key, ct), ct).ConfigureAwait(false);
-                    break;
-
-                case CloudSyncAction.DeleteLocal:
-                    // App data has no "last document" guard like ProfileManager's
-                    // last-profile rule - dropping the local file is always safe.
+                continue;
+            }
+            if (local is null)
+            {
+                await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
+                continue;
+            }
+            if (cloudRow is null)
+            {
+                if (syncedForThisAccount is not null)
+                {
+                    // Synced before under this account, now gone from the
+                    // cloud - another machine (or the account holder) deleted
+                    // it there.
                     _appData.Delete(appId, key);
-                    break;
+                }
+                else
+                {
+                    await PushAppDataAsync(accountId, appId, key, local.Data, localHash!, 0, ct).ConfigureAwait(false);
+                }
+                continue;
+            }
+
+            if (syncedForThisAccount is null)
+            {
+                // Never synced under this account (fresh doc, or synced under
+                // a different account previously) and both sides now exist -
+                // newest updatedAt wins; a tie keeps the local copy.
+                var localNewer = CompareUpdatedAt(local.UpdatedAt, cloudRow.UpdatedAt) >= 0;
+                if (localNewer)
+                {
+                    await PushAppDataAsync(accountId, appId, key, local.Data, localHash!, cloudRow.Revision, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
+                }
+                continue;
+            }
+
+            var localClean = string.Equals(localHash, syncedForThisAccount.Hash, StringComparison.Ordinal);
+            var cloudMoved = cloudRow.Revision > syncedForThisAccount.Revision;
+            if (localClean && !cloudMoved)
+            {
+                continue;
+            }
+            if (localClean)
+            {
+                await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
+            }
+            else if (!cloudMoved)
+            {
+                await PushAppDataAsync(accountId, appId, key, local.Data, localHash!, syncedForThisAccount.Revision, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                // Both sides moved past the same synced base - newest
+                // updatedAt wins, same rule as the never-synced case above.
+                var localNewer = CompareUpdatedAt(local.UpdatedAt, cloudRow.UpdatedAt) >= 0;
+                if (localNewer)
+                {
+                    await PushAppDataAsync(accountId, appId, key, local.Data, localHash!, cloudRow.Revision, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
+                }
             }
         }
     }
 
+    /// <summary>Ties (including two unparsable timestamps) return >= 0 (local wins), matching the "ties keep local" rule.</summary>
+    private static int CompareUpdatedAt(string? local, string? cloud)
+    {
+        var localOk = DateTimeOffset.TryParse(local, out var localTime);
+        var cloudOk = DateTimeOffset.TryParse(cloud, out var cloudTime);
+        if (!localOk && !cloudOk) return 0;
+        if (!localOk) return -1;
+        if (!cloudOk) return 1;
+        return localTime.CompareTo(cloudTime);
+    }
+
+    /// <summary>Pushes at <paramref name="baseRevision"/>; on a 409 (another writer landed a revision in between) re-reads the cloud document once and retries at its current revision, then gives up for this pass.</summary>
     private async Task PushAppDataAsync(string accountId, string appId, string key, JsonElement data, string hash, int baseRevision, CancellationToken ct)
     {
-        var request = new CloudPutAppDataRequest { BaseRevision = baseRevision, Payload = data, InstallId = OwnInstallId() };
-        var result = await _accounts.WithAuthAsync(accountId, token => _api.PutAppDataAsync(token, appId, key, request, ct), ct).ConfigureAwait(false);
+        var result = await PutAppDataOnceAsync(accountId, appId, key, data, baseRevision, ct).ConfigureAwait(false);
 
-        if (result.StatusCode == 409 && result.Value is { Revision: not null })
+        if (result.StatusCode == 409)
         {
-            _appDataConflicts[AppDataConflictKey(appId, key)] =
-                new CloudAppDataSyncConflict(appId, key, result.Value.Revision!.Value, result.Value.UpdatedAt, result.Value.UpdatedByInstallId);
-            return;
+            var current = await _accounts.WithAuthAsync(accountId, token => _api.GetAppDataAsync(token, appId, key, ct), ct).ConfigureAwait(false);
+            if (!current.Success)
+            {
+                return;
+            }
+            result = await PutAppDataOnceAsync(accountId, appId, key, data, current.Value?.Revision ?? baseRevision, ct).ConfigureAwait(false);
         }
+
         if (!result.Success || result.Value?.Revision is not { } revision)
         {
             return;
@@ -736,10 +773,18 @@ public sealed class CloudProfileSyncService : BackgroundService
 
         _appData.SetCloudState(appId, key, new AppDataCloudState
         {
+            AccountId = accountId,
             Revision = revision,
             Hash = hash,
-            SyncedAt = (result.Value.UpdatedAt ?? DateTimeOffset.UtcNow.ToString("o")),
+            SyncedAt = result.Value.UpdatedAt ?? DateTimeOffset.UtcNow.ToString("o"),
         });
+        Console.WriteLine($"[cloud-sync] app-data push {appId}/{key} -> revision {revision} ({Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(data, PersistenceJsonContext.Default.JsonElement))} bytes)");
+    }
+
+    private Task<CloudApiResult<CloudPutAppDataResult>> PutAppDataOnceAsync(string accountId, string appId, string key, JsonElement data, int baseRevision, CancellationToken ct)
+    {
+        var request = new CloudPutAppDataRequest { BaseRevision = baseRevision, Payload = data, InstallId = OwnInstallId() };
+        return _accounts.WithAuthAsync(accountId, token => _api.PutAppDataAsync(token, appId, key, request, ct), ct);
     }
 
     private async Task PullAppDataAsync(string accountId, string appId, string key, CancellationToken ct)
@@ -753,10 +798,12 @@ public sealed class CloudProfileSyncService : BackgroundService
         var hash = HashAppData(payload);
         _appData.Import(appId, key, payload, new AppDataCloudState
         {
+            AccountId = accountId,
             Revision = result.Value.Revision,
             Hash = hash,
             SyncedAt = result.Value.UpdatedAt ?? DateTimeOffset.UtcNow.ToString("o"),
         });
+        Console.WriteLine($"[cloud-sync] app-data pull {appId}/{key} -> revision {result.Value.Revision} ({Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(payload, PersistenceJsonContext.Default.JsonElement))} bytes)");
     }
 
     internal static string HashAppData(JsonElement data)
