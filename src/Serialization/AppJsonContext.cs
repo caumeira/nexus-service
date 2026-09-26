@@ -1055,6 +1055,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AppDataPutRequest))]
 [JsonSerializable(typeof(AppDataDocumentDto))]
 [JsonSerializable(typeof(AppDataPutResultDto))]
+[JsonSerializable(typeof(AppDataCloudEnvelope))]
 
 // OTA self-update routes + GitHub provider DTOs
 [JsonSerializable(typeof(UpdateStatusResponse))]

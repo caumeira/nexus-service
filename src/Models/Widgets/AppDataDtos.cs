@@ -32,3 +32,21 @@ public sealed class AppDataPutResultDto
     public int Revision { get; set; }
     public string UpdatedAt { get; set; } = "";
 }
+
+/// <summary>
+/// Shape the service (not nexus-api) sends as the cloud row's <c>payload</c>
+/// for account-wide app-data sync. nexus-api's <c>updatedAt</c> on that row is
+/// upload time, not edit time - two machines racing to sync would otherwise
+/// let whichever one uploads LAST win regardless of which one actually edited
+/// last. Wrapping the true edit time here lets CloudProfileSyncService compare
+/// edit times instead of upload times. A payload without <see cref="NexusAppData"/>
+/// set to 1 is a document from before this envelope existed, or a payload sent
+/// some other way; it is read as raw data with editedAt falling back to the
+/// row's own updatedAt.
+/// </summary>
+public sealed class AppDataCloudEnvelope
+{
+    public int NexusAppData { get; set; } = 1;
+    public string EditedAt { get; set; } = "";
+    public JsonElement Data { get; set; }
+}

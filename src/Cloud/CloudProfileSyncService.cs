@@ -11,6 +11,7 @@ using Microsoft.Extensions.Hosting;
 using Nexus.Service.Cooling;
 using Nexus.Service.Models.Cloud;
 using Nexus.Service.Models.Profiles;
+using Nexus.Service.Models.Widgets;
 using Nexus.Service.Persistence;
 using Nexus.Service.Serialization;
 using Nexus.Service.Widgets;
@@ -643,7 +644,7 @@ public sealed class CloudProfileSyncService : BackgroundService
     // resolves every doc by push/pull/newest-wins rather than trusting stale
     // revision/hash bookkeeping from the old account.
 
-    /// <summary>Same account-scoped local/cloud lookup CloudSyncDecision.Decide expects, but "local missing, cloud exists" pulls unconditionally (app data auto-restores after reinstall; profiles do not) and a genuine two-sided divergence resolves by newest updatedAt instead of surfacing a conflict.</summary>
+    /// <summary>Same account-scoped local/cloud lookup CloudSyncDecision.Decide expects, but "local missing, cloud exists" pulls unconditionally (app data auto-restores after reinstall; profiles do not) and a genuine two-sided divergence resolves by newest edit time instead of surfacing a conflict.</summary>
     private async Task SyncAppDataAsync(string accountId, CancellationToken ct)
     {
         var listResult = await _accounts.WithAuthAsync(accountId, token => _api.ListAppDataAsync(token, ct), ct).ConfigureAwait(false);
@@ -676,6 +677,7 @@ public sealed class CloudProfileSyncService : BackgroundService
                 await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
                 continue;
             }
+            var localEditedAt = EffectiveEditedAt(local, localHash!);
             if (cloudRow is null)
             {
                 if (syncedForThisAccount is not null)
@@ -687,61 +689,70 @@ public sealed class CloudProfileSyncService : BackgroundService
                 }
                 else
                 {
-                    await PushAppDataAsync(accountId, appId, key, local.Data, localHash!, 0, ct).ConfigureAwait(false);
+                    await PushAppDataAsync(accountId, appId, key, local.Data, localEditedAt, localHash!, 0, ct).ConfigureAwait(false);
                 }
                 continue;
             }
 
-            if (syncedForThisAccount is null)
+            if (syncedForThisAccount is not null)
             {
-                // Never synced under this account (fresh doc, or synced under
-                // a different account previously) and both sides now exist -
-                // newest updatedAt wins; a tie keeps the local copy.
-                var localNewer = CompareUpdatedAt(local.UpdatedAt, cloudRow.UpdatedAt) >= 0;
-                if (localNewer)
+                var localClean = string.Equals(localHash, syncedForThisAccount.Hash, StringComparison.Ordinal);
+                var cloudMoved = cloudRow.Revision > syncedForThisAccount.Revision;
+                if (localClean && !cloudMoved)
                 {
-                    await PushAppDataAsync(accountId, appId, key, local.Data, localHash!, cloudRow.Revision, ct).ConfigureAwait(false);
+                    continue;
                 }
-                else
+                if (localClean)
                 {
                     await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
+                    continue;
                 }
-                continue;
+                if (!cloudMoved)
+                {
+                    await PushAppDataAsync(accountId, appId, key, local.Data, localEditedAt, localHash!, syncedForThisAccount.Revision, ct).ConfigureAwait(false);
+                    continue;
+                }
             }
 
-            var localClean = string.Equals(localHash, syncedForThisAccount.Hash, StringComparison.Ordinal);
-            var cloudMoved = cloudRow.Revision > syncedForThisAccount.Revision;
-            if (localClean && !cloudMoved)
+            // Never synced under this account, or both sides moved past the
+            // same synced base: the list endpoint's updatedAt is upload time,
+            // not edit time, so the real comparison needs the cloud row's
+            // unwrapped envelope - fetched here rather than trusted from the
+            // list.
+            var current = await _accounts.WithAuthAsync(accountId, token => _api.GetAppDataAsync(token, appId, key, ct), ct).ConfigureAwait(false);
+            if (!current.Success || current.Value?.Payload is not { } currentPayload)
             {
                 continue;
             }
-            if (localClean)
+            var (cloudData, cloudEditedAt) = UnwrapCloudPayload(currentPayload, current.Value.UpdatedAt);
+            var localNewer = CompareEditedAt(localEditedAt, cloudEditedAt) >= 0;
+            if (localNewer)
             {
-                await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
-            }
-            else if (!cloudMoved)
-            {
-                await PushAppDataAsync(accountId, appId, key, local.Data, localHash!, syncedForThisAccount.Revision, ct).ConfigureAwait(false);
+                await PushAppDataAsync(accountId, appId, key, local.Data, localEditedAt, localHash!, current.Value.Revision, ct).ConfigureAwait(false);
             }
             else
             {
-                // Both sides moved past the same synced base - newest
-                // updatedAt wins, same rule as the never-synced case above.
-                var localNewer = CompareUpdatedAt(local.UpdatedAt, cloudRow.UpdatedAt) >= 0;
-                if (localNewer)
-                {
-                    await PushAppDataAsync(accountId, appId, key, local.Data, localHash!, cloudRow.Revision, ct).ConfigureAwait(false);
-                }
-                else
-                {
-                    await PullAppDataAsync(accountId, appId, key, ct).ConfigureAwait(false);
-                }
+                ApplyPulledDoc(accountId, appId, key, current.Value.Revision, cloudEditedAt, cloudData);
             }
         }
     }
 
+    /// <summary>
+    /// A doc's edit time for newest-wins purposes. The local file's own
+    /// UpdatedAt is write time, which for an untouched pulled/imported copy is
+    /// only the download time, not when the content was actually edited -
+    /// using it directly would let a machine that merely downloaded a doc
+    /// outrank the machine that actually edited it. Falls back to UpdatedAt
+    /// only when the content has moved since the last synced Hash, which
+    /// means UpdatedAt now IS a genuine edit's write time.
+    /// </summary>
+    private static string EffectiveEditedAt(AppDataFile local, string localHash) =>
+        local.Cloud is { EditedAt.Length: > 0 } cloud && string.Equals(cloud.Hash, localHash, StringComparison.Ordinal)
+            ? cloud.EditedAt
+            : local.UpdatedAt;
+
     /// <summary>Ties (including two unparsable timestamps) return >= 0 (local wins), matching the "ties keep local" rule.</summary>
-    private static int CompareUpdatedAt(string? local, string? cloud)
+    private static int CompareEditedAt(string? local, string? cloud)
     {
         var localOk = DateTimeOffset.TryParse(local, out var localTime);
         var cloudOk = DateTimeOffset.TryParse(cloud, out var cloudTime);
@@ -751,10 +762,33 @@ public sealed class CloudProfileSyncService : BackgroundService
         return localTime.CompareTo(cloudTime);
     }
 
-    /// <summary>Pushes at <paramref name="baseRevision"/>; on a 409 (another writer landed a revision in between) re-reads the cloud document once and retries at its current revision, then gives up for this pass.</summary>
-    private async Task PushAppDataAsync(string accountId, string appId, string key, JsonElement data, string hash, int baseRevision, CancellationToken ct)
+    /// <summary>The service's own cloud payload envelope (see AppDataCloudEnvelope) carries the document's true edit time separately from nexus-api's row-level updatedAt (upload time). A payload without the marker predates the envelope or came from elsewhere - read as raw data with editedAt falling back to the row's updatedAt.</summary>
+    private static (JsonElement Data, string EditedAt) UnwrapCloudPayload(JsonElement payload, string? rowUpdatedAt)
     {
-        var result = await PutAppDataOnceAsync(accountId, appId, key, data, baseRevision, ct).ConfigureAwait(false);
+        if (payload.ValueKind == JsonValueKind.Object
+            && payload.TryGetProperty("nexusAppData", out var marker)
+            && marker.ValueKind == JsonValueKind.Number
+            && marker.TryGetInt32(out var version) && version == 1
+            && payload.TryGetProperty("data", out var data))
+        {
+            var editedAt = payload.TryGetProperty("editedAt", out var e) && e.ValueKind == JsonValueKind.String
+                ? e.GetString() ?? rowUpdatedAt ?? ""
+                : rowUpdatedAt ?? "";
+            return (data.Clone(), editedAt);
+        }
+        return (payload, rowUpdatedAt ?? "");
+    }
+
+    private static JsonElement WrapCloudPayload(JsonElement data, string editedAt) =>
+        JsonSerializer.SerializeToElement(
+            new AppDataCloudEnvelope { NexusAppData = 1, EditedAt = editedAt, Data = data },
+            AppJsonContext.Default.AppDataCloudEnvelope);
+
+    /// <summary>Pushes at <paramref name="baseRevision"/>; on a 409 (another writer landed a revision in between) re-reads the cloud document once and retries at its current revision, then gives up for this pass.</summary>
+    private async Task PushAppDataAsync(string accountId, string appId, string key, JsonElement data, string editedAt, string hash, int baseRevision, CancellationToken ct)
+    {
+        var envelope = WrapCloudPayload(data, editedAt);
+        var result = await PutAppDataOnceAsync(accountId, appId, key, envelope, baseRevision, ct).ConfigureAwait(false);
 
         if (result.StatusCode == 409)
         {
@@ -763,7 +797,7 @@ public sealed class CloudProfileSyncService : BackgroundService
             {
                 return;
             }
-            result = await PutAppDataOnceAsync(accountId, appId, key, data, current.Value?.Revision ?? baseRevision, ct).ConfigureAwait(false);
+            result = await PutAppDataOnceAsync(accountId, appId, key, envelope, current.Value?.Revision ?? baseRevision, ct).ConfigureAwait(false);
         }
 
         if (!result.Success || result.Value?.Revision is not { } revision)
@@ -776,14 +810,15 @@ public sealed class CloudProfileSyncService : BackgroundService
             AccountId = accountId,
             Revision = revision,
             Hash = hash,
+            EditedAt = editedAt,
             SyncedAt = result.Value.UpdatedAt ?? DateTimeOffset.UtcNow.ToString("o"),
         });
         Console.WriteLine($"[cloud-sync] app-data push {appId}/{key} -> revision {revision} ({Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(data, PersistenceJsonContext.Default.JsonElement))} bytes)");
     }
 
-    private Task<CloudApiResult<CloudPutAppDataResult>> PutAppDataOnceAsync(string accountId, string appId, string key, JsonElement data, int baseRevision, CancellationToken ct)
+    private Task<CloudApiResult<CloudPutAppDataResult>> PutAppDataOnceAsync(string accountId, string appId, string key, JsonElement envelope, int baseRevision, CancellationToken ct)
     {
-        var request = new CloudPutAppDataRequest { BaseRevision = baseRevision, Payload = data, InstallId = OwnInstallId() };
+        var request = new CloudPutAppDataRequest { BaseRevision = baseRevision, Payload = envelope, InstallId = OwnInstallId() };
         return _accounts.WithAuthAsync(accountId, token => _api.PutAppDataAsync(token, appId, key, request, ct), ct);
     }
 
@@ -794,16 +829,22 @@ public sealed class CloudProfileSyncService : BackgroundService
         {
             return;
         }
+        var (data, editedAt) = UnwrapCloudPayload(payload, result.Value.UpdatedAt);
+        ApplyPulledDoc(accountId, appId, key, result.Value.Revision, editedAt, data);
+    }
 
-        var hash = HashAppData(payload);
-        _appData.Import(appId, key, payload, new AppDataCloudState
+    private void ApplyPulledDoc(string accountId, string appId, string key, int revision, string editedAt, JsonElement data)
+    {
+        var hash = HashAppData(data);
+        _appData.Import(appId, key, data, new AppDataCloudState
         {
             AccountId = accountId,
-            Revision = result.Value.Revision,
+            Revision = revision,
             Hash = hash,
-            SyncedAt = result.Value.UpdatedAt ?? DateTimeOffset.UtcNow.ToString("o"),
+            EditedAt = editedAt,
+            SyncedAt = DateTimeOffset.UtcNow.ToString("o"),
         });
-        Console.WriteLine($"[cloud-sync] app-data pull {appId}/{key} -> revision {result.Value.Revision} ({Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(payload, PersistenceJsonContext.Default.JsonElement))} bytes)");
+        Console.WriteLine($"[cloud-sync] app-data pull {appId}/{key} -> revision {revision} ({Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(data, PersistenceJsonContext.Default.JsonElement))} bytes)");
     }
 
     internal static string HashAppData(JsonElement data)

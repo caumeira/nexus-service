@@ -24,4 +24,15 @@ public sealed class AppDataCloudState
     public int Revision { get; set; }
     public string Hash { get; set; } = "";
     public string SyncedAt { get; set; } = "";
+
+    /// <summary>
+    /// The document's true edit time as of this sync record, distinct from
+    /// the local file's own <see cref="AppDataFile.UpdatedAt"/>: a pull
+    /// stamps UpdatedAt with the write time of the import itself, which is
+    /// not when the content was actually edited upstream. A future
+    /// newest-wins comparison against unchanged content (Hash still matches)
+    /// uses this instead of UpdatedAt, so an import is never mistaken for a
+    /// fresh local edit.
+    /// </summary>
+    public string EditedAt { get; set; } = "";
 }
