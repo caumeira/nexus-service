@@ -81,21 +81,36 @@ public sealed class CloudAppDataSyncTests : IDisposable
         return doc.RootElement.Clone();
     }
 
+    /// <summary>
+    /// A doc with no cloud metadata at all - local play before the first
+    /// sign-in - must be ADOPTED (pushed at baseRevision 0) when the
+    /// signed-in account has no cloud copy yet, never archived: archiving it
+    /// here would reset a player's progress the first time they sign in.
+    /// Archiving only applies once the account already has real cloud
+    /// progress to protect (see the "already has progress" test below) or the
+    /// doc belongs to a DIFFERENT account.
+    /// </summary>
     [Fact]
-    public async Task A_local_only_document_with_no_cloud_row_is_adopted_by_this_account()
+    public async Task A_local_only_doc_is_pushed_when_the_account_has_no_cloud_copy()
     {
         SeedAccount(AccountId, "refresh-1");
         _appData.Put(AppId, Key, 0, Json("""{"a":1}"""));
         _api.OnListAppData = _ => CloudApiResult<List<CloudAppDataSummaryDto>>.Ok(new List<CloudAppDataSummaryDto>());
-        _api.OnPutAppData = (_, _, _, _) => CloudApiResult<CloudPutAppDataResult>.Ok(new CloudPutAppDataResult { Revision = 1, UpdatedAt = "t" });
+        _api.OnPutAppData = (_, _, _, body) =>
+        {
+            Assert.Equal(0, body.BaseRevision); // adopted, not merged against anything
+            return CloudApiResult<CloudPutAppDataResult>.Ok(new CloudPutAppDataResult { Revision = 1, UpdatedAt = "t" });
+        };
 
         await _sync.RunSyncPassAsync(AccountId, CancellationToken.None);
 
         Assert.Equal(1, _api.PutAppDataCalls);
         var stored = _appData.TryRead(AppId, Key);
-        Assert.NotNull(stored!.Cloud);
+        Assert.Equal(1, stored!.Data.GetProperty("a").GetInt32()); // the local doc survives, unarchived
+        Assert.NotNull(stored.Cloud);
         Assert.Equal(AccountId, stored.Cloud!.AccountId);
         Assert.Equal(1, stored.Cloud.Revision);
+        Assert.Null(ReadArchivedDoc("local", AppId, Key));
     }
 
     [Fact]
