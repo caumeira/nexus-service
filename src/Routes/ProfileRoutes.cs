@@ -144,29 +144,21 @@ public static class ProfileRoutes
 
         app.MapGet("/profiles/{id}/export", (string id, string? format, ProfileManager pm, AppDataStore appDataStore) =>
         {
-            if (string.Equals(format, "archive", StringComparison.OrdinalIgnoreCase))
+            var json = pm.ExportProfileJson(id);
+            if (json == null)
             {
-                var json = pm.ExportProfileJson(id);
-                if (json == null)
-                {
-                    return Results.NotFound(ApiResponse.Fail("Profile not found."));
-                }
-                var docs = appDataStore.EnumerateAll()
-                    .Select(t => (t.AppId, t.Key, Doc: appDataStore.TryRead(t.AppId, t.Key)))
-                    .Where(t => t.Doc is not null)
-                    .Select(t => (t.AppId, t.Key, Doc: t.Doc!));
-                var zipBytes = ProfileArchivePackage.Write(json, docs);
-                return Results.File(zipBytes, "application/zip", $"{id}.nexusprofile");
+                return Results.NotFound(ApiResponse.Fail("Profile not found."));
             }
-            else
+            if (!string.Equals(format, "archive", StringComparison.OrdinalIgnoreCase))
             {
-                var json = pm.ExportProfileJson(id);
-                if (json == null)
-                {
-                    return Results.NotFound(ApiResponse.Fail("Profile not found."));
-                }
                 return Results.Text(json, "application/json");
             }
+            var docs = appDataStore.EnumerateAll()
+                .Select(t => (t.AppId, t.Key, Doc: appDataStore.TryRead(t.AppId, t.Key)))
+                .Where(t => t.Doc is not null)
+                .Select(t => (t.AppId, t.Key, Doc: t.Doc!));
+            var zipBytes = ProfileArchivePackage.Write(json, docs);
+            return Results.File(zipBytes, "application/zip", $"{id}.nexusprofile");
         });
 
         app.MapPost("/profiles/import", async (HttpRequest req, ProfileManager pm, MultiplexHub hub,

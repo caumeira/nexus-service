@@ -344,10 +344,15 @@ public static class AppRoutes
 
         app.MapPut("/apps-api/data/{appId}/{key}",
             (string appId, string key, AppDataPutRequest body, AppRegistry registry, AppDataStore appDataStore,
-             AppDataWriteRateLimiter limiter, MultiplexHub hub) =>
+             AppDataWriteRateLimiter limiter) =>
         {
             var gate = CheckAppDataAccess(appId, key, registry);
             if (gate is not null) return gate;
+
+            if (body.Data.ValueKind == System.Text.Json.JsonValueKind.Undefined)
+            {
+                return Results.Json(ApiResponse.Fail("data is required"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+            }
 
             if (!limiter.TryAcquire(appId))
             {
@@ -369,8 +374,9 @@ public static class AppRoutes
                         new AppDataDocumentDto { Revision = result.Revision, UpdatedAt = result.UpdatedAt, Data = result.Data },
                         AppJsonContext.Default.AppDataDocumentDto, statusCode: 409);
                 default:
-                    AppDataTopics.Broadcast(hub, appId, key,
-                        new AppDataDocumentDto { Revision = result.Revision, UpdatedAt = result.UpdatedAt, Data = result.Data });
+                    // Broadcast rides AppDataStore.DocumentChanged (wired once
+                    // in DI), the single place every write path - PUT, cloud
+                    // sync, archive import - fans out from.
                     return Results.Json(new AppDataPutResultDto { Revision = result.Revision, UpdatedAt = result.UpdatedAt },
                         AppJsonContext.Default.AppDataPutResultDto);
             }

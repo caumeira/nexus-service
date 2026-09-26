@@ -68,7 +68,18 @@ public sealed class AppDataRoutesFactory : NexusAppFactory
 
             services.RemoveAll<AppDataStore>();
             var dataRoot = DataRoot;
-            services.AddSingleton(new AppDataStore(() => dataRoot));
+            services.AddSingleton(sp =>
+            {
+                var store = new AppDataStore(() => dataRoot);
+                var hub = sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>();
+                store.DocumentChanged += (appId, key) =>
+                {
+                    var (revision, updatedAt, data) = store.Get(appId, key);
+                    Nexus.Service.Sockets.AppDataTopics.Broadcast(hub, appId, key,
+                        new Nexus.Service.Models.Widgets.AppDataDocumentDto { Revision = revision, UpdatedAt = updatedAt, Data = data });
+                };
+                return store;
+            });
         });
     }
 
@@ -173,5 +184,41 @@ public sealed class AppDataRoutesIntegrationTests : IClassFixture<AppDataRoutesF
         var res = await client.GetAsync("/apps-api/data/NotValid/save");
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Put_without_a_data_field_is_refused_with_400_not_500()
+    {
+        var client = AuthedClient();
+        var res = await client.PutAsJsonAsync($"/apps-api/data/{AppDataRoutesFactory.AppId}/missing-data", new { baseRevision = 0 });
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_successful_put_broadcasts_the_new_document_over_the_multiplex_hub()
+    {
+        var client = AuthedClient();
+        var hub = _factory.Services.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>();
+        var topic = Nexus.Service.Sockets.AppDataTopics.TopicFor(AppDataRoutesFactory.AppId, "broadcast-key");
+        var captured = new List<byte[]>();
+        void OnBroadcast(string t, ReadOnlyMemory<byte> payload) { if (t == topic) captured.Add(payload.ToArray()); }
+        hub.OnBroadcastForTest += OnBroadcast;
+        using var sub = hub.AddTestSubscription(topic);
+
+        try
+        {
+            var res = await client.PutAsJsonAsync($"/apps-api/data/{AppDataRoutesFactory.AppId}/broadcast-key", new { baseRevision = 0, data = 42 });
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+            var frame = Assert.Single(captured);
+            var json = Encoding.UTF8.GetString(frame);
+            Assert.Contains("\"revision\":1", json);
+            Assert.Contains("\"data\":42", json);
+        }
+        finally
+        {
+            hub.OnBroadcastForTest -= OnBroadcast;
+        }
     }
 }

@@ -128,6 +128,16 @@ public sealed class AppDataStoreTests : IDisposable
     [InlineData(".save")]
     [InlineData("save/x")]
     [InlineData("save x")]
+    [InlineData("con")]
+    [InlineData("CON")]
+    [InlineData("con.bak")]
+    [InlineData("prn")]
+    [InlineData("aux")]
+    [InlineData("nul")]
+    [InlineData("com1")]
+    [InlineData("COM9")]
+    [InlineData("lpt1")]
+    [InlineData("lpt9.json")]
     public void Invalid_keys_are_rejected(string? key) => Assert.False(AppDataKeys.IsValid(key));
 
     [Fact]
@@ -174,7 +184,7 @@ public sealed class AppDataStoreTests : IDisposable
 
         var imported = _store.Import("com.test.app", "save", Json("99"));
 
-        Assert.Equal(3, imported.Revision);
+        Assert.Equal(3, imported!.Revision);
         var (revision, _, data) = _store.Get("com.test.app", "save");
         Assert.Equal(3, revision);
         Assert.Equal("99", data!.Value.GetRawText());
@@ -193,5 +203,136 @@ public sealed class AppDataStoreTests : IDisposable
         Assert.Contains(("com.test.app", "prefs"), all);
         Assert.Contains(("com.other.app", "save"), all);
         Assert.Equal(3, all.Count);
+    }
+
+    // ── rule 6: cloud sync imports are conditional on the decision's local revision ─
+
+    [Fact]
+    public void Import_with_a_matching_expectedRevision_writes_and_returns_the_new_file()
+    {
+        var seed = _store.Put("com.test.app", "save", 0, Json("1"));
+
+        var imported = _store.Import("com.test.app", "save", Json("2"), expectedRevision: seed.Revision);
+
+        Assert.NotNull(imported);
+        Assert.Equal(seed.Revision + 1, imported!.Revision);
+    }
+
+    [Fact]
+    public void Import_with_a_stale_expectedRevision_is_skipped_and_writes_nothing()
+    {
+        var seed = _store.Put("com.test.app", "save", 0, Json("1"));
+        _store.Put("com.test.app", "save", seed.Revision, Json("2")); // a real write happens between the decision and the import
+
+        var imported = _store.Import("com.test.app", "save", Json("\"cloud-value\""), expectedRevision: seed.Revision);
+
+        Assert.Null(imported);
+        var (revision, _, data) = _store.Get("com.test.app", "save");
+        Assert.Equal(seed.Revision + 1, revision);
+        Assert.Equal("2", data!.Value.GetRawText());
+    }
+
+    // ── rule 4: every public method validates its own appId/key ─────────
+
+    [Theory]
+    [InlineData("NotValid", "save")]
+    [InlineData("com.test.app", "BadKey")]
+    [InlineData("../escape", "save")]
+    [InlineData("com.test.app", "../escape")]
+    public void Every_public_method_rejects_an_invalid_appId_or_key(string appId, string key)
+    {
+        Assert.Throws<ArgumentException>(() => _store.Get(appId, key));
+        Assert.Throws<ArgumentException>(() => _store.TryRead(appId, key));
+        Assert.Throws<ArgumentException>(() => _store.Put(appId, key, 0, Json("1")));
+        Assert.Throws<ArgumentException>(() => _store.Import(appId, key, Json("1")));
+        Assert.Throws<ArgumentException>(() => _store.SetCloudState(appId, key, new Nexus.Service.Persistence.AppDataCloudState()));
+        Assert.Throws<ArgumentException>(() => _store.Delete(appId, key));
+        Assert.Throws<ArgumentException>(() => _store.ArchiveAndRemove(appId, key, "acct"));
+    }
+
+    // ── rule 5: DocumentChanged is the one broadcast hook every write path uses ─
+
+    [Fact]
+    public void DocumentChanged_fires_on_a_successful_put_but_not_on_a_rejected_one()
+    {
+        var fired = new List<(string AppId, string Key)>();
+        _store.DocumentChanged += (appId, key) => fired.Add((appId, key));
+
+        _store.Put("com.test.app", "save", 0, Json("1"));
+        Assert.Equal(new[] { ("com.test.app", "save") }, fired);
+
+        _store.Put("com.test.app", "save", 0, Json("2")); // stale base - conflict
+        Assert.Single(fired);
+    }
+
+    [Fact]
+    public void DocumentChanged_fires_on_import_delete_and_archive_but_not_on_SetCloudState()
+    {
+        _store.Put("com.test.app", "save", 0, Json("1"));
+        var fired = new List<string>();
+        _store.DocumentChanged += (_, key) => fired.Add(key);
+
+        _store.Import("com.test.app", "save", Json("2"));
+        Assert.Equal(new[] { "save" }, fired);
+
+        _store.SetCloudState("com.test.app", "save", new Nexus.Service.Persistence.AppDataCloudState { AccountId = "a", Revision = 1 });
+        Assert.Single(fired); // no visible document change
+
+        _store.ArchiveAndRemove("com.test.app", "save", "local");
+        Assert.Equal(new[] { "save", "save" }, fired);
+
+        _store.Put("com.test.app", "other", 0, Json("1"));
+        _store.Delete("com.test.app", "other");
+        Assert.Equal(new[] { "save", "save", "other", "other" }, fired);
+    }
+
+    [Fact]
+    public void DocumentChanged_does_not_fire_when_deleting_a_key_that_never_existed()
+    {
+        var fired = 0;
+        _store.DocumentChanged += (_, _) => fired++;
+
+        _store.Delete("com.test.app", "never-written");
+
+        Assert.Equal(0, fired);
+    }
+
+    // ── rule 2 plumbing: archive namespace, read back ────────────────────
+
+    [Fact]
+    public void ArchiveAndRemove_moves_the_document_out_of_the_live_store()
+    {
+        _store.Put("com.test.app", "save", 0, Json("""{"a":1}"""));
+
+        var archived = _store.ArchiveAndRemove("com.test.app", "save", "other-account");
+
+        Assert.True(archived);
+        Assert.Null(_store.TryRead("com.test.app", "save"));
+        var archivePath = Path.Combine(_root, ".archive", "other-account", "com.test.app", "save.json");
+        Assert.True(File.Exists(archivePath));
+    }
+
+    [Fact]
+    public void ArchiveAndRemove_on_a_document_that_does_not_exist_is_a_no_op()
+    {
+        Assert.False(_store.ArchiveAndRemove("com.test.app", "never-written", "local"));
+    }
+
+    // ── rule 9: the per-app key-count cap is checked under a per-app lock ─
+
+    [Fact]
+    public async Task Concurrent_puts_to_distinct_new_keys_never_exceed_the_per_app_key_cap()
+    {
+        var tasks = new Task<AppDataStore.PutResult>[AppDataStore.MaxKeysPerApp + 8];
+        for (var i = 0; i < tasks.Length; i++)
+        {
+            var key = $"k{i}";
+            tasks[i] = Task.Run(() => _store.Put("com.test.app", key, 0, Json("1")));
+        }
+        await Task.WhenAll(tasks);
+
+        var okCount = tasks.Count(t => t.Result.Outcome == AppDataStore.PutOutcome.Ok);
+        Assert.Equal(AppDataStore.MaxKeysPerApp, okCount);
+        Assert.Equal(AppDataStore.MaxKeysPerApp, _store.EnumerateAll().Count(t => t.AppId == "com.test.app"));
     }
 }
