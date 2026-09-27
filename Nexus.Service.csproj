@@ -837,6 +837,7 @@
     <Compile Remove="src/Lifecycle/MacStartupProvider.cs" />
     <Compile Remove="src/Lighting/Engine/Gpu/MacGlContext.cs" />
     <Compile Remove="src/Platform/Displays/MacDisplayBrightnessProvider.cs" />
+    <Compile Remove="src/Platform/Displays/MacDisplayOrientationProvider.cs" />
     <Compile Remove="src/Platform/Displays/MacDisplayTopologyProvider.cs" />
     <Compile Remove="src/Platform/Mac/MacAppBootstrap.cs" />
     <Compile Remove="src/Platform/Mac/MacAppWindow.cs" />

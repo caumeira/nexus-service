@@ -1482,11 +1482,16 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Platform.Displays.StubDisplayTopologyProvider>();
 #endif
 #if !WINDOWS
-        // Non-Windows monitor enumeration + display orientation are platform-agnostic.
+        // Non-Windows monitor enumeration is platform-agnostic.
         services.AddSingleton<Nexus.Service.Platform.IMonitorEnumerator,
             Nexus.Service.Platform.DefaultMonitorEnumerator>();
+#if MACOS
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayOrientationProvider,
+            Nexus.Service.Platform.Displays.MacDisplayOrientationProvider>();
+#else
         services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayOrientationProvider,
             Nexus.Service.Platform.Displays.NoopDisplayOrientationProvider>();
+#endif
         // No touch-mapping mechanism outside Windows; the stub snapshot
         // source always reports "no helper", so TouchMappingGuard stays a
         // permanent no-op and never reaches the registry writer/restarter.
@@ -1860,8 +1865,8 @@ public static class NexusServiceCollectionExtensions
 
         // Corsair Xeneon Edge auto-orientation + native settings: reads the
         // panel's hardware orientation sensor over vendor HID and applies the
-        // matching Windows display rotation. Cross-platform HID read like the
-        // Keeb workers; the apply side degrades to a no-op off Windows via
+        // matching OS display rotation (Windows and macOS). Cross-platform HID
+        // read like the Keeb workers; the apply side is a no-op on Linux via
         // NoopDisplayOrientationProvider. Registered as a plain singleton
         // (in addition to IHostedService below) so the /displays/{id}/xeneon-
         // settings routes can resolve it directly to reach

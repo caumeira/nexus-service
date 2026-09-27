@@ -72,6 +72,7 @@ public sealed class MacDisplayTopologyProvider : IDisplayTopologyProvider
                     Dpi = dpi,
                     IsPrimary = CGDisplayIsMain(handle.DisplayId) != 0,
                     IsInternal = handle.IsInternal,
+                    Orientation = DisplayOrientations.FromMacDegrees(CGDisplayRotation(handle.DisplayId)),
                 });
             }
         }
@@ -110,6 +111,9 @@ public sealed class MacDisplayTopologyProvider : IDisplayTopologyProvider
 
     [DllImport(CoreGraphics)]
     private static extern int CGDisplayIsMain(uint display);
+
+    [DllImport(CoreGraphics)]
+    private static extern double CGDisplayRotation(uint display);
 
     [DllImport(CoreGraphics)]
     private static extern IntPtr CGDisplayCopyDisplayMode(uint display);

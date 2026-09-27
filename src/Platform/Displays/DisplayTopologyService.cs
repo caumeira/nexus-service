@@ -21,9 +21,10 @@ public sealed class DisplayTopologyService
     public static bool HostingSupportedOnHost => HostingSupportedOverrideForTests
         ?? (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux());
 
-    /// <summary>Promoted-monitor rotation goes through ChangeDisplaySettingsEx;
-    /// macOS has no public rotation API and Linux layout is compositor-owned.</summary>
-    public static bool RotationSupportedOnHost => OperatingSystem.IsWindows();
+    /// <summary>Promoted-monitor rotation: ChangeDisplaySettingsEx on Windows,
+    /// the overlay helper's MonitorPanel call on macOS. Linux layout is
+    /// compositor-owned.</summary>
+    public static bool RotationSupportedOnHost => OperatingSystem.IsWindows() || OperatingSystem.IsMacOS();
 
     /// <summary>"Keep panel clear of other windows" is the overlay's
     /// PanelMonitorGuard, Windows-only. macOS kiosks sit above app windows

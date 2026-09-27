@@ -246,8 +246,9 @@ public static class DisplayRoutes
         });
 
         // Rotate any monitor by stable display id (promoted-panel settings).
-        // Runs through the user-session helper like the Y70 rotation; the
-        // resulting WM_DISPLAYCHANGE re-broadcasts the displays topic.
+        // Windows runs it through the user-session helper, macOS through the
+        // overlay helper's one-shot rotate mode; the OS display-change event
+        // re-broadcasts the displays topic.
         app.MapPost("/displays/{id}/rotation", (
             string id,
             DisplayRotationBody body,

@@ -16,9 +16,6 @@ public sealed unsafe class MacHidEnumerator : IHidEnumerator
 {
     private const string PathPrefix = "iokit:";
 
-    private readonly object _lock = new();
-    private IntPtr _manager;
-
     public IReadOnlyList<HidDeviceInfo> Find(int vendorId, int productId)
     {
         var all = FindAll();
@@ -40,13 +37,16 @@ public sealed unsafe class MacHidEnumerator : IHidEnumerator
             return Array.Empty<HidDeviceInfo>();
         }
         var result = new List<HidDeviceInfo>();
-        lock (_lock)
+        // A fresh manager per call: one never scheduled on a run loop keeps its
+        // first device set, so a replugged device (new registry id) never shows.
+        var manager = IOHIDManagerCreate(IntPtr.Zero, 0);
+        if (manager == IntPtr.Zero)
         {
-            var manager = EnsureManagerLocked();
-            if (manager == IntPtr.Zero)
-            {
-                return result;
-            }
+            return result;
+        }
+        try
+        {
+            IOHIDManagerSetDeviceMatching(manager, IntPtr.Zero);
             var set = IOHIDManagerCopyDevices(manager);
             if (set == IntPtr.Zero)
             {
@@ -78,6 +78,10 @@ public sealed unsafe class MacHidEnumerator : IHidEnumerator
             {
                 CFRelease(set);
             }
+        }
+        finally
+        {
+            CFRelease(manager);
         }
         return result;
     }
@@ -114,21 +118,6 @@ public sealed unsafe class MacHidEnumerator : IHidEnumerator
         }
         // forInput needs no distinct open mode here: the input run loop starts on the first Read.
         return new MacHidDevice(device, ReadInfo(device, path));
-    }
-
-    private IntPtr EnsureManagerLocked()
-    {
-        if (_manager != IntPtr.Zero)
-        {
-            return _manager;
-        }
-        _manager = IOHIDManagerCreate(IntPtr.Zero, 0);
-        if (_manager != IntPtr.Zero)
-        {
-            // NULL matching = every HID device; CopyDevices needs no run loop.
-            IOHIDManagerSetDeviceMatching(_manager, IntPtr.Zero);
-        }
-        return _manager;
     }
 
     private static string? PathFor(IntPtr device)
