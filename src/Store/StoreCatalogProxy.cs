@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -39,14 +40,14 @@ public sealed class StoreCatalogProxy
     }
 
     /// <summary>Storefront listing. Returns null when the catalog is unreachable.</summary>
-    public async Task<string?> ListAsync(string? nexusVersion, bool? touch, CancellationToken ct) =>
-        RewriteMedia(await GetAsync($"/store/apps{Query(nexusVersion, touch)}", ct));
+    public async Task<string?> ListAsync(string? nexusVersion, bool? touch, string? locale, CancellationToken ct) =>
+        RewriteMedia(await GetAsync($"/store/apps{Query(nexusVersion, touch, locale)}", ct));
 
     /// <summary>One app's store page. Returns null when unreachable or unknown.</summary>
-    public async Task<string?> DetailAsync(string appId, string? nexusVersion, bool? touch, CancellationToken ct)
+    public async Task<string?> DetailAsync(string appId, string? nexusVersion, bool? touch, string? locale, CancellationToken ct)
     {
         if (!AppIds.IsValid(appId)) return null;
-        return RewriteMedia(await GetAsync($"/store/apps/{appId}{Query(nexusVersion, touch)}", ct));
+        return RewriteMedia(await GetAsync($"/store/apps/{appId}{Query(nexusVersion, touch, locale)}", ct));
     }
 
     /// <summary>
@@ -123,11 +124,22 @@ public sealed class StoreCatalogProxy
         return GetAsync($"/store/apps/{appId}/download{q}", ct);
     }
 
-    private static string Query(string? nexusVersion, bool? touch)
+    /// <summary>The catalog query; the dashboard's language travels as a BCP 47 tag so listing copy comes back in it.</summary>
+    internal static string Query(string? nexusVersion, bool? touch, string? locale = null)
     {
         var q = $"?nexusVersion={Uri.EscapeDataString(nexusVersion ?? "")}";
         if (touch.HasValue) q += $"&touch={(touch.Value ? "true" : "false")}";
+        if (IsLocaleTag(locale)) q += $"&locale={locale}";
         return q;
+    }
+
+    /// <summary>A language, optionally a region or script: letters and digits only, so it needs no escaping.</summary>
+    internal static bool IsLocaleTag(string? tag)
+    {
+        if (string.IsNullOrEmpty(tag) || tag.Length > 12) return false;
+        var parts = tag.Split('-');
+        if (parts.Length > 2 || parts[0].Length is < 2 or > 3 || !parts[0].All(char.IsAsciiLetterLower)) return false;
+        return parts.Length == 1 || (parts[1].Length is >= 2 and <= 8 && parts[1].All(char.IsAsciiLetterOrDigit));
     }
 
     private async Task<string?> GetAsync(string path, CancellationToken ct)

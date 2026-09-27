@@ -12,7 +12,7 @@ internal static class StoreRelease
     /// <summary>Newest version this build can run, from the catalog route that takes no token and applies no storefront filter, so an unlisted app resolves.</summary>
     public static async Task<StoreCatalogVersion?> LatestAsync(StoreCatalogProxy catalog, string appId, string nexusVersion, CancellationToken ct)
     {
-        var body = await catalog.DetailAsync(appId, nexusVersion, null, ct).ConfigureAwait(false);
+        var body = await catalog.DetailAsync(appId, nexusVersion, null, null, ct).ConfigureAwait(false);
         if (string.IsNullOrEmpty(body)) return null;
         StoreCatalogApp? listing;
         try

@@ -121,7 +121,7 @@ public static class AppRoutes
             async (Nexus.Service.Store.StoreCatalogProxy proxy, HttpContext http, CancellationToken ct) =>
         {
             var body = await proxy.ListAsync(
-                http.Request.Query["nexusVersion"], ParseTouch(http), ct);
+                http.Request.Query["nexusVersion"], ParseTouch(http), http.Request.Query["locale"], ct);
             return body is null
                 ? Results.Json(ApiResponse.Fail("catalog unavailable"), AppJsonContext.Default.ApiResponse, statusCode: 503)
                 : Results.Content(body, "application/json");
@@ -130,7 +130,7 @@ public static class AppRoutes
         app.MapGet("/apps-api/store/apps/{appId}",
             async (string appId, Nexus.Service.Store.StoreCatalogProxy proxy, HttpContext http, CancellationToken ct) =>
         {
-            var body = await proxy.DetailAsync(appId, http.Request.Query["nexusVersion"], ParseTouch(http), ct);
+            var body = await proxy.DetailAsync(appId, http.Request.Query["nexusVersion"], ParseTouch(http), http.Request.Query["locale"], ct);
             return body is null
                 ? Results.Json(ApiResponse.Fail("not found"), AppJsonContext.Default.ApiResponse, statusCode: 404)
                 : Results.Content(body, "application/json");
