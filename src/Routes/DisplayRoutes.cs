@@ -28,6 +28,11 @@ public static class DisplayRoutes
     private static int _touchWizardActive;
 #endif
 
+    // Privacy_Accessibility on the Privacy & Security extension id; the legacy
+    // com.apple.preference.security id only reaches the top-level page.
+    private const string TouchPermissionSettingsUrl =
+        "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility";
+
     public static void MapDisplayEndpoints(this WebApplication app)
     {
 #if DEV_TOOLS
@@ -278,6 +283,50 @@ public static class DisplayRoutes
                 PanelTopics.BroadcastPanelDevice(hub, record.Id);
             }
             return Results.Ok(ApiResponse.Ok("rotated"));
+        });
+
+        // The macOS overlay helper reports whether its touchscreen event tap is
+        // live; a refused tap (no Privacy grant) surfaces as a panel warning.
+        app.MapPost("/displays/touch-routing", (
+            HttpContext ctx,
+            TouchRoutingReportBody body,
+            TouchRoutingStatus status,
+            PanelDeviceRegistry registry,
+            MultiplexHub hub,
+            TokenService tokens) =>
+        {
+            if (!ServiceTokenRequests.HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            if (!TouchRoutingStatus.IsValidState(body.State))
+                return Results.BadRequest(ApiResponse.Fail($"unknown touch routing state '{body.State}'"));
+            foreach (var displayId in status.Report(body.DisplayId ?? "", body.State))
+            {
+                var record = registry.FindByDisplayId(displayId);
+                if (record is not null)
+                    PanelTopics.BroadcastPanelDevice(hub, record.Id);
+            }
+            return Results.Ok(ApiResponse.Ok());
+        });
+
+        // Opens System Settings on the Privacy page that holds the touch
+        // router's grant ("Device Control and Data Access" on macOS 26+).
+        app.MapPost("/displays/touch-permission/open", (HttpContext ctx, TokenService tokens) =>
+        {
+            if (!ServiceTokenRequests.HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            if (!OperatingSystem.IsMacOS())
+                return Results.NotFound(ApiResponse.Fail("not supported on this platform"));
+            try
+            {
+                using var open = Process.Start("/usr/bin/open", TouchPermissionSettingsUrl);
+                return open is null
+                    ? Results.BadRequest(ApiResponse.Fail("could not open System Settings"))
+                    : Results.Ok(ApiResponse.Ok());
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(ApiResponse.Fail($"could not open System Settings: {ex.Message}"));
+            }
         });
 
         // Per-display DDC/CI opt-out. Off means Nexus sends this monitor no

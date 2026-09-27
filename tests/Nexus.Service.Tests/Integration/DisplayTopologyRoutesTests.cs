@@ -331,6 +331,71 @@ public sealed class DisplayTopologyRoutesTests
         }
     }
 
+    private static async Task<string?> WarningOf(HttpClient client, string recordId)
+    {
+        using var doc = JsonDocument.Parse(await client.GetStringAsync("/panel/devices"));
+        foreach (var device in doc.RootElement.GetProperty("devices").EnumerateArray())
+        {
+            if (device.GetProperty("id").GetString() != recordId) continue;
+            return device.TryGetProperty("warning", out var w) && w.ValueKind == JsonValueKind.String ? w.GetString() : null;
+        }
+        throw new InvalidOperationException($"record {recordId} not listed");
+    }
+
+    private static StringContent TouchReport(string displayId, string state)
+        => Json($"{{\"displayId\":\"{displayId}\",\"state\":\"{state}\"}}");
+
+    [Fact]
+    public async Task Touch_routing_report_flags_the_bound_panel_until_the_tap_is_live()
+    {
+        DisplayTopologyService.HostingSupportedOverrideForTests = true;
+        try
+        {
+            var (factory, client) = Boot();
+            using (factory)
+            {
+                var promote = await client.PostAsync($"/displays/{MonitorId}/panel", Json("{}"));
+                using var doc = JsonDocument.Parse(await promote.Content.ReadAsStringAsync());
+                var recordId = doc.RootElement.GetProperty("id").GetString()!;
+                Assert.Null(await WarningOf(client, recordId));
+
+                Assert.Equal(HttpStatusCode.OK,
+                    (await client.PostAsync("/displays/touch-routing", TouchReport(MonitorId, "permission-needed"))).StatusCode);
+                Assert.Equal("touch-permission", await WarningOf(client, recordId));
+                // Response-only: the stored record never carries it.
+                Assert.Null(factory.Services.GetRequiredService<PanelDeviceRegistry>().Get(recordId)?.Warning);
+
+                await client.PostAsync("/displays/touch-routing", TouchReport(MonitorId, "active"));
+                Assert.Null(await WarningOf(client, recordId));
+
+                await client.PostAsync("/displays/touch-routing", TouchReport(MonitorId, "permission-needed"));
+                await client.PostAsync("/displays/touch-routing", TouchReport("", "idle"));
+                Assert.Null(await WarningOf(client, recordId));
+            }
+        }
+        finally
+        {
+            DisplayTopologyService.HostingSupportedOverrideForTests = null;
+        }
+    }
+
+    [Fact]
+    public async Task Touch_routing_report_validates_state_and_requires_token()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            Assert.Equal(HttpStatusCode.BadRequest,
+                (await client.PostAsync("/displays/touch-routing", TouchReport(MonitorId, "bogus"))).StatusCode);
+
+            var anonymous = factory.CreateClient();
+            Assert.Equal(HttpStatusCode.Unauthorized,
+                (await anonymous.PostAsync("/displays/touch-routing", TouchReport(MonitorId, "active"))).StatusCode);
+            Assert.Equal(HttpStatusCode.Unauthorized,
+                (await anonymous.PostAsync("/displays/touch-permission/open", Json("{}"))).StatusCode);
+        }
+    }
+
     private sealed class FakeOrientationProvider : IDisplayOrientationProvider
     {
         public string? LastDisplayId;

@@ -143,6 +143,15 @@ public sealed class DisplayRotationBody
     public string Orientation { get; set; } = "";
 }
 
+/// <summary>Body for POST /displays/touch-routing (macOS overlay helper).</summary>
+public sealed class TouchRoutingReportBody
+{
+    /// <summary>Stable id of the display touch is routed to; "" when idle.</summary>
+    public string DisplayId { get; set; } = "";
+    /// <summary>"active" | "permission-needed" | "idle".</summary>
+    public string State { get; set; } = "";
+}
+
 /// <summary>GET /displays/assignments - the overlay's kiosk reconcile input.</summary>
 public sealed class DisplayAssignmentsResponse
 {
