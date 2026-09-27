@@ -84,14 +84,59 @@ public class UserSessionTaskXmlTests
     }
 
     [Theory]
-    [InlineData("USER", "USER", "USER\\USER")]
-    [InlineData("user", "USER", "USER\\user")]
-    [InlineData("nicol", "T1", "nicol")]
-    [InlineData("Bruno", "BRUNO-PC", "Bruno")]
-    [InlineData("CORP\\USER", "USER", "CORP\\USER")]
-    public void QualifiesOnlyAUserNamedLikeTheComputer(string username, string machine, string expected)
+    [InlineData("nicol", "T1")]
+    [InlineData("Bruno", "BRUNO-PC")]
+    [InlineData("CORP\\USER", "USER")]
+    public void KeepsTheBareNameUnlessTheUserIsNamedLikeTheComputer(string username, string machine)
     {
-        Assert.Equal(expected, UserSessionTaskXml.TaskPrincipal(username, machine));
+        var looked = false;
+        var principal = UserSessionTaskXml.TaskPrincipal(username, machine, () =>
+        {
+            looked = true;
+            return ("S-1-5-21-1-2-3-1001", "X\\x", username);
+        });
+
+        Assert.Equal((username, username), principal);
+        Assert.False(looked);
+    }
+
+    [Theory]
+    [InlineData("USER", "USER")]
+    [InlineData("user", "USER")]
+    public void UsesTheSessionAccountWhenTheUserIsNamedLikeTheComputer(string username, string machine)
+    {
+        var principal = UserSessionTaskXml.TaskPrincipal(
+            username, machine, () => ("S-1-12-1-1-2-3-4", "AzureAD\\USER", "USER"));
+
+        Assert.Equal(("S-1-12-1-1-2-3-4", "AzureAD\\USER"), principal);
+    }
+
+    [Fact]
+    public void KeepsTheSidWhenTheAccountNameDoesNotResolve()
+    {
+        var principal = UserSessionTaskXml.TaskPrincipal(
+            "USER", "USER", () => ("S-1-5-21-1-2-3-1001", null, "USER"));
+
+        Assert.Equal(("S-1-5-21-1-2-3-1001", "USER\\USER"), principal);
+    }
+
+    // The caller read the user name earlier; a session switched since then must
+    // not hand the task another user's account.
+    [Fact]
+    public void IgnoresASessionAccountThatBelongsToAnotherUser()
+    {
+        var principal = UserSessionTaskXml.TaskPrincipal(
+            "USER", "USER", () => ("S-1-5-21-1-2-3-1002", "USER\\bruno", "bruno"));
+
+        Assert.Equal(("USER\\USER", "USER\\USER"), principal);
+    }
+
+    [Fact]
+    public void QualifiesWithTheComputerWhenTheSessionAccountIsUnavailable()
+    {
+        var principal = UserSessionTaskXml.TaskPrincipal("user", "USER", () => null);
+
+        Assert.Equal(("USER\\user", "USER\\user"), principal);
     }
 
     // Sigma's "Suspicious Schtasks Schedule Types" matches ' ONCE ' on the

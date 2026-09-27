@@ -39,13 +39,27 @@ internal static class UserSessionTaskXml
     }
 
     /// <summary>
-    /// A bare user name equal to the computer name resolves to the computer, and
-    /// schtasks rejects it at UserId ("The parameter is incorrect"); qualify it.
+    /// Principals for the task XML's UserId and for schtasks /RU. A bare user name
+    /// equal to the computer name resolves to the computer, and schtasks rejects it
+    /// at UserId ("The parameter is incorrect"), so that case registers the session
+    /// account's SID instead, and its LSA name for /RU, which refuses SIDs. The
+    /// session account is used only while that session still belongs to username.
     /// </summary>
-    internal static string TaskPrincipal(string username, string machineName) =>
-        string.Equals(username, machineName, StringComparison.OrdinalIgnoreCase)
-            ? $"{machineName}\\{username}"
-            : username;
+    internal static (string UserId, string RunAs) TaskPrincipal(
+        string username, string machineName, Func<(string Sid, string? Name, string User)?> sessionAccount)
+    {
+        if (!string.Equals(username, machineName, StringComparison.OrdinalIgnoreCase))
+        {
+            return (username, username);
+        }
+        var qualified = $"{machineName}\\{username}";
+        if (sessionAccount() is { } account
+            && string.Equals(account.User, username, StringComparison.OrdinalIgnoreCase))
+        {
+            return (account.Sid, account.Name ?? qualified);
+        }
+        return (qualified, qualified);
+    }
 
     /// <summary>
     /// Task XML running <paramref name="command"/> as <paramref name="username"/>
