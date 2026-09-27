@@ -39,6 +39,15 @@ internal static class UserSessionTaskXml
     }
 
     /// <summary>
+    /// A bare user name equal to the computer name resolves to the computer, and
+    /// schtasks rejects it at UserId ("The parameter is incorrect"); qualify it.
+    /// </summary>
+    internal static string TaskPrincipal(string username, string machineName) =>
+        string.Equals(username, machineName, StringComparison.OrdinalIgnoreCase)
+            ? $"{machineName}\\{username}"
+            : username;
+
+    /// <summary>
     /// Task XML running <paramref name="command"/> as <paramref name="username"/>
     /// with an interactive token, the XML equivalent of `/RU user /IT`.
     /// <paramref name="elevated"/> asks for the user's full token (`/RL HIGHEST`),

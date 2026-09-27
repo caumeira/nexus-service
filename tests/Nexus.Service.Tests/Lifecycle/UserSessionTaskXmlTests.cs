@@ -83,6 +83,17 @@ public class UserSessionTaskXmlTests
         Assert.DoesNotContain("<b>", xml);
     }
 
+    [Theory]
+    [InlineData("USER", "USER", "USER\\USER")]
+    [InlineData("user", "USER", "USER\\user")]
+    [InlineData("nicol", "T1", "nicol")]
+    [InlineData("Bruno", "BRUNO-PC", "Bruno")]
+    [InlineData("CORP\\USER", "USER", "CORP\\USER")]
+    public void QualifiesOnlyAUserNamedLikeTheComputer(string username, string machine, string expected)
+    {
+        Assert.Equal(expected, UserSessionTaskXml.TaskPrincipal(username, machine));
+    }
+
     // Sigma's "Suspicious Schtasks Schedule Types" matches ' ONCE ' on the
     // command line. The XML form carries no schedule token at all.
     [Fact]
