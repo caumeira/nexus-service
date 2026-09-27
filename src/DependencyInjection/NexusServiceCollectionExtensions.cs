@@ -1505,6 +1505,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Platform.Displays.TouchMappingGuard>();
         services.AddSingleton<Nexus.Service.Platform.Displays.DisplayBrightnessController>();
         services.AddSingleton<Nexus.Service.Platform.Displays.DisplayTopologyService>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.TouchRoutingStatus>();
         return services;
     }
 

@@ -138,6 +138,13 @@ public sealed class PanelDeviceRecord
     /// </summary>
     public bool? DisplayAttached { get; set; }
     /// <summary>
+    /// Route-computed on GET /panel/devices for display-bound records: a
+    /// device-level issue code ("touch-permission" when macOS has not granted
+    /// the touch router's event tap), null when there is nothing to flag.
+    /// Never persisted (null on stored records).
+    /// </summary>
+    public string? Warning { get; set; }
+    /// <summary>
     /// Route-computed on GET /panel/devices: true while a streamed-panel
     /// session owns this record (a Kraken LCD, a D213 board). Such a record is
     /// backed by neither a curated handler nor a promoted monitor, so this is

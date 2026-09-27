@@ -329,6 +329,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentsResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayRotationBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.TouchRoutingReportBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.TouchMapDigitizerInfo))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Displays.TouchMapDigitizerInfo>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.TouchMapDisplayInfo))]

@@ -554,9 +554,18 @@ final class KioskController {
     private var fetchQueued = false
     private var retryScheduled = false
 
+    /// Stable id of the display touch is routed to; "" when routing is off.
+    private var routeTargetId = ""
+    private var touchState = "idle"
+    /// Last "state|displayId" the service acknowledged.
+    private var acknowledgedTouchReport: String?
+    private var touchReportRetryScheduled = false
+    private static let touchReportRetryInterval: TimeInterval = 5
+
     init(_ opts: Options) {
         self.opts = opts
         touchRouter.onTouchscreenPresenceChanged = { [weak self] in self?.refresh() }
+        touchRouter.onStateChanged = { [weak self] state in self?.reportTouchRouting(state) }
     }
 
     func start() {
@@ -660,8 +669,10 @@ final class KioskController {
         // here, from the CG online set, and shared by the kiosk URL flag and
         // the router so the two can never disagree.
         let cgDisplays = cgDisplaysByStableId()
-        let attached = assignments.compactMap { cgDisplays[$0.displayId] }
-        let routeTarget = attached.count == 1 ? attached[0] : nil
+        let attached = assignments.compactMap { a in cgDisplays[a.displayId].map { (id: a.displayId, display: $0) } }
+        let route = attached.count == 1 ? attached[0] : nil
+        let routeTarget = route?.display
+        routeTargetId = route?.id ?? ""
         let senders = TouchRouter.scanTouchscreenSenders()
         let routable = routeTarget != nil && !senders.isEmpty
 
@@ -687,6 +698,47 @@ final class KioskController {
         }
 
         touchRouter.setTarget(routeTarget, senders: senders)
+    }
+
+    /// Tells the service whether touch reaches the panel, so a refused event
+    /// tap (no Privacy grant) shows as a warning on the panel's device page.
+    private func reportTouchRouting(_ state: String) {
+        touchState = state
+        let report = "\(state)|\(routeTargetId)"
+        if report == acknowledgedTouchReport { return }
+        var c = URLComponents()
+        c.scheme = "http"
+        c.host = "localhost"
+        c.port = opts.port
+        c.path = "/displays/touch-routing"
+        c.queryItems = [URLQueryItem(name: "token", value: opts.token)]
+        guard let url = c.url,
+              let body = try? JSONSerialization.data(withJSONObject: ["displayId": routeTargetId, "state": state])
+        else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        URLSession.shared.dataTask(with: request) { [weak self] _, response, _ in
+            let delivered = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if delivered {
+                    // A late reply for an older report must not mask a newer one.
+                    if report == "\(self.touchState)|\(self.routeTargetId)" { self.acknowledgedTouchReport = report }
+                    return
+                }
+                // No other edge resends a lost report, and the page would
+                // keep a stale warning until the next state change.
+                guard !self.touchReportRetryScheduled else { return }
+                self.touchReportRetryScheduled = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.touchReportRetryInterval) { [weak self] in
+                    guard let self = self else { return }
+                    self.touchReportRetryScheduled = false
+                    self.reportTouchRouting(self.touchState)
+                }
+            }
+        }.resume()
     }
 
     private func cgDisplaysByStableId() -> [String: CGDirectDisplayID] {
@@ -937,6 +989,13 @@ final class TouchRouter {
     /// URL is fixed at open, and a panel that returns after lock/unlock
     /// would otherwise keep mouse semantics under routed touch.
     var onTouchscreenPresenceChanged: (() -> Void)?
+    /// Fired with "active", "permission-needed" or "idle" whenever the
+    /// routing state is re-evaluated; the receiver dedupes. Main thread.
+    var onStateChanged: ((String) -> Void)?
+    private var tapRefused = false
+    private var grantSeen = false
+    private var grantWatch: Timer?
+    private static let grantPollInterval: TimeInterval = 1
     private var lastSenderScan = Date.distantPast
     private var lastLogged: (display: CGDirectDisplayID, senders: Set<Int64>)?
     private var refusalLogged = false
@@ -964,6 +1023,7 @@ final class TouchRouter {
     /// semantics under routed touch with no edge to correct it.
     func setTarget(_ display: CGDirectDisplayID?, senders: Set<Int64>) {
         target = display
+        defer { publishState() }
         guard let display = display else {
             if tap != nil { log("[overlay-helper] touch router: released") }
             uninstall()
@@ -999,6 +1059,17 @@ final class TouchRouter {
 
     private func install() {
         if tap != nil { return }
+        // Once the grant has read true in this process, a false read means it
+        // was revoked (even while no tap existed); a tap created then would
+        // freeze input, so wait for the grant to come back.
+        let granted = CGPreflightListenEventAccess()
+        if granted { grantSeen = true }
+        if grantSeen && !granted {
+            tapRefused = true
+            publishState()
+            scheduleInstallRetry()
+            return
+        }
         let mask: CGEventMask =
             (1 << CGEventType.mouseMoved.rawValue) |
             (1 << CGEventType.leftMouseDown.rawValue) |
@@ -1026,12 +1097,14 @@ final class TouchRouter {
         }
         guard let (port, level) = created
         else {
+            tapRefused = true
+            publishState()
             if !refusalLogged {
                 refusalLogged = true
                 let ax = AXIsProcessTrusted()
                 let listen = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent).rawValue
                 let post = IOHIDCheckAccess(kIOHIDRequestTypePostEvent).rawValue
-                log("[overlay-helper] touch router: event tap refused - accessibility=\(ax) listenEvent=\(listen) postEvent=\(post) (0=granted 1=denied 2=unknown); touch stays on the main display until Input Monitoring is granted")
+                log("[overlay-helper] touch router: event tap refused - accessibility=\(ax) listenEvent=\(listen) postEvent=\(post) (0=granted 1=denied 2=unknown); touch stays on the main display until Nexus is allowed under Privacy & Security")
             }
             // The checks above answer for the responsible process (whoever
             // launched the service) and can read granted when this helper is
@@ -1041,23 +1114,54 @@ final class TouchRouter {
                 promptShown = true
                 _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
             }
-            // Retry until the grant lands, so it takes effect without a
-            // restart; one chain at a time, bounded by helper lifetime.
-            if !installRetryScheduled {
-                installRetryScheduled = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + Self.installRetryInterval) { [weak self] in
-                    guard let self = self else { return }
-                    self.installRetryScheduled = false
-                    if self.target != nil, self.tap == nil, !self.touchSenders.isEmpty { self.install() }
-                }
-            }
+            scheduleInstallRetry()
             return
         }
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: port, enable: true)
         tap = port
+        tapRefused = false
+        refusalLogged = false
         log("[overlay-helper] touch router: modifying tap installed at \(level) level")
+        watchGrant()
+        publishState()
+    }
+
+    /// Retry until the grant lands, so it takes effect without a restart;
+    /// one chain at a time, bounded by helper lifetime.
+    private func scheduleInstallRetry() {
+        if installRetryScheduled { return }
+        installRetryScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.installRetryInterval) { [weak self] in
+            guard let self = self else { return }
+            self.installRetryScheduled = false
+            if self.target != nil, self.tap == nil, !self.touchSenders.isEmpty { self.install() }
+        }
+    }
+
+    // Revoking the grant while the tap is live leaves it enabled and sends no
+    // tap-disabled event; the system keeps feeding it every pointer event
+    // and drops what it returns, so the whole Mac stops clicking until the
+    // tap goes. The preflight flips at once, and there is no notification
+    // for it, so it is polled while a tap exists. Armed only when it read
+    // granted at install: under a terminal launch it answers for the
+    // terminal, not this helper, and must not tear down a working tap.
+    private func watchGrant() {
+        grantWatch?.invalidate()
+        grantWatch = nil
+        guard grantSeen else { return }
+        let watch = Timer(timeInterval: Self.grantPollInterval, repeats: true) { [weak self] _ in
+            guard let self = self, self.tap != nil, !CGPreflightListenEventAccess() else { return }
+            self.log("[overlay-helper] touch router: permission revoked; releasing the tap")
+            self.releaseTap()
+            self.tapRefused = true
+            self.publishState()
+            self.scheduleInstallRetry()
+        }
+        // Common modes: the poll must keep running during a window drag.
+        RunLoop.main.add(watch, forMode: .common)
+        grantWatch = watch
     }
 
     private func uninstall() {
@@ -1066,6 +1170,8 @@ final class TouchRouter {
     }
 
     private func releaseTap() {
+        grantWatch?.invalidate()
+        grantWatch = nil
         if let monitor = upMonitor { NSEvent.removeMonitor(monitor); upMonitor = nil }
         lastPoint = nil
         lastContact = nil
@@ -1134,7 +1240,17 @@ final class TouchRouter {
         log("[overlay-helper] touch router: senders changed -> [\(ids)]")
         // The panel came back after a reconcile that found nothing to route.
         if tap == nil && !fresh.isEmpty { install() }
+        publishState()
         if presenceFlipped { onTouchscreenPresenceChanged?() }
+    }
+
+    private func publishState() {
+        let state: String
+        if target == nil || touchSenders.isEmpty { state = "idle" }
+        else if tap != nil { state = "active" }
+        else if tapRefused { state = "permission-needed" }
+        else { state = "idle" }
+        onStateChanged?(state)
     }
 
     private static let serviceChangedCallbackSettle: (TouchRouter) -> Void = { router in

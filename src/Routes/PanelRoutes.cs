@@ -264,6 +264,7 @@ public static class PanelRoutes
         app.MapGet("/panel/devices", (
             PanelDeviceRegistry registry,
             Platform.Displays.DisplayTopologyService topology,
+            Platform.Displays.TouchRoutingStatus touchRouting,
             Nexus.Service.Panel.Streams.StreamedPanelCoordinator streams) =>
         {
             var devices = registry.List().ToList();
@@ -290,8 +291,9 @@ public static class PanelRoutes
                 var attached = topology.GetAttachedIds();
                 foreach (var device in devices)
                 {
-                    if (!string.IsNullOrEmpty(device.DisplayId))
-                        device.DisplayAttached = attached?.Contains(device.DisplayId);
+                    if (string.IsNullOrEmpty(device.DisplayId)) continue;
+                    device.DisplayAttached = attached?.Contains(device.DisplayId);
+                    device.Warning = touchRouting.WarningFor(device.DisplayId);
                 }
             }
             return Results.Json(
