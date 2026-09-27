@@ -15,7 +15,7 @@ namespace Nexus.Service.Peripherals.Corsair.XeneonEdge;
 
 /// <summary>
 /// Reads the Xeneon Edge's orientation sensor over its vendor HID interface
-/// and applies the matching Windows display rotation, gated on the panel
+/// and applies the matching OS display rotation, gated on the panel
 /// record's AutoOrient preference (null/true = on). Opens its own read
 /// handle, independent of any lighting path - the Xeneon Edge has no
 /// first-party RGB writer in this codebase (OpenRGB covers its lighting).
@@ -381,7 +381,7 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
     /// applies one orientation code. Always runs off <see cref="RunApplyLoop"/>
     /// on a background task, never on the HID reader thread:
     /// <see cref="IDisplayOrientationProvider.SetDisplayOrientation"/> is a
-    /// blocking helper RPC (up to 4s), and the reader must keep demuxing
+    /// blocking call (a helper RPC or process), and the reader must keep demuxing
     /// settings replies while it is in flight.
     /// </summary>
     private void ApplyOnce(byte code)

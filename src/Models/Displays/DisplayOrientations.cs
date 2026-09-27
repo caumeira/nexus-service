@@ -25,4 +25,28 @@ public static class DisplayOrientations
         3 => PortraitFlipped,
         _ => "",
     };
+
+    /// <summary>Canonical string to the macOS rotation in degrees (CGDisplayRotation); null when invalid.</summary>
+    public static int? ToMacDegrees(string orientation) => orientation switch
+    {
+        Landscape => 0,
+        Portrait => 90,
+        LandscapeFlipped => 180,
+        PortraitFlipped => 270,
+        _ => null,
+    };
+
+    /// <summary>CGDisplayRotation degrees to the canonical string; "" for a non-quadrant angle.</summary>
+    public static string FromMacDegrees(double degrees)
+    {
+        var normalized = ((int)System.Math.Round(degrees) % 360 + 360) % 360;
+        return normalized switch
+        {
+            0 => Landscape,
+            90 => Portrait,
+            180 => LandscapeFlipped,
+            270 => PortraitFlipped,
+            _ => "",
+        };
+    }
 }

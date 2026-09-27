@@ -1,10 +1,10 @@
 namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
-/// Rotates the physical Y70 panel display via the Windows display subsystem.
-/// On the service side this is fronted by <c>HelperDisplayOrientationProxy</c>,
-/// which routes the call through the user-session helper because Session 0
-/// cannot see the user's monitors.
+/// Rotates panel displays. On Windows this is fronted by
+/// <c>HelperDisplayOrientationProxy</c>, which routes the call through the
+/// user-session helper because Session 0 cannot see the user's monitors; on
+/// macOS by <c>MacDisplayOrientationProvider</c>.
 /// </summary>
 public interface IDisplayOrientationProvider
 {

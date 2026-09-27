@@ -14,6 +14,9 @@
 //   --port  : nexus-service HTTP port. Defaults to 9400.
 //   --token : auth bearer token from /pair. Required - the WKWebView
 //             round-trips it to the service for /overlay routes.
+// One-shot: nexus-overlay-helper --rotate-display=<CGDirectDisplayID>
+//   --rotate-degrees=<0|90|180|270> rotates that display and exits 0 once
+//   CGDisplayRotation reads the angle (MacDisplayOrientationProvider).
 //
 // Window contract:
 // * Borderless, transparent, click-through (window.ignoresMouseEvents = true).
@@ -37,6 +40,8 @@ struct Options {
     var port: Int = 9400
     var token: String = ""
     var alwaysOnTop: Bool = false
+    var rotateDisplay: CGDirectDisplayID?
+    var rotateDegrees: Int?
 }
 
 func parseOptions() -> Options {
@@ -51,6 +56,8 @@ func parseOptions() -> Options {
         case "port": if let n = Int(v) { o.port = n }
         case "token": o.token = v
         case "always-on-top": o.alwaysOnTop = (v == "true" || v == "1")
+        case "rotate-display": o.rotateDisplay = CGDirectDisplayID(v)
+        case "rotate-degrees": o.rotateDegrees = Int(v)
         default: break
         }
     }
@@ -840,11 +847,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 // MARK: - Entrypoint
 
 let opts = parseOptions()
+if let display = opts.rotateDisplay, let degrees = opts.rotateDegrees {
+    exit(DisplayRotator.rotate(display, to: degrees) ? 0 : 1)
+}
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)   // no Dock icon, no menu bar item
 let delegate = AppDelegate(opts)
 app.delegate = delegate
 app.run()
+
+// MARK: - Display rotation (one-shot mode)
+//
+// macOS has no public rotation API. MonitorPanel.framework's MPDisplay is
+// what System Settings drives; it is resolved at runtime so an OS without it
+// fails this call instead of the helper's launch.
+enum DisplayRotator {
+    private static let frameworkPath = "/System/Library/PrivateFrameworks/MonitorPanel.framework/MonitorPanel"
+    private static let settleTimeout: TimeInterval = 3
+    private static let settlePoll: TimeInterval = 0.05
+
+    static func rotate(_ display: CGDirectDisplayID, to degrees: Int) -> Bool {
+        if current(display) == degrees { return true }
+        guard dlopen(frameworkPath, RTLD_NOW) != nil,
+              let managerType = NSClassFromString("MPDisplayMgr") as? NSObject.Type
+        else { return fail("MonitorPanel framework unavailable") }
+        let manager = managerType.init()
+        // KVC on a missing key raises an uncatchable ObjC exception, so every
+        // key is checked with responds(to:) first.
+        guard manager.responds(to: NSSelectorFromString("displays")),
+              let displays = manager.value(forKey: "displays") as? [NSObject]
+        else { return fail("display manager lists no displays") }
+        guard let target = displays.first(where: {
+            $0.responds(to: NSSelectorFromString("displayID"))
+                && ($0.value(forKey: "displayID") as? NSNumber)?.uint32Value == display
+        }) else { return fail("display \(display) not found") }
+        guard target.responds(to: NSSelectorFromString("canChangeOrientation")),
+              target.responds(to: NSSelectorFromString("setOrientation:")),
+              (target.value(forKey: "canChangeOrientation") as? Bool) == true
+        else { return fail("display \(display) cannot rotate") }
+        target.setValue(degrees, forKey: "orientation")
+        // Applied by the time the setter returns on macOS 26; the poll bounds
+        // an OS that reconfigures asynchronously.
+        let deadline = Date().addingTimeInterval(settleTimeout)
+        while current(display) != degrees {
+            if Date() >= deadline { return fail("display \(display) reads \(current(display)) after requesting \(degrees)") }
+            Thread.sleep(forTimeInterval: settlePoll)
+        }
+        return true
+    }
+
+    private static func current(_ display: CGDirectDisplayID) -> Int {
+        (Int(CGDisplayRotation(display).rounded()) % 360 + 360) % 360
+    }
+
+    private static func fail(_ message: String) -> Bool {
+        FileHandle.standardError.write("[overlay-helper] rotate: \(message)\n".data(using: .utf8)!)
+        return false
+    }
+}
 
 // MARK: - Touchscreen routing (promoted-monitor panels)
 //
@@ -891,6 +951,7 @@ final class TouchRouter {
     private var returnPoint: CGPoint?
     private var contactGeneration = 0
     private var routed = 0
+    private var routedRotation: Int?
 
     private var promptShown = false
 
@@ -1100,28 +1161,26 @@ final class TouchRouter {
         let dest = CGDisplayBounds(display)
         guard main.width > 0, main.height > 0, dest.width > 0, dest.height > 0 else { return event }
         let p = event.location
+        let rotation = (Int(CGDisplayRotation(display).rounded()) % 360 + 360) % 360
 
-        // Only the FIRST report of a contact is normalized onto the main
-        // display; once the cursor has been warped onto the panel,
-        // WindowServer positions the following reports relative to the
-        // cursor, so they already arrive in the panel's rect. Mapping those
-        // a second time flings them off-screen (negative x normalizes past
-        // the left edge, y halves). A lifted finger reports a zeroed
-        // coordinate, which lands on the main display's origin: that is not
-        // a position, pin it to the last real contact.
+        // WindowServer normalizes a report onto the display under the
+        // cursor, in the digitizer's own (unrotated) axes: the FIRST report
+        // of a contact lands on the main display, and once the cursor has
+        // been warped onto the panel the following reports land in the
+        // panel's rect. Both are re-placed through the panel's rotation; an
+        // unrotated panel's own-rect reports are already correct. A lifted
+        // finger reports a zeroed coordinate, which lands on the main
+        // display's origin: that is not a position, pin it to the last real
+        // contact.
         var isLiftArtifact = false
         let mapped: CGPoint
         if dest.contains(p) {
-            mapped = p
+            mapped = rotation == 0 ? p : Self.place(Self.normalize(p, in: dest), in: dest, rotation: rotation)
         } else if p.x == main.origin.x && p.y == main.origin.y, let last = lastContact {
             isLiftArtifact = true
             mapped = last
         } else if main.contains(p) {
-            let nx = (p.x - main.origin.x) / main.width
-            let ny = (p.y - main.origin.y) / main.height
-            mapped = CGPoint(
-                x: dest.origin.x + nx * dest.width,
-                y: dest.origin.y + ny * dest.height)
+            mapped = Self.place(Self.normalize(p, in: main), in: dest, rotation: rotation)
         } else if let last = lastContact {
             isLiftArtifact = true
             mapped = last
@@ -1174,13 +1233,32 @@ final class TouchRouter {
             lastPoint = mapped
         }
 
-        // The first few routed contacts are logged so a mapping problem is
-        // visible in the service log without a debug build.
+        // The first few routed events per rotation are logged so a mapping
+        // problem is visible in the service log without a debug build.
+        if routedRotation != rotation { routedRotation = rotation; routed = 0 }
         routed += 1
         if routed <= 3 {
-            log("[overlay-helper] touch router: \(Int(p.x)),\(Int(p.y)) -> \(Int(mapped.x)),\(Int(mapped.y))")
+            log("[overlay-helper] touch router: \(Int(p.x)),\(Int(p.y)) -> \(Int(mapped.x)),\(Int(mapped.y)) rotation=\(rotation)")
         }
         return event
+    }
+
+    private static func normalize(_ p: CGPoint, in rect: CGRect) -> CGPoint {
+        CGPoint(x: (p.x - rect.minX) / rect.width, y: (p.y - rect.minY) / rect.height)
+    }
+
+    /// Places a point given in the digitizer's native axes (0...1) into the
+    /// panel's rect. `rotation` is CGDisplayRotation; 90 means the panel's
+    /// native top edge faces the viewer's right.
+    private static func place(_ n: CGPoint, in dest: CGRect, rotation: Int) -> CGPoint {
+        let r: CGPoint
+        switch rotation {
+        case 90: r = CGPoint(x: 1 - n.y, y: n.x)
+        case 180: r = CGPoint(x: 1 - n.x, y: 1 - n.y)
+        case 270: r = CGPoint(x: n.y, y: 1 - n.x)
+        default: r = n
+        }
+        return CGPoint(x: dest.minX + r.x * dest.width, y: dest.minY + r.y * dest.height)
     }
 
     // A static, not a file-scope `let`: in main.swift top-level stored

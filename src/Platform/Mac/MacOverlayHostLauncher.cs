@@ -196,7 +196,7 @@ public sealed class MacOverlayHostLauncher : IOverlayHost
         });
     }
 
-    private static string? ResolveHelperPath()
+    internal static string? ResolveHelperPath()
     {
         // .app bundle layout: AppContext.BaseDirectory is
         // Nexus.app/Contents/MacOS/. Helpers live alongside the main
