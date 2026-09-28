@@ -261,6 +261,10 @@ public sealed class AppManifestCapabilities
     [JsonPropertyName("appData")]
     public bool AppData { get; set; }
 
+    /// <summary>Opt-in to the web client's useAudio sampler; the service only carries it into the listing.</summary>
+    [JsonPropertyName("audio")]
+    public bool Audio { get; set; }
+
     /// <summary>
     /// Opt-in Tier 2 capability. When <c>true</c>, the bundle must ship
     /// a <c>worker.js</c> alongside the manifest; the host spawns a Web
