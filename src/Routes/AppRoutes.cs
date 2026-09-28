@@ -628,6 +628,7 @@ public static class AppRoutes
             Preinstalled = (entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled && oemMatch)
                 || autoInstalled.Contains(entry.Id),
             Immersive = entry.Manifest.Immersive,
+            ImmersiveDoubleSwipe = entry.Manifest.ImmersiveDoubleSwipe,
             SingleInstance = entry.Manifest.SingleInstance,
         };
     }
