@@ -473,6 +473,13 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-x64'">
+    <Content Include="Bundled/linux-x64/turbojpeg/libturbojpeg.so">
+      <Link>libturbojpeg.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
   <!-- The test project builds without a RID, so the encoder tests would silently only
        ever exercise the ImageSharp fallback; give a RID-less build the host's copy. -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))">
@@ -484,6 +491,12 @@
   <ItemGroup Condition="'$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('OSX'))">
     <Content Include="Bundled/osx-arm64/turbojpeg/libturbojpeg.dylib">
       <Link>libturbojpeg.dylib</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('Linux'))">
+    <Content Include="Bundled/linux-x64/turbojpeg/libturbojpeg.so">
+      <Link>libturbojpeg.so</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

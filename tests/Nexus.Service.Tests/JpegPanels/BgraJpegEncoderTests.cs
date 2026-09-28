@@ -142,7 +142,8 @@ public class BgraJpegEncoderTests
     public void Bundled_turbojpeg_is_the_active_encoder()
     {
         var bundled = File.Exists(Path.Combine(AppContext.BaseDirectory, "turbojpeg.dll"))
-            || File.Exists(Path.Combine(AppContext.BaseDirectory, "libturbojpeg.dylib"));
+            || File.Exists(Path.Combine(AppContext.BaseDirectory, "libturbojpeg.dylib"))
+            || File.Exists(Path.Combine(AppContext.BaseDirectory, "libturbojpeg.so"));
         if (!bundled)
         {
             return;

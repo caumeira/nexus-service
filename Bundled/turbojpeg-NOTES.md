@@ -6,7 +6,7 @@ speed, not function.
 
 | | |
 | --- | --- |
-| Version | **3.2.0** (build 20260630), both platforms |
+| Version | **3.2.0** (build 20260630), all platforms |
 | Upstream | https://github.com/libjpeg-turbo/libjpeg-turbo/releases/tag/3.2.0 |
 | License | BSD-3-Clause + IJG - see `turbojpeg-LICENSE.md` and `turbojpeg-README.ijg` |
 
@@ -33,9 +33,18 @@ Two local changes, both required:
 sha256 `9ec31f880327f09b7d0300e761ce662db611fe2b82030328bfc24272449889fa`
 (after both steps; it will not match the upstream payload byte for byte)
 
+## linux-x64/turbojpeg/libturbojpeg.so
+
+From the official `libjpeg-turbo-official_3.2.0_amd64.deb` ->
+`opt/libjpeg-turbo/lib64/libturbojpeg.so.0.5.0`, unmodified, renamed so the P/Invoke
+probe finds it beside the binary. Needs only libc (glibc 2.14+). Its RPATH points at
+upstream's install prefix and is unused: the library loads nothing but libc.
+
+sha256 `cc9cc06afa9307a76612d413128cf56fcbc90f6790581e5d885fd474509b73e0`
+
 ## Updating
 
-Take both binaries from the same upstream release. Re-run the two macOS steps above,
+Take all three binaries from the same upstream release. Re-run the two macOS steps above,
 update the versions and hashes here, and re-run `Bundled_turbojpeg_is_the_active_encoder`
 plus the channel-order tests in `BgraJpegEncoderTests` - a wrong TJPF_* constant is
 otherwise silent.
