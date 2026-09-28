@@ -313,9 +313,11 @@ internal static class UserHelperBootstrapper
     /// </summary>
     private static bool CreateAndRun(string taskName, string username, string command)
     {
+        var (userId, runAs) = UserSessionTaskXml.TaskPrincipal(
+            username, Environment.MachineName, ConsoleSessionAccount.TryResolve);
         try
         {
-            if (CreateFromXml(taskName, username, command))
+            if (CreateFromXml(taskName, userId, command))
             {
                 return Schtasks("/Run", "/TN", taskName);
             }
@@ -331,7 +333,7 @@ internal static class UserHelperBootstrapper
         // /ST 00:00 is already past, so a leftover task has a spent trigger.
         Console.Error.WriteLine($"[user-session-task] {taskName}: XML registration failed, using schedule-type form");
         if (!Schtasks("/Create", "/TN", taskName, "/TR", command,
-                      "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F"))
+                      "/SC", "ONCE", "/ST", "00:00", "/RU", runAs, "/IT", "/F"))
         {
             return false;
         }

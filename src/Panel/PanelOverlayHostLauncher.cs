@@ -455,10 +455,12 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     [SupportedOSPlatform("windows")]
     private static bool CreateTask(string taskName, string username, string exePath)
     {
+        var (userId, runAs) = Nexus.Service.Lifecycle.UserSessionTaskXml.TaskPrincipal(
+            username, Environment.MachineName, Nexus.Service.Lifecycle.ConsoleSessionAccount.TryResolve);
         try
         {
             var xmlPath = Nexus.Service.Lifecycle.UserSessionTaskXml.WriteTempFile(
-                Nexus.Service.Lifecycle.UserSessionTaskXml.Build(username, $"\"{exePath}\""));
+                Nexus.Service.Lifecycle.UserSessionTaskXml.Build(userId, $"\"{exePath}\""));
             try
             {
                 if (Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F"))
@@ -478,7 +480,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
 
         Console.Error.WriteLine("[overlay-host] XML registration failed, using schedule-type form");
         return Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\"",
-                        "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F");
+                        "/SC", "ONCE", "/ST", "00:00", "/RU", runAs, "/IT", "/F");
     }
 
     private static bool Schtasks(params string[] args)

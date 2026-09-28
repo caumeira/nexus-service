@@ -382,7 +382,10 @@ public sealed class Nexus2Detector : INexus2Detector
         try
         {
             xmlPath = UserSessionTaskXml.WriteTempFile(
-                UserSessionTaskXml.Build(username, $"\"{exe}\" {arguments}", elevated: true));
+                UserSessionTaskXml.Build(
+                    UserSessionTaskXml.TaskPrincipal(
+                        username, Environment.MachineName, ConsoleSessionAccount.TryResolve).UserId,
+                    $"\"{exe}\" {arguments}", elevated: true));
             if (Schtasks("/Create", "/TN", taskName, "/XML", xmlPath, "/F") != 0)
             {
                 return -1;
