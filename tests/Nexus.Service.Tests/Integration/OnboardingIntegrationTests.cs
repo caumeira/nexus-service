@@ -222,3 +222,59 @@ public sealed class OnboardingResetIntegrationTests : IClassFixture<NexusAppFact
         Assert.False(store.Load().PanelSwipeOnboardingCompleted);
     }
 }
+
+public sealed class OnboardingBannerIntegrationTests : IClassFixture<NexusAppFactory>
+{
+    private readonly NexusAppFactory _factory;
+
+    public OnboardingBannerIntegrationTests(NexusAppFactory factory) => _factory = factory;
+
+    private async Task<HttpContext> Send(string method, string path, string? jsonBody = null, bool withToken = true)
+    {
+        var token = _factory.Services.GetRequiredService<TokenService>().Token;
+        return await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = method;
+            c.Request.Path = path;
+            c.Connection.RemoteIpAddress = IPAddress.Loopback;
+            if (withToken)
+                c.Request.Headers.Authorization = "Bearer " + token;
+            if (jsonBody is not null)
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes(jsonBody);
+                c.Request.ContentType = "application/json";
+                c.Request.Body = new MemoryStream(bytes);
+                c.Request.ContentLength = bytes.Length;
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Dismiss_stores_the_key_and_status_returns_it()
+    {
+        var store = _factory.Services.GetRequiredService<IConfigStore>();
+
+        var dismiss = await Send("POST", "/onboarding/banner/dismiss/3.0.19");
+        Assert.Equal(StatusCodes.Status200OK, dismiss.Response.StatusCode);
+        Assert.Equal("3.0.19", store.Load().DashboardBannerDismissed);
+
+        var status = await Send("GET", "/onboarding/banner");
+        Assert.Equal(StatusCodes.Status200OK, status.Response.StatusCode);
+        var body = await new StreamReader(status.Response.Body).ReadToEndAsync();
+        Assert.Contains("\"dismissedKey\":\"3.0.19\"", body);
+    }
+
+    [Fact]
+    public async Task Dismiss_rejects_an_empty_key()
+    {
+        var ctx = await Send("POST", "/onboarding/banner/dismiss/%20");
+        Assert.Equal(StatusCodes.Status400BadRequest, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Banner_routes_require_a_token()
+    {
+        Assert.Equal(StatusCodes.Status401Unauthorized, (await Send("GET", "/onboarding/banner", withToken: false)).Response.StatusCode);
+        Assert.Equal(StatusCodes.Status401Unauthorized, (await Send("POST", "/onboarding/banner/dismiss/x", withToken: false)).Response.StatusCode);
+    }
+}

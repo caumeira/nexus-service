@@ -134,6 +134,9 @@ public sealed class NexusSettings
     /// every install shows the hint until the tray is opened once.</summary>
     public bool PanelSwipeOnboardingCompleted { get; set; }
 
+    /// <summary>Key of the home-dashboard banner the user last closed or opened; a banner shows only while its key differs.</summary>
+    public string DashboardBannerDismissed { get; set; } = "";
+
     /// <summary>True once at least one Nexus 2 personalization category has been
     /// imported through the migration screen. Install-scoped like
     /// <see cref="Nexus2MigrationOffered"/>: excluded from CloneSettings and
