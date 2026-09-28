@@ -94,6 +94,7 @@ public sealed class CloudAccountService
 
     private readonly object _recoveryLock = new();
     private string? _recoveryGrantId;
+    private string? _recoveryDeviceSecret;
     private string _recoveryStatus = "idle";
     private CancellationTokenSource? _recoveryCts;
     private string? _recoveryFreshAccountId;
@@ -509,7 +510,7 @@ public sealed class CloudAccountService
 
     // ── recovery (device-code style polling) ────────────────────────────
 
-    public async Task<CloudActionResult<string?>> StartRecoveryAsync(string email, CancellationToken ct)
+    public async Task<CloudActionResult> StartRecoveryAsync(string email, CancellationToken ct)
     {
         var grantId = Guid.NewGuid().ToString("N");
         var deviceSecret = GenerateDeviceSecret();
@@ -517,13 +518,13 @@ public sealed class CloudAccountService
         // Nothing local moves until the cloud accepts. A refused start - the
         // cap on how often reset mail goes to one address, or being offline -
         // must leave a recovery already in flight running: its link is in the
-        // user's inbox and its code is on their screen, and cancelling the poll
-        // here would leave that link approving a grant nobody is watching.
+        // user's inbox, and cancelling the poll here would leave that link
+        // approving a grant nobody is watching.
         var result = await _api.RecoveryStartAsync(
             new CloudRecoveryStartRequest { Email = email, GrantId = grantId, DeviceSecret = deviceSecret }, ct).ConfigureAwait(false);
         if (!result.Success)
         {
-            return CloudActionResult<string?>.FromError(result);
+            return CloudActionResult.FromError(result);
         }
 
         // pollToken is read from the CTS created for THIS call, inside the same
@@ -538,13 +539,86 @@ public sealed class CloudAccountService
             _recoveryCts = new CancellationTokenSource();
             pollToken = _recoveryCts.Token;
             _recoveryGrantId = grantId;
+            _recoveryDeviceSecret = deviceSecret;
             _recoveryStatus = "pending";
         }
         previousCts?.Cancel();
         previousCts?.Dispose();
 
         _ = Task.Run(() => PollRecoveryLoopAsync(grantId, deviceSecret, pollToken), CancellationToken.None);
-        return CloudActionResult<string?>.Ok(result.Value?.Code);
+        return CloudActionResult.Ok();
+    }
+
+    /// <summary>The emailed link is open in a browser on this computer: its page hands over the token, and the grant's own proof approves it without a code.</summary>
+    public async Task<CloudActionResult> LinkRecoveryAsync(string token, CancellationToken ct)
+    {
+        if (!TryGetPendingRecovery(out var grantId, out var deviceSecret))
+        {
+            return CloudActionResult.Fail("no_recovery", "No password reset is waiting on this computer.", 404);
+        }
+        var result = await _api.RecoveryCompleteAsync(
+            new CloudRecoveryCompleteRequest { Token = token, GrantId = grantId, DeviceSecret = deviceSecret }, ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            return CloudActionResult.FromError(result);
+        }
+        // The loop would pick this up on its next tick; polling now signs the app in while the page still says so.
+        await SubmitRecoveryPollAsync(grantId, deviceSecret, code: null, ct).ConfigureAwait(false);
+        return CloudActionResult.Ok();
+    }
+
+    /// <summary>The code the emailed link's page showed on another device, typed into this one.</summary>
+    public async Task<CloudActionResult> SubmitRecoveryCodeAsync(string code, CancellationToken ct)
+    {
+        if (!TryGetPendingRecovery(out var grantId, out var deviceSecret))
+        {
+            return CloudActionResult.Fail("no_recovery", "No password reset is waiting on this computer.", 404);
+        }
+        return await SubmitRecoveryPollAsync(grantId, deviceSecret, code, ct).ConfigureAwait(false);
+    }
+
+    private async Task<CloudActionResult> SubmitRecoveryPollAsync(string grantId, string deviceSecret, string? code, CancellationToken ct)
+    {
+        var result = await _api.RecoveryPollAsync(
+            new CloudRecoveryPollRequest { GrantId = grantId, DeviceSecret = deviceSecret, Code = code }, ct).ConfigureAwait(false);
+        if (!result.Success)
+        {
+            if (result.ErrorCode == "code_attempts_exhausted")
+            {
+                SetRecoveryStatus(grantId, "expired");
+            }
+            return CloudActionResult.FromError(result);
+        }
+        var poll = result.Value!;
+        if (!string.IsNullOrEmpty(poll.AccessToken) && !string.IsNullOrEmpty(poll.RefreshToken) && poll.Account is not null)
+        {
+            HandleRecoveryApproved(grantId, poll);
+            return CloudActionResult.Ok();
+        }
+        if (string.Equals(poll.Status, "expired", StringComparison.OrdinalIgnoreCase))
+        {
+            SetRecoveryStatus(grantId, "expired");
+            return CloudActionResult.Fail("expired", "This password reset has expired.", 410);
+        }
+        return CloudActionResult.Fail("pending", "Not approved yet.", 409);
+    }
+
+    private bool TryGetPendingRecovery(out string grantId, out string deviceSecret)
+    {
+        lock (_recoveryLock)
+        {
+            grantId = _recoveryGrantId ?? "";
+            deviceSecret = _recoveryDeviceSecret ?? "";
+            return _recoveryStatus == "pending" && grantId.Length > 0 && deviceSecret.Length > 0;
+        }
+    }
+
+    private bool IsRecoveryPending(string grantId)
+    {
+        lock (_recoveryLock)
+        {
+            return _recoveryGrantId == grantId && _recoveryStatus == "pending";
+        }
     }
 
     public CloudRecoveryStatusSnapshot GetRecoveryStatus()
@@ -566,6 +640,11 @@ public sealed class CloudAccountService
             using var timer = new PeriodicTimer(RecoveryPollInterval, _clock);
             while (!ct.IsCancellationRequested && _clock.GetUtcNow() < deadline)
             {
+                // A typed code or the page's hand-over can settle the grant between ticks.
+                if (!IsRecoveryPending(grantId))
+                {
+                    return;
+                }
                 CloudApiResult<CloudRecoveryPollResponse>? result = null;
                 try
                 {
@@ -626,11 +705,12 @@ public sealed class CloudAccountService
         });
     }
 
+    /// <summary>Only a pending grant moves: a poll that lost the race to claim an already-approved grant must not report it expired.</summary>
     private void SetRecoveryStatus(string grantId, string status)
     {
         lock (_recoveryLock)
         {
-            if (_recoveryGrantId == grantId)
+            if (_recoveryGrantId == grantId && _recoveryStatus == "pending")
             {
                 _recoveryStatus = status;
             }

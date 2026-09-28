@@ -230,6 +230,104 @@
         }
       }
     },
+    "/system/volume/target": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "mode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "deviceId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VolumeTargetState"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVolumeTargetBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/volume/target/mute": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVolumeTargetMuteBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/system/input/keys": {
       "post": {
         "tags": [
@@ -7547,6 +7645,52 @@
         }
       }
     },
+    "/y70/compatibility-rendering": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Y70CompatibilityRenderingParams"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Y70CompatibilityRenderingParams"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/qseries/rotation": {
       "get": {
         "tags": [
@@ -7789,6 +7933,40 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/displays/touch-routing": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TouchRoutingReportBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/displays/touch-permission/open": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
         "responses": {
           "200": {
             "description": "OK"
@@ -10638,6 +10816,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10658,6 +10843,13 @@
             "in": "query",
             "schema": {
               "type": "boolean"
+            }
+          },
+          {
+            "name": "appData",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -12070,6 +12262,74 @@
         }
       }
     },
+    "/apps-api/data/{appId}/{key}": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "appId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "appId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppDataPutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/apps-api/installed/{id}/code-session": {
       "post": {
         "tags": [
@@ -12210,6 +12470,28 @@
               }
             }
           }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/conflicts/whitelist": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetConflictWhitelistedBody"
+              }
+            }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -12683,6 +12965,50 @@
         }
       }
     },
+    "/devices/lianli-wireless/lighting": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/devices/lianli-wireless/lighting/{mac}": {
+      "put": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "mac",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Slv3ChainLightingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/devices/lianli-wireless/screens": {
       "get": {
         "tags": [
@@ -13015,6 +13341,50 @@
         }
       }
     },
+    "/cloud/recovery/link": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudRecoveryLinkBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/cloud/recovery/code": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudRecoveryCodeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/cloud/recovery/status": {
       "get": {
         "tags": [
@@ -13148,6 +13518,22 @@
         "tags": [
           "Nexus"
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudSyncNowBody"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -13877,6 +14263,22 @@
           }
         }
       },
+      "AppDataPutRequest": {
+        "type": "object",
+        "properties": {
+          "baseRevision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "data": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        }
+      },
       "AppDispatchRequest": {
         "type": "object",
         "properties": {
@@ -14136,6 +14538,15 @@
             "format": "double"
           },
           "active": {
+            "type": "boolean"
+          },
+          "deviceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "onDefault": {
             "type": "boolean"
           }
         }
@@ -14492,6 +14903,22 @@
           }
         }
       },
+      "CloudRecoveryCodeBody": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        }
+      },
+      "CloudRecoveryLinkBody": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      },
       "CloudRecoveryStartBody": {
         "type": "object",
         "properties": {
@@ -14519,6 +14946,17 @@
         "properties": {
           "isPrivate": {
             "type": "boolean"
+          }
+        }
+      },
+      "CloudSyncNowBody": {
+        "type": "object",
+        "properties": {
+          "profileId": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -16832,6 +17270,9 @@
           "turnPanelDisplaysOff": {
             "type": "boolean"
           },
+          "staticPanelBackgrounds": {
+            "type": "boolean"
+          },
           "exitGraceSeconds": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -18072,6 +18513,7 @@
           }
         }
       },
+      "JsonElement": { },
       "KeebDefaults": {
         "type": "object",
         "properties": {
@@ -18542,6 +18984,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "merge": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -20508,6 +20956,12 @@
               "null",
               "boolean"
             ]
+          },
+          "supportsSecondaryMonitor": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -20765,6 +21219,12 @@
               "string"
             ],
             "format": "int32"
+          },
+          "secondaryMonitor": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           },
           "capabilities": {
             "oneOf": [
@@ -22512,6 +22972,17 @@
           }
         }
       },
+      "SetConflictWhitelistedBody": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "whitelisted": {
+            "type": "boolean"
+          }
+        }
+      },
       "SetCurvesBody": {
         "type": "object",
         "properties": {
@@ -23032,6 +23503,45 @@
           }
         }
       },
+      "SetVolumeTargetBody": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "volume": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "commit": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "SetVolumeTargetMuteBody": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "muted": {
+            "type": "boolean"
+          }
+        }
+      },
       "SetWillStartParams": {
         "type": "object",
         "properties": {
@@ -23134,6 +23644,87 @@
         "properties": {
           "enabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "Slv3ChainLightingRequest": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "speed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "direction": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "brightness": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "colors": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "merge": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "laneSettings": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Slv3LaneDto"
+            }
+          }
+        }
+      },
+      "Slv3LaneDto": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string"
+          },
+          "direction": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "color": {
+            "type": "string"
           }
         }
       },
@@ -24774,6 +25365,17 @@
           }
         }
       },
+      "TouchRoutingReportBody": {
+        "type": "object",
+        "properties": {
+          "displayId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
       "TrackingStatus": {
         "type": "object",
         "properties": {
@@ -24994,6 +25596,9 @@
               "type": "string"
             }
           },
+          "notifyConflictLaunches": {
+            "type": "boolean"
+          },
           "oemAppSeeded": {
             "type": "boolean"
           },
@@ -25005,6 +25610,18 @@
             "items": {
               "type": "string"
             }
+          },
+          "sidebarAppOrder": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "sidebarCollapsed": {
+            "type": "boolean"
           },
           "lightingDashboardMode": {
             "type": "string"
@@ -25053,6 +25670,12 @@
               "type": "string"
             }
           },
+          "notifyConflictLaunches": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
           "oemAppSeeded": {
             "type": [
               "null",
@@ -25067,6 +25690,21 @@
             "items": {
               "type": "string"
             }
+          },
+          "sidebarAppOrder": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "sidebarCollapsed": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           },
           "lightingDashboardMode": {
             "type": [
@@ -25255,6 +25893,12 @@
               "boolean"
             ]
           },
+          "staticPanelBackgrounds": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
           "exitGraceSeconds": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
@@ -25438,6 +26082,34 @@
           },
           "muted": {
             "type": "boolean"
+          }
+        }
+      },
+      "VolumeTargetState": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean"
+          },
+          "volume": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "muted": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
@@ -26212,6 +26884,23 @@
           }
         }
       },
+      "Y70CompatibilityRenderingParams": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "boolean"
+          },
+          "msg": {
+            "type": "string"
+          }
+        }
+      },
       "Y70Defaults": {
         "type": "object",
         "properties": {
@@ -26230,6 +26919,9 @@
             "type": "boolean"
           },
           "forceOrientation": {
+            "type": "boolean"
+          },
+          "compatibilityRendering": {
             "type": "boolean"
           }
         }

@@ -64,6 +64,7 @@ public interface ICloudApiClient
     Task<CloudApiResult<CloudVoid>> LogoutAsync(string refreshToken, CancellationToken ct);
     Task<CloudApiResult<CloudRecoveryStartResponse>> RecoveryStartAsync(CloudRecoveryStartRequest body, CancellationToken ct);
     Task<CloudApiResult<CloudRecoveryPollResponse>> RecoveryPollAsync(CloudRecoveryPollRequest body, CancellationToken ct);
+    Task<CloudApiResult<CloudVoid>> RecoveryCompleteAsync(CloudRecoveryCompleteRequest body, CancellationToken ct);
     Task<CloudApiResult<CloudVoid>> ChangePasswordAsync(string accessToken, CloudChangePasswordRequest body, CancellationToken ct);
     Task<CloudApiResult<CloudVoid>> ChangeUsernameAsync(string accessToken, CloudChangeUsernameRequest body, CancellationToken ct);
     Task<CloudApiResult<CloudVoid>> SetPrivateAsync(string accessToken, bool isPrivate, CancellationToken ct);
@@ -143,6 +144,9 @@ public sealed class CloudApiClient : ICloudApiClient
 
     public Task<CloudApiResult<CloudRecoveryPollResponse>> RecoveryPollAsync(CloudRecoveryPollRequest body, CancellationToken ct) =>
         PostAsync("/auth/recovery/poll", body, AppJsonContext.Default.CloudRecoveryPollRequest, AppJsonContext.Default.CloudRecoveryPollResponse, ct);
+
+    public Task<CloudApiResult<CloudVoid>> RecoveryCompleteAsync(CloudRecoveryCompleteRequest body, CancellationToken ct) =>
+        PostVoidAsync("/auth/recovery/complete", body, AppJsonContext.Default.CloudRecoveryCompleteRequest, ct);
 
     public Task<CloudApiResult<CloudVoid>> ChangePasswordAsync(string accessToken, CloudChangePasswordRequest body, CancellationToken ct) =>
         PostVoidAsync("/account/password", body, AppJsonContext.Default.CloudChangePasswordRequest, ct, accessToken);

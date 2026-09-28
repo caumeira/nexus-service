@@ -66,11 +66,21 @@ public sealed class CloudRecoveryStartRequest
 
 public sealed class CloudRecoveryStartResponse
 {
-    public string? Code { get; set; }
+    public bool Ok { get; set; }
 }
 
 public sealed class CloudRecoveryPollRequest
 {
+    public string GrantId { get; set; } = "";
+    public string DeviceSecret { get; set; } = "";
+
+    /// <summary>The code the emailed link's page showed on another device; a match approves the grant in the same call.</summary>
+    public string? Code { get; set; }
+}
+
+public sealed class CloudRecoveryCompleteRequest
+{
+    public string Token { get; set; } = "";
     public string GrantId { get; set; } = "";
     public string DeviceSecret { get; set; } = "";
 }
