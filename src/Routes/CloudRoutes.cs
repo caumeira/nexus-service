@@ -113,6 +113,11 @@ public static class CloudRoutes
                 return Results.BadRequest(ApiResponse.Fail("newPassword is required."));
             }
             var result = await accounts.ChangePasswordAsync(body.CurrentPassword, body.NewPassword, ct).ConfigureAwait(false);
+            // 202: nexus-api holds the change until the emailed link is confirmed; the UI must say so.
+            if (result.Success && result.StatusCode == StatusCodes.Status202Accepted)
+            {
+                return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse, statusCode: StatusCodes.Status202Accepted);
+            }
             return CloudResult(result);
         });
 
