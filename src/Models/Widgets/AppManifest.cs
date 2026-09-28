@@ -109,6 +109,14 @@ public sealed class AppManifest
     public bool Immersive { get; set; }
 
     /// <summary>
+    /// Immersive view requires a second swipe to close: the first swipe only
+    /// reveals the close affordance, and a second swipe soon after closes the
+    /// view. The web client ignores it unless <see cref="Immersive"/> is set.
+    /// </summary>
+    [JsonPropertyName("immersive_double_swipe")]
+    public bool ImmersiveDoubleSwipe { get; set; }
+
+    /// <summary>
     /// App allows only one instance per panel. Default false: a widget may be
     /// placed as many times as the user likes, each with its own config. Set
     /// this when a second copy is meaningless or actively wrong - a pet that is
