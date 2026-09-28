@@ -25,6 +25,7 @@ internal sealed class OfflineCloudApiClient : ICloudApiClient
     public Task<CloudApiResult<CloudRecoveryStartResponse>> RecoveryStartAsync(CloudRecoveryStartRequest body, CancellationToken ct) => Offline<CloudRecoveryStartResponse>();
 
     public Task<CloudApiResult<CloudRecoveryPollResponse>> RecoveryPollAsync(CloudRecoveryPollRequest body, CancellationToken ct) => Offline<CloudRecoveryPollResponse>();
+    public Task<CloudApiResult<CloudVoid>> RecoveryCompleteAsync(CloudRecoveryCompleteRequest body, CancellationToken ct) => Offline<CloudVoid>();
 
     public Task<CloudApiResult<CloudVoid>> ChangePasswordAsync(string accessToken, CloudChangePasswordRequest body, CancellationToken ct) => Offline<CloudVoid>();
 

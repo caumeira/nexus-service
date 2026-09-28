@@ -472,7 +472,7 @@ public sealed class CloudAccountServiceTests
         {
             accepted++;
             return accepted == 1
-                ? CloudApiResult<CloudRecoveryStartResponse>.Ok(new CloudRecoveryStartResponse { Code = "ABC-DEF" })
+                ? CloudApiResult<CloudRecoveryStartResponse>.Ok(new CloudRecoveryStartResponse { Ok = true })
                 : CloudApiResult<CloudRecoveryStartResponse>.Fail(429, "recovery_too_soon", "Wait a minute.");
         };
         // The fake's default poll answer is "expired", and the poll loop's first
@@ -493,33 +493,155 @@ public sealed class CloudAccountServiceTests
         Assert.Equal("pending", svc.GetRecoveryStatus().Status);
     }
 
-    [Fact]
-    public async Task StartRecoveryAsync_hands_back_the_code_the_cloud_minted()
+    private static CloudRecoveryPollResponse Approved() => new()
+    {
+        AccessToken = "access-r",
+        RefreshToken = "refresh-r",
+        Account = new CloudAccountDto { Id = "acct-r", Email = "nicola@example.com", Username = "nicola", EmailVerified = true },
+    };
+
+    private static async Task<(CloudAccountService svc, FakeCloudApiClient api, CloudRecoveryStartRequest started)> StartPendingRecovery()
     {
         var (svc, api, _) = Make();
-        CloudRecoveryStartRequest? sent = null;
+        CloudRecoveryStartRequest? started = null;
         api.OnRecoveryStart = body =>
         {
-            sent = body;
-            return CloudApiResult<CloudRecoveryStartResponse>.Ok(new CloudRecoveryStartResponse { Code = "ABC-DEF" });
+            started = body;
+            return CloudApiResult<CloudRecoveryStartResponse>.Ok(new CloudRecoveryStartResponse { Ok = true });
         };
-
+        // The poll loop's first request runs on the thread pool; a test that
+        // swaps OnRecoveryPoll before it lands would have its callback hit by
+        // the loop too. The loop polls again only on a clock tick, and this
+        // clock never ticks.
+        var firstPoll = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        api.OnRecoveryPoll = _ =>
+        {
+            firstPoll.TrySetResult();
+            return CloudApiResult<CloudRecoveryPollResponse>.Ok(new CloudRecoveryPollResponse { Status = "pending" });
+        };
         var result = await svc.StartRecoveryAsync("nicola@example.com", CancellationToken.None);
-
         Assert.True(result.Success);
-        Assert.Equal("nicola@example.com", sent!.Email);
-        Assert.Equal("ABC-DEF", result.Value);
+        await firstPoll.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("pending", svc.GetRecoveryStatus().Status);
+        return (svc, api, started!);
     }
 
     [Fact]
-    public async Task StartRecoveryAsync_succeeds_even_if_the_cloud_returns_no_code()
+    public async Task StartRecoveryAsync_asks_the_cloud_to_mail_the_address()
     {
-        var (svc, api, _) = Make();
-        api.OnRecoveryStart = _ => CloudApiResult<CloudRecoveryStartResponse>.Ok(new CloudRecoveryStartResponse());
+        var (_, _, started) = await StartPendingRecovery();
+        Assert.Equal("nicola@example.com", started.Email);
+        Assert.False(string.IsNullOrEmpty(started.GrantId));
+        Assert.False(string.IsNullOrEmpty(started.DeviceSecret));
+    }
 
-        var result = await svc.StartRecoveryAsync("nicola@example.com", CancellationToken.None);
+    [Fact]
+    public async Task LinkRecoveryAsync_hands_the_token_over_with_this_grant_and_signs_in()
+    {
+        var (svc, api, started) = await StartPendingRecovery();
+        CloudRecoveryCompleteRequest? completed = null;
+        api.OnRecoveryComplete = body =>
+        {
+            completed = body;
+            api.OnRecoveryPoll = _ => CloudApiResult<CloudRecoveryPollResponse>.Ok(Approved());
+            return CloudApiResult<CloudVoid>.Ok(CloudVoid.Instance, 201);
+        };
+
+        var result = await svc.LinkRecoveryAsync("link-token", CancellationToken.None);
 
         Assert.True(result.Success);
-        Assert.Null(result.Value);
+        Assert.Equal("link-token", completed!.Token);
+        Assert.Equal(started.GrantId, completed.GrantId);
+        Assert.Equal(started.DeviceSecret, completed.DeviceSecret);
+        Assert.Equal("approved", svc.GetRecoveryStatus().Status);
+        Assert.Equal("acct-r", svc.ActiveAccountId);
+    }
+
+    [Fact]
+    public async Task A_poll_that_loses_the_claim_to_an_approval_does_not_report_expired()
+    {
+        var (svc, api, _) = await StartPendingRecovery();
+        api.OnRecoveryComplete = _ => CloudApiResult<CloudVoid>.Ok(CloudVoid.Instance, 201);
+        api.OnRecoveryPoll = body =>
+        {
+            if (body.Code is not null)
+            {
+                return CloudApiResult<CloudRecoveryPollResponse>.Ok(Approved());
+            }
+            // The link's poll is in flight when a typed code approves the
+            // grant; its claim then misses and the api answers "expired".
+            Assert.True(svc.SubmitRecoveryCodeAsync("482915", CancellationToken.None).GetAwaiter().GetResult().Success);
+            return CloudApiResult<CloudRecoveryPollResponse>.Ok(new CloudRecoveryPollResponse { Status = "expired" });
+        };
+
+        await svc.LinkRecoveryAsync("link-token", CancellationToken.None);
+
+        Assert.Equal("approved", svc.GetRecoveryStatus().Status);
+    }
+
+    [Fact]
+    public async Task LinkRecoveryAsync_for_another_devices_link_fails_and_keeps_waiting()
+    {
+        var (svc, api, _) = await StartPendingRecovery();
+        api.OnRecoveryComplete = _ => CloudApiResult<CloudVoid>.Fail(400, "grant_mismatch", "this link belongs to another device");
+
+        var result = await svc.LinkRecoveryAsync("someone-elses-token", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("grant_mismatch", result.ErrorCode);
+        Assert.Equal("pending", svc.GetRecoveryStatus().Status);
+    }
+
+    [Fact]
+    public async Task LinkRecoveryAsync_with_no_reset_waiting_is_not_found()
+    {
+        var (svc, _, _) = Make();
+
+        var result = await svc.LinkRecoveryAsync("link-token", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(404, result.StatusCode);
+        Assert.Equal("no_recovery", result.ErrorCode);
+    }
+
+    [Fact]
+    public async Task SubmitRecoveryCodeAsync_signs_in_when_the_code_matches()
+    {
+        var (svc, api, started) = await StartPendingRecovery();
+        CloudRecoveryPollRequest? sent = null;
+        api.OnRecoveryPoll = body =>
+        {
+            if (body.Code is null)
+            {
+                return CloudApiResult<CloudRecoveryPollResponse>.Ok(new CloudRecoveryPollResponse { Status = "pending" });
+            }
+            sent = body;
+            return CloudApiResult<CloudRecoveryPollResponse>.Ok(Approved());
+        };
+
+        var result = await svc.SubmitRecoveryCodeAsync("482915", CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal("482915", sent!.Code);
+        Assert.Equal(started.GrantId, sent.GrantId);
+        Assert.Equal("approved", svc.GetRecoveryStatus().Status);
+    }
+
+    [Fact]
+    public async Task SubmitRecoveryCodeAsync_wrong_code_keeps_waiting_and_spent_guesses_expire_it()
+    {
+        var (svc, api, _) = await StartPendingRecovery();
+        api.OnRecoveryPoll = body => body.Code is null
+            ? CloudApiResult<CloudRecoveryPollResponse>.Ok(new CloudRecoveryPollResponse { Status = "pending" })
+            : CloudApiResult<CloudRecoveryPollResponse>.Fail(400, "code_mismatch", "wrong verification code");
+
+        var wrong = await svc.SubmitRecoveryCodeAsync("000000", CancellationToken.None);
+        Assert.Equal("code_mismatch", wrong.ErrorCode);
+        Assert.Equal("pending", svc.GetRecoveryStatus().Status);
+
+        api.OnRecoveryPoll = _ => CloudApiResult<CloudRecoveryPollResponse>.Fail(400, "code_attempts_exhausted", "too many attempts");
+        var spent = await svc.SubmitRecoveryCodeAsync("000000", CancellationToken.None);
+        Assert.Equal("code_attempts_exhausted", spent.ErrorCode);
+        Assert.Equal("expired", svc.GetRecoveryStatus().Status);
     }
 }
