@@ -89,11 +89,28 @@ public static class CloudRoutes
                 return Results.BadRequest(ApiResponse.Fail("email is required."));
             }
             var result = await accounts.StartRecoveryAsync(body.Email, ct).ConfigureAwait(false);
-            if (!result.Success)
+            return CloudResult(result);
+        });
+
+        // Called by hellonexus.com's /auth/recover page when it is open in a browser on this computer.
+        app.MapPost("/cloud/recovery/link", async (CloudRecoveryLinkBody body, CloudAccountService accounts, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Token))
             {
-                return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
+                return Results.BadRequest(ApiResponse.Fail("token is required."));
             }
-            return Results.Json(new CloudRecoveryStartLocalResponse { Code = result.Value }, AppJsonContext.Default.CloudRecoveryStartLocalResponse);
+            var result = await accounts.LinkRecoveryAsync(body.Token, ct).ConfigureAwait(false);
+            return CloudResult(result);
+        });
+
+        app.MapPost("/cloud/recovery/code", async (CloudRecoveryCodeBody body, CloudAccountService accounts, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Code))
+            {
+                return Results.BadRequest(ApiResponse.Fail("code is required."));
+            }
+            var result = await accounts.SubmitRecoveryCodeAsync(body.Code, ct).ConfigureAwait(false);
+            return CloudResult(result);
         });
 
         app.MapGet("/cloud/recovery/status", (CloudAccountService accounts) =>
@@ -113,6 +130,11 @@ public static class CloudRoutes
                 return Results.BadRequest(ApiResponse.Fail("newPassword is required."));
             }
             var result = await accounts.ChangePasswordAsync(body.CurrentPassword, body.NewPassword, ct).ConfigureAwait(false);
+            // 202: nexus-api holds the change until the emailed link is confirmed; the UI must say so.
+            if (result.Success && result.StatusCode == StatusCodes.Status202Accepted)
+            {
+                return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse, statusCode: StatusCodes.Status202Accepted);
+            }
             return CloudResult(result);
         });
 

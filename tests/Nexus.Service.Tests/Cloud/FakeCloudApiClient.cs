@@ -46,6 +46,8 @@ public sealed class FakeCloudApiClient : ICloudApiClient
         _ => CloudApiResult<CloudRecoveryStartResponse>.Ok(new CloudRecoveryStartResponse());
     public Func<CloudRecoveryPollRequest, CloudApiResult<CloudRecoveryPollResponse>> OnRecoveryPoll =
         _ => CloudApiResult<CloudRecoveryPollResponse>.Ok(new CloudRecoveryPollResponse { Status = "expired" });
+    public Func<CloudRecoveryCompleteRequest, CloudApiResult<CloudVoid>> OnRecoveryComplete =
+        _ => CloudApiResult<CloudVoid>.Fail(400, "grant_mismatch", "not wired");
     public Func<string, CloudChangePasswordRequest, CloudApiResult<CloudVoid>> OnChangePassword = (_, _) => CloudApiResult<CloudVoid>.NetworkError("not wired");
     public Func<string, CloudChangeUsernameRequest, CloudApiResult<CloudVoid>> OnChangeUsername = (_, _) => CloudApiResult<CloudVoid>.NetworkError("not wired");
     public Func<string, bool, CloudApiResult<CloudVoid>> OnSetPrivate = (_, _) => CloudApiResult<CloudVoid>.NetworkError("not wired");
@@ -89,6 +91,9 @@ public sealed class FakeCloudApiClient : ICloudApiClient
 
     public Task<CloudApiResult<CloudRecoveryPollResponse>> RecoveryPollAsync(CloudRecoveryPollRequest body, CancellationToken ct)
     { RecoveryPollCalls++; return Task.FromResult(OnRecoveryPoll(body)); }
+
+    public Task<CloudApiResult<CloudVoid>> RecoveryCompleteAsync(CloudRecoveryCompleteRequest body, CancellationToken ct)
+    { return Task.FromResult(OnRecoveryComplete(body)); }
 
     public Task<CloudApiResult<CloudVoid>> ChangePasswordAsync(string accessToken, CloudChangePasswordRequest body, CancellationToken ct)
     { ChangePasswordCalls++; return Task.FromResult(OnChangePassword(accessToken, body)); }

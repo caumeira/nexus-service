@@ -58,10 +58,16 @@ public sealed class CloudRecoveryStartBody
     public string Email { get; set; } = "";
 }
 
-public sealed class CloudRecoveryStartLocalResponse : ApiResponse
+/// <summary>The emailed link's token, handed over by that page when it is open in a browser on this computer.</summary>
+public sealed class CloudRecoveryLinkBody
 {
-    /// <summary>Shown on this device and typed into the page the emailed link opens; never carried in the mail.</summary>
-    public string? Code { get; set; }
+    public string Token { get; set; } = "";
+}
+
+/// <summary>The code the emailed link's page showed on another device.</summary>
+public sealed class CloudRecoveryCodeBody
+{
+    public string Code { get; set; } = "";
 }
 
 public sealed class CloudRecoveryStatusResponse : ApiResponse
