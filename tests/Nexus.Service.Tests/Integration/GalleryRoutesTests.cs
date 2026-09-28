@@ -171,6 +171,67 @@ public sealed class GalleryRoutesTests : IDisposable
     }
 
     [Fact]
+    public async Task PlaylistCrud_RidesOnTheItemsResponse()
+    {
+        var client = DesktopClient();
+        WriteImage("a.png");
+        var source = (await ReadAs(await client.PostAsJsonAsync("/gallery/sources",
+            new AddGallerySourceBody { Path = _photosDir, Kind = GallerySourceKinds.Folder }),
+            AppJsonContext.Default.GallerySourceMutationResponse))!.Source!;
+
+        var create = await client.PostAsJsonAsync("/gallery/playlists", new GalleryPlaylistBody { Name = "Desk" });
+        Assert.Equal(HttpStatusCode.OK, create.StatusCode);
+        var id = (await ReadAs(create, AppJsonContext.Default.GalleryPlaylistMutationResponse))!.Playlist!.Id;
+
+        var dup = await client.PostAsJsonAsync("/gallery/playlists", new GalleryPlaylistBody { Name = "desk" });
+        Assert.Equal(HttpStatusCode.BadRequest, dup.StatusCode);
+        Assert.Equal(GalleryErrorCodes.Duplicate, (await ReadAs(dup, AppJsonContext.Default.GalleryPlaylistMutationResponse))!.Code);
+
+        var put = await client.PutAsJsonAsync($"/gallery/playlists/{id}",
+            new GalleryPlaylistBody { SourceIds = new() { source.Id } });
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+
+        var items = await ReadAs(await client.GetAsync("/gallery/items"), AppJsonContext.Default.GalleryItemsResponse);
+        var listed = Assert.Single(items!.Playlists);
+        Assert.Equal("Desk", listed.Name);
+        Assert.Equal(new[] { source.Id }, listed.SourceIds);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PutAsJsonAsync("/gallery/playlists/nope",
+            new GalleryPlaylistBody { Name = "x" })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PutAsJsonAsync("/gallery/playlists/x.json",
+            new GalleryPlaylistBody { Name = "x" })).StatusCode);
+
+        _factory.Services.GetRequiredService<Nexus.Service.Persistence.IConfigStore>().Update(st =>
+            st.Panel.DashboardLayout = new Nexus.Service.Models.Panel.PanelLayoutDto
+            {
+                Pages = new()
+                {
+                    new Nexus.Service.Models.Panel.PanelPageDto
+                    {
+                        Id = "p1",
+                        Widgets = new()
+                        {
+                            new Nexus.Service.Models.Panel.PanelWidgetDto
+                            {
+                                Id = "g1",
+                                Type = "gallery",
+                                Config = new() { ["playlistId"] = JsonSerializer.SerializeToElement(id) },
+                            },
+                        },
+                    },
+                },
+            });
+        var usage = await ReadAs(await client.GetAsync($"/gallery/playlists/{id}/usage"), AppJsonContext.Default.GalleryPlaylistUsageResponse);
+        var use = Assert.Single(usage!.Uses);
+        Assert.Equal((GalleryPlaylistUseSurfaces.Dashboard, 1), (use.Surface, use.Count));
+
+        Assert.Equal(HttpStatusCode.OK, (await client.DeleteAsync($"/gallery/playlists/{id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/gallery/playlists/{id}")).StatusCode);
+        var after = await ReadAs(await client.GetAsync("/gallery/items"), AppJsonContext.Default.GalleryItemsResponse);
+        Assert.Empty(after!.Playlists);
+    }
+
+    [Fact]
     public async Task Video_IsEnumeratedAsVideo_AndServedWithRanges()
     {
         var client = DesktopClient();
@@ -334,6 +395,18 @@ public sealed class GalleryRoutesTests : IDisposable
 
         var restore = await panel.PostAsJsonAsync("/gallery/sources/whatever/restore", new { });
         Assert.Equal(HttpStatusCode.Forbidden, restore.StatusCode);
+
+        var createPlaylist = await panel.PostAsJsonAsync("/gallery/playlists", new GalleryPlaylistBody { Name = "Desk" });
+        Assert.Equal(HttpStatusCode.Forbidden, createPlaylist.StatusCode);
+
+        var putPlaylist = await panel.PutAsJsonAsync("/gallery/playlists/whatever", new GalleryPlaylistBody { Name = "Desk" });
+        Assert.Equal(HttpStatusCode.Forbidden, putPlaylist.StatusCode);
+
+        var deletePlaylist = await panel.DeleteAsync("/gallery/playlists/whatever");
+        Assert.Equal(HttpStatusCode.Forbidden, deletePlaylist.StatusCode);
+
+        var usagePlaylist = await panel.GetAsync("/gallery/playlists/whatever/usage");
+        Assert.Equal(HttpStatusCode.Forbidden, usagePlaylist.StatusCode);
     }
 
     [Fact]

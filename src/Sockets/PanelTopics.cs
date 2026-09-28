@@ -31,8 +31,8 @@ public static class PanelTopics
     /// <summary>Spectrum / beat snapshots for client-rendered audio shaders; subscribing also demands capture (LightingProvider.SetAudioCaptureDemand).</summary>
     public const string Audio = "audio";
     /// <summary>
-    /// Gallery sources changed (reference added/removed, upload). Subscribers
-    /// refetch GET /gallery/items.
+    /// Gallery sources or playlists changed. Subscribers refetch GET
+    /// /gallery/items, which carries both.
     /// </summary>
     public const string Gallery = "gallery";
     public const string CoolingWarnings = "cooling/warnings";

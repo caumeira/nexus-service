@@ -8,6 +8,7 @@ using Nexus.Service.Auth;
 using Nexus.Service.Gallery;
 using Nexus.Service.Media;
 using Nexus.Service.Models.Gallery;
+using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sockets;
 
@@ -55,7 +56,58 @@ public static class GalleryRoutes
         });
 
         app.MapGet("/gallery/items", (GalleryLibrary lib) =>
-            new GalleryItemsResponse { Items = lib.EnumerateItems() }).AllowPanel();
+            new GalleryItemsResponse { Items = lib.EnumerateItems(), Playlists = lib.ListPlaylists() }).AllowPanel();
+
+        // Playlist management is desktop-tier like source management. Reads
+        // ride on /gallery/items, so no playlist route needs panel reach.
+        app.MapPost("/gallery/playlists", (GalleryPlaylistBody body, GalleryLibrary lib, MultiplexHub hub) =>
+        {
+            var result = lib.CreatePlaylist(body.Name);
+            if (result.Error)
+            {
+                return Results.BadRequest(result);
+            }
+
+            PanelTopics.BroadcastGallery(hub);
+            return Results.Ok(result);
+        });
+
+        app.MapPut("/gallery/playlists/{id}", (string id, GalleryPlaylistBody body, GalleryLibrary lib, MultiplexHub hub) =>
+        {
+            if (!MediaLibrary.IsValidId(id))
+            {
+                return Results.NotFound();
+            }
+
+            var result = lib.UpdatePlaylist(id, body);
+            if (result.Error)
+            {
+                return result.Code == GalleryErrorCodes.NotFound
+                    ? Results.NotFound()
+                    : Results.BadRequest(result);
+            }
+
+            PanelTopics.BroadcastGallery(hub);
+            return Results.Ok(result);
+        });
+
+        // Asked before a delete so the confirmation can name the widgets that
+        // would fall back to the whole library.
+        app.MapGet("/gallery/playlists/{id}/usage", (string id, IConfigStore store) =>
+            MediaLibrary.IsValidId(id)
+                ? Results.Ok(new GalleryPlaylistUsageResponse { Uses = GalleryPlaylistUsage.Find(store.Load(), id) })
+                : Results.NotFound());
+
+        app.MapDelete("/gallery/playlists/{id}", (string id, GalleryLibrary lib, MultiplexHub hub) =>
+        {
+            if (!MediaLibrary.IsValidId(id) || !lib.DeletePlaylist(id))
+            {
+                return Results.NotFound();
+            }
+
+            PanelTopics.BroadcastGallery(hub);
+            return Results.Ok(new GalleryPlaylistMutationResponse());
+        });
 
         app.MapGet("/gallery/items/{id}/file",
             async Task<IResult> (string id, GalleryLibrary lib, GalleryResizeCache resize, HttpContext ctx) =>

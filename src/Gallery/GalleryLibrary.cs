@@ -16,14 +16,20 @@ namespace Nexus.Service.Gallery;
 /// <summary>
 /// Per-system gallery source registry + item enumeration. Sources are
 /// referenced image and video files/folders on local disk; every panel
-/// surface of this PC draws from the same set. sources.json (plus the upload
-/// files themselves) is the only persisted state - folders are rescanned on
-/// each enumeration so external file changes show up without a watcher.
+/// surface of this PC draws from the same set. sources.json (sources plus the
+/// playlists cut from them) is the only persisted state - folders are
+/// rescanned on each enumeration so external file changes show up without a
+/// watcher.
 /// </summary>
 public sealed class GalleryLibrary
 {
     private const string SourcesFileName = "sources.json";
     public const int MaxItemsPerFolder = 500;
+    public const int MaxPlaylists = 50;
+    public const int MaxPlaylistNameLength = 48;
+    // Per id list on one playlist, so a runaway client cannot grow
+    // sources.json without bound. Ids past it are dropped, not rejected.
+    public const int MaxPlaylistEntries = 5000;
 
     private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif" };
     // Containers the panel WebViews (Chromium 83 on the Q-series, WebView2,
@@ -49,6 +55,7 @@ public sealed class GalleryLibrary
 
     private readonly object _lock = new();
     private List<GallerySource>? _sources;
+    private List<GalleryPlaylist> _playlists = new();
     private Dictionary<string, string> _itemPaths = new();
     // Bumped on every source mutation. EnumerateItems snapshots it and only
     // swaps its map in if no mutation happened mid-scan, so a slow scan can't
@@ -180,11 +187,130 @@ public sealed class GalleryLibrary
                 return false;
 
             sources.Remove(source);
+            // Picked item ids stay: they are inert while their files are
+            // outside the library, and come back if the source is re-added.
+            foreach (var playlist in _playlists)
+            {
+                playlist.SourceIds.Remove(id);
+            }
+
             SaveSources(sources);
             InvalidateItemsLocked();
             return true;
         }
     }
+
+    public List<GalleryPlaylist> ListPlaylists()
+    {
+        lock (_lock)
+        {
+            LoadSources();
+            return _playlists.Select(ClonePlaylist).ToList();
+        }
+    }
+
+    public GalleryPlaylistMutationResponse CreatePlaylist(string? name)
+    {
+        var trimmed = name?.Trim() ?? "";
+        lock (_lock)
+        {
+            var sources = LoadSources();
+            if (_playlists.Count >= MaxPlaylists)
+                return FailPlaylist("playlist limit reached", GalleryErrorCodes.Limit);
+            var nameError = ValidatePlaylistName(trimmed, exceptId: null);
+            if (nameError is not null)
+                return nameError;
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var id = $"pl-{now:x}";
+            var unique = id;
+            for (var n = 2; _playlists.Any(p => p.Id == unique); n++)
+            {
+                unique = $"{id}-{n}";
+            }
+
+            var playlist = new GalleryPlaylist { Id = unique, Name = trimmed, CreatedAtUnixMs = now };
+            _playlists.Add(playlist);
+            SaveSources(sources);
+            return new GalleryPlaylistMutationResponse { Playlist = ClonePlaylist(playlist) };
+        }
+    }
+
+    /// <summary>
+    /// Replace any field the body carries. Source ids are kept only while the
+    /// source exists; item ids are only format-checked, since they are
+    /// resolved against the live library at read time anyway.
+    /// </summary>
+    public GalleryPlaylistMutationResponse UpdatePlaylist(string id, GalleryPlaylistBody body)
+    {
+        lock (_lock)
+        {
+            var sources = LoadSources();
+            var playlist = _playlists.FirstOrDefault(p => p.Id == id);
+            if (playlist is null)
+                return FailPlaylist("playlist not found", GalleryErrorCodes.NotFound);
+
+            if (body.Name is not null)
+            {
+                var trimmed = body.Name.Trim();
+                var nameError = ValidatePlaylistName(trimmed, exceptId: id);
+                if (nameError is not null)
+                    return nameError;
+                playlist.Name = trimmed;
+            }
+
+            if (body.SourceIds is not null)
+            {
+                var known = sources.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
+                playlist.SourceIds = CleanIds(body.SourceIds).Where(known.Contains).ToList();
+            }
+
+            if (body.ItemIds is not null)
+                playlist.ItemIds = CleanIds(body.ItemIds);
+            if (body.ExcludedIds is not null)
+                playlist.ExcludedIds = CleanIds(body.ExcludedIds);
+
+            SaveSources(sources);
+            return new GalleryPlaylistMutationResponse { Playlist = ClonePlaylist(playlist) };
+        }
+    }
+
+    public bool DeletePlaylist(string id)
+    {
+        lock (_lock)
+        {
+            var sources = LoadSources();
+            if (_playlists.RemoveAll(p => p.Id == id) == 0)
+                return false;
+
+            SaveSources(sources);
+            return true;
+        }
+    }
+
+    private GalleryPlaylistMutationResponse? ValidatePlaylistName(string name, string? exceptId)
+    {
+        if (name.Length == 0 || name.Length > MaxPlaylistNameLength)
+            return FailPlaylist("invalid playlist name", GalleryErrorCodes.InvalidName);
+        // Widgets pick playlists by name in a dropdown, so two with one name
+        // would be indistinguishable there.
+        if (_playlists.Any(p => p.Id != exceptId && string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)))
+            return FailPlaylist("playlist name already used", GalleryErrorCodes.Duplicate);
+        return null;
+    }
+
+    private static List<string> CleanIds(IEnumerable<string> ids) =>
+        ids.Where(MediaLibrary.IsValidId).Distinct(StringComparer.Ordinal).Take(MaxPlaylistEntries).ToList();
+
+    private static GalleryPlaylist ClonePlaylist(GalleryPlaylist p) => new()
+    {
+        Id = p.Id,
+        Name = p.Name,
+        CreatedAtUnixMs = p.CreatedAtUnixMs,
+        SourceIds = new List<string>(p.SourceIds),
+        ItemIds = new List<string>(p.ItemIds),
+        ExcludedIds = new List<string>(p.ExcludedIds),
+    };
 
     /// <summary>
     /// Hide one item of a folder source without touching the file: its id
@@ -396,6 +522,17 @@ public sealed class GalleryLibrary
             _sources = parsed?.Sources
                 .Where(s => MediaLibrary.IsValidId(s.Id) && !string.IsNullOrEmpty(s.Path) && !string.IsNullOrEmpty(s.Kind))
                 .ToList() ?? new List<GallerySource>();
+            _playlists = parsed?.Playlists?
+                .Where(p => MediaLibrary.IsValidId(p.Id) && !string.IsNullOrWhiteSpace(p.Name))
+                .Select(p =>
+                {
+                    // Lists absent from the file deserialize as null.
+                    p.SourceIds ??= new List<string>();
+                    p.ItemIds ??= new List<string>();
+                    p.ExcludedIds ??= new List<string>();
+                    return p;
+                })
+                .ToList() ?? new List<GalleryPlaylist>();
             // Pre-exclusions builds stored uploaded copies as a distinct kind;
             // they're plain file references now (upload support is gone).
             foreach (var s in _sources)
@@ -410,6 +547,7 @@ public sealed class GalleryLibrary
         {
             // Missing or corrupt file: start empty rather than failing boot.
             _sources = new List<GallerySource>();
+            _playlists = new List<GalleryPlaylist>();
         }
 
         return _sources;
@@ -419,10 +557,13 @@ public sealed class GalleryLibrary
     {
         _sources = sources;
         Directory.CreateDirectory(RootDir);
-        var json = JsonSerializer.Serialize(new GallerySourcesFile { Sources = sources }, AppJsonContext.Default.GallerySourcesFile);
+        var json = JsonSerializer.Serialize(new GallerySourcesFile { Sources = sources, Playlists = _playlists }, AppJsonContext.Default.GallerySourcesFile);
         AtomicJsonFile.Write(Path.Combine(RootDir, SourcesFileName), json);
     }
 
     private static GallerySourceMutationResponse Fail(string msg, string code = "") =>
+        new() { Error = true, Msg = msg, Code = code };
+
+    private static GalleryPlaylistMutationResponse FailPlaylist(string msg, string code = "") =>
         new() { Error = true, Msg = msg, Code = code };
 }

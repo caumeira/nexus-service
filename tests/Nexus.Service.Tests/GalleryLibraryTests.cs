@@ -362,4 +362,123 @@ public sealed class GalleryLibraryTests : IDisposable
     {
         Assert.False(NewLibrary().RemoveSource("nope"));
     }
+
+    // ── Playlists ────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void CreatePlaylist_TrimsName_AndRefusesDuplicatesAndBlanks()
+    {
+        var lib = NewLibrary();
+        var created = lib.CreatePlaylist("  Desk  ");
+        Assert.False(created.Error);
+        Assert.Equal("Desk", created.Playlist!.Name);
+        Assert.True(MediaLibrary.IsValidId(created.Playlist.Id));
+
+        Assert.Equal(GalleryErrorCodes.Duplicate, lib.CreatePlaylist("desk").Code);
+        Assert.Equal(GalleryErrorCodes.InvalidName, lib.CreatePlaylist("   ").Code);
+        Assert.Equal(GalleryErrorCodes.InvalidName, lib.CreatePlaylist(new string('x', GalleryLibrary.MaxPlaylistNameLength + 1)).Code);
+    }
+
+    [Fact]
+    public void CreatePlaylist_StopsAtTheCap()
+    {
+        var lib = NewLibrary();
+        for (var i = 0; i < GalleryLibrary.MaxPlaylists; i++)
+        {
+            Assert.False(lib.CreatePlaylist($"p{i}").Error);
+        }
+
+        Assert.Equal(GalleryErrorCodes.Limit, lib.CreatePlaylist("one more").Code);
+        Assert.Equal(GalleryLibrary.MaxPlaylists, lib.ListPlaylists().Select(p => p.Id).Distinct().Count());
+    }
+
+    [Fact]
+    public void UpdatePlaylist_KeepsKnownSourcesOnly_AndCleansItemIds()
+    {
+        var lib = NewLibrary();
+        var source = lib.AddReference(_photosDir, GallerySourceKinds.Folder).Source!;
+        var id = lib.CreatePlaylist("Desk").Playlist!.Id;
+
+        var updated = lib.UpdatePlaylist(id, new GalleryPlaylistBody
+        {
+            SourceIds = new() { source.Id, "gone", source.Id },
+            ItemIds = new() { "aaaa", "aaaa", "../etc", "bbbb" },
+            ExcludedIds = new() { "cccc" },
+        });
+
+        Assert.False(updated.Error);
+        Assert.Equal(new[] { source.Id }, updated.Playlist!.SourceIds);
+        Assert.Equal(new[] { "aaaa", "bbbb" }, updated.Playlist.ItemIds);
+        Assert.Equal(new[] { "cccc" }, updated.Playlist.ExcludedIds);
+        // A body without a name leaves it alone.
+        Assert.Equal("Desk", updated.Playlist.Name);
+    }
+
+    [Fact]
+    public void UpdatePlaylist_Rename_RefusesAnotherPlaylistsName_ButNotItsOwn()
+    {
+        var lib = NewLibrary();
+        lib.CreatePlaylist("Desk");
+        var id = lib.CreatePlaylist("Wall").Playlist!.Id;
+
+        Assert.Equal(GalleryErrorCodes.Duplicate, lib.UpdatePlaylist(id, new GalleryPlaylistBody { Name = "DESK" }).Code);
+        Assert.Equal("WALL", lib.UpdatePlaylist(id, new GalleryPlaylistBody { Name = "WALL" }).Playlist!.Name);
+        Assert.Equal(GalleryErrorCodes.NotFound, lib.UpdatePlaylist("nope", new GalleryPlaylistBody { Name = "x" }).Code);
+    }
+
+    [Fact]
+    public void Playlists_PersistAcrossInstances()
+    {
+        var source = NewLibrary().AddReference(_photosDir, GallerySourceKinds.Folder).Source!;
+        var lib = NewLibrary();
+        var id = lib.CreatePlaylist("Desk").Playlist!.Id;
+        lib.UpdatePlaylist(id, new GalleryPlaylistBody { SourceIds = new() { source.Id }, ItemIds = new() { "aaaa" } });
+
+        var reloaded = Assert.Single(NewLibrary().ListPlaylists());
+        Assert.Equal("Desk", reloaded.Name);
+        Assert.Equal(new[] { source.Id }, reloaded.SourceIds);
+        Assert.Equal(new[] { "aaaa" }, reloaded.ItemIds);
+    }
+
+    [Fact]
+    public void RemoveSource_DropsItFromPlaylists_ButKeepsPickedItems()
+    {
+        var lib = NewLibrary();
+        var source = lib.AddReference(_photosDir, GallerySourceKinds.Folder).Source!;
+        var id = lib.CreatePlaylist("Desk").Playlist!.Id;
+        lib.UpdatePlaylist(id, new GalleryPlaylistBody { SourceIds = new() { source.Id }, ItemIds = new() { "aaaa" } });
+
+        Assert.True(lib.RemoveSource(source.Id));
+
+        var playlist = Assert.Single(NewLibrary().ListPlaylists());
+        Assert.Empty(playlist.SourceIds);
+        Assert.Equal(new[] { "aaaa" }, playlist.ItemIds);
+    }
+
+    [Fact]
+    public void DeletePlaylist_RemovesIt()
+    {
+        var lib = NewLibrary();
+        var id = lib.CreatePlaylist("Desk").Playlist!.Id;
+        Assert.True(lib.DeletePlaylist(id));
+        Assert.False(lib.DeletePlaylist(id));
+        Assert.Empty(NewLibrary().ListPlaylists());
+    }
+
+    [Fact]
+    public void ListPlaylists_ReturnsCopies()
+    {
+        var lib = NewLibrary();
+        lib.CreatePlaylist("Desk");
+        lib.ListPlaylists()[0].ItemIds.Add("aaaa");
+        Assert.Empty(lib.ListPlaylists()[0].ItemIds);
+    }
+
+    [Fact]
+    public void SourcesFileWithoutPlaylists_LoadsNone()
+    {
+        Directory.CreateDirectory(_rootDir);
+        File.WriteAllText(Path.Combine(_rootDir, "sources.json"), "{\"sources\":[]}");
+        Assert.Empty(NewLibrary().ListPlaylists());
+    }
 }
