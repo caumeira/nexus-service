@@ -20,6 +20,9 @@ namespace Nexus.Service.Routes;
 /// since a paired phone is a touch panel too:
 ///   GET  /onboarding/panel-swipe           -> { completed }
 ///   POST /onboarding/panel-swipe/complete  -> set panel-swipe completed
+/// The home-dashboard banner remembers the key it was dismissed under, LocalhostOnly:
+///   GET  /onboarding/banner                -> { dismissedKey }
+///   POST /onboarding/banner/dismiss/{key}  -> store key
 /// </summary>
 internal static class OnboardingRoutes
 {
@@ -77,6 +80,17 @@ internal static class OnboardingRoutes
             return Results.Ok(PanelSwipeStatus(store));
         }).AllowPanel();
 
+        app.MapGet("/onboarding/banner", (IConfigStore store) =>
+            Results.Ok(new DashboardBannerDto { DismissedKey = store.Load().DashboardBannerDismissed })).LocalhostOnly();
+
+        app.MapPost("/onboarding/banner/dismiss/{key}", (string key, IConfigStore store) =>
+        {
+            key = key.Trim();
+            if (key.Length == 0 || key.Length > 64) return Results.BadRequest();
+            store.Update(s => s.DashboardBannerDismissed = key);
+            return Results.Ok(new DashboardBannerDto { DismissedKey = key });
+        }).LocalhostOnly();
+
         // Replays the whole sequence. The two import latches are cleared as
         // well, or the import step is silently skipped - they are per-app flags
         // the migration routes own, not onboarding ones. An app that is no
@@ -119,6 +133,11 @@ internal static class OnboardingRoutes
 public sealed class PanelSwipeOnboardingDto
 {
     public bool Completed { get; set; }
+}
+
+public sealed class DashboardBannerDto
+{
+    public string DismissedKey { get; set; } = "";
 }
 
 public sealed class OnboardingStatusDto
