@@ -74,6 +74,13 @@ public sealed class AppManifest
     [JsonPropertyName("default_size")]
     public string? DefaultSize { get; set; }
 
+    /// <summary>
+    /// The sizes offered on panels that hold several widgets, when the app wants fewer there than
+    /// <see cref="Sizes"/>; a single-widget panel keeps its one size from <see cref="Sizes"/>. Unset offers them all.
+    /// </summary>
+    [JsonPropertyName("grid_sizes")]
+    public List<string>? GridSizes { get; set; }
+
     [JsonPropertyName("viewport")]
     public AppManifestViewport? Viewport { get; set; }
 

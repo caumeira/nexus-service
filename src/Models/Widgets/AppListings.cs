@@ -23,6 +23,7 @@ public sealed class AppInstalledListing
     public List<AppManifestSettingEntry> Settings { get; set; } = new();
     public List<string> Sizes { get; set; } = new();
     public string? DefaultSize { get; set; }
+    public List<string>? GridSizes { get; set; } // sizes offered on panels that hold several widgets; null offers all
     public string Source { get; set; } = ""; // "user" | "bundled"
     public bool Preinstalled { get; set; }   // OEM bake-in: active at first boot, no user install
     public bool Immersive { get; set; }      // widget opts into the panel's fullscreen view

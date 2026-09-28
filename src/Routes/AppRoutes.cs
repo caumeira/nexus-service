@@ -618,6 +618,7 @@ public static class AppRoutes
             Settings = new List<AppManifestSettingEntry>(entry.Manifest.Settings),
             Sizes = new List<string>(entry.Manifest.Sizes),
             DefaultSize = entry.Manifest.DefaultSize,
+            GridSizes = entry.Manifest.GridSizes is { } grid ? new List<string>(grid) : null,
             Source = source,
             // Preinstall is an OEM bake-in honored only for bundled apps; a user
             // copy of the same id is a deliberate user choice, not a pre-install.
