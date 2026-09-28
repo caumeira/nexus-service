@@ -223,3 +223,29 @@ public class MentionsPendingRebootTests
         Assert.False(QSeriesPortWatcher.MentionsPendingReboot(""));
     }
 }
+
+public class PnputilRestartQueuedTests
+{
+    [Fact]
+    public void Exit_3010_is_queued_whatever_the_language()
+    {
+        // A localized message must not read as success.
+        Assert.True(QSeriesPortWatcher.PnputilRestartQueued(3010, "Utilitaire PnP Microsoft"));
+    }
+
+    [Fact]
+    public void English_wording_is_queued_even_on_exit_0()
+    {
+        Assert.True(QSeriesPortWatcher.PnputilRestartQueued(0,
+            "Restarting device:         USB\\VID_0E8D&PID_201D\\0123456789ABCDEF\r\n"
+            + "System reboot is needed to complete configuration operations!"));
+    }
+
+    [Fact]
+    public void A_clean_restart_is_not_queued()
+    {
+        Assert.False(QSeriesPortWatcher.PnputilRestartQueued(0,
+            "Restarting device:         USB\\VID_0E8D&PID_201D\\0123456789ABCDEF\r\n"
+            + "Device restarted successfully."));
+    }
+}

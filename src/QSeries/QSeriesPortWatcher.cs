@@ -43,8 +43,9 @@ namespace Nexus.Service.QSeries;
 ///
 /// USB-FFS adbd is fragile: cycling the host adb-server mid-stream can wedge the
 /// device daemon into <c>offline</c>, which can't be cleared from the host without
-/// root. Recovery: per-tick <c>pnputil /restart-device</c> for a device stuck
-/// offline (a USB-level reset that restarts device-side adbd), plus an optional
+/// root. Recovery: per-tick USB reset for a device stuck offline (a hub port
+/// cycle, or <c>pnputil /restart-device</c> when the cycle cannot be confirmed; either
+/// restarts device-side adbd), plus an optional
 /// promote to adb-over-TCP when the panel has a LAN IP (dormant on stock touch-less
 /// units that can't enter WiFi creds), persisted to
 /// <c>&lt;data-root&gt;/Nexus/devices/transports/qseries-transports.json</c>.
@@ -217,8 +218,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private string? _adbVisibilitySignature;
 
     /// <summary>
-    /// Last <c>pnputil /restart-device</c> time per USB instance id (the granularity
-    /// pnputil acts on). A different replugged device gets its own cooldown.
+    /// Last USB reset time per USB instance id (the granularity a reset acts on).
+    /// A different replugged device gets its own cooldown.
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
@@ -1009,12 +1010,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// Recover a panel present on USB but absent from the adb device list entirely.
     /// Every other rescue layer needs an entry the list still carries, so this state
     /// had no recovery and stayed dark until the user replugged. Same remedy as the
-    /// offline path (<c>pnputil /restart-device</c>, which restarts adbd in firmware),
-    /// keyed off the MediaTek PnP entry.
+    /// offline path (a USB reset, which restarts adbd in firmware), keyed off the
+    /// MediaTek PnP entry.
     /// </summary>
     private void TryRecoverInvisibleQSeries(HashSet<string> onlineQSeries, bool force)
     {
-        // Windows-only, matching the offline path: pnputil is the available USB-reset.
+        // Windows-only, matching the offline path.
         if (!OperatingSystem.IsWindows()) return;
 
         // A flash legitimately takes the panel off adb - the factory-reset wipe window
@@ -1090,18 +1091,18 @@ public sealed class QSeriesPortWatcher : BackgroundService
             }
 
             ServiceLog.Info(
-                $"[qseries-port-watcher] {serial}: present on USB but absent from adb for {invisibleFor.TotalSeconds:F0}s, running pnputil /restart-device {instanceId}");
+                $"[qseries-port-watcher] {serial}: present on USB but absent from adb for {invisibleFor.TotalSeconds:F0}s, resetting USB {instanceId}");
             _lastRecoveryByInstanceId[instanceId] = now;
-            if (RunPnputilRestartDevice(instanceId, out var pnputilOut))
+            if (ResetPanelUsb(instanceId, out var resetOut, out var resetExit))
             {
                 ServiceLog.Info(
-                    $"[qseries-port-watcher] {serial}: pnputil restart succeeded; awaiting re-enumeration ({pnputilOut})");
+                    $"[qseries-port-watcher] {serial}: USB reset succeeded; awaiting re-enumeration ({resetOut})");
                 ClearAdbInvisibleState();
             }
             else
             {
-                ServiceLog.Info($"[qseries-port-watcher] {serial}: pnputil restart failed: {pnputilOut}");
-                NoteHostRebootPending(serial, instanceId, pnputilOut);
+                ServiceLog.Info($"[qseries-port-watcher] {serial}: USB reset failed: {resetOut}");
+                NoteHostRebootPending(serial, instanceId, resetOut, resetExit);
             }
         }
     }
@@ -1109,8 +1110,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// <summary>
     /// For any Q-series serial stuck <c>offline</c> past
     /// <see cref="OfflineRecoveryThreshold"/>, resolve its USB composite parent and
-    /// run <c>pnputil /restart-device</c> - a USB-level reset that restarts adbd in
-    /// firmware and clears the handshake wedge. Host-side <c>adb</c> can't: the wedge
+    /// reset it (<see cref="ResetPanelUsb"/>), which restarts adbd in firmware and
+    /// clears the handshake wedge. Host-side <c>adb</c> can't: the wedge
     /// is device-side and adbd can't be restarted without root. A serial never seen
     /// online (a panel whose adbd comes up wedged on a fresh boot) qualifies when
     /// its USB instance sits on the MediaTek VID; other offline devices (a phone)
@@ -1119,8 +1120,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private async Task TryRecoverOfflineQSeriesDevicesAsync(
         IReadOnlyCollection<DeviceData> deviceList, bool force, CancellationToken ct)
     {
-        // Windows-only: pnputil is the available USB-reset path, and the wedge is the
-        // one seen on the Y70 host. Other hosts would need usbreset(1) etc.
+        // Windows-only: both USB-reset mechanisms are Windows APIs. Other hosts would
+        // need usbreset(1) etc.
         if (!OperatingSystem.IsWindows()) return;
 
         var now = DateTimeOffset.UtcNow;
@@ -1194,20 +1195,20 @@ public sealed class QSeriesPortWatcher : BackgroundService
             }
 
             ServiceLog.Info(
-                $"[qseries-port-watcher] {device.Serial}: offline for {offlineFor.TotalSeconds:F0}s, running pnputil /restart-device {instanceId}");
+                $"[qseries-port-watcher] {device.Serial}: offline for {offlineFor.TotalSeconds:F0}s, resetting USB {instanceId}");
             _lastRecoveryByInstanceId[instanceId] = now;
-            if (RunPnputilRestartDevice(instanceId, out var pnputilOut))
+            if (ResetPanelUsb(instanceId, out var resetOut, out var resetExit))
             {
                 ServiceLog.Info(
-                    $"[qseries-port-watcher] {device.Serial}: pnputil restart succeeded; awaiting re-enumeration ({pnputilOut})");
+                    $"[qseries-port-watcher] {device.Serial}: USB reset succeeded; awaiting re-enumeration ({resetOut})");
                 // Fresh 30 s window if it fails to recover after the restart.
                 _offlineSince.Remove(device.Serial);
             }
             else
             {
                 ServiceLog.Info(
-                    $"[qseries-port-watcher] {device.Serial}: pnputil restart failed: {pnputilOut}");
-                NoteHostRebootPending(device.Serial, instanceId, pnputilOut);
+                    $"[qseries-port-watcher] {device.Serial}: USB reset failed: {resetOut}");
+                NoteHostRebootPending(device.Serial, instanceId, resetOut, resetExit);
             }
 
             // Brief pause so the rest of the tick sees a partially-reconnected world.
@@ -1280,14 +1281,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     /// <summary>
     /// Latches the "only a host restart clears this" state, so the escalation
-    /// stops and the UI can say so. Two signals because pnputil's text is
-    /// localized: the English wording, and the devnode's numeric problem code,
-    /// which is not.
+    /// stops and the UI can say so. Several signals because pnputil's text is
+    /// localized: the English wording, and the exit code and the devnode's numeric
+    /// problem code, which are not.
     /// </summary>
-    private void NoteHostRebootPending(string serial, string instanceId, string pnputilOutput)
+    private void NoteHostRebootPending(string serial, string instanceId, string pnputilOutput, int pnputilExit)
     {
         if (_hostRebootPending) return;
-        if (!MentionsPendingReboot(pnputilOutput)
+        if (!PnputilRestartQueued(pnputilExit, pnputilOutput)
             && TryReadDeviceProblemCode(instanceId) != CmProbNeedRestart)
         {
             return;
@@ -1358,13 +1359,13 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// <c>pnputil /restart-device</c>. True on exit 0 or 3010, and false for a
-    /// restart Windows could only queue. NexusService runs as LocalSystem, so no
-    /// UAC prompt.
+    /// <c>pnputil /restart-device</c>. True on exit 0, and false for a restart
+    /// Windows could only queue. NexusService runs as LocalSystem, so no UAC prompt.
     /// </summary>
-    private static bool RunPnputilRestartDevice(string instanceId, out string output)
+    private static bool RunPnputilRestartDevice(string instanceId, out string output, out int exitCode)
     {
         output = string.Empty;
+        exitCode = -1;
         if (!OperatingSystem.IsWindows()) return false;
         try
         {
@@ -1387,19 +1388,37 @@ public sealed class QSeriesPortWatcher : BackgroundService
             var stdout = p.StandardOutput.ReadToEnd().Trim();
             var stderr = p.StandardError.ReadToEnd().Trim();
             output = string.IsNullOrEmpty(stderr) ? stdout : $"{stdout} | err: {stderr}";
-            // Windows queues the restart instead of running it when a handle on a
-            // composite child vetoes the removal (the service's own adb server
-            // does: Kernel-PnP event 225), and still exits 0. The node is flagged
-            // pending from then on, so every later restart and disable is refused.
-            if (MentionsPendingReboot(output)) return false;
-            // 3010 = success + reboot-recommended (defensive; not emitted by /restart-device).
-            return p.ExitCode == 0 || p.ExitCode == 3010;
+            exitCode = p.ExitCode;
+            // A vetoed restart is queued, not run, and the node refuses every later
+            // restart and disable until the host reboots.
+            if (PnputilRestartQueued(p.ExitCode, output)) return false;
+            return p.ExitCode == 0;
         }
         catch (Exception ex)
         {
             output = $"{ex.GetType().Name}: {ex.Message}";
             return false;
         }
+    }
+
+    /// <summary>
+    /// A hub port cycle first: Windows handles it as a surprise removal, which no
+    /// open handle can veto, while the adb server's handle on a listed panel vetoes
+    /// pnputil's query-remove until the host reboots (Kernel-PnP event 225).
+    /// pnputil stays as the fallback for a hub that refuses the cycle.
+    /// </summary>
+    private static bool ResetPanelUsb(string instanceId, out string output, out int pnputilExit)
+    {
+        pnputilExit = -1;
+#if WINDOWS
+        if (QSeriesUsbPortCycle.TryCycle(instanceId, out var cycle))
+        {
+            output = $"cycled {cycle}";
+            return true;
+        }
+        ServiceLog.Info($"[qseries-port-watcher] port cycle unavailable ({cycle}); falling back to pnputil");
+#endif
+        return RunPnputilRestartDevice(instanceId, out output, out pnputilExit);
     }
 
     /// <summary>
@@ -1782,10 +1801,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private volatile QSeriesLinkStatus _link = new();
 
     /// <summary>
-    /// Set when pnputil reports the devnode is waiting on a host restart. Every
-    /// further USB reset is refused by Windows until then, so the escalation
-    /// stops rather than retrying a guaranteed failure every two minutes, and
-    /// the UI can say "restart the PC" instead of "connect the cable".
+    /// Set when a USB reset failed and pnputil reports the devnode is waiting on a
+    /// host restart. Every further pnputil reset is refused by Windows until then,
+    /// so the escalation stops rather than retrying every two minutes, and the UI
+    /// can say "restart the PC" instead of "connect the cable".
     /// Cleared the moment a panel is online again.
     /// </summary>
     private bool _hostRebootPending;
@@ -1801,8 +1820,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private static readonly TimeSpan HostRebootPendingRetest = TimeSpan.FromMinutes(15);
 
     /// <summary><c>CM_PROB_NEED_RESTART</c>: the devnode cannot work until the
-    /// host restarts. The locale-proof half of the latch.</summary>
+    /// host restarts. A locale-proof latch signal.</summary>
     private const int CmProbNeedRestart = 14;
+
+    /// <summary>pnputil's exit for a queued restart; the problem code alone can miss
+    /// one right after it.</summary>
+    private const int PnputilRebootRequired = 3010;
 
     /// <summary>
     /// Called from POST /qseries/link/repair. False when one is already queued or
@@ -1839,6 +1862,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
     internal static bool MentionsPendingReboot(string? output) =>
         output is not null
         && output.Contains("reboot", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A restart Windows only queued, by exit code or wording.</summary>
+    internal static bool PnputilRestartQueued(int exitCode, string? output) =>
+        exitCode == PnputilRebootRequired || MentionsPendingReboot(output);
 
     /// <summary>
     /// Publishes what the UI needs to tell three states apart: no panel on USB
