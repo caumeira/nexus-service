@@ -32,6 +32,18 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
     // while leaving headroom for a real 30 Hz.
     private const int InterWriteSettleMs = 1;
 
+    // SL-Infinity fw 1.4 ignores a commit sent under ~5 ms after merge-off (Y70 camera sweep: 0 ms stuck, 5 ms+ exits).
+    private const int MergeOffSettleMs = 20;
+
+    // hidraw write() and SET_REPORT ioctls return after the USB transfer completes, so Linux needs no settle.
+    private static void Settle()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            Thread.Sleep(InterWriteSettleMs);
+        }
+    }
+
     // Hub writes are synchronous HidD_SetFeature, each taking LianLiHub._lock that
     // fan control also takes, so a rejected commit backs off rather than
     // re-acquiring it once per channel write every tick against a silent hub.
@@ -66,6 +78,8 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
     // gone out for the current connection; families with a per-frame start
     // carry the quantity in every frame instead.
     private bool _hubInitialised;
+
+    private bool _customMergeCleared;
 
     // Per-device resolved zones for the firmware-mode sig/commit pair, reused
     // each tick so they resolve once instead of once per call site.
@@ -165,6 +179,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
             _lastFirmwareSig = null;
             _pendingFirmwareSig = null;
             _hubInitialised = false;
+            _customMergeCleared = false;
             _initRetry.Reset();
             _commitRetry.Reset();
             return;
@@ -209,9 +224,16 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
             _lastFirmwareSig = null;
             _pendingFirmwareSig = null;
             _commitRetry.Reset();
+            // A merged firmware effect outlives per-channel custom commits too.
+            if (!_customMergeCleared && profile.SupportsMerge && _hub.SendStopMerge())
+            {
+                Thread.Sleep(MergeOffSettleMs);
+                _customMergeCleared = true;
+            }
             TickCustom(settings, devices, globalBrightness, composed, profile);
             return;
         }
+        _customMergeCleared = false;
 
         if (_highResTimer && OperatingSystem.IsWindows())
         {
@@ -326,13 +348,13 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         if (profile.ClearMergeOnAttach)
         {
             if (!_hub.SendStopMerge()) return false;
-            Thread.Sleep(InterWriteSettleMs);
+            Settle();
         }
         if (profile.StartActionPerFrame) return true;
         for (var p = 0; p < LianLiProtocol.PortCount; p++)
         {
             if (!_hub.SetQuantity(p, LianLiZoneSupport.ClampFans(fans.GetFans(p)))) return false;
-            Thread.Sleep(InterWriteSettleMs);
+            Settle();
         }
         return true;
     }
@@ -380,12 +402,12 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
                     if (profile.StartActionPerFrame)
                     {
                         _hub.SendStartAction(ch / profile.ChannelsPerPort, LianLiProtocol.MaxFansPerPort);
-                        Thread.Sleep(InterWriteSettleMs);
+                        Settle();
                     }
                     _hub.SendColorData(ch, _channelBuf.AsSpan(0, byteCount));
-                    Thread.Sleep(InterWriteSettleMs);
+                    Settle();
                     _hub.SendEffectCommit(ch);
-                    Thread.Sleep(InterWriteSettleMs);
+                    Settle();
                 }
             }
 
@@ -396,7 +418,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
             // firmware's ~0.6 Hz internal repaint - the whole rig then reads as
             // roughly 1 Hz once a fan is moved to a second port.
             _hub.SendFrameSync();
-            Thread.Sleep(InterWriteSettleMs);
+            Settle();
         }
     }
 
@@ -413,6 +435,13 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
     {
         var speedByte = LianLiLightingModes.SpeedCodes[Math.Clamp(ls.Speed, 0, 4)];
         var dirByte = LianLiLightingModes.DirectionByte(ls.Direction);
+
+        // Per-channel commits do not exit a merged effect; only merge-off does (the identity merge order does not).
+        if (profile.SupportsMerge)
+        {
+            if (!_hub.SendStopMerge()) return false;
+            Thread.Sleep(MergeOffSettleMs);
+        }
 
         for (var i = 0; i < composed.Count; i++)
         {
@@ -434,18 +463,19 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
                     // Inner and outer rings hold different per-fan counts, so the
                     // palette is refilled per channel rather than once per device.
                     var ledsPerFan = profile.LedsPerFanForChannel(ch);
-                    var perFan = profile.PerFanStaticPalette && mode.EffectByte is LianLiProtocol.EffectStatic or LianLiProtocol.EffectBreathing;
+                    var effectByte = mode.EffectByteFor(profile.Family);
+                    var perFan = profile.PerFanStaticPalette && effectByte is LianLiProtocol.EffectStatic or LianLiProtocol.EffectBreathing;
                     FillPaletteBuffer(_channelBuf, mode, ls.Colors, numFans, ledsPerFan, perFan);
                     var byteCount = numFans * ledsPerFan * 3;
                     if (profile.StartActionPerFrame)
                     {
                         if (!_hub.SendStartAction(ch / profile.ChannelsPerPort, numFans)) return false;
-                        Thread.Sleep(InterWriteSettleMs);
+                        Settle();
                     }
                     if (!_hub.SendColorData(ch, _channelBuf.AsSpan(0, byteCount))) return false;
-                    Thread.Sleep(InterWriteSettleMs);
-                    if (!_hub.SendModeCommit(ch, mode.EffectByte, speedByte, dirByte, brightnessByte)) return false;
-                    Thread.Sleep(InterWriteSettleMs);
+                    Settle();
+                    if (!_hub.SendModeCommit(ch, effectByte, speedByte, dirByte, brightnessByte)) return false;
+                    Settle();
                 }
             }
         }
@@ -454,7 +484,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         // previous speed/brightness; this latches them. Once for the whole
         // apply, after every port, exactly as L-Connect does.
         if (!_hub.SendFrameSync()) return false;
-        Thread.Sleep(InterWriteSettleMs);
+        Settle();
         return true;
     }
 
@@ -489,23 +519,23 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         var brightnessByte = DeviceBrightnessByte(anchor, ls, globalBrightness, disabled);
 
         if (!_hub.SendMergeOrder()) return false;
-        Thread.Sleep(InterWriteSettleMs);
+        Settle();
         for (var p = 0; p < LianLiProtocol.PortCount; p++)
         {
             if (!_hub.SetQuantity(p, LianLiZoneSupport.ClampFans(fans.GetFans(p)))) return false;
-            Thread.Sleep(InterWriteSettleMs);
+            Settle();
         }
         for (var ch = LianLiProtocol.PortCount * profile.ChannelsPerPort - 1; ch >= 1; ch--)
         {
             var off = LianLiLightingModes.BrightnessCodes[0];
             if (!_hub.SendModeCommit(ch, LianLiProtocol.EffectMergeIdle, LianLiProtocol.SpeedDefault, LianLiProtocol.DirectionDefault, off)) return false;
-            Thread.Sleep(InterWriteSettleMs);
+            Settle();
         }
         FillPaletteBuffer(_channelBuf, mode, ls.Colors, LianLiProtocol.MaxFansPerPort, profile.LedsPerFanForChannel(0), perFan: false);
         if (!_hub.SendColorData(0, _channelBuf.AsSpan(0, LianLiProtocol.MergedPaletteBytes))) return false;
-        Thread.Sleep(InterWriteSettleMs);
+        Settle();
         if (!_hub.SendModeCommit(0, mode.MergedEffectByte, speedByte, dirByte, brightnessByte)) return false;
-        Thread.Sleep(InterWriteSettleMs);
+        Settle();
         return true;
     }
 

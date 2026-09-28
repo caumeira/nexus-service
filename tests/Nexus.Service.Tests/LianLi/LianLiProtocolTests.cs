@@ -351,11 +351,11 @@ public class LianLiProtocolTests
         Assert.Equal(outer, profile.OuterLedsPerFan);
         Assert.Equal(packed, profile.PackedQuantity);
         Assert.Equal((byte)quantityReg, profile.QuantityRegister);
-        // SL v1: interrupt-OUT colours, quantity once on attach, merge cleared, per-fan static palette.
+        // SL v1: interrupt-OUT colours, quantity once on attach, merge cleared. Per-fan static palette: SL v1 and SL-Infinity.
         Assert.Equal(slV1, profile.ColorViaInterruptOut);
         Assert.Equal(!slV1, profile.StartActionPerFrame);
         Assert.Equal(slV1, profile.ClearMergeOnAttach);
-        Assert.Equal(slV1, profile.PerFanStaticPalette);
+        Assert.Equal(slV1 || pid == 0xA102, profile.PerFanStaticPalette);
     }
 
     [Fact]

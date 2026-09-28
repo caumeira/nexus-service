@@ -114,14 +114,15 @@ public class LianLiLightingFrameWriterTests
 
         _writer.Tick();
 
-        // two channels x (start, colour, commit) + one frame sync
-        Assert.Equal(7, Calls.Count);
-        Assert.Equal(new byte[] { 0xE0, 0x10, 0x60, 0x02, 0x02, 0x00, 0x00 }, Calls[0].Bytes);
-        Assert.Equal(HubTransportSpy.CallKind.OutputReport, Calls[1].Kind);
-        Assert.Equal(0x32, Calls[1].Bytes[1]); // 0x30 | inner channel 2
-        Assert.Equal(0x33, Calls[4].Bytes[1]); // 0x30 | outer channel 3
-        Assert.Equal(0x13, Calls[5].Bytes[1]); // 0x10 | outer channel 3
-        Assert.Equal(0x60, Calls[6].Bytes[1]);
+        // merge-off + two channels x (start, colour, commit) + one frame sync
+        Assert.Equal(8, Calls.Count);
+        Assert.Equal(new byte[] { 0xE0, 0x10, 0x34, 0x00, 0x00, 0x00, 0x00 }, Calls[0].Bytes);
+        Assert.Equal(new byte[] { 0xE0, 0x10, 0x60, 0x02, 0x02, 0x00, 0x00 }, Calls[1].Bytes);
+        Assert.Equal(HubTransportSpy.CallKind.OutputReport, Calls[2].Kind);
+        Assert.Equal(0x32, Calls[2].Bytes[1]); // 0x30 | inner channel 2
+        Assert.Equal(0x33, Calls[5].Bytes[1]); // 0x30 | outer channel 3
+        Assert.Equal(0x13, Calls[6].Bytes[1]); // 0x10 | outer channel 3
+        Assert.Equal(0x60, Calls[7].Bytes[1]);
     }
 
     [Fact]
@@ -152,6 +153,20 @@ public class LianLiLightingFrameWriterTests
         Assert.Equal(0x13, calls[1].Bytes[1]);
         Assert.Equal(0x01, calls[1].Bytes[2]); // static latches the streamed frame
         Assert.Equal(0x60, calls[2].Bytes[1]);
+    }
+
+    [Fact]
+    public void Sl_infinity_custom_mode_sends_merge_off_once_per_run()
+    {
+        Attach(0xA102, port: 1, fans: 2);
+        SetMode("custom");
+
+        _writer.Tick();
+        Assert.Single(Calls, c => c.Bytes[1] == 0x10 && c.Bytes[2] == 0x34);
+
+        _spy.Calls.Clear();
+        _writer.Tick();
+        Assert.DoesNotContain(Calls, c => c.Bytes[1] == 0x10 && c.Bytes[2] == 0x34);
     }
 
     // ── Merge (one animation across every port) ──
@@ -232,7 +247,8 @@ public class LianLiLightingFrameWriterTests
         _store.Update(s => s.Devices.LianLiLighting.Merge = false);
         _writer.Tick();
 
-        Assert.Contains(Calls, c => (c.Bytes[1] & 0xF0) == 0x10 && c.Bytes[2] == 0x1C);
+        Assert.Equal(new byte[] { 0xE0, 0x10, 0x34, 0x00, 0x00, 0x00, 0x00 }, Calls[0].Bytes);
+        Assert.Contains(Calls, c => (c.Bytes[1] & 0xF0) == 0x10 && c.Bytes[2] == 0x1A); // SL-Infinity runway
         Assert.Equal(0x60, Calls[^1].Bytes[1]);
     }
 
@@ -384,7 +400,7 @@ public class LianLiLightingFrameWriterTests
 
         _writer.Tick();
         var fullCommit = Calls.Count;
-        Assert.Equal(7, fullCommit); // 2 channels x (start + colour + commit) + frame sync
+        Assert.Equal(8, fullCommit); // merge-off + 2 channels x (start + colour + commit) + frame sync
 
         // Same hub, a mode change to force a fresh commit, every write refused:
         // it must stop at the first rejection instead of walking all 8 channels.
@@ -397,8 +413,8 @@ public class LianLiLightingFrameWriterTests
     }
 
     [Theory]
-    [InlineData(3)] // mid-sequence: refused on the second channel's colour write
-    [InlineData(6)] // only the trailing frame sync refused
+    [InlineData(5)] // mid-sequence: refused on the second channel's colour write
+    [InlineData(7)] // only the trailing frame sync refused
     public void A_commit_refused_partway_is_not_latched_and_re_sends_every_channel(int acceptedWrites)
     {
         UseFakeClock();
@@ -414,7 +430,7 @@ public class LianLiLightingFrameWriterTests
         _spy.RejectAfter = -1;
         Advance(1000);
         _writer.Tick();
-        Assert.Equal(7, Calls.Count);
+        Assert.Equal(8, Calls.Count);
     }
 
     [Fact]

@@ -11,16 +11,16 @@ public class LianLiLightingModesTests
 
     // The SL v1 firmware has no voice/groove/render/tunnel (0x26..0x29).
     [Fact]
-    public void Sl_v1_catalog_drops_the_sl_infinity_only_effects()
+    public void Sl_v1_catalog_drops_the_v2_only_effects()
     {
         var sl = LianLiLightingModes.CatalogFor(LianLiFanFamily.Sl).Select(m => m.Key).ToArray();
-        var sli = LianLiLightingModes.CatalogFor(LianLiFanFamily.SlInfinity).Select(m => m.Key).ToArray();
+        var v2 = LianLiLightingModes.CatalogFor(LianLiFanFamily.SlV2).Select(m => m.Key).ToArray();
 
-        Assert.Equal(LianLiLightingModes.Catalog.Length, sli.Length);
-        Assert.Equal(sli.Length - 4, sl.Length);
+        Assert.Equal(LianLiLightingModes.Catalog.Length, v2.Length);
+        Assert.Equal(v2.Length - 4, sl.Length);
         foreach (var key in new[] { "voice", "groove", "render", "tunnel" })
         {
-            Assert.Contains(key, sli);
+            Assert.Contains(key, v2);
             Assert.DoesNotContain(key, sl);
         }
         foreach (var key in new[] { "custom", "static", "breathing", "spectrumCycle", "rainbowWave", "staggered",
@@ -31,13 +31,45 @@ public class LianLiLightingModesTests
     }
 
     [Fact]
-    public void SupportedBy_gates_only_the_sl_family()
+    public void SupportedBy_gates_the_sl_family_on_the_v2_only_effects()
     {
         var voice = LianLiLightingModes.Find("voice")!;
         Assert.False(voice.SupportedBy(LianLiFanFamily.Sl));
-        Assert.True(voice.SupportedBy(LianLiFanFamily.SlInfinity));
         Assert.True(voice.SupportedBy(LianLiFanFamily.SlV2));
         Assert.True(LianLiLightingModes.Find("static")!.SupportedBy(LianLiFanFamily.Sl));
+    }
+
+    // SL-Infinity firmware numbers its effects differently; the rest have no equivalent there.
+    [Theory]
+    [InlineData("custom",        0x01)]
+    [InlineData("static",        0x01)]
+    [InlineData("breathing",     0x02)]
+    [InlineData("spectrumCycle", 0x04)]
+    [InlineData("rainbowWave",   0x05)]
+    [InlineData("colorCycle",    0x18)]
+    [InlineData("meteor",        0x19)]
+    [InlineData("runway",        0x1A)]
+    [InlineData("voice",         0x2A)]
+    [InlineData("mixing",        0x38)]
+    [InlineData("stack",         0x39)]
+    [InlineData("tide",          0x3A)]
+    public void Sl_infinity_uses_its_own_effect_bytes(string key, byte expected)
+    {
+        var m = LianLiLightingModes.Find(key)!;
+        Assert.True(m.SupportedBy(LianLiFanFamily.SlInfinity));
+        Assert.Equal(expected, m.EffectByteFor(LianLiFanFamily.SlInfinity));
+        Assert.Equal(m.EffectByte, m.EffectByteFor(LianLiFanFamily.SlV2));
+    }
+
+    [Fact]
+    public void Sl_infinity_catalog_hides_modes_its_firmware_lacks()
+    {
+        var sli = LianLiLightingModes.CatalogFor(LianLiFanFamily.SlInfinity).Select(m => m.Key).ToArray();
+        foreach (var key in new[] { "staggered", "neon", "groove", "stackMultiColor", "render", "tunnel" })
+        {
+            Assert.DoesNotContain(key, sli);
+        }
+        Assert.Equal(12, sli.Length);
     }
 
     // ── Catalog completeness ──
