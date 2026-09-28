@@ -858,13 +858,15 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingFrameWriter>());
         services.AddHostedService<Nexus.Service.Peripherals.LianLi.LianLiConnectionWorker>();
 
-        // Lian Li L-Wireless (SLV3) dongles: WinUSB TX/RX transport + discovery +
-        // bind/unbind/identify connection worker. Windows-only for v1;
-        // other platforms get a stub discovery
-        // that finds nothing, so the hub stays disconnected.
+        // Lian Li L-Wireless (SLV3) dongles: TX/RX transport (WinUSB on Windows,
+        // usbfs on Linux) + discovery + bind/unbind/identify connection worker.
+        // macOS gets a stub discovery that finds nothing, so the hub stays disconnected.
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.ISlv3Discovery,
                               Nexus.Service.Peripherals.LianLiWireless.WindowsSlv3Discovery>();
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.ISlv3Discovery,
+                              Nexus.Service.Peripherals.LianLiWireless.LinuxSlv3Discovery>();
 #else
         services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.ISlv3Discovery,
                               Nexus.Service.Peripherals.LianLiWireless.StubSlv3Discovery>();
@@ -872,7 +874,11 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.Slv3Hub>(sp =>
             new Nexus.Service.Peripherals.LianLiWireless.Slv3Hub(
                 sp.GetRequiredService<Nexus.Service.Peripherals.LianLiWireless.ISlv3Discovery>(),
+#if LINUX
+                port => new Nexus.Service.Peripherals.LianLiWireless.LinuxSlv3Transport(port.PortName, port.Role)));
+#else
                 port => new Nexus.Service.Peripherals.LianLiWireless.Slv3Transport(port.PortName, port.Role)));
+#endif
         services.AddSingleton<Nexus.Service.Cooling.Slv3CoolingProvider>();
         services.AddHostedService<Nexus.Service.Peripherals.LianLiWireless.Slv3ConnectionWorker>();
 

@@ -15,8 +15,8 @@ public enum Slv3DongleRole
 }
 
 /// <summary>
-/// A dongle open that failed at the OS layer. Carries the Win32 error so the hub
-/// can tell "another app holds the WinUSB interface" from any other failure.
+/// A dongle open that failed at the OS layer. Carries the Win32 error (Linux: the
+/// errno) so the hub can tell "another app holds the interface" from any other failure.
 /// </summary>
 public sealed class Slv3OpenException : IOException
 {
@@ -26,6 +26,8 @@ public sealed class Slv3OpenException : IOException
     // them too), so 'busy' is the likeliest cause, not a proven one.
     private const int ErrorAccessDenied = 5;
     private const int ErrorSharingViolation = 32;
+    // usbfs CLAIMINTERFACE when another process (or a kernel driver) holds it.
+    private const int LinuxEbusy = 16;
 
     public Slv3OpenException(string message, int errorCode)
         : base(message)
@@ -35,7 +37,9 @@ public sealed class Slv3OpenException : IOException
 
     public int ErrorCode { get; }
 
-    public bool IsInUseByAnotherApp => ErrorCode is ErrorAccessDenied or ErrorSharingViolation;
+    public bool IsInUseByAnotherApp => OperatingSystem.IsLinux()
+        ? ErrorCode == LinuxEbusy
+        : ErrorCode is ErrorAccessDenied or ErrorSharingViolation;
 }
 
 public interface ISlv3Discovery
@@ -238,8 +242,8 @@ public sealed class Slv3Transport : ISlv3Transport
 }
 #else
 /// <summary>
-/// Inert: SLV3 is Windows-only for v1.
-/// Discovery never returns a port on other platforms, so this is never opened.
+/// Inert: macOS has no SLV3 transport (Linux uses <see cref="LinuxSlv3Transport"/>).
+/// Discovery never returns a port there, so this is never opened.
 /// </summary>
 public sealed class Slv3Transport : ISlv3Transport
 {
