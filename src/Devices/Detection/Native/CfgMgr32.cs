@@ -31,6 +31,12 @@ internal static partial class CfgMgr32
     // devpropdef.h: DEVPROP_TYPE_STRING
     private const uint DevPropTypeString = 0x00000012;
 
+    // devpropdef.h: DEVPROP_TYPE_UINT32
+    private const uint DevPropTypeUInt32 = 0x00000007;
+
+    // devpropdef.h: DEVPROP_TYPE_FILETIME
+    private const uint DevPropTypeFileTime = 0x00000010;
+
     internal const int CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE = 0;
     internal const int CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL = 0;
     internal const int CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL = 1;
@@ -66,6 +72,12 @@ internal static partial class CfgMgr32
         new(0xa8b865dd, 0x2e3d, 0x4094, 0xad, 0x97, 0xe5, 0x93, 0xa7, 0x0c, 0x75, 0xd6, 5);
     internal static readonly DEVPROPKEY DEVPKEY_Device_InstanceId =
         new(0x78c34fc8, 0x104a, 0x4aca, 0x9e, 0xa4, 0x52, 0x4d, 0x52, 0x99, 0x6e, 0x57, 256);
+    /// <summary>For a USB device: the 1-based hub port it is attached to.</summary>
+    internal static readonly DEVPROPKEY DEVPKEY_Device_Address =
+        new(0xa45c254e, 0xdf1c, 0x4efd, 0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0, 30);
+    /// <summary>FILETIME of the device's last arrival; moves on every re-enumeration.</summary>
+    internal static readonly DEVPROPKEY DEVPKEY_Device_LastArrivalDate =
+        new(0x83da6326, 0x97a6, 0x4088, 0x94, 0x53, 0xa1, 0x92, 0x3f, 0x57, 0x3b, 0x29, 102);
 
     /// <summary>
     /// cfgmgr32.h CM_NOTIFY_FILTER: 16-byte header + 400-byte union
@@ -103,6 +115,12 @@ internal static partial class CfgMgr32
 
     [LibraryImport("cfgmgr32.dll")]
     private static partial uint CM_Get_Parent(out uint pdnDevInst, uint dnDevInst, uint ulFlags);
+
+    [LibraryImport("cfgmgr32.dll", StringMarshalling = StringMarshalling.Utf16, EntryPoint = "CM_Get_Device_Interface_List_SizeW")]
+    private static partial uint CM_Get_Device_Interface_List_Size(out uint pulLen, in Guid interfaceClassGuid, string pDeviceID, uint ulFlags);
+
+    [LibraryImport("cfgmgr32.dll", StringMarshalling = StringMarshalling.Utf16, EntryPoint = "CM_Get_Device_Interface_ListW")]
+    private static unsafe partial uint CM_Get_Device_Interface_List(in Guid interfaceClassGuid, string pDeviceID, char* buffer, uint bufferLen, uint ulFlags);
 
     [LibraryImport("cfgmgr32.dll")]
     private static partial uint CM_Get_Child(out uint pdnDevInst, uint dnDevInst, uint ulFlags);
@@ -174,6 +192,73 @@ internal static partial class CfgMgr32
             start = i + 1;
         }
         return result;
+    }
+
+    /// <summary>
+    /// The hub a USB device hangs off and its port number on that hub. False when
+    /// the devnode, its address or its parent cannot be read.
+    /// </summary>
+    internal static unsafe bool TryGetUsbHubPort(string instanceId, out string hubInstanceId, out uint port)
+    {
+        hubInstanceId = "";
+        port = 0;
+        if (LocateDevNode(instanceId, out var devInst) != CR_SUCCESS) return false;
+        uint value = 0;
+        uint size = sizeof(uint);
+        uint type;
+        if (CM_Get_DevNode_Property(devInst, in DEVPKEY_Device_Address, out type, (byte*)&value, ref size, 0) != CR_SUCCESS
+            || type != DevPropTypeUInt32 || value == 0)
+        {
+            return false;
+        }
+        if (CM_Get_Parent(out var hub, devInst, 0) != CR_SUCCESS) return false;
+        hubInstanceId = GetStringProperty(hub, DEVPKEY_Device_InstanceId);
+        port = value;
+        return hubInstanceId.Length > 0;
+    }
+
+    /// <summary>
+    /// The device's last arrival as a FILETIME. False when the devnode is not present
+    /// or the property cannot be read.
+    /// </summary>
+    internal static unsafe bool TryGetLastArrival(string instanceId, out long fileTime)
+    {
+        fileTime = 0;
+        if (LocateDevNode(instanceId, out var devInst) != CR_SUCCESS) return false;
+        long value = 0;
+        uint size = sizeof(long);
+        uint type;
+        if (CM_Get_DevNode_Property(devInst, in DEVPKEY_Device_LastArrivalDate, out type, (byte*)&value, ref size, 0) != CR_SUCCESS
+            || type != DevPropTypeFileTime)
+        {
+            return false;
+        }
+        fileTime = value;
+        return true;
+    }
+
+    /// <summary>
+    /// First present interface path of the given class on a devnode, or "" when it
+    /// exposes none or the list cannot be read.
+    /// </summary>
+    internal static unsafe string GetInterfacePath(string instanceId, Guid interfaceClass)
+    {
+        // CM_GET_DEVICE_INTERFACE_LIST_PRESENT
+        const uint presentOnly = 0;
+        if (CM_Get_Device_Interface_List_Size(out var len, in interfaceClass, instanceId, presentOnly) != CR_SUCCESS || len <= 1)
+        {
+            return "";
+        }
+        var buffer = new char[len];
+        fixed (char* p = buffer)
+        {
+            if (CM_Get_Device_Interface_List(in interfaceClass, instanceId, p, len, presentOnly) != CR_SUCCESS)
+            {
+                return "";
+            }
+        }
+        var paths = SplitMultiSz(buffer);
+        return paths.Count > 0 ? paths[0] : "";
     }
 
     /// <summary>
