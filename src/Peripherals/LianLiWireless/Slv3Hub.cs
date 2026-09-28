@@ -1096,17 +1096,18 @@ public sealed class Slv3Hub : IDisposable
     /// </summary>
     public bool SendRgbFrame(
         string macHex, ReadOnlySpan<RgbColor> leds, int brightnessPercent, int intervalMs, out string effectIndexHex) =>
-        SendRgbData(macHex, Slv3RgbFrame.BuildFrameBuffer(leds, brightnessPercent), leds.Length, 1, intervalMs, out effectIndexHex);
+        SendRgbData(macHex, Slv3RgbFrame.BuildFrameBuffer(leds, brightnessPercent), leds.Length, 1, intervalMs, dataPasses: 1, out effectIndexHex);
 
     /// <summary>
     /// <see cref="SendRgbFrame"/> for a looping animation of
     /// <paramref name="frameCount"/> frames (R,G,B per LED, frame-major) that
-    /// the chain plays on its own at <paramref name="intervalMs"/> per frame.
+    /// the chain plays on its own at <paramref name="intervalMs"/> per frame;
+    /// each data packet goes out twice.
     /// </summary>
     public bool SendRgbAnimation(
         string macHex, ReadOnlySpan<byte> frames, int ledCount, int frameCount, double intervalMs,
         int brightnessPercent, out string effectIndexHex) =>
-        SendRgbData(macHex, Slv3RgbFrame.BuildFrameBuffer(frames, brightnessPercent), ledCount, frameCount, intervalMs, out effectIndexHex);
+        SendRgbData(macHex, Slv3RgbFrame.BuildFrameBuffer(frames, brightnessPercent), ledCount, frameCount, intervalMs, dataPasses: WindowDataPasses, out effectIndexHex);
 
     /// <summary>
     /// <see cref="SendRgbAnimation"/> for one rolling playback window, re-sent
@@ -1222,8 +1223,9 @@ public sealed class Slv3Hub : IDisposable
         return true;
     }
 
+    // A lost data packet fails the whole upload and multi-frame loops run to dozens of packets, so animations send each part twice.
     private bool SendRgbData(
-        string macHex, byte[] raw, int ledCount, int frameCount, double intervalMs, out string effectIndexHex)
+        string macHex, byte[] raw, int ledCount, int frameCount, double intervalMs, int dataPasses, out string effectIndexHex)
     {
         effectIndexHex = "";
         if (!TryPrepareUpload(macHex, raw, ledCount, frameCount, intervalMs, window: false, out var channel, out var rxType, out var packets, out var effectIndex))
@@ -1254,11 +1256,14 @@ public sealed class Slv3Hub : IDisposable
             {
                 return false;
             }
-            for (var p = 1; p < packets.Length; p++)
+            for (var pass = 0; pass < dataPasses; pass++)
             {
-                if (!SendRfPayloadLocked(channel, rxType, packets[p]))
+                for (var p = 1; p < packets.Length; p++)
                 {
-                    return false;
+                    if (!SendRfPayloadLocked(channel, rxType, packets[p]))
+                    {
+                        return false;
+                    }
                 }
             }
             NoteConfigChangedLocked();
