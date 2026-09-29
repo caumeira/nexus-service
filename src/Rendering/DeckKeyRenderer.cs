@@ -171,9 +171,10 @@ public sealed class DeckKeyRenderer
     {
         var image = new Image<Rgba32>(size, size);
         var shouldPaintIcon = !display.IsBlankOff && (display.EffectiveAction is not null || display.IsFolder || display.Icon is not null);
-        // Face precedence: a custom image, else the app icon (the key face,
-        // as DeckGrid.tsx appIconFills: no accent behind it unless the slot
-        // has its own color), else PaintIcon's emoji / lucide glyph.
+        // Face precedence: a custom image, else the app icon, else PaintIcon's
+        // emoji / lucide glyph. An image or app icon is the key face (as
+        // DeckGrid.tsx faceFills): no accent behind it unless the slot has its
+        // own color.
         Image<Rgba32>? customImage = null;
         Image<Rgba32>? appIcon = null;
         var iconPending = false;
@@ -185,7 +186,7 @@ public sealed class DeckKeyRenderer
         {
             appIcon = LoadAppIcon(display, ref transient, out iconPending);
         }
-        var iconOnBlack = appIcon is not null && !display.ExplicitColor;
+        var iconOnBlack = (customImage is not null || appIcon is not null) && !display.ExplicitColor;
         var background = iconOnBlack ? Color.Black : RenderKit.ParseColor(display.ColorHex, Color.Black);
         // Selected: brighten a real accent; an icon on black keeps the ring
         // only (RecentAppsGrid.tsx .selected over a transparent face), so no
