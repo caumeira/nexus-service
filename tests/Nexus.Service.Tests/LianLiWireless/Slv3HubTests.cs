@@ -20,6 +20,9 @@ public class Slv3HubTests
 
     private const int PendingOpTickBudget = Slv3Hub.PendingOpTickBudget;
 
+    // Slv3OpenException reads "held by another app" per OS: EBUSY on Linux, ERROR_ACCESS_DENIED elsewhere.
+    private static readonly int BusyOpenError = OperatingSystem.IsLinux() ? 16 : 5;
+
     [Fact]
     public void EnsureConnected_learns_master_mac()
     {
@@ -63,7 +66,7 @@ public class Slv3HubTests
     {
         var hub = new Slv3Hub(
             new RoleDiscovery(Slv3DongleRole.Tx, Slv3DongleRole.Rx),
-            _ => throw new Slv3OpenException("CreateFileW failed for fake-tx: 5", 5));
+            _ => throw new Slv3OpenException("open failed for fake-tx", BusyOpenError));
 
         Assert.False(hub.EnsureConnected());
         Assert.Equal(Slv3LinkStatus.Busy, hub.State.LinkStatus);
@@ -124,7 +127,7 @@ public class Slv3HubTests
     {
         var hub = new Slv3Hub(
             new RoleDiscovery(Slv3DongleRole.Tx, Slv3DongleRole.Rx),
-            _ => throw new Slv3OpenException("CreateFileW failed for fake-tx: 5", 5));
+            _ => throw new Slv3OpenException("open failed for fake-tx", BusyOpenError));
 
         Assert.False(hub.EnsureConnected());
         Assert.Equal(Slv3LinkStatus.Busy, hub.State.LinkStatus);
