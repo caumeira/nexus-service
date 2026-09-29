@@ -168,6 +168,7 @@ public static class AppRoutes
                    Nexus.Service.Store.StoreInstaller installer,
                    Nexus.Service.Store.HardwareAppCatalog hardware,
                    Nexus.Service.Store.StoreCatalogProxy catalog,
+                   Nexus.Service.Store.StorePendingUpdates pending,
                    IConfigStore store, MultiplexHub hub, HttpContext http, CancellationToken ct) =>
         {
             var appId = body.AppId ?? "";
@@ -179,17 +180,24 @@ public static class AppRoutes
                 // the manual Install button behaves the same as the automatic
                 // path. Only a machine with no account at all is waived: a
                 // refused token reads sign_in_required too, and the grant is
-                // what records the purchase. Without it the caller's hash
-                // stands, which still pins the bytes and cannot redirect the
-                // download - StoreInstaller composes the URL itself. The catalog
-                // read is the automatic path's launch-day gate.
+                // what records the purchase. Without it the catalog's hash and
+                // signature stand, for the version the catalog names only; that
+                // read is also the automatic path's launch-day gate.
                 var hardwareWaiver = auth.Reason == "sign_in_required"
                     && !entitlements.HasLinkedAccount
                     && hardware.IsMatched(appId);
-                var waived = hardwareWaiver
-                    && await Nexus.Service.Store.StoreRelease.LatestAsync(
-                        catalog, appId, http.Request.Query["nexusVersion"].ToString(), ct) is not null;
-                if (!waived)
+                var latest = hardwareWaiver
+                    ? await Nexus.Service.Store.StoreRelease.LatestAsync(
+                        catalog, appId, http.Request.Query["nexusVersion"].ToString(), ct)
+                    : null;
+                var waived = latest is not null && latest.Version == body.Version;
+                if (waived)
+                {
+                    body.Sha256 = latest!.Sha256;
+                    body.Signature = latest.Signature;
+                    body.Size = latest.Size;
+                }
+                else
                 {
                     return Results.Json(new StoreInstallResponse
                     {
@@ -204,9 +212,12 @@ public static class AppRoutes
             else
             {
                 body.Sha256 = auth.Grant.Sha256;
+                body.Signature = auth.Grant.Signature;
                 if (auth.Grant.Size > 0) body.Size = auth.Grant.Size;
             }
+            body.ConsentExempt = hardware.IsMatched(appId);
             var result = await installer.InstallAsync(body, ct);
+            if (result.Ok) pending.Remove(appId);
             if (result.Ok && Nexus.Service.Store.HardwareAppCatalog.IsHardwareApp(appId))
             {
                 store.Update(s =>
@@ -222,6 +233,12 @@ public static class AppRoutes
             if (result.Ok) PanelTopics.BroadcastAppsChanged(hub);
             return Results.Json(result, AppJsonContext.Default.StoreInstallResponse);
         }).AllowPanel();
+
+        // Store updates held for the user's approval of new capabilities. Approving
+        // is a POST /apps-api/store/install carrying the requested set.
+        app.MapGet("/apps-api/store/pending-updates", (Nexus.Service.Store.StorePendingUpdates pending) =>
+            Results.Json(new StorePendingUpdatesResponse { Updates = pending.All() },
+                AppJsonContext.Default.StorePendingUpdatesResponse)).AllowPanel();
 
         // Manage purchases: cloud entitlements joined with what is on disk here.
         app.MapGet("/apps-api/store/library",

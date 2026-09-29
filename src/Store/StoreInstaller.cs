@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
@@ -29,6 +30,7 @@ public sealed class StoreInstaller
     private readonly HttpClient _http;
     private readonly AppRegistry _registry;
     private readonly Func<string?> _userRoot;
+    private readonly string _publicKey;
 
     // One install per app at a time: two installs of one app share its staging paths and swap.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _gates = new(StringComparer.Ordinal);
@@ -41,12 +43,13 @@ public sealed class StoreInstaller
     {
     }
 
-    /// <summary>Test seam: supplies the user apps root.</summary>
-    public StoreInstaller(HttpClient http, AppRegistry registry, Func<string?> userRoot)
+    /// <summary>Test seam: supplies the user apps root and the store signing key.</summary>
+    public StoreInstaller(HttpClient http, AppRegistry registry, Func<string?> userRoot, string publicKeySpki = StoreSignature.PublicKeySpki)
     {
         _http = http;
         _registry = registry;
         _userRoot = userRoot;
+        _publicKey = publicKeySpki;
     }
 
     public static string AssetsBase()
@@ -86,6 +89,17 @@ public sealed class StoreInstaller
     public Task<StoreInstallResponse> UpdateAsync(StoreInstallRequest req, CancellationToken ct) =>
         GatedAsync(req, replaceOnly: true, ct);
 
+    /// <summary>Runs <paramref name="action"/> under the app's install gate, so it never overlaps a staging swap.</summary>
+    public async Task<T> WithAppGateAsync<T>(string appId, Func<T> action, CancellationToken ct)
+    {
+        var gate = _gates.GetOrAdd(appId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        { return action(); }
+        finally
+        { gate.Release(); }
+    }
+
     private async Task<StoreInstallResponse> GatedAsync(StoreInstallRequest req, bool replaceOnly, CancellationToken ct)
     {
         var gate = _gates.GetOrAdd(req.AppId ?? "", _ => new SemaphoreSlim(1, 1));
@@ -105,6 +119,7 @@ public sealed class StoreInstaller
         if (!AppIds.IsValid(appId)) return fail("invalid_app_id");
         if (!IsValidVersion(version)) return fail("invalid_version");
         if (string.IsNullOrWhiteSpace(req.Sha256)) return fail("missing_hash");
+        if (!StoreSignature.Verify(appId, version, req.Sha256!, req.Signature, _publicKey)) return fail("signature_invalid");
 
         var userRoot = _userRoot();
         if (string.IsNullOrEmpty(userRoot)) return fail("no_user_apps_dir");
@@ -147,6 +162,21 @@ public sealed class StoreInstaller
 
             if (!ManifestAgrees(staging, appId, version)) return fail("manifest_mismatch");
 
+            var manifest = ReadManifest(staging);
+            if (manifest is null) return fail("manifest_mismatch");
+            if (!req.ConsentExempt)
+            {
+                var requested = AppCapabilityGrants.From(manifest.Capabilities);
+                if (AppCapabilityGrants.Missing(requested, req.ApprovedCapabilities).Count > 0)
+                {
+                    return new StoreInstallResponse
+                    {
+                        AppId = appId, Version = version, Ok = false,
+                        Reason = "consent_required", RequestedCapabilities = requested.ToList(),
+                    };
+                }
+            }
+
             var dest = Path.Combine(userRoot, appId);
             if (replaceOnly && !Directory.Exists(dest)) return fail("not_installed");
             // Moved aside, not deleted: a file the service is streaming from the app
@@ -183,6 +213,19 @@ public sealed class StoreInstaller
 
         _registry.Refresh();
         return new StoreInstallResponse { AppId = appId, Version = version, Ok = true };
+    }
+
+    private static AppManifest? ReadManifest(string dir)
+    {
+        try
+        {
+            using var stream = File.OpenRead(Path.Combine(dir, "manifest.json"));
+            return JsonSerializer.Deserialize(stream, Nexus.Service.Serialization.AppJsonContext.Default.AppManifest);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The artifact has to describe the app that was asked for.</summary>

@@ -21,6 +21,15 @@ public sealed class StoreInstallRequest
 
     /// <summary>Artifact size in bytes. Checked before hashing; 0 skips the pre-check.</summary>
     [JsonPropertyName("size")] public long Size { get; set; }
+
+    /// <summary>Capability grants the user approved (AppCapabilityGrants strings); the artifact may request no more.</summary>
+    [JsonPropertyName("approvedCapabilities")] public List<string>? ApprovedCapabilities { get; set; }
+
+    /// <summary>Store signature over (appId, version, sha256). Set only by the service from the cloud, never from a request body.</summary>
+    [JsonIgnore] public string? Signature { get; set; }
+
+    /// <summary>Skips the consent check; set only by the service, for an app whose hardware is attached.</summary>
+    [JsonIgnore] public bool ConsentExempt { get; set; }
 }
 
 public sealed class StoreInstallResponse
@@ -32,9 +41,43 @@ public sealed class StoreInstallResponse
     /// <summary>
     /// Machine-readable failure: invalid_app_id, invalid_version, missing_hash,
     /// artifact_unavailable, hash_mismatch, bad_archive, manifest_mismatch,
-    /// no_user_apps_dir, or install_failed.
+    /// signature_invalid, consent_required, no_user_apps_dir, or install_failed.
     /// </summary>
     [JsonPropertyName("reason")] public string? Reason { get; set; }
+
+    /// <summary>With consent_required: every grant the artifact requests.</summary>
+    [JsonPropertyName("requestedCapabilities")] public List<string>? RequestedCapabilities { get; set; }
+}
+
+/// <summary>A store update held back because it asks for capabilities the installed version does not have.</summary>
+public sealed class StorePendingUpdate
+{
+    [JsonPropertyName("appId")] public string AppId { get; set; } = "";
+    [JsonPropertyName("fromVersion")] public string FromVersion { get; set; } = "";
+    [JsonPropertyName("version")] public string Version { get; set; } = "";
+
+    /// <summary>Every grant the new version requests; the approval the client sends back.</summary>
+    [JsonPropertyName("requestedCapabilities")] public List<string> RequestedCapabilities { get; set; } = new();
+
+    /// <summary>The subset the installed version does not hold.</summary>
+    [JsonPropertyName("newCapabilities")] public List<string> NewCapabilities { get; set; } = new();
+}
+
+public sealed class StorePendingUpdatesResponse
+{
+    [JsonPropertyName("updates")] public List<StorePendingUpdate> Updates { get; set; } = new();
+}
+
+/// <summary>The cloud's <c>GET /store/revoked</c>: published versions pulled from every machine.</summary>
+public sealed class StoreRevokedResponse
+{
+    [JsonPropertyName("revoked")] public List<StoreRevokedVersion> Revoked { get; set; } = new();
+}
+
+public sealed class StoreRevokedVersion
+{
+    [JsonPropertyName("appId")] public string AppId { get; set; } = "";
+    [JsonPropertyName("version")] public string Version { get; set; } = "";
 }
 
 /// <summary>
@@ -57,6 +100,10 @@ public sealed class StoreCatalogVersion
     [JsonPropertyName("version")] public string Version { get; set; } = "";
     [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
     [JsonPropertyName("size")] public long Size { get; set; }
+    [JsonPropertyName("signature")] public string? Signature { get; set; }
+
+    /// <summary>The version manifest's capabilities, as published; the installed manifest stays authoritative.</summary>
+    [JsonPropertyName("capabilities")] public AppManifestCapabilities? Capabilities { get; set; }
 }
 
 /// <summary>
@@ -70,6 +117,7 @@ public sealed class StoreDownloadGrant
     [JsonPropertyName("url")] public string? Url { get; set; }
     [JsonPropertyName("sha256")] public string? Sha256 { get; set; }
     [JsonPropertyName("size")] public long Size { get; set; }
+    [JsonPropertyName("signature")] public string? Signature { get; set; }
     [JsonPropertyName("acquiredAt")] public DateTimeOffset? AcquiredAt { get; set; }
 }
 

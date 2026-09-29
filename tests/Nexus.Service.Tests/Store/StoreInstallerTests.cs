@@ -32,7 +32,7 @@ public class StoreInstallerTests : IDisposable
 
     // A .nexus-app: a zip whose ROOT is the app dir, which is what the panel
     // install path expects to find at apps/<id>.
-    private static byte[] Artifact(string id, string version, string extraFile = "widget.mjs")
+    private static byte[] Artifact(string id, string version, string extraFile = "widget.mjs", string capabilities = "{}")
     {
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
@@ -40,7 +40,7 @@ public class StoreInstallerTests : IDisposable
             var manifest = zip.CreateEntry("manifest.json");
             using (var w = new StreamWriter(manifest.Open()))
             {
-                w.Write($"{{\"schema\":\"nexus.app/1\",\"id\":\"{id}\",\"version\":\"{version}\",\"name\":\"Test\"}}");
+                w.Write($"{{\"schema\":\"nexus.app/1\",\"id\":\"{id}\",\"version\":\"{version}\",\"name\":\"Test\",\"capabilities\":{capabilities}}}");
             }
             var bundle = zip.CreateEntry(extraFile);
             using (var w = new StreamWriter(bundle.Open())) w.Write("export default 1;");
@@ -67,11 +67,81 @@ public class StoreInstallerTests : IDisposable
     private StoreInstaller New(byte[]? body, out ByteHandler handler)
     {
         handler = new ByteHandler(body);
-        return new StoreInstaller(new HttpClient(handler), new AppRegistry(), () => _root);
+        return new StoreInstaller(new HttpClient(handler), new AppRegistry(), () => _root, StoreTestSigning.PublicKeySpki);
     }
 
     private static StoreInstallRequest Req(string id, string version, string sha, long size = 0) =>
-        new() { AppId = id, Version = version, Sha256 = sha, Size = size };
+        new() { AppId = id, Version = version, Sha256 = sha, Size = size, Signature = StoreTestSigning.Sign(id, version, sha) };
+
+    [Fact]
+    public async Task an_unsigned_artifact_is_refused_before_download()
+    {
+        var bytes = Artifact("com.hellonexus.aquarium", "1.0.0");
+        var installer = New(bytes, out var handler);
+        var req = Req("com.hellonexus.aquarium", "1.0.0", Sha256(bytes));
+        req.Signature = null;
+
+        var res = await installer.InstallAsync(req, default);
+
+        Assert.Equal("signature_invalid", res.Reason);
+        Assert.Null(handler.LastUrl);
+    }
+
+    [Fact]
+    public async Task a_signature_for_another_version_is_refused()
+    {
+        var bytes = Artifact("com.hellonexus.aquarium", "1.0.1");
+        var installer = New(bytes, out var handler);
+        var req = Req("com.hellonexus.aquarium", "1.0.1", Sha256(bytes));
+        req.Signature = StoreTestSigning.Sign("com.hellonexus.aquarium", "1.0.0", Sha256(bytes));
+
+        var res = await installer.InstallAsync(req, default);
+
+        Assert.Equal("signature_invalid", res.Reason);
+        Assert.Null(handler.LastUrl);
+    }
+
+    [Fact]
+    public void the_pinned_production_key_rejects_a_signature_from_any_other_key()
+    {
+        var sha = new string('a', 64);
+        Assert.False(StoreSignature.Verify("com.x.app", "1.0.0", sha, StoreTestSigning.Sign("com.x.app", "1.0.0", sha)));
+    }
+
+    [Fact]
+    public async Task an_artifact_asking_for_unapproved_capabilities_needs_consent_and_installs_nothing()
+    {
+        var bytes = Artifact("com.hellonexus.aquarium", "1.0.0", capabilities: "{\"dispatch\":[\"lighting.setMode\"],\"appData\":true}");
+        var req = Req("com.hellonexus.aquarium", "1.0.0", Sha256(bytes));
+        req.ApprovedCapabilities = new() { "appData" };
+
+        var res = await New(bytes, out _).InstallAsync(req, default);
+
+        Assert.False(res.Ok);
+        Assert.Equal("consent_required", res.Reason);
+        Assert.Equal(new[] { "appData", "dispatch:lighting.setMode" }, res.RequestedCapabilities);
+        Assert.False(Directory.Exists(Path.Combine(_root, "com.hellonexus.aquarium")));
+    }
+
+    [Fact]
+    public async Task approved_capabilities_install()
+    {
+        var bytes = Artifact("com.hellonexus.aquarium", "1.0.0", capabilities: "{\"dispatch\":[\"lighting.setMode\"]}");
+        var req = Req("com.hellonexus.aquarium", "1.0.0", Sha256(bytes));
+        req.ApprovedCapabilities = new() { "dispatch:lighting.setMode" };
+
+        Assert.True((await New(bytes, out _).InstallAsync(req, default)).Ok);
+    }
+
+    [Fact]
+    public async Task a_consent_exempt_install_skips_the_check()
+    {
+        var bytes = Artifact("com.hellonexus.aquarium", "1.0.0", capabilities: "{\"dispatch\":[\"system.specs\"]}");
+        var req = Req("com.hellonexus.aquarium", "1.0.0", Sha256(bytes));
+        req.ConsentExempt = true;
+
+        Assert.True((await New(bytes, out _).InstallAsync(req, default)).Ok);
+    }
 
     [Fact]
     public async Task installs_the_artifact_into_the_app_dir()

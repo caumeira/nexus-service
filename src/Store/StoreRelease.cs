@@ -44,12 +44,15 @@ internal static class StoreRelease
             Version = version.Version,
             Sha256 = version.Sha256,
             Size = version.Size,
+            Signature = version.Signature,
+            ConsentExempt = waiveAccount,
         };
 
         var auth = await entitlements.AuthorizeAsync(appId, version.Version, nexusVersion, ct).ConfigureAwait(false);
         if (auth is { Ok: true, Grant: not null } && !string.IsNullOrWhiteSpace(auth.Grant.Sha256))
         {
             request.Sha256 = auth.Grant.Sha256;
+            request.Signature = auth.Grant.Signature;
             if (auth.Grant.Size > 0) request.Size = auth.Grant.Size;
             return request;
         }

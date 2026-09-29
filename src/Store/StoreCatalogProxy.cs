@@ -50,6 +50,9 @@ public sealed class StoreCatalogProxy
         return RewriteMedia(await GetAsync($"/store/apps/{appId}{Query(nexusVersion, touch, locale)}", ct));
     }
 
+    /// <summary>Versions the store has pulled. Returns null when unreachable.</summary>
+    public Task<string?> RevokedAsync(CancellationToken ct) => GetAsync("/store/revoked", ct);
+
     /// <summary>
     /// Points the catalog's absolute media URLs at this service's own proxy. The
     /// dashboard's img-src is 'self', so a cross-origin asset host would render
