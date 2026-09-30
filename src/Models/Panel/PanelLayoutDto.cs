@@ -59,8 +59,22 @@ public sealed class PanelWidgetPlaylistDto
 
     public bool Shuffle { get; set; }
 
-    /// <summary>Widget kind keys in play order; each appears at most once.</summary>
+    /// <summary>Enabled widget kind keys in play order; each appears at most once.</summary>
     public List<string> Types { get; set; } = new();
+
+    /// <summary>Every arranged widget kind, enabled or not, in the editor's library order.</summary>
+    public List<string> Order { get; set; } = new();
+
+    /// <summary>Last manual jump from the editor; renderers show its type and restart the interval.</summary>
+    public PanelWidgetPlaylistCursorDto? Cursor { get; set; }
+}
+
+public sealed class PanelWidgetPlaylistCursorDto
+{
+    public string Type { get; set; } = "";
+
+    /// <summary>Unix ms; a new value re-fires a jump to the same type.</summary>
+    public long At { get; set; }
 }
 
 public sealed class PanelPageDto

@@ -68,7 +68,8 @@ public class PanelLayoutDtoSerializationTests
     {
         const string json = """
             { "surface": "q60", "pages": [],
-              "widgetPlaylist": { "enabled": true, "interval": 30, "shuffle": true, "types": ["clock", "weather"] } }
+              "widgetPlaylist": { "enabled": true, "interval": 30, "shuffle": true, "types": ["clock", "weather"],
+                "order": ["weather", "media", "clock"], "cursor": { "type": "weather", "at": 1790727444271 } } }
             """;
 
         var fromWire = JsonSerializer.Deserialize(json, AppJsonContext.Default.PanelLayoutDto);
@@ -85,9 +86,13 @@ public class PanelLayoutDtoSerializationTests
         Assert.Equal(30, playlist.Interval);
         Assert.True(playlist.Shuffle);
         Assert.Equal(new[] { "clock", "weather" }, playlist.Types);
+        Assert.Equal(new[] { "weather", "media", "clock" }, playlist.Order);
+        Assert.Equal("weather", playlist.Cursor?.Type);
+        Assert.Equal(1790727444271L, playlist.Cursor?.At);
 
         var echoed = JsonSerializer.Serialize(reloaded!.PanelDevices["q"].Layout!, AppJsonContext.Default.PanelLayoutDto);
         Assert.Contains("\"widgetPlaylist\"", echoed);
+        Assert.Contains("\"cursor\"", echoed);
     }
 
     [Fact]
