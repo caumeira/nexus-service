@@ -1003,6 +1003,7 @@ namespace Nexus.Service.Serialization;
 // System launch (open-settings, open-url, open-file - user-session helper handles foreground)
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenSettingsPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenUrlPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.SystemThemePayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenFilePayload))]
 // Per-app audio mixer (Core Audio session walk runs in the user-session helper)
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.AudioMixerSnapshotPayload))]
