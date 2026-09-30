@@ -1755,7 +1755,6 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Store.StoreEntitlements>();
         services.AddSingleton<Nexus.Service.Store.HardwareAppCatalog>();
         services.AddHostedService<Nexus.Service.Store.HardwareAppInstaller>();
-        services.AddSingleton<Nexus.Service.Store.StorePendingUpdates>();
         services.AddHostedService<Nexus.Service.Store.StoreAppUpdater>();
         services.AddHostedService<Nexus.Service.Store.StoreRevocationWatcher>();
         services.AddSingleton<Nexus.Service.Widgets.AppCodeSessionService>();

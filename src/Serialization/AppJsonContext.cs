@@ -1042,7 +1042,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AppInstallResponse))]
 [JsonSerializable(typeof(StoreInstallRequest))]
 [JsonSerializable(typeof(StoreInstallResponse))]
-[JsonSerializable(typeof(StorePendingUpdatesResponse))]
 [JsonSerializable(typeof(StoreRevokedResponse))]
 [JsonSerializable(typeof(StoreDownloadGrant))]
 [JsonSerializable(typeof(StoreCatalogApp))]
